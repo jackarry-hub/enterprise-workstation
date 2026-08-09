@@ -1,0 +1,33 @@
+import { describe, expect, it } from "vitest";
+
+import { salaryMockResult } from "@/features/salary/salary-mock-data";
+import { filterSalaryRecords, getSalaryDetail } from "@/features/salary/salary-selectors";
+
+describe("salary selectors", () => {
+  it("provides the approved payroll summary", () => {
+    expect(salaryMockResult.data.stats).toEqual({
+      totalSalary: 2568420,
+      employeeCount: 128,
+      averageSalary: 20065.78,
+    });
+  });
+
+  it("filters salary records by employee, department, month, and status", () => {
+    const first = salaryMockResult.data.records[0];
+    const rows = filterSalaryRecords(salaryMockResult.data.records, {
+      query: first.employee.employeeNo,
+      departmentId: first.department.id,
+      month: "2026-08",
+      status: first.status,
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe(first.id);
+  });
+
+  it("resolves a payslip with composition and history", () => {
+    const record = getSalaryDetail("91000000-0000-4000-8000-000000000001", salaryMockResult);
+    expect(record?.breakdown.length).toBeGreaterThanOrEqual(4);
+    expect(record?.history).toHaveLength(6);
+  });
+});

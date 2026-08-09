@@ -1,0 +1,240 @@
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it } from "vitest";
+
+import { saveLocalProject } from "@/features/projects/data/mock-project-repository";
+import { getProjectDetailMock, mockProjects } from "@/features/projects/mock-data";
+import { ProjectDetailPage } from "@/features/projects/project-detail-page";
+
+const detail = getProjectDetailMock(mockProjects[0].id);
+
+if (!detail) {
+  throw new Error("Expected the primary project detail fixture.");
+}
+
+describe("ProjectDetailPage", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("renders the project command header and overview information", () => {
+    render(<ProjectDetailPage projectId={detail.project.id} initialResult={{ detail, source: "mock" }} />);
+
+    expect(screen.getByRole("heading", { name: "企业官网升级项目" })).toBeVisible();
+    expect(screen.getAllByText("张伟").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("2026/07/01 - 2026/09/30")).toBeVisible();
+    expect(screen.getByRole("button", { name: "编辑项目" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "添加任务" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "项目目标" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "项目健康状态" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "项目成员" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "项目动态" })).toBeVisible();
+  });
+
+  it("switches between milestones and the project task list", async () => {
+    const user = userEvent.setup();
+    render(<ProjectDetailPage projectId={detail.project.id} initialResult={{ detail, source: "mock" }} />);
+
+    await user.click(screen.getByRole("tab", { name: "里程碑" }));
+
+    expect(screen.getByRole("heading", { name: "里程碑计划" })).toBeVisible();
+    expect(screen.getByText("体验设计定稿")).toBeVisible();
+    expect(screen.queryByText("搭建官网前端工程与组件基线")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "任务" }));
+    expect(screen.getByRole("heading", { name: "项目任务" })).toBeVisible();
+    expect(screen.getByText("搭建官网前端工程与组件基线")).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "任务模块将在后续阶段开放" })).not.toBeInTheDocument();
+  });
+
+  it("adds a milestone from the milestone form and updates the current view", async () => {
+    const user = userEvent.setup();
+    render(<ProjectDetailPage projectId={detail.project.id} initialResult={{ detail, source: "mock" }} />);
+
+    await user.click(screen.getByRole("tab", { name: "里程碑" }));
+    await user.click(screen.getByRole("button", { name: "新增里程碑" }));
+
+    const dialog = screen.getByRole("dialog", { name: "新增里程碑" });
+    await user.type(within(dialog).getByLabelText("阶段名称"), "测试上线");
+    await user.type(within(dialog).getByLabelText("开始时间"), "2026-09-01");
+    await user.type(within(dialog).getByLabelText("截止时间"), "2026-09-20");
+    await user.click(within(dialog).getByRole("button", { name: "创建里程碑" }));
+
+    expect(await screen.findByText("测试上线")).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: "新增里程碑" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a Supabase-backed milestone form open when persistence is unavailable", async () => {
+    const user = userEvent.setup();
+    render(<ProjectDetailPage projectId={detail.project.id} initialResult={{ detail, source: "supabase" }} />);
+
+    await user.click(screen.getByRole("tab", { name: "里程碑" }));
+    await user.click(screen.getByRole("button", { name: "新增里程碑" }));
+
+    const dialog = screen.getByRole("dialog", { name: "新增里程碑" });
+    await user.type(within(dialog).getByLabelText("阶段名称"), "权限边界测试");
+    await user.type(within(dialog).getByLabelText("截止时间"), "2026-09-20");
+    await user.click(within(dialog).getByRole("button", { name: "创建里程碑" }));
+
+    expect(await within(dialog).findByRole("alert")).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "新增里程碑" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "权限边界测试" })).not.toBeInTheDocument();
+  });
+
+  it("supports keyboard dismissal and restores focus to the trigger", async () => {
+    const user = userEvent.setup();
+    render(<ProjectDetailPage projectId={detail.project.id} initialResult={{ detail, source: "mock" }} />);
+
+    await user.click(screen.getByRole("tab", { name: "里程碑" }));
+    const trigger = screen.getByRole("button", { name: "新增里程碑" });
+    await user.click(trigger);
+
+    expect(screen.getByLabelText("阶段名称")).toHaveFocus();
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("dialog", { name: "新增里程碑" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("renders a browser-created project when the server has no matching result", async () => {
+    const localDetail = {
+      ...detail,
+      project: {
+        ...detail.project,
+        id: "project-local-1",
+        code: "PRJ-2026-025",
+        name: "客户门户二期",
+      },
+      members: detail.members.map((membership) => ({
+        ...membership,
+        projectId: "project-local-1",
+      })),
+      milestones: [],
+      tasks: [],
+      comments: [],
+      files: [],
+      dailyReports: [],
+      activities: [],
+      risks: [],
+      fileRelations: [],
+    };
+    saveLocalProject(localDetail);
+
+    render(<ProjectDetailPage projectId="project-local-1" />);
+
+    expect(await screen.findByRole("heading", { name: "客户门户二期" })).toBeVisible();
+  });
+
+  it("shows a friendly missing state for an unknown project id", async () => {
+    render(<ProjectDetailPage projectId="missing-project" />);
+
+    expect(await screen.findByRole("heading", { name: "未找到项目" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "返回项目中心" })).toHaveAttribute("href", "/projects");
+  });
+
+  it("creates a task from the project header and persists it", async () => {
+    const user = userEvent.setup();
+    render(<ProjectDetailPage projectId={detail.project.id} initialResult={{ detail, source: "mock" }} />);
+
+    await user.click(screen.getByRole("button", { name: "添加任务" }));
+    const dialog = screen.getByRole("dialog", { name: "新建任务" });
+    await user.type(within(dialog).getByLabelText("任务名称"), "完成客户门户原型");
+    await user.type(within(dialog).getByLabelText("任务描述"), "覆盖登录后首页与项目进度页");
+    await user.click(within(dialog).getByRole("button", { name: "创建任务" }));
+
+    expect(await screen.findByText("完成客户门户原型")).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: "新建任务" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "任务" })).toHaveAttribute("data-state", "active");
+    expect(window.localStorage.getItem("enterprise-workspace.projects.v1")).toContain("完成客户门户原型");
+  });
+
+  it("marks a task complete and recalculates the visible project progress", async () => {
+    const user = userEvent.setup();
+    render(<ProjectDetailPage projectId={detail.project.id} initialResult={{ detail, source: "mock" }} />);
+
+    await user.click(screen.getByRole("tab", { name: "任务" }));
+    await user.click(screen.getByRole("combobox", { name: "搭建官网前端工程与组件基线状态" }));
+    await user.click(screen.getByRole("option", { name: "已完成" }));
+
+    expect(screen.getByRole("progressbar", { name: "项目当前进度" })).toHaveAttribute("aria-valuenow", "33");
+    expect(screen.getByRole("combobox", { name: "搭建官网前端工程与组件基线状态" })).toHaveTextContent("已完成");
+    expect(window.localStorage.getItem("enterprise-workspace.projects.v1")).toContain('"progress":33');
+  });
+
+  it("edits project information, adds task feedback, and uploads a project file", async () => {
+    const user = userEvent.setup();
+    render(<ProjectDetailPage projectId={detail.project.id} initialResult={{ detail, source: "mock" }} />);
+
+    await user.click(screen.getByRole("button", { name: "编辑项目" }));
+    const editDialog = screen.getByRole("dialog", { name: "编辑项目" });
+    const projectName = within(editDialog).getByLabelText("项目名称");
+    await user.clear(projectName);
+    await user.type(projectName, "企业官网升级二期");
+    await user.click(within(editDialog).getByRole("button", { name: "保存项目" }));
+    expect(screen.getByRole("heading", { name: "企业官网升级二期" })).toBeVisible();
+
+    await user.click(screen.getByRole("tab", { name: "任务" }));
+    await user.click(screen.getByRole("button", { name: /查看任务详情：搭建官网前端工程/ }));
+    await user.type(screen.getByLabelText("任务评论内容"), "已完成联调，请确认。");
+    await user.click(screen.getByRole("button", { name: "添加评论" }));
+    expect(screen.getByText("已完成联调，请确认。")).toBeVisible();
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("tab", { name: "文件" }));
+    await user.upload(screen.getByLabelText("选择项目文件"), new File(["demo"], "交付清单.txt", { type: "text/plain" }));
+    expect(screen.getByText("交付清单.txt")).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent("已添加文件");
+    expect(window.localStorage.getItem("enterprise-workspace.projects.v1")).toContain("交付清单.txt");
+  });
+
+  it("restores locally persisted project files after the detail page remounts", async () => {
+    const user = userEvent.setup();
+    saveLocalProject({
+      ...detail,
+      files: [
+        {
+          id: "persisted-file",
+          organizationId: detail.project.organizationId,
+          projectId: detail.project.id,
+          bucket: "mock-project-files",
+          objectPath: `${detail.project.id}/验收清单.txt`,
+          originalName: "验收清单.txt",
+          mimeType: "text/plain",
+          sizeBytes: 4,
+          accessScope: "restricted",
+          uploadedById: detail.owner.id,
+          createdAt: "2026-08-05T08:00:00.000Z",
+        },
+        ...detail.files,
+      ],
+    });
+
+    render(<ProjectDetailPage projectId={detail.project.id} initialResult={{ detail, source: "mock" }} />);
+    await user.click(screen.getByRole("tab", { name: "文件" }));
+
+    expect(await screen.findByText("验收清单.txt")).toBeVisible();
+  });
+
+  it("provides working gantt, daily report, and retrospective tabs", async () => {
+    const user = userEvent.setup();
+    render(<ProjectDetailPage projectId={detail.project.id} initialResult={{ detail, source: "mock" }} />);
+
+    await user.click(screen.getByRole("tab", { name: "甘特图" }));
+    expect(screen.getByRole("heading", { name: "项目甘特图" })).toBeVisible();
+    expect(screen.getByText("搭建官网前端工程与组件基线")).toBeVisible();
+
+    await user.click(screen.getByRole("tab", { name: "日报" }));
+    await user.type(screen.getByLabelText("今日完成"), "完成最终版模块联调");
+    await user.type(screen.getByLabelText("下一步计划"), "进行全角色验收");
+    await user.click(screen.getByRole("button", { name: "提交日报" }));
+    expect(screen.getByText("完成最终版模块联调")).toBeVisible();
+    expect(window.localStorage.getItem("enterprise-workspace.projects.v1")).toContain("完成最终版模块联调");
+
+    await user.click(screen.getByRole("tab", { name: "复盘" }));
+    await user.type(screen.getByLabelText("结果总结"), "主要闭环已完成");
+    await user.type(screen.getByLabelText("经验教训"), "依赖和验收必须提前定义");
+    await user.click(screen.getByRole("button", { name: "保存复盘" }));
+    expect(screen.getByRole("status")).toHaveTextContent("复盘已保存");
+    expect(window.localStorage.getItem("enterprise-workspace.projects.v1")).toContain("依赖和验收必须提前定义");
+  });
+});
