@@ -12,6 +12,9 @@ export function normalizeFeishuUserInfo(
 ) {
   const data = body.data;
   if (body.code !== 0 || !data) throw new Error("invalid_feishu_response");
+  if (typeof data.tenant_key !== "string") {
+    throw new Error("invalid_feishu_identity");
+  }
   if (data.tenant_key !== tenantKey) throw new Error("wrong_feishu_tenant");
   if (
     typeof data.open_id !== "string" ||

@@ -46,6 +46,31 @@ describe("Feishu UserInfo adapter", () => {
     expect(await response.text()).not.toContain("sensitive-user-token");
   });
 
+  it("treats a missing tenant key as a failed upstream response", async () => {
+    const response = await handleFeishuUserInfo(
+      new Request("https://brain.quantxy.com/api/auth/feishu/userinfo", {
+        headers: { Authorization: "Bearer test-token" },
+      }),
+      {
+        tenantKey: "tenant_qxy",
+        fetchImpl: vi.fn(async () =>
+          Response.json({
+            code: 0,
+            data: {
+              open_id: "ou_qxy_001",
+              union_id: "on_qxy_001",
+              name: "量子员工",
+              avatar_url: "https://example.com/avatar.png",
+            },
+          }),
+        ),
+      },
+    );
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: "upstream_failed" });
+  });
+
   it("rejects a missing bearer token before calling Feishu", async () => {
     const fetchImpl = vi.fn();
     const response = await handleFeishuUserInfo(
