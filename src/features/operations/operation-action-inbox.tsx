@@ -7,7 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { getOperationActionItems } from "@/features/operations/operations-data";
-import type { DemoActor, OperationsState } from "@/features/operations/operations-types";
+import type { WorkspaceActor } from "@/features/auth/workspace-session-types";
+import type { OperationsState } from "@/features/operations/operations-types";
 
 const priorityMeta = {
   critical: { label: "必须处理", variant: "destructive" as const, icon: AlertTriangle },
@@ -15,7 +16,7 @@ const priorityMeta = {
   normal: { label: "可推进", variant: "info" as const, icon: ListTodo },
 };
 
-export function OperationActionInbox({ state, actor, limit = 6 }: { state: OperationsState; actor: DemoActor; limit?: number }) {
+export function OperationActionInbox({ state, actor, limit = 6 }: { state: OperationsState; actor: WorkspaceActor; limit?: number }) {
   const items = getOperationActionItems(state, actor.id).slice(0, limit);
 
   return (

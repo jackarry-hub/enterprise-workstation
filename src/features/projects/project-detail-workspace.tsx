@@ -20,8 +20,9 @@ import { ProjectOverviewTab } from "@/features/projects/components/project-overv
 import { ProjectReportsTab, type DailyReportInput } from "@/features/projects/components/project-reports-tab";
 import { ProjectRetrospectiveTab } from "@/features/projects/components/project-retrospective-tab";
 import { ProjectTasksTab } from "@/features/projects/components/project-tasks-tab";
-import { useDemoSession } from "@/features/operations/demo-session";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { storeProjectFileBlob } from "@/features/operations/file-storage";
+import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import { syncProjectTasksToOperations } from "@/features/operations/operations-data";
 import { useOperations } from "@/features/operations/use-operations";
 import { findLocalProject, PROJECTS_CHANGED_EVENT, saveLocalProject } from "@/features/projects/data/mock-project-repository";
@@ -36,7 +37,8 @@ import type { DailyReport, FileRelation, Milestone, ProjectActivity, ProjectDeta
 import { getCurrentUser } from "@/lib/auth/mock-user";
 
 export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult }) {
-  const { actor } = useDemoSession();
+  const { actor: workspaceActor } = useWorkspaceSession();
+  const actor = toOperationFixtureActor(workspaceActor);
   const { state: operationsState } = useOperations();
   const [detail, setDetail] = useState<ProjectDetailData>(result.detail);
   const [activeTab, setActiveTab] = useState<ProjectDetailTab>("overview");

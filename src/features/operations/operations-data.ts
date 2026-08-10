@@ -1,4 +1,8 @@
 import type { DecisionInput, DecisionPlan } from "@/features/decision-workbench/decision-workbench-types";
+import type {
+  WorkspaceActor,
+  WorkspaceRole,
+} from "@/features/auth/workspace-session-types";
 import { calculateProjectProgress } from "@/features/projects/data/project-task-operations";
 import { findLocalProject, saveLocalProject } from "@/features/projects/data/mock-project-repository";
 import type { ProjectActivity, ProjectDetailData, ProjectTask, TaskStatus } from "@/features/projects/types";
@@ -12,8 +16,6 @@ import type {
   AttendancePunchMethod,
   AttendanceReviewStatus,
   CommandStatus,
-  DemoActor,
-  DemoRole,
   KnowledgeEntry,
   LeaveRequest,
   LeaveRequestStatus,
@@ -30,11 +32,9 @@ import type {
 } from "@/features/operations/operations-types";
 
 export const OPERATIONS_STORAGE_KEY = "enterprise-workspace.operations.v1";
-export const OPERATIONS_ACTOR_KEY = "enterprise-workspace.demo-actor.v1";
 export const OPERATIONS_CHANGED_EVENT = "enterprise-workspace:operations-changed";
-export const OPERATIONS_ACTOR_CHANGED_EVENT = "enterprise-workspace:actor-changed";
 
-export const demoActors: readonly DemoActor[] = [
+export const operationFixtureActors: readonly WorkspaceActor[] = [
   { id: "actor-executive", memberId: "20000000-0000-4000-8000-000000000010", name: "李总", role: "executive", roleLabel: "决策人", department: "总经办", title: "董事长", landingPath: "/dashboard" },
   { id: "actor-manager", memberId: "20000000-0000-4000-8000-000000000001", name: "张伟", role: "department_head", roleLabel: "部门负责人", department: "产品研发中心", title: "产品总监", landingPath: "/department" },
   { id: "actor-market", memberId: "20000000-0000-4000-8000-000000000002", name: "王芳", role: "department_head", roleLabel: "部门负责人", department: "市场中心", title: "市场总监", landingPath: "/department" },
@@ -164,14 +164,14 @@ function projectStatusFromOperation(status: OperationTaskStatus): TaskStatus {
 }
 
 function requireActorByMemberId(memberId: string, context: string) {
-  const actor = demoActors.find((candidate) => candidate.memberId === memberId);
+  const actor = operationFixtureActors.find((candidate) => candidate.memberId === memberId);
   if (!actor) throw new Error(`${context}未配置工作站账号：${memberId}`);
   return actor;
 }
 
-function departmentOwnerFor(department: string, assignee: DemoActor) {
+function departmentOwnerFor(department: string, assignee: WorkspaceActor) {
   if (["department_head", "hr", "finance"].includes(assignee.role)) return assignee;
-  const owner = demoActors.find((candidate) => candidate.department === department && ["department_head", "hr", "finance"].includes(candidate.role));
+  const owner = operationFixtureActors.find((candidate) => candidate.department === department && ["department_head", "hr", "finance"].includes(candidate.role));
   if (!owner) throw new Error(`${department}未配置部门负责人账号`);
   return owner;
 }
@@ -331,15 +331,15 @@ export function resetOperationsState(storage?: Pick<Storage, "setItem" | "remove
 }
 
 export function getActor(actorId: string) {
-  return demoActors.find(({ id }) => id === actorId) ?? demoActors[0];
+  return operationFixtureActors.find(({ id }) => id === actorId) ?? operationFixtureActors[0];
 }
 
 export function getActorByMemberId(memberId: string) {
-  return demoActors.find((actor) => actor.memberId === memberId);
+  return operationFixtureActors.find((actor) => actor.memberId === memberId);
 }
 
-export function getRoleActor(role: DemoRole) {
-  return demoActors.find((actor) => actor.role === role) ?? demoActors[0];
+export function getRoleActor(role: WorkspaceRole) {
+  return operationFixtureActors.find((actor) => actor.role === role) ?? operationFixtureActors[0];
 }
 
 function nowIso() {
@@ -351,7 +351,7 @@ function afterHours(timestamp: string, hours: number) {
 }
 
 function requireActorById(actorId: string) {
-  const actor = demoActors.find((candidate) => candidate.id === actorId);
+  const actor = operationFixtureActors.find((candidate) => candidate.id === actorId);
   if (!actor) throw new Error("当前账号未配置工作站身份");
   return actor;
 }
@@ -453,7 +453,7 @@ function eventDestination(action: string) {
   return "/tasks";
 }
 
-function isEventRelevant(state: OperationsState, actor: DemoActor, item: OperationsState["events"][number]) {
+function isEventRelevant(state: OperationsState, actor: WorkspaceActor, item: OperationsState["events"][number]) {
   if (item.actorId === actor.id) return false;
   if (actor.role === "executive") return true;
   if (item.detail.includes(actor.name)) return true;
@@ -568,7 +568,7 @@ function assertTaskMutationAllowed(
   state: OperationsState,
   before: OperationTask,
   patch: OperationTaskPatch,
-  actor: DemoActor,
+  actor: WorkspaceActor,
 ) {
   if (before.status === "done") throw new Error("已验收任务不可再修改");
 
@@ -948,7 +948,7 @@ export function setCommandStatus(status: CommandStatus, actorId: string) {
 
 export function syncDecisionToOperations(input: DecisionInput, plan: DecisionPlan, projectId: string) {
   const state = readOperationsState();
-  const memberActors = new Map(demoActors.map((actor) => [actor.memberId, actor.id]));
+  const memberActors = new Map(operationFixtureActors.map((actor) => [actor.memberId, actor.id]));
   const ownerByDepartment = new Map(plan.departments.map((department) => {
     const actorId = memberActors.get(department.owner.id);
     if (!actorId) throw new Error(`${department.name}负责人“${department.owner.displayName}”未配置工作站账号`);

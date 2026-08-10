@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { navigationItems } from "@/config/navigation";
-import type { DemoRole } from "@/features/operations/operations-types";
+import type { WorkspaceRole } from "@/features/auth/workspace-session-types";
 
-const everyRole: readonly DemoRole[] = [
+const everyRole: readonly WorkspaceRole[] = [
   "executive",
   "department_head",
   "employee",

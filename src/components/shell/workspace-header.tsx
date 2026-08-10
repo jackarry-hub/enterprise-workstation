@@ -2,29 +2,31 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Bell, Check, ChevronDown, CircleHelp, LogOut, Mail, Menu, Search, Settings, UserRound, UsersRound } from "lucide-react";
+import { Bell, ChevronDown, CircleHelp, LogOut, Mail, Menu, Search, Settings, UserRound, UsersRound } from "lucide-react";
 
 import { WorkspaceSearchDialog } from "@/components/shell/workspace-search-dialog";
 import { WorkspaceSidebar } from "@/components/shell/workspace-sidebar";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { navigationItems } from "@/config/navigation";
-import { useDemoSession } from "@/features/operations/demo-session";
+import { signOut } from "@/features/auth/actions";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import { getOperationNotifications, markOperationNotificationRead } from "@/features/operations/operations-data";
 import { useOperations } from "@/features/operations/use-operations";
 
 export function WorkspaceHeader() {
-  const { actor, actors, setActorId } = useDemoSession();
+  const { actor: workspaceActor, profile } = useWorkspaceSession();
+  const operationActor = toOperationFixtureActor(workspaceActor);
   const { state } = useOperations();
   const [searchOpen, setSearchOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [demoMessage, setDemoMessage] = useState("");
-  const notifications = getOperationNotifications(state, actor.id);
+  const notifications = getOperationNotifications(state, operationActor.id);
   const unreadCount = notifications.filter(({ read }) => !read).length;
-  const helpLinks = navigationItems.filter(({ available, roles }) => available && (!roles || roles.includes(actor.role))).slice(0, 3);
+  const helpLinks = navigationItems.filter(({ available, roles }) => available && (!roles || roles.includes(workspaceActor.role))).slice(0, 3);
 
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
@@ -65,7 +67,7 @@ export function WorkspaceHeader() {
               <DropdownMenuLabel className="flex items-center justify-between"><span>最新通知</span><span className="text-xs font-normal text-muted-foreground">{unreadCount} 条未读</span></DropdownMenuLabel><DropdownMenuSeparator />
               {notifications.slice(0, 4).map((item) => (
                 <DropdownMenuItem key={item.id} asChild className="rounded-xl p-0">
-                  <Link href={item.href} onClick={() => markOperationNotificationRead(item.id, actor.id)} className="block px-3 py-2.5"><span className="flex items-center gap-2 text-sm font-medium">{!item.read ? <span className="size-1.5 shrink-0 rounded-full bg-primary" /> : null}{item.title}</span><span className="mt-0.5 block line-clamp-2 text-xs text-muted-foreground">{item.description}</span></Link>
+                  <Link href={item.href} onClick={() => markOperationNotificationRead(item.id, operationActor.id)} className="block px-3 py-2.5"><span className="flex items-center gap-2 text-sm font-medium">{!item.read ? <span className="size-1.5 shrink-0 rounded-full bg-primary" /> : null}{item.title}</span><span className="mt-0.5 block line-clamp-2 text-xs text-muted-foreground">{item.description}</span></Link>
                 </DropdownMenuItem>
               ))}
               {!notifications.length ? <p className="px-3 py-5 text-center text-sm text-muted-foreground">当前没有新通知</p> : null}
@@ -79,34 +81,33 @@ export function WorkspaceHeader() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button type="button" variant="ghost" className="h-12 gap-2 rounded-xl px-2" aria-label="打开用户菜单">
-                <Avatar size="lg"><AvatarFallback className="bg-linear-to-br from-primary to-chart-3 text-primary-foreground">{actor.name.slice(0, 1)}</AvatarFallback></Avatar>
-                <span className="hidden text-left sm:block"><span className="block text-sm font-semibold text-foreground">{actor.name}</span><span className="block text-xs text-muted-foreground">{actor.roleLabel} · {actor.title}</span></span>
+                <Avatar size="lg" role="img" aria-label={profile.displayName}>
+                  {profile.avatarUrl ? <AvatarImage src={profile.avatarUrl} alt={profile.displayName} /> : null}
+                  <AvatarFallback className="bg-linear-to-br from-primary to-chart-3 text-primary-foreground">{profile.displayName.slice(0, 1)}</AvatarFallback>
+                </Avatar>
+                <span className="hidden text-left sm:block"><span className="block text-sm font-semibold text-foreground">{profile.displayName}</span><span className="block text-xs text-muted-foreground">{workspaceActor.roleLabel} · {profile.jobTitle}</span></span>
                 <ChevronDown data-icon="inline-end" aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52">
-              <DropdownMenuLabel className="flex items-center gap-2"><UsersRound className="size-4" />切换演示身份</DropdownMenuLabel><DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                {actors.map((candidate) => (
-                  <DropdownMenuItem key={candidate.id} asChild>
-                    <Link href={candidate.landingPath} onClick={() => setActorId(candidate.id)}>
-                      <Avatar size="sm"><AvatarFallback className="bg-brand-soft text-primary">{candidate.name.slice(0, 1)}</AvatarFallback></Avatar>
-                      <span className="min-w-0 flex-1"><span className="block text-sm font-medium">{candidate.name} · {candidate.roleLabel}</span><span className="block truncate text-[11px] text-muted-foreground">{candidate.department}</span></span>
-                      {candidate.id === actor.id ? <Check className="size-4 text-primary" /> : null}
-                    </Link>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuGroup>
+              <DropdownMenuLabel className="min-w-0">
+                <span className="block truncate text-sm font-medium">{profile.displayName}</span>
+                <span className="block truncate text-[11px] font-normal text-muted-foreground">{profile.departmentName} · {profile.jobTitle}</span>
+              </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                {actor.role === "executive" ? <><DropdownMenuItem asChild><Link href="/settings?tab=personal"><UserRound aria-hidden="true" />个人资料</Link></DropdownMenuItem><DropdownMenuItem asChild><Link href="/settings?tab=notifications"><Settings aria-hidden="true" />偏好设置</Link></DropdownMenuItem></> : null}
-                {actor.role === "department_head" ? <><DropdownMenuItem asChild><Link href="/people"><UsersRound aria-hidden="true" />我的团队</Link></DropdownMenuItem><DropdownMenuItem asChild><Link href="/leave"><UserRound aria-hidden="true" />请假与审批</Link></DropdownMenuItem></> : null}
-                {actor.role === "employee" ? <><DropdownMenuItem asChild><Link href="/tasks"><UserRound aria-hidden="true" />我的任务</Link></DropdownMenuItem><DropdownMenuItem asChild><Link href="/payroll"><Settings aria-hidden="true" />我的工资单</Link></DropdownMenuItem></> : null}
-                {actor.role === "finance" ? <><DropdownMenuItem asChild><Link href="/payroll"><UserRound aria-hidden="true" />薪资办理</Link></DropdownMenuItem><DropdownMenuItem asChild><Link href="/leave"><Settings aria-hidden="true" />我的请假</Link></DropdownMenuItem></> : null}
-                {actor.role === "hr" ? <><DropdownMenuItem asChild><Link href="/people"><UsersRound aria-hidden="true" />人员管理</Link></DropdownMenuItem><DropdownMenuItem asChild><Link href="/payroll"><Settings aria-hidden="true" />薪资复核</Link></DropdownMenuItem></> : null}
+                {workspaceActor.role === "executive" ? <><DropdownMenuItem asChild><Link href="/settings?tab=personal"><UserRound aria-hidden="true" />个人资料</Link></DropdownMenuItem><DropdownMenuItem asChild><Link href="/settings?tab=notifications"><Settings aria-hidden="true" />偏好设置</Link></DropdownMenuItem></> : null}
+                {workspaceActor.role === "department_head" ? <><DropdownMenuItem asChild><Link href="/people"><UsersRound aria-hidden="true" />我的团队</Link></DropdownMenuItem><DropdownMenuItem asChild><Link href="/leave"><UserRound aria-hidden="true" />请假与审批</Link></DropdownMenuItem></> : null}
+                {workspaceActor.role === "employee" ? <><DropdownMenuItem asChild><Link href="/tasks"><UserRound aria-hidden="true" />我的任务</Link></DropdownMenuItem><DropdownMenuItem asChild><Link href="/payroll"><Settings aria-hidden="true" />我的工资单</Link></DropdownMenuItem></> : null}
+                {workspaceActor.role === "finance" ? <><DropdownMenuItem asChild><Link href="/payroll"><UserRound aria-hidden="true" />薪资办理</Link></DropdownMenuItem><DropdownMenuItem asChild><Link href="/leave"><Settings aria-hidden="true" />我的请假</Link></DropdownMenuItem></> : null}
+                {workspaceActor.role === "hr" ? <><DropdownMenuItem asChild><Link href="/people"><UsersRound aria-hidden="true" />人员管理</Link></DropdownMenuItem><DropdownMenuItem asChild><Link href="/payroll"><Settings aria-hidden="true" />薪资复核</Link></DropdownMenuItem></> : null}
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onSelect={() => setDemoMessage("当前运行的是本地试用身份切换模式。正式部署时应接入企业账号或 Supabase Auth，再启用安全退出。")}><LogOut aria-hidden="true" />退出登录</DropdownMenuItem>
+              <form action={signOut}>
+                <DropdownMenuItem asChild variant="destructive">
+                  <button type="submit" className="w-full"><LogOut aria-hidden="true" />退出登录</button>
+                </DropdownMenuItem>
+              </form>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -114,10 +115,7 @@ export function WorkspaceHeader() {
 
       <WorkspaceSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
       <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
-        <DialogContent><DialogHeader><DialogTitle>{actor.roleLabel}工作台帮助</DialogTitle><DialogDescription>这里只提供当前岗位需要的业务入口；其他岗位数据不会出现在菜单和搜索中。</DialogDescription></DialogHeader><div className="grid gap-2 sm:grid-cols-3">{helpLinks.map((item) => <Button key={item.href} asChild variant="outline"><Link href={item.href} onClick={() => setHelpOpen(false)}>{item.label}</Link></Button>)}</div><Button asChild><Link href="/help" onClick={() => setHelpOpen(false)}>打开完整使用指南</Link></Button></DialogContent>
-      </Dialog>
-      <Dialog open={Boolean(demoMessage)} onOpenChange={(open) => !open && setDemoMessage("")}>
-        <DialogContent><DialogHeader><DialogTitle>本地试用版说明</DialogTitle><DialogDescription>{demoMessage}</DialogDescription></DialogHeader><Button type="button" onClick={() => setDemoMessage("")}>我知道了</Button></DialogContent>
+        <DialogContent><DialogHeader><DialogTitle>{workspaceActor.roleLabel}工作台帮助</DialogTitle><DialogDescription>这里只提供当前岗位需要的业务入口；其他岗位数据不会出现在菜单和搜索中。</DialogDescription></DialogHeader><div className="grid gap-2 sm:grid-cols-3">{helpLinks.map((item) => <Button key={item.href} asChild variant="outline"><Link href={item.href} onClick={() => setHelpOpen(false)}>{item.label}</Link></Button>)}</div><Button asChild><Link href="/help" onClick={() => setHelpOpen(false)}>打开完整使用指南</Link></Button></DialogContent>
       </Dialog>
     </>
   );

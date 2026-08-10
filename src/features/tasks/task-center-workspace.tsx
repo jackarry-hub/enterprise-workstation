@@ -11,7 +11,8 @@ import { TaskCenterList } from "@/features/tasks/components/task-center-list";
 import { TaskCenterSummary } from "@/features/tasks/components/task-center-summary";
 import { TaskDetailDialog } from "@/features/tasks/components/task-detail-dialog";
 import { getEffectiveProjectDetails } from "@/features/projects/data/effective-project-details";
-import { useDemoSession } from "@/features/operations/demo-session";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import { PROJECTS_CHANGED_EVENT, readLocalProjects } from "@/features/projects/data/mock-project-repository";
 import type { ProjectDetailData } from "@/features/projects/types";
 import { createTaskCenterItems, filterTaskCenterItems, getAssigneeDistribution, getTaskCenterSummary, getUpcomingTaskDeadlines, scopeTaskCenterItems } from "@/features/tasks/task-center-selectors";
@@ -34,7 +35,11 @@ const shortcutItems = [
 ] as const;
 
 export function TaskCenterWorkspace() {
-  const { actor } = useDemoSession();
+  const { actor: workspaceActor } = useWorkspaceSession();
+  const actor = useMemo(
+    () => toOperationFixtureActor(workspaceActor),
+    [workspaceActor],
+  );
   const [projects, setProjects] = useState<ProjectDetailData[]>(() => getEffectiveProjectDetails([]));
   const [filters, setFilters] = useState<TaskCenterFilters>(defaultFilters);
   const [selectedItem, setSelectedItem] = useState<TaskCenterItem | null>(null);

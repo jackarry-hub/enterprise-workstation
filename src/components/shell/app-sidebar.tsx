@@ -6,7 +6,7 @@ import Link from "next/link";
 import { ArrowRight, ChevronDown } from "lucide-react";
 
 import { navigationItems } from "@/config/navigation";
-import { useDemoSession } from "@/features/operations/demo-session";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { cn } from "@/lib/utils";
 
 type AppSidebarProps = {
@@ -19,7 +19,7 @@ export function AppSidebar({
   currentPath = "/dashboard",
 }: AppSidebarProps) {
   const [isProjectOverview, setIsProjectOverview] = useState(false);
-  const { actor } = useDemoSession();
+  const { actor } = useWorkspaceSession();
   const visibleItems = navigationItems.filter((item) => !item.roles || item.roles.includes(actor.role));
 
   useEffect(() => {

@@ -6,11 +6,11 @@ import { ArrowRight, Banknote, CalendarCheck2, FileCheck2, ShieldCheck, UsersRou
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
-import { useDemoSession } from "@/features/operations/demo-session";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { useOperations } from "@/features/operations/use-operations";
 
 export function OperationalApprovalQueue() {
-  const { actor } = useDemoSession();
+  const { actor } = useWorkspaceSession();
   const { state } = useOperations();
   const leavePending = state.leaveRequests.filter(({ status }) => status === "pending_manager" || status === "pending_hr").length;
   const financePending = state.supportRequests.filter(({ type, status }) => type === "finance" && !["completed", "rejected"].includes(status)).length;

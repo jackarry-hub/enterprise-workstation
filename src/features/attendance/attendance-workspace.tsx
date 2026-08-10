@@ -24,9 +24,10 @@ import { AttendanceStats } from "@/features/attendance/components/attendance-sta
 import { AttendanceTrend } from "@/features/attendance/components/attendance-trend";
 import { filterAttendanceRecords, getAttendanceAnomalies } from "@/features/attendance/attendance-selectors";
 import type { AttendanceFilters as Filters, AttendanceRecord, AttendanceResult } from "@/features/attendance/attendance-types";
-import { useDemoSession } from "@/features/operations/demo-session";
-import { demoActors, getActor } from "@/features/operations/operations-data";
-import type { DemoRole } from "@/features/operations/operations-types";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import type { WorkspaceRole } from "@/features/auth/workspace-session-types";
+import { getActor, operationFixtureActors } from "@/features/operations/operations-data";
+import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import { useOperations } from "@/features/operations/use-operations";
 import { cn } from "@/lib/utils";
 
@@ -39,7 +40,7 @@ const defaultFilters: Filters = {
 
 type View = "overview" | "self" | "approvals" | "policy" | "records";
 
-const roleViews: Record<DemoRole, Array<{ id: View; label: string }>> = {
+const roleViews: Record<WorkspaceRole, Array<{ id: View; label: string }>> = {
   executive: [{ id: "overview", label: "出勤概览" }, { id: "policy", label: "制度与封账" }],
   department_head: [{ id: "approvals", label: "团队审批" }, { id: "self", label: "我的考勤" }, { id: "records", label: "团队记录" }],
   employee: [{ id: "self", label: "我的考勤" }, { id: "records", label: "我的记录" }],
@@ -47,7 +48,7 @@ const roleViews: Record<DemoRole, Array<{ id: View; label: string }>> = {
   hr: [{ id: "approvals", label: "异常复核" }, { id: "policy", label: "制度与封账" }, { id: "records", label: "全员记录" }],
 };
 
-const defaultView: Record<DemoRole, View> = {
+const defaultView: Record<WorkspaceRole, View> = {
   executive: "overview",
   department_head: "approvals",
   employee: "self",
@@ -55,7 +56,7 @@ const defaultView: Record<DemoRole, View> = {
   hr: "approvals",
 };
 
-const roleDescription: Record<DemoRole, string> = {
+const roleDescription: Record<WorkspaceRole, string> = {
   executive: "查看公司出勤风险、制度状态和薪资前置条件。",
   department_head: "处理团队补卡与加班审批，同时完成本人打卡。",
   employee: "完成本人打卡、补卡、加班申请并追踪审批结果。",
@@ -74,7 +75,7 @@ function mergeOperationalAttendance(result: AttendanceResult, state: ReturnType<
   const merged = result.data.records.map((record) => ({ ...record }));
   const getRecordSeed = (name: string) => merged.find(({ employee }) => employee.displayName === name);
 
-  for (const actor of demoActors) {
+  for (const actor of operationFixtureActors) {
     const dates = [...new Set(state.attendance.punches.filter(({ employeeId }) => employeeId === actor.id).map(({ date }) => date))];
     for (const date of dates) {
       const punches = state.attendance.punches.filter((item) => item.employeeId === actor.id && item.date === date);
@@ -116,7 +117,8 @@ function mergeOperationalAttendance(result: AttendanceResult, state: ReturnType<
 }
 
 export function AttendanceWorkspace({ result }: { result: AttendanceResult }) {
-  const { actor } = useDemoSession();
+  const { actor: workspaceActor } = useWorkspaceSession();
+  const actor = toOperationFixtureActor(workspaceActor);
   const { state } = useOperations();
   const [filters, setFilters] = useState(defaultFilters);
   const [view, setView] = useState<View>(defaultView[actor.role]);

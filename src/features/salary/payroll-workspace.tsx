@@ -13,7 +13,7 @@ import { PayrollList } from "@/features/salary/components/payroll-list";
 import { PayrollStats } from "@/features/salary/components/payroll-stats";
 import { filterSalaryRecords } from "@/features/salary/salary-selectors";
 import type { SalaryFilters, SalaryResult } from "@/features/salary/salary-types";
-import { useDemoSession } from "@/features/operations/demo-session";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { PayrollControlPanel } from "@/features/operations/payroll-control-panel";
 import { useOperations } from "@/features/operations/use-operations";
 import type { SalaryStatus } from "@/features/salary/salary-types";
@@ -21,7 +21,7 @@ import type { SalaryStatus } from "@/features/salary/salary-types";
 const defaultFilters: SalaryFilters = { query: "", departmentId: "all", month: "2026-08", status: "all" };
 
 export function PayrollWorkspace({ result }: { result: SalaryResult }) {
-  const { actor } = useDemoSession();
+  const { actor } = useWorkspaceSession();
   const { state } = useOperations();
   const [filters, setFilters] = useState(defaultFilters);
   const cycleStatus: SalaryStatus = state.payrollRun.status === "draft" ? "draft" : state.payrollRun.status === "paid" ? "paid" : "processing";

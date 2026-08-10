@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
+import { renderWithWorkspaceSession as render } from "@/test/workspace-session-test-utils";
 import { describe, expect, it } from "vitest";
 
 import { HelpCenter } from "@/features/help/help-center";

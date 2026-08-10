@@ -8,8 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { navigationItems } from "@/config/navigation";
-import { useDemoSession } from "@/features/operations/demo-session";
-import type { DemoActor, DemoRole } from "@/features/operations/operations-types";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import type { WorkspaceActor, WorkspaceRole } from "@/features/auth/workspace-session-types";
+import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import { getEffectiveProjectDetails } from "@/features/projects/data/effective-project-details";
 
 type WorkspaceSearchItem = {
@@ -27,7 +28,7 @@ const kindIcons = {
   员工: UserRound,
 } as const;
 
-export function buildWorkspaceSearchItems(role: DemoRole = "executive", actor?: DemoActor): WorkspaceSearchItem[] {
+export function buildWorkspaceSearchItems(role: WorkspaceRole = "executive", actor?: WorkspaceActor): WorkspaceSearchItem[] {
   const modules = navigationItems
     .filter(({ available, roles }) => available && (!roles || roles.includes(role)))
     .map(({ href, label }) => ({ id: `module-${href}`, label, meta: "企业工作站模块", href, kind: "模块" as const }));
@@ -70,7 +71,11 @@ export function buildWorkspaceSearchItems(role: DemoRole = "executive", actor?: 
 }
 
 export function WorkspaceSearchDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
-  const { actor } = useDemoSession();
+  const { actor: workspaceActor } = useWorkspaceSession();
+  const actor = useMemo(
+    () => toOperationFixtureActor(workspaceActor),
+    [workspaceActor],
+  );
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<WorkspaceSearchItem[]>(() => buildWorkspaceSearchItems(actor.role, actor));
   const results = useMemo(() => {

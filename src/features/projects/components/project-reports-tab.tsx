@@ -7,13 +7,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Textarea } from "@/components/ui/textarea";
-import { useDemoSession } from "@/features/operations/demo-session";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import type { ProjectDetailData } from "@/features/projects/types";
 
 export type DailyReportInput = { summary: string; nextPlan: string; blockers: string; supportNeeded: string };
 
 export function ProjectReportsTab({ detail, canSubmit, onSubmit }: { detail: ProjectDetailData; canSubmit: boolean; onSubmit: (input: DailyReportInput) => void }) {
-  const { actor } = useDemoSession();
+  const { actor } = useWorkspaceSession();
   const [value, setValue] = useState<DailyReportInput>({ summary: "", nextPlan: "", blockers: "", supportNeeded: "" });
   const [feedback, setFeedback] = useState("");
 

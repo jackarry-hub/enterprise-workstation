@@ -1,7 +1,10 @@
 import { WorkspaceShell } from "@/components/shell/workspace-shell";
+import { requireWorkspaceSession } from "@/features/auth/workspace-session";
 
-export default function WorkspaceLayout({
+export default async function WorkspaceLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  return <WorkspaceShell>{children}</WorkspaceShell>;
+  const session = await requireWorkspaceSession();
+
+  return <WorkspaceShell session={session}>{children}</WorkspaceShell>;
 }

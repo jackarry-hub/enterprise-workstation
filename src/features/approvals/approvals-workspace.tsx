@@ -16,13 +16,13 @@ import { ApprovalStats } from "@/features/approvals/components/approval-stats";
 import { approvalTypeMeta } from "@/features/approvals/approval-meta";
 import { filterApprovals } from "@/features/approvals/approval-selectors";
 import type { ApprovalFilters, ApprovalQueue, ApprovalResult, ApprovalType } from "@/features/approvals/approval-types";
-import { useDemoSession } from "@/features/operations/demo-session";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { OperationalApprovalQueue } from "@/features/operations/operational-approval-queue";
 
 const defaultFilters: ApprovalFilters = { query: "", queue: "all", type: "all" };
 
 export function ApprovalsWorkspace({ result }: { result: ApprovalResult }) {
-  const { actor } = useDemoSession();
+  const { actor } = useWorkspaceSession();
   const [filters, setFilters] = useState(defaultFilters);
   const visibleApprovals = useMemo(() => actor.role === "employee"
     ? result.data.approvals.filter(({ applicant }) => applicant.displayName === actor.name)

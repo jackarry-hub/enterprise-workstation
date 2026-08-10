@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { useDemoSession } from "@/features/operations/demo-session";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import { getActor, reviewLeaveRequest, submitLeaveRequest } from "@/features/operations/operations-data";
 import type { LeaveRequest, LeaveRequestStatus } from "@/features/operations/operations-types";
 import { useOperations } from "@/features/operations/use-operations";
@@ -37,7 +38,8 @@ function LeaveFlow({ request }: { request: LeaveRequest }) {
 }
 
 function LeaveCard({ request, onFeedback }: { request: LeaveRequest; onFeedback: (message: string, error?: boolean) => void }) {
-  const { actor } = useDemoSession();
+  const { actor: workspaceActor } = useWorkspaceSession();
+  const actor = toOperationFixtureActor(workspaceActor);
   const [comment, setComment] = useState("");
   const employee = getActor(request.employeeId);
   const canManagerReview = request.status === "pending_manager" && (actor.role === "department_head" || actor.role === "executive") && (request.managerId === actor.id || actor.role === "executive");
@@ -64,7 +66,8 @@ function LeaveCard({ request, onFeedback }: { request: LeaveRequest; onFeedback:
 }
 
 export function LeaveWorkbench() {
-  const { actor } = useDemoSession();
+  const { actor: workspaceActor } = useWorkspaceSession();
+  const actor = toOperationFixtureActor(workspaceActor);
   const { state } = useOperations();
   const [feedback, setFeedback] = useState<{ message: string; error?: boolean } | null>(null);
   const [form, setForm] = useState({ leaveType: "annual" as LeaveRequest["leaveType"], startDate: "2026-08-17", endDate: "2026-08-17", days: "1", reason: "家庭事务安排", handover: "当前任务由刘洋临时跟进，资料已同步到项目空间。" });

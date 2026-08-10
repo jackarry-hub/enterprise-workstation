@@ -13,12 +13,14 @@ import { CreateActivityDialog } from "@/features/activities/components/create-ac
 import { ActivityList } from "@/features/activities/components/activity-list";
 import { ActivityOverview } from "@/features/activities/components/activity-overview";
 import { ActivityStats } from "@/features/activities/components/activity-stats";
-import { useDemoSession } from "@/features/operations/demo-session";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import { getEffectiveProjectDetails } from "@/features/projects/data/effective-project-details";
 import { PROJECTS_CHANGED_EVENT, readLocalProjects, saveLocalProject } from "@/features/projects/data/mock-project-repository";
 
 export function ActivitiesPage() {
-  const { actor } = useDemoSession();
+  const { actor: workspaceActor } = useWorkspaceSession();
+  const actor = toOperationFixtureActor(workspaceActor);
   const [allActivities, setAllActivities] = useState(() => buildActivityProjectViews(getEffectiveProjectDetails([])));
   const activities = actor.role === "executive" ? allActivities : allActivities.filter(({ project, members }) => project.ownerId === actor.memberId || members.some(({ member }) => member.id === actor.memberId));
   const [selectedId, setSelectedId] = useState(allActivities.find(({ project }) => project.name === "新产品发布活动")?.project.id ?? allActivities[0]?.project.id ?? "");

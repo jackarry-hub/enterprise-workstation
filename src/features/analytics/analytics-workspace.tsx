@@ -11,7 +11,8 @@ import { ExecutionTable } from "@/features/analytics/components/execution-table"
 import { HealthDistribution } from "@/features/analytics/components/health-distribution";
 import { RiskReminders } from "@/features/analytics/components/risk-reminders";
 import { TrendChart } from "@/features/analytics/components/trend-chart";
-import { useDemoSession } from "@/features/operations/demo-session";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import { OperationWeeklyBrief } from "@/features/operations/operation-weekly-brief";
 import { useOperations } from "@/features/operations/use-operations";
 import { buildAnalyticsViewModel } from "@/features/analytics/analytics-selectors";
@@ -28,7 +29,8 @@ const rangeLabels: Record<AnalyticsRange, string> = {
 };
 
 export function AnalyticsWorkspace() {
-  const { actor } = useDemoSession();
+  const { actor: workspaceActor } = useWorkspaceSession();
+  const actor = toOperationFixtureActor(workspaceActor);
   const { state: operationsState } = useOperations();
   const [projects, setProjects] = useState<ProjectDetailData[]>(() => getEffectiveProjectDetails([]));
   const [filters, setFilters] = useState<AnalyticsFilters>({ range: "month", department: "all" });

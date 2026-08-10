@@ -6,7 +6,7 @@ import { Database, UsersRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { GlassCard } from "@/components/ui/glass-card";
 import { PageHeader } from "@/components/ui/page-header";
-import { useDemoSession } from "@/features/operations/demo-session";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { EmployeeFilters } from "@/features/hr/components/employee-filters";
 import { EmployeeList } from "@/features/hr/components/employee-list";
 import { EmployeeStats } from "@/features/hr/components/employee-stats";
@@ -23,7 +23,7 @@ const defaultFilters: EmployeeDirectoryFilters = {
 };
 
 export function PeopleWorkspace({ result }: { result: EmployeeDirectoryResult }) {
-  const { actor } = useDemoSession();
+  const { actor } = useWorkspaceSession();
   const [filters, setFilters] = useState(defaultFilters);
   const scopedEmployees = useMemo(() => {
     if (actor.role !== "department_head") return result.data.employees;

@@ -28,8 +28,9 @@ import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { useDemoSession } from "@/features/operations/demo-session";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { downloadOperationFile, storeOperationFile } from "@/features/operations/file-storage";
+import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import {
   addOperationFile,
   clockAttendance,
@@ -79,7 +80,8 @@ export function AttendanceWorkflowStrip() {
 }
 
 export function TodayClockPanel() {
-  const { actor } = useDemoSession();
+  const { actor: workspaceActor } = useWorkspaceSession();
+  const actor = toOperationFixtureActor(workspaceActor);
   const { state } = useOperations();
   const [method, setMethod] = useState<"web" | "mobile_gps" | "office_wifi">("office_wifi");
   const [feedback, setFeedback] = useState<Feedback>(null);
@@ -122,7 +124,8 @@ function AttachmentLinks({ requestId, fileIds }: { requestId: string; fileIds: s
 }
 
 export function AttendanceSelfService() {
-  const { actor } = useDemoSession();
+  const { actor: workspaceActor } = useWorkspaceSession();
+  const actor = toOperationFixtureActor(workspaceActor);
   const { state } = useOperations();
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [busy, setBusy] = useState(false);
@@ -167,7 +170,8 @@ export function AttendanceSelfService() {
 }
 
 function ApprovalCard({ kind, request }: { kind: "correction"; request: AttendanceCorrectionRequest } | { kind: "overtime"; request: AttendanceOvertimeRequest }) {
-  const { actor } = useDemoSession();
+  const { actor: workspaceActor } = useWorkspaceSession();
+  const actor = toOperationFixtureActor(workspaceActor);
   const [comment, setComment] = useState("");
   const [feedback, setFeedback] = useState<Feedback>(null);
   const employee = getActor(request.employeeId);
@@ -186,7 +190,8 @@ function ApprovalCard({ kind, request }: { kind: "correction"; request: Attendan
 }
 
 export function AttendanceApprovalQueue() {
-  const { actor } = useDemoSession();
+  const { actor: workspaceActor } = useWorkspaceSession();
+  const actor = toOperationFixtureActor(workspaceActor);
   const { state } = useOperations();
   const corrections = useMemo(() => state.attendance.corrections.filter((request) => actor.role === "hr" ? request.status === "pending_hr" : actor.role === "executive" ? request.status === "pending_manager" && request.managerId === actor.id : actor.role === "department_head" ? request.status === "pending_manager" && request.managerId === actor.id : request.employeeId === actor.id), [actor.id, actor.role, state.attendance.corrections]);
   const overtime = useMemo(() => state.attendance.overtimeRequests.filter((request) => actor.role === "hr" ? request.status === "pending_hr" : actor.role === "executive" ? request.status === "pending_manager" && request.managerId === actor.id : actor.role === "department_head" ? request.status === "pending_manager" && request.managerId === actor.id : request.employeeId === actor.id), [actor.id, actor.role, state.attendance.overtimeRequests]);
@@ -194,7 +199,8 @@ export function AttendanceApprovalQueue() {
 }
 
 export function AttendancePolicyAndPeriod() {
-  const { actor } = useDemoSession();
+  const { actor: workspaceActor } = useWorkspaceSession();
+  const actor = toOperationFixtureActor(workspaceActor);
   const { state } = useOperations();
   const policy = state.attendance.policy;
   const period = state.attendance.period;

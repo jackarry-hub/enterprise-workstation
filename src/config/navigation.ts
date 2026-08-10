@@ -17,14 +17,14 @@ import {
   WalletCards,
   Workflow,
 } from "lucide-react";
-import type { DemoRole } from "@/features/operations/operations-types";
+import type { WorkspaceRole } from "@/features/auth/workspace-session-types";
 
 export type NavigationItem = {
   label: string;
   href: string;
   icon: LucideIcon;
   available: boolean;
-  roles?: readonly DemoRole[];
+  roles?: readonly WorkspaceRole[];
 };
 
 export const navigationItems: NavigationItem[] = [

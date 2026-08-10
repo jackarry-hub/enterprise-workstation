@@ -27,20 +27,22 @@ import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { Textarea } from "@/components/ui/textarea";
-import { useDemoSession } from "@/features/operations/demo-session";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import type { WorkspaceRole } from "@/features/auth/workspace-session-types";
 import { downloadOperationFile, storeOperationFile } from "@/features/operations/file-storage";
 import { OperationActionInbox } from "@/features/operations/operation-action-inbox";
+import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import {
   addOperationFile,
   createSupportRequest,
-  demoActors,
+  operationFixtureActors,
   getActor,
   getTaskReviewerId,
   resetOperationsState,
   updateOperationTask,
   updateSupportRequest,
 } from "@/features/operations/operations-data";
-import type { DemoRole, OperationFile, OperationTask, OperationTaskStatus, SupportRequest } from "@/features/operations/operations-types";
+import type { OperationFile, OperationTask, OperationTaskStatus, SupportRequest } from "@/features/operations/operations-types";
 import { useOperations } from "@/features/operations/use-operations";
 import { cn } from "@/lib/utils";
 
@@ -60,7 +62,7 @@ const supportStatusMeta = {
   rejected: { label: "已驳回", variant: "destructive" as const },
 };
 
-const roleCopy: Record<Exclude<DemoRole, "executive">, { title: string; eyebrow: string; description: string; upstream: string; downstream: string }> = {
+const roleCopy: Record<Exclude<WorkspaceRole, "executive">, { title: string; eyebrow: string; description: string; upstream: string; downstream: string }> = {
   department_head: { title: "负责人推进台", eyebrow: "部门目标 → 个人任务", description: "确认部门承接目标，明确唯一执行人，处理阻塞并验收员工成果。", upstream: "接收李总确认的部门目标", downstream: "验收后回流决策中心并形成成果记录" },
   employee: { title: "我的执行台", eyebrow: "个人任务 → 可验收成果", description: "只保留分配到本人的任务，执行过程中可反馈阻塞、申请协同并上传真实成果。", upstream: "接收负责人分配的任务", downstream: "提交成果给负责人验收" },
   finance: { title: "财务执行中心", eyebrow: "预算申请 → 审批付款", description: "处理命令推进过程中产生的预算、采购与付款事项，并归集凭证。", upstream: "接收任务发起的财务协同", downstream: "办理结果回写任务与领导驾驶舱" },
@@ -74,7 +76,8 @@ function formatBytes(value: number) {
 }
 
 function OperationUpload({ entityType, entityId, label = "上传成果", onFeedback }: { entityType: OperationFile["entityType"]; entityId: string; label?: string; onFeedback: (message: string, tone?: "error" | "success") => void }) {
-  const { actor } = useDemoSession();
+  const { actor: workspaceActor } = useWorkspaceSession();
+  const actor = toOperationFixtureActor(workspaceActor);
   const { state } = useOperations();
   const [busy, setBusy] = useState(false);
 
@@ -117,12 +120,13 @@ function TaskFiles({ taskId, files, onFeedback }: { taskId: string; files: Opera
 }
 
 function TaskCard({ task, onFeedback }: { task: OperationTask; onFeedback: (message: string, tone?: "error" | "success") => void }) {
-  const { actor } = useDemoSession();
+  const { actor: workspaceActor } = useWorkspaceSession();
+  const actor = toOperationFixtureActor(workspaceActor);
   const { state } = useOperations();
   const [note, setNote] = useState("");
   const meta = taskStatusMeta[task.status];
   const assignee = getActor(task.assigneeId);
-  const assigneeOptions = demoActors.filter((candidate) =>
+  const assigneeOptions = operationFixtureActors.filter((candidate) =>
     candidate.department === task.department
     && ["employee", "department_head", "finance", "hr"].includes(candidate.role),
   );
@@ -201,7 +205,8 @@ function TaskCard({ task, onFeedback }: { task: OperationTask; onFeedback: (mess
 }
 
 function SupportCard({ request, role, onFeedback }: { request: SupportRequest; role: "finance" | "hr"; onFeedback: (message: string, tone?: "error" | "success") => void }) {
-  const { actor } = useDemoSession();
+  const { actor: workspaceActor } = useWorkspaceSession();
+  const actor = toOperationFixtureActor(workspaceActor);
   const { state } = useOperations();
   const meta = supportStatusMeta[request.status];
   const sourceTask = state.tasks.find(({ id }) => id === request.sourceTaskId);
@@ -225,13 +230,13 @@ function SupportCard({ request, role, onFeedback }: { request: SupportRequest; r
   );
 }
 
-export function RoleWorkbench({ role }: { role: Exclude<DemoRole, "executive"> }) {
-  const session = useDemoSession();
+export function RoleWorkbench({ role }: { role: Exclude<WorkspaceRole, "executive"> }) {
+  const { actor: workspaceActor } = useWorkspaceSession();
   const { state } = useOperations();
   const [feedback, setFeedback] = useState<{ message: string; tone: "error" | "success" } | null>(null);
   const copy = roleCopy[role];
 
-  const actor = session.actor;
+  const actor = toOperationFixtureActor(workspaceActor);
   const tasks = useMemo(() => role === "department_head"
     ? state.tasks.filter(({ departmentOwnerId }) => departmentOwnerId === actor.id)
     : role === "employee" ? state.tasks.filter(({ assigneeId }) => assigneeId === actor.id)

@@ -3,15 +3,17 @@ import type { ReactNode } from "react";
 import { WorkspaceHeader } from "@/components/shell/workspace-header";
 import { RoleAccessGuard } from "@/components/shell/role-access-guard";
 import { WorkspaceSidebar } from "@/components/shell/workspace-sidebar";
-import { DemoSessionProvider } from "@/features/operations/demo-session";
+import { WorkspaceSessionProvider } from "@/features/auth/workspace-session-provider";
+import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
 
 type WorkspaceShellProps = {
   children: ReactNode;
+  session: WorkspaceSession;
 };
 
-export function WorkspaceShell({ children }: WorkspaceShellProps) {
+export function WorkspaceShell({ children, session }: WorkspaceShellProps) {
   return (
-    <DemoSessionProvider>
+    <WorkspaceSessionProvider session={session}>
       <RoleAccessGuard>
         <div className="workspace-mesh min-h-screen">
           <div className="fixed inset-y-0 left-0 z-50 hidden lg:block">
@@ -23,6 +25,6 @@ export function WorkspaceShell({ children }: WorkspaceShellProps) {
           </div>
         </div>
       </RoleAccessGuard>
-    </DemoSessionProvider>
+    </WorkspaceSessionProvider>
   );
 }

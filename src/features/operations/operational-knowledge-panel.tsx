@@ -6,8 +6,9 @@ import { Archive, CheckCircle2, Download, FileClock, FileUp, LoaderCircle, Netwo
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
-import { useDemoSession } from "@/features/operations/demo-session";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { downloadOperationFile, storeOperationFile } from "@/features/operations/file-storage";
+import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import { addKnowledgeEntry, addOperationFile, getActor, publishKnowledgeEntry } from "@/features/operations/operations-data";
 import { useOperations } from "@/features/operations/use-operations";
 import { cn } from "@/lib/utils";
@@ -17,7 +18,8 @@ function titleFromFile(name: string) {
 }
 
 export function OperationalKnowledgePanel() {
-  const { actor } = useDemoSession();
+  const { actor: workspaceActor } = useWorkspaceSession();
+  const actor = toOperationFixtureActor(workspaceActor);
   const { state } = useOperations();
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; error?: boolean } | null>(null);

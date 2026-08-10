@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { getOperationWeeklySummary } from "@/features/operations/operations-data";
-import type { DemoActor, OperationsState } from "@/features/operations/operations-types";
+import type { WorkspaceActor } from "@/features/auth/workspace-session-types";
+import type { OperationsState } from "@/features/operations/operations-types";
 
 function summaryText(summary: ReturnType<typeof getOperationWeeklySummary>) {
   return [
@@ -20,7 +21,7 @@ function summaryText(summary: ReturnType<typeof getOperationWeeklySummary>) {
   ].join("\n");
 }
 
-export function OperationWeeklyBrief({ state, actor }: { state: OperationsState; actor: DemoActor }) {
+export function OperationWeeklyBrief({ state, actor }: { state: OperationsState; actor: WorkspaceActor }) {
   const summary = getOperationWeeklySummary(state, actor.id);
   const [copied, setCopied] = useState(false);
 

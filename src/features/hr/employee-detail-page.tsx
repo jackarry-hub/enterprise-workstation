@@ -10,10 +10,10 @@ import { EmployeeBasicInfo } from "@/features/hr/components/employee-basic-info"
 import { EmployeeDetailHeader } from "@/features/hr/components/employee-detail-header";
 import { EmployeeOrganizationInfo } from "@/features/hr/components/employee-organization-info";
 import type { EmployeeDirectoryItem } from "@/features/hr/employee-types";
-import { useDemoSession } from "@/features/operations/demo-session";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 
 export function EmployeeDetailPage({ employee }: { employee: EmployeeDirectoryItem }) {
-  const { actor } = useDemoSession();
+  const { actor } = useWorkspaceSession();
   const isOwnProfile = employee.profile.displayName === actor.name;
   const isDirectReport = employee.manager?.displayName === actor.name;
   const canView = actor.role === "executive" || actor.role === "hr" || (actor.role === "department_head" && (isOwnProfile || isDirectReport));

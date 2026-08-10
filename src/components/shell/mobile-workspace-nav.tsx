@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { BriefcaseBusiness, House, MessageCircle, UserRound } from "lucide-react";
 
-import { useDemoSession } from "@/features/operations/demo-session";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { cn } from "@/lib/utils";
 
 export function MobileWorkspaceNav({ active = "work" }: { active?: "home" | "work" | "messages" | "profile" }) {
-  const { actor } = useDemoSession();
+  const { actor } = useWorkspaceSession();
   const workHref = actor.role === "executive" ? "/projects" : actor.role === "department_head" || actor.role === "employee" ? "/tasks" : actor.landingPath;
   const profileHref = actor.role === "hr" || actor.role === "department_head" || actor.role === "executive" ? "/people" : actor.role === "finance" ? "/payroll" : "/leave";
   const items = [

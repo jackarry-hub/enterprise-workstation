@@ -7,7 +7,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { PageHeader } from "@/components/ui/page-header";
-import { useDemoSession } from "@/features/operations/demo-session";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import { CreateProjectDialog } from "@/features/projects/components/create-project-dialog";
 import { ProjectAside } from "@/features/projects/components/project-aside";
 import { ProjectFilters } from "@/features/projects/components/project-filters";
@@ -48,7 +49,8 @@ type ProjectsWorkspaceProps = {
 };
 
 export function ProjectsWorkspace({ projects, stats, reminders }: ProjectsWorkspaceProps) {
-  const { actor } = useDemoSession();
+  const { actor: workspaceActor } = useWorkspaceSession();
+  const actor = toOperationFixtureActor(workspaceActor);
   const router = useRouter();
   const [filters, setFilters] = useState<ProjectListFilters>(defaultFilters);
   const [visibleProjects, setVisibleProjects] = useState<ProjectListItem[]>([...projects]);

@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
-import { useDemoSession } from "@/features/operations/demo-session";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { canRoleAccessPath } from "@/features/operations/role-access";
 
 function RedirectToLanding({ href }: { href: string }) {
@@ -25,8 +25,8 @@ function RedirectToLanding({ href }: { href: string }) {
 
 export function RoleAccessGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "/dashboard";
-  const { actor, ready } = useDemoSession();
-  const allowed = !ready || canRoleAccessPath(actor.role, pathname);
+  const { actor } = useWorkspaceSession();
+  const allowed = canRoleAccessPath(actor.role, pathname);
 
   if (!allowed) {
     return <RedirectToLanding href={actor.landingPath} />;

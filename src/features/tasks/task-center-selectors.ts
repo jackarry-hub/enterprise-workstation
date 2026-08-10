@@ -10,7 +10,7 @@ import type {
   TaskCenterStatus,
   TaskCenterSummary,
 } from "@/features/tasks/task-center-types";
-import type { DemoActor } from "@/features/operations/operations-types";
+import type { WorkspaceActor } from "@/features/auth/workspace-session-types";
 
 export function toTaskCenterStatus(status: TaskStatus): TaskCenterStatus {
   if (status === "backlog" || status === "todo") {
@@ -51,7 +51,7 @@ export function selectMyTaskItems(
 
 export function scopeTaskCenterItems(
   items: readonly TaskCenterItem[],
-  actor: DemoActor,
+  actor: WorkspaceActor,
 ) {
   if (actor.role === "executive") return [...items];
   if (actor.role === "department_head") {

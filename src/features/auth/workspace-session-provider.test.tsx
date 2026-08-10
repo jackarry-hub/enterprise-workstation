@@ -57,6 +57,9 @@ describe("WorkspaceSessionProvider", () => {
   });
 
   it("provides the immutable current session without demo switching controls", () => {
+    const legacyActorStorageKey = ["enterprise-workspace", "demo-actor", "v1"].join(".");
+    window.localStorage.setItem(legacyActorStorageKey, "actor-executive");
+
     function wrapper({ children }: { children: ReactNode }) {
       return (
         <WorkspaceSessionProvider session={session}>
@@ -68,6 +71,8 @@ describe("WorkspaceSessionProvider", () => {
     const { result } = renderHook(() => useWorkspaceSession(), { wrapper });
 
     expect(result.current.actor.name).toBe("测试员工");
+    expect(result.current.tenantId).toBe("10000000-0000-4000-8000-000000000000");
+    expect(result.current.identity.providerSubject).toBe("subject-employee-001");
     expect(result.current.profile.skills).toEqual(["product", "需求分析"]);
     expect("actors" in result.current).toBe(false);
     expect("setActorId" in result.current).toBe(false);

@@ -7,7 +7,8 @@ import { Banknote, Calculator, Check, CircleDot, LockKeyhole, Send, ShieldCheck,
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
-import { useDemoSession } from "@/features/operations/demo-session";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import { updatePayrollRun } from "@/features/operations/operations-data";
 import type { PayrollRunStatus } from "@/features/operations/operations-types";
 import { useOperations } from "@/features/operations/use-operations";
@@ -24,7 +25,8 @@ const steps: Array<{ status: PayrollRunStatus; label: string; owner: string }> =
 function currency(value: number) { return new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(value); }
 
 export function PayrollControlPanel() {
-  const { actor } = useDemoSession();
+  const { actor: workspaceActor } = useWorkspaceSession();
+  const actor = toOperationFixtureActor(workspaceActor);
   const { state } = useOperations();
   const [feedback, setFeedback] = useState<{ message: string; error?: boolean } | null>(null);
   const run = state.payrollRun;

@@ -1,15 +1,10 @@
-export type DemoRole = "executive" | "department_head" | "employee" | "finance" | "hr";
+import type {
+  WorkspaceActor,
+  WorkspaceRole,
+} from "@/features/auth/workspace-session-types";
 
-export type DemoActor = {
-  id: string;
-  memberId: string;
-  name: string;
-  role: DemoRole;
-  roleLabel: string;
-  department: string;
-  title: string;
-  landingPath: string;
-};
+export type OperationFixtureActor = WorkspaceActor;
+export type OperationRole = WorkspaceRole;
 
 export type CommandStatus = "executing" | "review" | "accepted" | "archived";
 export type OperationTaskStatus = "todo" | "in_progress" | "blocked" | "review" | "done";

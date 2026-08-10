@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { getDefaultProjectDetails } from "@/features/projects/data/effective-project-details";
 import { mockMembers } from "@/features/projects/mock-data";
-import { demoActors } from "@/features/operations/operations-data";
+import { operationFixtureActors } from "@/features/operations/operations-data";
 import type { ProjectTask, TaskStatus } from "@/features/projects/types";
 import {
   calculateTaskCenterCompletionRate,
@@ -79,8 +79,8 @@ describe("task center selectors", () => {
 
   it("scopes employee tasks to the signed-in person and manager tasks to the department", () => {
     const items = createTaskCenterItems(projects);
-    const employee = demoActors.find(({ id }) => id === "actor-employee");
-    const manager = demoActors.find(({ id }) => id === "actor-manager");
+    const employee = operationFixtureActors.find(({ id }) => id === "actor-employee");
+    const manager = operationFixtureActors.find(({ id }) => id === "actor-manager");
     expect(employee).toBeDefined();
     expect(manager).toBeDefined();
     if (!employee || !manager) return;
