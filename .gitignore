@@ -42,6 +42,7 @@ yarn-error.log*
 /.codex/
 /AGENTS.md
 /CLAUDE.md
+/task-2-report.md
 
 # local QA and source archives
 /artifacts/
