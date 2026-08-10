@@ -22,7 +22,7 @@ type PublicAccessReason =
 
 export type AuthCallbackDependencies = {
   exchangeCode: (code: string) => Promise<boolean>;
-  claimIdentity: () => Promise<IdentityClaimResult | string | null>;
+  claimIdentity: () => Promise<unknown>;
   loadSession: () => Promise<{ landingPath: string } | null>;
   signOut: () => Promise<void>;
 };
@@ -38,6 +38,16 @@ const publicClaimReasons: Partial<
   suspended: "suspended",
   departed: "departed",
 };
+
+function publicReasonForClaim(value: unknown): PublicAccessReason {
+  if (
+    typeof value !== "string"
+    || !Object.prototype.hasOwnProperty.call(publicClaimReasons, value)
+  ) {
+    return "identity_error";
+  }
+  return publicClaimReasons[value as IdentityClaimResult] ?? "identity_error";
+}
 
 function callbackRedirect(
   url: URL,
@@ -87,9 +97,7 @@ async function handleAuthCallback(
 
     const claimResult = await dependencies.claimIdentity();
     if (claimResult !== "active") {
-      const publicReason = publicClaimReasons[
-        claimResult as IdentityClaimResult
-      ] ?? "identity_error";
+      const publicReason = publicReasonForClaim(claimResult);
       return rejectCallback(url, publicReason, dependencies.signOut);
     }
 

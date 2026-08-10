@@ -39,4 +39,18 @@ describe("LoginCard", () => {
       /OAuth|RPC|JWT|open_id|union_id|tenant_key|provider[_ ]token|SQL/i,
     );
   });
+
+  it.each(["constructor", "toString", "__proto__", "unknown_error"])(
+    "renders no technical error for non-whitelisted code %s",
+    (errorCode) => {
+      expect(() => {
+        render(<LoginCard action={vi.fn()} errorCode={errorCode} />);
+      }).not.toThrow();
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(document.body).not.toHaveTextContent(
+        /function Object|native code|\[object Object\]/i,
+      );
+    },
+  );
 });

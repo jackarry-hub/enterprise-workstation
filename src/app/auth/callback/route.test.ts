@@ -163,6 +163,33 @@ describe("handleAuthCallback", () => {
     );
   });
 
+  it.each([
+    ["constructor", "constructor"],
+    ["toString", "toString"],
+    ["__proto__", "__proto__"],
+    ["unknown string", "unknown_claim"],
+    ["number", 42],
+    ["object", { technical: "database detail" }],
+    ["null", null],
+  ])(
+    "maps unsafe claim value %s to identity_error and signs out",
+    async (_label, claimResult) => {
+      const signOut = vi.fn(async () => undefined);
+      const response = await handleAuthCallback(
+        new Request(`${callbackOrigin}/auth/callback?code=one-time-code`),
+        dependencies({
+          claimIdentity: async () => claimResult,
+          signOut,
+        }),
+      );
+
+      expect(signOut).toHaveBeenCalledOnce();
+      expect(response.headers.get("location")).toBe(
+        `${callbackOrigin}/access-pending?reason=identity_error`,
+      );
+    },
+  );
+
   it("maps callback dependency failures to a stable auth error and signs out", async () => {
     const signOut = vi.fn(async () => undefined);
     const response = await handleAuthCallback(

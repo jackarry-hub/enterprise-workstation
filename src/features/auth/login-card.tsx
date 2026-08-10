@@ -8,6 +8,16 @@ const loginMessages: Readonly<Record<string, string>> = {
   callback_failed: "登录没有完成，请重新尝试。",
 };
 
+function getLoginMessage(errorCode: string | null) {
+  if (
+    !errorCode
+    || !Object.prototype.hasOwnProperty.call(loginMessages, errorCode)
+  ) {
+    return null;
+  }
+  return loginMessages[errorCode];
+}
+
 export function LoginCard({
   action,
   errorCode,
@@ -15,7 +25,7 @@ export function LoginCard({
   action: () => Promise<void>;
   errorCode: string | null;
 }) {
-  const errorMessage = errorCode ? loginMessages[errorCode] : null;
+  const errorMessage = getLoginMessage(errorCode);
 
   return (
     <GlassCard className="w-full max-w-md p-7 sm:p-9">
