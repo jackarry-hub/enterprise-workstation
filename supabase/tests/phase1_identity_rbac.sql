@@ -111,7 +111,8 @@ with users(id, email) as (values
   ('11000000-0000-4000-8000-000000000008'::uuid, 'departed@example.test'),
   ('11000000-0000-4000-8000-000000000009'::uuid, 'revoked@example.test'),
   ('11000000-0000-4000-8000-000000000010'::uuid, 'entra@example.test'),
-  ('11000000-0000-4000-8000-000000000011'::uuid, 'raw-email-only@example.test')
+  ('11000000-0000-4000-8000-000000000011'::uuid, 'raw-email-only@example.test'),
+  ('11000000-0000-4000-8000-000000000012'::uuid, 'admin@example.test')
 )
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -134,7 +135,8 @@ with identities(user_id, provider, subject, tenant_key, match_key, display_name)
   ('11000000-0000-4000-8000-000000000007'::uuid, 'custom:feishu', 'subject-suspended', 'tenant_qxy', 'match-suspended', '停用测试'),
   ('11000000-0000-4000-8000-000000000008'::uuid, 'custom:feishu', 'subject-departed', 'tenant_qxy', 'match-departed', '离职测试'),
   ('11000000-0000-4000-8000-000000000009'::uuid, 'custom:feishu', 'subject-revoked', 'tenant_qxy', 'match-revoked', '撤销测试'),
-  ('11000000-0000-4000-8000-000000000010'::uuid, 'custom:entra', 'subject-entra', 'entra_qxy', 'match-entra', 'Entra 测试')
+  ('11000000-0000-4000-8000-000000000010'::uuid, 'custom:entra', 'subject-entra', 'entra_qxy', 'match-entra', 'Entra 测试'),
+  ('11000000-0000-4000-8000-000000000012'::uuid, 'custom:feishu', 'subject-admin', 'tenant_qxy', 'match-admin', '管理员测试')
 )
 insert into auth.identities (
   id, provider_id, user_id, identity_data, provider,
@@ -214,6 +216,26 @@ select public.provision_employee_identity(
   'employee', 'entra', 'entra_qxy', 'subject-entra', array['match-entra'],
   array['identity'], 'entra@example.test'
 );
+select public.provision_employee_identity(
+  'quantxy', 'quantum-galaxy', 'QXY-ADMIN', '管理员测试', 'AI', '系统管理员',
+  'owner', 'feishu', 'tenant_qxy', 'subject-admin', array['match-admin'],
+  array['identity'], 'admin@example.test'
+);
+delete from public.member_roles assignment
+using public.employee_profiles profile, public.roles role
+where profile.employee_no = 'QXY-ADMIN'
+  and assignment.tenant_id = profile.tenant_id
+  and assignment.member_id = profile.organization_member_id
+  and role.tenant_id = assignment.tenant_id
+  and role.id = assignment.role_id
+  and role.code = 'owner';
+insert into public.member_roles (tenant_id, member_id, role_id)
+select profile.tenant_id, profile.organization_member_id, role.id
+from public.employee_profiles profile
+join public.roles role on role.tenant_id = profile.tenant_id
+where profile.employee_no = 'QXY-ADMIN'
+  and role.code = 'admin'
+  and role.organization_id is null;
 
 select is(
   (
@@ -355,12 +377,21 @@ select set_config('request.jwt.claim.sub', '11000000-0000-4000-8000-000000000010
 select is(public.claim_current_identity(), 'active', 'a second provider can claim a preprovisioned identity');
 select is(public.current_workspace_access() ->> 'providerCode', 'entra', 'second provider remains provider-neutral in workspace access');
 
+select set_config('request.jwt.claim.sub', '11000000-0000-4000-8000-000000000012', true);
+select is(public.claim_current_identity(), 'active', 'admin identity binds');
+select ok((public.current_workspace_access() -> 'roleCodes') ? 'admin', 'admin role returned');
+
 select set_config('request.jwt.claim.sub', '11000000-0000-4000-8000-000000000011', true);
 select is(
   public.claim_current_identity(),
   'not_provisioned',
   'raw identity email without normalized verification cannot claim a roster record'
 );
+select ok(exists (
+  select 1 from public.audit_logs
+  where action = 'identity.claimed'
+    and actor_auth_user_id = '11000000-0000-4000-8000-000000000001'::uuid
+), 'identity claim writes an audit event');
 
 select throws_ok(
   $$
@@ -460,6 +491,14 @@ select throws_ok(
   null,
   'authenticated owner cannot bypass controlled audit insertion'
 );
+reset role;
+
+select set_config('request.jwt.claim.sub', '11000000-0000-4000-8000-000000000012', true);
+set local role authenticated;
+select is((
+  select count(*) from public.audit_logs where target_id = 'tenant-two'
+), 0::bigint, 'admin cannot read another tenant audit event');
+select ok((select count(*) > 0 from public.audit_logs), 'admin can read current-tenant audit events');
 reset role;
 
 select set_config('request.jwt.claim.sub', '11000000-0000-4000-8000-000000000003', true);

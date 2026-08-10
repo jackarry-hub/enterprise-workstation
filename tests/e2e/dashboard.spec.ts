@@ -4,11 +4,9 @@ test("desktop dashboard renders the executive overview without horizontal overfl
   await page.setViewportSize({ width: 1672, height: 941 });
   await page.goto("/dashboard");
 
-  await expect(page).toHaveTitle("企业工作站");
-  await expect(page.getByRole("heading", { name: "早上好，李总" })).toBeVisible();
-  await expect(page.getByText("企业员工", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "项目健康度" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "任务趋势" })).toBeVisible();
+  await expect(page).toHaveTitle("量子星河 AI企业大脑");
+  await expect(page.getByRole("heading", { name: "AI 决策调度台" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "E2E 企业负责人" })).toBeVisible();
 
   const hasHorizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
