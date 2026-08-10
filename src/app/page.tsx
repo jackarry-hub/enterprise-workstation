@@ -1,5 +1,10 @@
 import { redirect } from "next/navigation";
 
-export default function Home() {
-  redirect("/dashboard");
+import { getWorkspaceSession } from "@/features/auth/workspace-session";
+
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const session = await getWorkspaceSession();
+  redirect(session?.landingPath ?? "/login");
 }
