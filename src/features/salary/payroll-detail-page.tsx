@@ -12,10 +12,12 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatSalaryCurrency, salaryStatusMeta } from "@/features/salary/salary-meta";
 import type { SalaryRecord, SalaryStatus } from "@/features/salary/salary-types";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { useOperations } from "@/features/operations/use-operations";
 
 export function PayrollDetailPage({ record: sourceRecord }: { record: SalaryRecord }) {
-  const { state } = useOperations();
+  const session = useWorkspaceSession();
+  const { state } = useOperations(session);
   const cycleStatus: SalaryStatus = state.payrollRun.status === "draft" ? "draft" : state.payrollRun.status === "paid" ? "paid" : "processing";
   const record = sourceRecord.month === state.payrollRun.month ? { ...sourceRecord, status: cycleStatus, paidAt: cycleStatus === "paid" ? state.payrollRun.paidAt ? new Date(state.payrollRun.paidAt).toLocaleString("zh-CN") : sourceRecord.paidAt : undefined, history: sourceRecord.history.map((item) => item.month === state.payrollRun.month ? { ...item, status: cycleStatus } : item) } : sourceRecord;
   const status = salaryStatusMeta[record.status];

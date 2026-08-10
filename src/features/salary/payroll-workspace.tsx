@@ -21,8 +21,9 @@ import type { SalaryStatus } from "@/features/salary/salary-types";
 const defaultFilters: SalaryFilters = { query: "", departmentId: "all", month: "2026-08", status: "all" };
 
 export function PayrollWorkspace({ result }: { result: SalaryResult }) {
-  const { actor } = useWorkspaceSession();
-  const { state } = useOperations();
+  const session = useWorkspaceSession();
+  const { actor } = session;
+  const { state } = useOperations(session);
   const [filters, setFilters] = useState(defaultFilters);
   const cycleStatus: SalaryStatus = state.payrollRun.status === "draft" ? "draft" : state.payrollRun.status === "paid" ? "paid" : "processing";
   const cycleRecords = useMemo(() => result.data.records.map((record) => record.month === state.payrollRun.month ? { ...record, status: cycleStatus, paidAt: cycleStatus === "paid" ? state.payrollRun.paidAt ? new Date(state.payrollRun.paidAt).toLocaleString("zh-CN") : record.paidAt : undefined, history: record.history.map((item) => item.month === state.payrollRun.month ? { ...item, status: cycleStatus } : item) } : record), [cycleStatus, result.data.records, state.payrollRun.month, state.payrollRun.paidAt]);

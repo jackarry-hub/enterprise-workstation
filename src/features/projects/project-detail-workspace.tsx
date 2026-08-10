@@ -22,7 +22,6 @@ import { ProjectRetrospectiveTab } from "@/features/projects/components/project-
 import { ProjectTasksTab } from "@/features/projects/components/project-tasks-tab";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { storeProjectFileBlob } from "@/features/operations/file-storage";
-import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import { syncProjectTasksToOperations } from "@/features/operations/operations-data";
 import { useOperations } from "@/features/operations/use-operations";
 import { findLocalProject, PROJECTS_CHANGED_EVENT, saveLocalProject } from "@/features/projects/data/mock-project-repository";
@@ -34,12 +33,16 @@ import {
   type TaskExecutionStatus,
 } from "@/features/projects/data/project-task-operations";
 import type { DailyReport, FileRelation, Milestone, ProjectActivity, ProjectDetailData, ProjectDetailResult, ProjectFile, ProjectRetrospective, ProjectRiskStatus } from "@/features/projects/types";
-import { getCurrentUser } from "@/lib/auth/mock-user";
 
 export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult }) {
-  const { actor: workspaceActor } = useWorkspaceSession();
-  const actor = toOperationFixtureActor(workspaceActor);
-  const { state: operationsState } = useOperations();
+  const session = useWorkspaceSession();
+  const auditActor = session.actor;
+  const {
+    state: operationsState,
+    context,
+    actor,
+    isFixtureBound,
+  } = useOperations(session);
   const [detail, setDetail] = useState<ProjectDetailData>(result.detail);
   const [activeTab, setActiveTab] = useState<ProjectDetailTab>("overview");
   const [isMilestoneOpen, setIsMilestoneOpen] = useState(false);
@@ -50,8 +53,8 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
     () => detail.milestones.reduce((maximum, milestone) => Math.max(maximum, milestone.sortOrder), -1) + 1,
     [detail.milestones],
   );
-  const canViewProject = actor.role === "executive" || detail.project.ownerId === actor.memberId || detail.members.some(({ member }) => member.id === actor.memberId);
-  const canManageProject = actor.role === "executive" || detail.project.ownerId === actor.memberId;
+  const canViewProject = isFixtureBound && (actor.role === "executive" || detail.project.ownerId === actor.memberId || detail.members.some(({ member }) => member.id === actor.memberId));
+  const canManageProject = isFixtureBound && (actor.role === "executive" || detail.project.ownerId === actor.memberId);
   const workflowManaged = operationsState.command.projectId === detail.project.id;
 
   useEffect(() => {
@@ -100,51 +103,50 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
 
   function addTask(input: CreateMockTaskInput) {
     if (!canManageProject) throw new Error("只有项目负责人可以新建任务");
-    const next = createMockTask(detail, input);
+    const next = createMockTask(detail, input, auditActor);
     persistDetail(next);
-    syncProjectTasksToOperations(next, actor.id);
+    syncProjectTasksToOperations(context, next, actor.id);
   }
 
   function updateTaskStatus(taskId: string, status: TaskExecutionStatus) {
     if (!canManageProject) throw new Error("只有项目负责人可以调整任务状态");
     if (workflowManaged) throw new Error("该任务由执行与验收流程统一管理，请前往对应角色工作台操作");
-    const next = updateMockTaskStatus(detail, taskId, status);
+    const next = updateMockTaskStatus(detail, taskId, status, auditActor);
     persistDetail(next);
-    syncProjectTasksToOperations(next, actor.id);
+    syncProjectTasksToOperations(context, next, actor.id);
   }
 
   function addTaskComment(taskId: string, body: string) {
-    persistDetail(addMockTaskComment(detail, taskId, body));
+    persistDetail(addMockTaskComment(detail, taskId, body, auditActor));
   }
 
   function editProject(input: EditProjectInput) {
     if (!canManageProject) throw new Error("只有项目负责人可以编辑项目");
     const now = new Date().toISOString();
-    const actor = getCurrentUser();
-    persistDetail({ ...detail, project: { ...detail.project, ...input, updatedAt: now }, activities: [{ id: `activity-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, userId: actor.id, actionType: "project_updated", content: `${actor.displayName}更新了项目基本信息。`, createdAt: now }, ...detail.activities] });
+    persistDetail({ ...detail, project: { ...detail.project, ...input, updatedAt: now }, activities: [{ id: `activity-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, userId: auditActor.id, actionType: "project_updated", content: `${auditActor.name}更新了项目基本信息。`, createdAt: now }, ...detail.activities] });
   }
 
   async function uploadFile(file: globalThis.File) {
     const now = new Date().toISOString();
     const id = `file-${Date.now()}`;
     const objectPath = await storeProjectFileBlob(id, file);
-    const projectFile: ProjectFile = { id, organizationId: detail.project.organizationId, projectId: detail.project.id, bucket: "indexeddb-project-files", objectPath, originalName: file.name, mimeType: file.type || "application/octet-stream", sizeBytes: file.size, accessScope: "restricted", uploadedById: actor.memberId, createdAt: now };
-    const relation: FileRelation = { id: `relation-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, fileId: id, relationType: "project", createdById: actor.memberId, createdAt: now };
-    const activity: ProjectActivity = { id: `activity-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, userId: actor.memberId, actionType: "file_uploaded", content: `${actor.name}上传了《${file.name}》。`, createdAt: now };
+    const projectFile: ProjectFile = { id, organizationId: detail.project.organizationId, projectId: detail.project.id, bucket: "indexeddb-project-files", objectPath, originalName: file.name, mimeType: file.type || "application/octet-stream", sizeBytes: file.size, accessScope: "restricted", uploadedById: auditActor.memberId, createdAt: now };
+    const relation: FileRelation = { id: `relation-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, fileId: id, relationType: "project", createdById: auditActor.memberId, createdAt: now };
+    const activity: ProjectActivity = { id: `activity-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, userId: auditActor.id, actionType: "file_uploaded", content: `${auditActor.name}上传了《${file.name}》。`, createdAt: now };
     persistDetail({ ...detail, files: [projectFile, ...detail.files], fileRelations: [relation, ...detail.fileRelations], activities: [activity, ...detail.activities], project: { ...detail.project, updatedAt: now } });
   }
 
   function submitDailyReport(input: DailyReportInput) {
     const now = new Date().toISOString();
-    const report: DailyReport = { id: `report-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, authorId: actor.memberId, reportDate: now.slice(0, 10), status: "submitted", summary: input.summary, nextPlan: input.nextPlan, blockers: input.blockers || undefined, supportNeeded: input.supportNeeded || undefined, submittedAt: now, createdAt: now, updatedAt: now };
-    const activity: ProjectActivity = { id: `activity-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, userId: actor.memberId, actionType: "daily_report_submitted", content: `${actor.name}提交了 ${report.reportDate} 项目日报。`, createdAt: now };
+    const report: DailyReport = { id: `report-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, authorId: auditActor.memberId, reportDate: now.slice(0, 10), status: "submitted", summary: input.summary, nextPlan: input.nextPlan, blockers: input.blockers || undefined, supportNeeded: input.supportNeeded || undefined, submittedAt: now, createdAt: now, updatedAt: now };
+    const activity: ProjectActivity = { id: `activity-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, userId: auditActor.id, actionType: "daily_report_submitted", content: `${auditActor.name}提交了 ${report.reportDate} 项目日报。`, createdAt: now };
     persistDetail({ ...detail, dailyReports: [report, ...detail.dailyReports], activities: [activity, ...detail.activities], project: { ...detail.project, updatedAt: now } });
   }
 
   function saveRetrospective(input: Omit<ProjectRetrospective, "updatedById" | "updatedAt">) {
     const now = new Date().toISOString();
-    const retrospective: ProjectRetrospective = { ...input, updatedById: actor.memberId, updatedAt: now };
-    const activity: ProjectActivity = { id: `activity-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, userId: actor.memberId, actionType: "project_updated", content: `${actor.name}更新了项目复盘。`, createdAt: now };
+    const retrospective: ProjectRetrospective = { ...input, updatedById: auditActor.memberId, updatedAt: now };
+    const activity: ProjectActivity = { id: `activity-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, userId: auditActor.id, actionType: "project_updated", content: `${auditActor.name}更新了项目复盘。`, createdAt: now };
     persistDetail({ ...detail, retrospective, activities: [activity, ...detail.activities], project: { ...detail.project, updatedAt: now } });
   }
 
@@ -152,7 +154,7 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
     const now = new Date().toISOString();
     const risk = detail.risks.find(({ id }) => id === riskId);
     if (!risk) return;
-    const activity: ProjectActivity = { id: `activity-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, userId: actor.memberId, actionType: "risk_updated", content: `${actor.name}将风险“${risk.title}”更新为${status === "mitigated" ? "已缓解" : "监控中"}。`, createdAt: now };
+    const activity: ProjectActivity = { id: `activity-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, userId: auditActor.id, actionType: "risk_updated", content: `${auditActor.name}将风险“${risk.title}”更新为${status === "mitigated" ? "已缓解" : "监控中"}。`, createdAt: now };
     persistDetail({ ...detail, risks: detail.risks.map((item) => item.id === riskId ? { ...item, status, updatedAt: now } : item), activities: [activity, ...detail.activities], project: { ...detail.project, updatedAt: now } });
   }
 
@@ -171,7 +173,7 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
           <ProjectMilestonesTab detail={detail} milestones={detail.milestones} onCreate={() => setIsMilestoneOpen(true)} />
         ) : null}
         {activeTab === "tasks" ? (
-          <ProjectTasksTab detail={detail} onCreate={() => setIsTaskOpen(true)} onStatusChange={updateTaskStatus} onComment={addTaskComment} initialTaskId={initialTaskId} canManage={canManageProject} workflowManaged={workflowManaged} />
+          <ProjectTasksTab actor={auditActor} detail={detail} onCreate={() => setIsTaskOpen(true)} onStatusChange={updateTaskStatus} onComment={addTaskComment} initialTaskId={initialTaskId} canManage={canManageProject} workflowManaged={workflowManaged} />
         ) : null}
         {activeTab === "gantt" ? <ProjectGanttTab detail={detail} /> : null}
         {activeTab === "files" ? <ProjectFilesTab detail={detail} onUpload={uploadFile} /> : null}

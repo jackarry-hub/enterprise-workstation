@@ -10,18 +10,17 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Textarea } from "@/components/ui/textarea";
 import type { ProjectDetailData, ProjectTask } from "@/features/projects/types";
-import { getCurrentUser } from "@/lib/auth/mock-user";
+import type { WorkspaceActor } from "@/features/auth/workspace-session-types";
 
 const statusLabels = { backlog: "待开始", todo: "待开始", in_progress: "进行中", blocked: "已阻塞", in_review: "评审中", done: "已完成", cancelled: "已取消" } as const;
 const statusTones = { backlog: "neutral", todo: "active", in_progress: "active", blocked: "warning", in_review: "warning", done: "success", cancelled: "neutral" } as const;
 
-export function ProjectTaskDetailDialog({ task, detail, open, onOpenChange, onComment }: { task: ProjectTask | null; detail: ProjectDetailData; open: boolean; onOpenChange: (open: boolean) => void; onComment: (taskId: string, body: string) => void }) {
+export function ProjectTaskDetailDialog({ actor, task, detail, open, onOpenChange, onComment }: { actor: WorkspaceActor; task: ProjectTask | null; detail: ProjectDetailData; open: boolean; onOpenChange: (open: boolean) => void; onComment: (taskId: string, body: string) => void }) {
   const [body, setBody] = useState("");
   const [message, setMessage] = useState("");
   if (!task) return null;
   const assignee = detail.members.find(({ member }) => member.id === task.assigneeId)?.member;
   const comments = detail.comments.filter(({ taskId }) => taskId === task.id);
-  const actor = getCurrentUser();
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -48,7 +47,7 @@ export function ProjectTaskDetailDialog({ task, detail, open, onOpenChange, onCo
           <div className="mt-3 grid max-h-52 gap-3 overflow-y-auto">
             {comments.length ? comments.map((comment) => {
               const author = detail.members.find(({ member }) => member.id === comment.authorId)?.member;
-              const authorName = author?.displayName ?? (comment.authorId === actor.memberId ? actor.displayName : "项目成员");
+              const authorName = author?.displayName ?? (comment.authorId === actor.memberId ? actor.name : "项目成员");
               return <article key={comment.id} className="flex gap-2.5"><Avatar size="sm"><AvatarFallback className="bg-brand-soft text-primary">{authorName.slice(0, 1)}</AvatarFallback></Avatar><div className="min-w-0 flex-1 rounded-2xl bg-muted/55 px-3 py-2"><div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold">{authorName}</p><time className="text-[11px] text-muted-foreground">{new Date(comment.createdAt).toLocaleString("zh-CN", { hour12: false })}</time></div><p className="mt-1 text-sm leading-5 text-foreground">{comment.body}</p></div></article>;
             }) : <p className="py-5 text-center text-sm text-muted-foreground">暂无评论，添加第一条执行反馈。</p>}
           </div>

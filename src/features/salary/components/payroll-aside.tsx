@@ -3,10 +3,12 @@
 import { CalendarDays, CheckCircle2, Clock3 } from "lucide-react";
 
 import { ProgressBar } from "@/components/ui/progress-bar";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { useOperations } from "@/features/operations/use-operations";
 
 export function PayrollAside() {
-  const { state } = useOperations();
+  const session = useWorkspaceSession();
+  const { state } = useOperations(session);
   const run = state.payrollRun;
   const steps = [
     { label: "考勤封账", done: run.attendanceLocked },

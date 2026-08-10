@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { downloadOperationFile, storeOperationFile } from "@/features/operations/file-storage";
-import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import { addKnowledgeEntry, addOperationFile, getActor, publishKnowledgeEntry } from "@/features/operations/operations-data";
 import { useOperations } from "@/features/operations/use-operations";
 import { cn } from "@/lib/utils";
@@ -18,9 +17,8 @@ function titleFromFile(name: string) {
 }
 
 export function OperationalKnowledgePanel() {
-  const { actor: workspaceActor } = useWorkspaceSession();
-  const actor = toOperationFixtureActor(workspaceActor);
-  const { state } = useOperations();
+  const session = useWorkspaceSession();
+  const { state, context, actor } = useOperations(session);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; error?: boolean } | null>(null);
 
@@ -32,8 +30,8 @@ export function OperationalKnowledgePanel() {
     const entryId = `knowledge-manual-${Date.now()}`;
     try {
       const stored = await storeOperationFile({ file, commandId: state.command.id, entityType: "knowledge", entityId: entryId, uploadedById: actor.id, version: 1 });
-      addKnowledgeEntry({ id: entryId, commandId: state.command.id, title: titleFromFile(file.name), summary: `由 ${actor.name} 直接上传并纳入“${state.command.title}”知识资产。`, category: "项目成果", tags: ["用户上传", "AI试点"], fileIds: [stored.id], status: "published", createdById: actor.id, updatedAt: stored.createdAt });
-      addOperationFile(stored);
+      addKnowledgeEntry(context, { id: entryId, commandId: state.command.id, title: titleFromFile(file.name), summary: `由 ${actor.name} 直接上传并纳入“${state.command.title}”知识资产。`, category: "项目成果", tags: ["用户上传", "AI试点"], fileIds: [stored.id], status: "published", createdById: actor.id, updatedAt: stored.createdAt });
+      addOperationFile(context, stored);
       setFeedback({ message: `${file.name} 已上传、发布并关联到当前命令` });
     } catch (error) {
       setFeedback({ message: error instanceof Error ? error.message : "知识文件上传失败", error: true });
@@ -72,7 +70,7 @@ export function OperationalKnowledgePanel() {
               <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/70 pt-3">
                 <span className="mr-auto text-[11px] text-muted-foreground">维护人：{getActor(entry.createdById).name} · {entry.fileIds.length} 个文件</span>
                 {entry.fileIds.map((fileId) => { const file = state.files.find(({ id }) => id === fileId); return <Button key={fileId} type="button" size="sm" variant="outline" onClick={() => download(fileId)}><Download />{file?.name ?? "下载成果"}</Button>; })}
-                {entry.status === "draft" ? <Button type="button" size="sm" onClick={() => { publishKnowledgeEntry(entry.id, actor.id); setFeedback({ message: `“${entry.title}”已发布` }); }}><Archive />审核发布</Button> : null}
+                {entry.status === "draft" ? <Button type="button" size="sm" onClick={() => { publishKnowledgeEntry(context, entry.id, actor.id); setFeedback({ message: `“${entry.title}”已发布` }); }}><Archive />审核发布</Button> : null}
               </div>
             </article>
           );

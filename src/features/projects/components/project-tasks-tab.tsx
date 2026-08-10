@@ -26,8 +26,10 @@ import {
 import { StatusBadge } from "@/components/ui/status-badge";
 import type { TaskExecutionStatus } from "@/features/projects/data/project-task-operations";
 import type { ProjectDetailData, ProjectTask } from "@/features/projects/types";
+import type { WorkspaceActor } from "@/features/auth/workspace-session-types";
 
 type ProjectTasksTabProps = {
+  actor: WorkspaceActor;
   detail: ProjectDetailData;
   onCreate: () => void;
   onStatusChange: (taskId: string, status: TaskExecutionStatus) => void;
@@ -85,7 +87,7 @@ function formatDate(date?: string) {
   return date ? date.replaceAll("-", "/") : "待确认";
 }
 
-export function ProjectTasksTab({ detail, onCreate, onStatusChange, onComment, initialTaskId, canManage = true, workflowManaged = false }: ProjectTasksTabProps) {
+export function ProjectTasksTab({ actor, detail, onCreate, onStatusChange, onComment, initialTaskId, canManage = true, workflowManaged = false }: ProjectTasksTabProps) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(initialTaskId ?? null);
   useEffect(() => { if (initialTaskId) setSelectedTaskId(initialTaskId); }, [initialTaskId]);
   const selectedTask = detail.tasks.find(({ id }) => id === selectedTaskId) ?? null;
@@ -199,7 +201,7 @@ export function ProjectTasksTab({ detail, onCreate, onStatusChange, onComment, i
           </div>
         )}
       </GlassCard>
-      <ProjectTaskDetailDialog task={selectedTask} detail={detail} open={Boolean(selectedTask)} onOpenChange={(open) => !open && setSelectedTaskId(null)} onComment={onComment} />
+      <ProjectTaskDetailDialog actor={actor} task={selectedTask} detail={detail} open={Boolean(selectedTask)} onOpenChange={(open) => !open && setSelectedTaskId(null)} onComment={onComment} />
     </div>
   );
 }

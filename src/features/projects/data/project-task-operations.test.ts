@@ -6,6 +6,7 @@ import {
   createMockTask,
   updateMockTaskStatus,
 } from "@/features/projects/data/project-task-operations";
+import type { WorkspaceActor } from "@/features/auth/workspace-session-types";
 import { getProjectDetailMock, mockProjects } from "@/features/projects/mock-data";
 import type { ProjectTask, TaskStatus } from "@/features/projects/types";
 
@@ -18,6 +19,17 @@ function getDetailFixture() {
 }
 
 const detail = getDetailFixture();
+
+const authenticatedActor: WorkspaceActor = {
+  id: "10000000-0000-4000-8000-000000000071",
+  memberId: "71",
+  name: "真实项目成员",
+  role: "employee",
+  roleLabel: "普通员工",
+  department: "产品研发中心",
+  title: "前端工程师",
+  landingPath: "/execution",
+};
 
 function task(status: TaskStatus): ProjectTask {
   return {
@@ -46,7 +58,7 @@ describe("project task operations", () => {
       assigneeId: assignee.id,
       dueDate: "2026-08-28",
       priority: "high",
-    }, {
+    }, authenticatedActor, {
       now: () => new Date("2026-08-05T03:00:00.000Z"),
       createId: () => "task-local-1",
     });
@@ -71,12 +83,12 @@ describe("project task operations", () => {
       assigneeId: "member-outside-project",
       dueDate: "2026-08-28",
       priority: "medium",
-    })).toThrow("负责人必须是当前项目成员");
+    }, authenticatedActor)).toThrow("负责人必须是当前项目成员");
   });
 
   it("marks a task done and sets completion metadata", () => {
     const taskId = detail.tasks[0].id;
-    const next = updateMockTaskStatus(detail, taskId, "done", {
+    const next = updateMockTaskStatus(detail, taskId, "done", authenticatedActor, {
       now: () => new Date("2026-08-05T04:00:00.000Z"),
     });
 
@@ -86,10 +98,10 @@ describe("project task operations", () => {
   });
 
   it("clears completion metadata when a completed task returns to progress", () => {
-    const completed = updateMockTaskStatus(detail, detail.tasks[0].id, "done", {
+    const completed = updateMockTaskStatus(detail, detail.tasks[0].id, "done", authenticatedActor, {
       now: () => new Date("2026-08-05T04:00:00.000Z"),
     });
-    const reopened = updateMockTaskStatus(completed, detail.tasks[0].id, "in_progress", {
+    const reopened = updateMockTaskStatus(completed, detail.tasks[0].id, "in_progress", authenticatedActor, {
       now: () => new Date("2026-08-05T05:00:00.000Z"),
     });
 
@@ -99,16 +111,21 @@ describe("project task operations", () => {
   });
 
   it("returns the same aggregate when the task does not exist", () => {
-    expect(updateMockTaskStatus(detail, "missing-task", "done")).toBe(detail);
+    expect(updateMockTaskStatus(detail, "missing-task", "done", authenticatedActor)).toBe(detail);
   });
 
   it("adds a task comment and a corresponding project activity", () => {
-    const next = addMockTaskComment(detail, detail.tasks[0].id, "已完成联调，请确认。", {
+    const next = addMockTaskComment(detail, detail.tasks[0].id, "已完成联调，请确认。", authenticatedActor, {
       now: () => new Date("2026-08-05T06:00:00.000Z"),
       createId: (() => { let index = 0; return () => `generated-${++index}`; })(),
     });
 
     expect(next.comments.at(-1)).toMatchObject({ body: "已完成联调，请确认。", taskId: detail.tasks[0].id });
+    expect(next.comments.at(-1)?.authorId).toBe("71");
+    expect(next.activities[0]).toMatchObject({
+      userId: "10000000-0000-4000-8000-000000000071",
+    });
+    expect(next.activities[0].content).toContain("真实项目成员");
     expect(next.activities[0].content).toContain("评论了任务");
   });
 });

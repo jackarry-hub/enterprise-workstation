@@ -3,6 +3,7 @@ import type {
   WorkspaceActor,
   WorkspaceRole,
 } from "@/features/auth/workspace-session-types";
+import type { OperationFixtureContext } from "@/features/operations/operation-actor-compat";
 import { calculateProjectProgress } from "@/features/projects/data/project-task-operations";
 import { findLocalProject, saveLocalProject } from "@/features/projects/data/mock-project-repository";
 import type { ProjectActivity, ProjectDetailData, ProjectTask, TaskStatus } from "@/features/projects/types";
@@ -143,8 +144,82 @@ function createSeedState(): OperationsState {
   };
 }
 
-export function createInitialOperationsState() {
-  return createSeedState();
+function createSanitizedOperationsState(): OperationsState {
+  const emptyTimestamp = "1970-01-01T00:00:00.000Z";
+  return {
+    version: 1,
+    command: {
+      id: "",
+      title: "",
+      summary: "",
+      ownerId: "",
+      status: "executing",
+      deadline: "",
+      budgetWan: 0,
+      createdAt: emptyTimestamp,
+      updatedAt: emptyTimestamp,
+    },
+    tasks: [],
+    supportRequests: [],
+    files: [],
+    knowledge: [],
+    leaveRequests: [],
+    attendance: {
+      demoDate: "",
+      policy: {
+        id: "",
+        name: "",
+        effectiveDate: "",
+        workdays: [],
+        workStart: "09:00",
+        workEnd: "18:00",
+        breakStart: "12:00",
+        breakEnd: "13:00",
+        dailyHours: 0,
+        graceMinutes: 0,
+        earliestCheckIn: "",
+        latestCheckOut: "",
+        correctionDeadlineDays: 0,
+        overtimeStartsAfter: "18:00",
+        overtimeMinimumMinutes: 0,
+        clockMethods: [],
+        locationName: "",
+        geofenceMeters: 0,
+        wifiName: "",
+        updatedAt: emptyTimestamp,
+        updatedById: "",
+      },
+      shifts: [],
+      punches: [],
+      corrections: [],
+      overtimeRequests: [],
+      period: {
+        month: "",
+        status: "open",
+        scheduledWorkdays: 0,
+        headcount: 0,
+        adjustmentCount: 0,
+      },
+    },
+    payrollRun: {
+      id: "",
+      month: "",
+      status: "draft",
+      headcount: 0,
+      grossAmount: 0,
+      deductionAmount: 0,
+      netAmount: 0,
+      attendanceLocked: false,
+      exceptionCount: 0,
+      updatedAt: emptyTimestamp,
+    },
+    events: [],
+    notificationReads: {},
+  };
+}
+
+export function createInitialOperationsState(context: OperationFixtureContext) {
+  return context.actor ? createSeedState() : createSanitizedOperationsState();
 }
 
 function operationStatusFromProject(status: TaskStatus): OperationTaskStatus {
@@ -298,36 +373,71 @@ export function applyTaskEscalations(state: OperationsState, now = new Date()): 
   return changed ? { ...state, tasks } : { ...state, tasks };
 }
 
-export function readOperationsState(storage?: Pick<Storage, "getItem" | "setItem">): OperationsState {
+export function getOperationsStorageKey(context: OperationFixtureContext) {
+  return context.storageNamespace
+    ? `${OPERATIONS_STORAGE_KEY}:${context.storageNamespace}`
+    : null;
+}
+
+function requireFixtureActor(
+  context: OperationFixtureContext,
+  actorId?: string,
+) {
+  if (!context.actor || !context.storageNamespace) {
+    throw new Error("当前真实身份未绑定本地业务夹具");
+  }
+  if (actorId !== undefined && actorId !== context.actor.id) {
+    throw new Error("当前真实身份无权代表其他夹具身份执行写入");
+  }
+  return context.actor;
+}
+
+export function readOperationsState(
+  context: OperationFixtureContext,
+  storage?: Pick<Storage, "getItem" | "setItem">,
+): OperationsState {
+  if (!context.actor) return createSanitizedOperationsState();
+  const storageKey = getOperationsStorageKey(context)!;
   const resolved = storage ?? (typeof window === "undefined" ? undefined : window.localStorage);
   if (!resolved) return createSeedState();
   try {
-    const parsed = JSON.parse(resolved.getItem(OPERATIONS_STORAGE_KEY) ?? "null") as OperationsState | null;
+    const parsed = JSON.parse(resolved.getItem(storageKey) ?? "null") as OperationsState | null;
     if (parsed?.version === 1 && parsed.command && Array.isArray(parsed.tasks)) {
       const seed = createSeedState();
       const normalized: OperationsState = { ...parsed, tasks: parsed.tasks.map((task) => ({ ...task, dependencyIds: task.dependencyIds ?? [], escalationLevel: task.escalationLevel ?? "none" })), leaveRequests: parsed.leaveRequests ?? seed.leaveRequests, attendance: parsed.attendance ?? seed.attendance, payrollRun: parsed.payrollRun ?? seed.payrollRun, notificationReads: parsed.notificationReads ?? {} };
-      if (!parsed.leaveRequests || !parsed.attendance || !parsed.payrollRun || !parsed.notificationReads) resolved.setItem(OPERATIONS_STORAGE_KEY, JSON.stringify(normalized));
+      if (!parsed.leaveRequests || !parsed.attendance || !parsed.payrollRun || !parsed.notificationReads) resolved.setItem(storageKey, JSON.stringify(normalized));
       return applyTaskEscalations(hydrateOperationsFromProject(normalized));
     }
   } catch {
     // Corrupt demo data is replaced with a deterministic seed below.
   }
   const seed = createSeedState();
-  resolved.setItem(OPERATIONS_STORAGE_KEY, JSON.stringify(seed));
+  resolved.setItem(storageKey, JSON.stringify(seed));
   return applyTaskEscalations(hydrateOperationsFromProject(seed));
 }
 
-export function saveOperationsState(state: OperationsState, storage?: Pick<Storage, "setItem">) {
+export function saveOperationsState(
+  context: OperationFixtureContext,
+  state: OperationsState,
+  storage?: Pick<Storage, "setItem">,
+) {
+  requireFixtureActor(context);
+  const storageKey = getOperationsStorageKey(context)!;
   const resolved = storage ?? (typeof window === "undefined" ? undefined : window.localStorage);
-  resolved?.setItem(OPERATIONS_STORAGE_KEY, JSON.stringify(state));
+  resolved?.setItem(storageKey, JSON.stringify(state));
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(OPERATIONS_CHANGED_EVENT));
   return state;
 }
 
-export function resetOperationsState(storage?: Pick<Storage, "setItem" | "removeItem">) {
+export function resetOperationsState(
+  context: OperationFixtureContext,
+  storage?: Pick<Storage, "setItem" | "removeItem">,
+) {
+  requireFixtureActor(context);
+  const storageKey = getOperationsStorageKey(context)!;
   const resolved = storage ?? (typeof window === "undefined" ? undefined : window.localStorage);
-  resolved?.removeItem(OPERATIONS_STORAGE_KEY);
-  return saveOperationsState(createSeedState(), resolved);
+  resolved?.removeItem(storageKey);
+  return saveOperationsState(context, createSeedState(), resolved);
 }
 
 export function getActor(actorId: string) {
@@ -501,19 +611,21 @@ export function getOperationNotifications(
   return [...actionNotifications, ...eventNotifications].sort((left, right) => Number(left.read) - Number(right.read) || severityOrder[left.severity] - severityOrder[right.severity] || right.createdAt.localeCompare(left.createdAt));
 }
 
-export function markOperationNotificationRead(notificationId: string, actorId: string) {
+export function markOperationNotificationRead(context: OperationFixtureContext, notificationId: string, actorId: string) {
+  requireFixtureActor(context, actorId);
   requireActorById(actorId);
-  const state = readOperationsState();
+  const state = readOperationsState(context);
   const current = state.notificationReads?.[actorId] ?? [];
   if (current.includes(notificationId)) return state;
-  return saveOperationsState({ ...state, notificationReads: { ...state.notificationReads, [actorId]: [...current, notificationId] } });
+  return saveOperationsState(context, { ...state, notificationReads: { ...state.notificationReads, [actorId]: [...current, notificationId] } });
 }
 
-export function markAllOperationNotificationsRead(actorId: string) {
+export function markAllOperationNotificationsRead(context: OperationFixtureContext, actorId: string) {
+  requireFixtureActor(context, actorId);
   requireActorById(actorId);
-  const state = readOperationsState();
+  const state = readOperationsState(context);
   const ids = getOperationNotifications(state, actorId).map(({ id }) => id);
-  return saveOperationsState({ ...state, notificationReads: { ...state.notificationReads, [actorId]: Array.from(new Set([...(state.notificationReads?.[actorId] ?? []), ...ids])) } });
+  return saveOperationsState(context, { ...state, notificationReads: { ...state.notificationReads, [actorId]: Array.from(new Set([...(state.notificationReads?.[actorId] ?? []), ...ids])) } });
 }
 
 export function getOperationWeeklySummary(
@@ -626,8 +738,14 @@ function event(actorId: string, action: string, detail: string, commandId = COMM
   return { id: `event-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, commandId, actorId, action, detail, createdAt: nowIso() };
 }
 
-export function updateOperationTask(taskId: string, patch: OperationTaskPatch, actorId: string) {
-  const state = readOperationsState();
+export function updateOperationTask(
+  context: OperationFixtureContext,
+  taskId: string,
+  patch: OperationTaskPatch,
+  actorId: string,
+) {
+  requireFixtureActor(context, actorId);
+  const state = readOperationsState(context);
   const before = state.tasks.find(({ id }) => id === taskId);
   if (!before) throw new Error("未找到任务");
   const actor = requireActorById(actorId);
@@ -667,7 +785,7 @@ export function updateOperationTask(taskId: string, patch: OperationTaskPatch, a
   const nextKnowledge = task.status === "done"
     ? upsertKnowledgeForTask(state.knowledge, task, actorId).map((entry) => entry.sourceTaskId === task.id ? { ...entry, fileIds: state.files.filter((file) => file.entityType === "task" && file.entityId === task.id).map(({ id }) => id) } : entry)
     : state.knowledge;
-  const saved = saveOperationsState({
+  const saved = saveOperationsState(context, {
     ...state,
     command: { ...state.command, updatedAt: task.updatedAt },
     tasks: state.tasks.map((item) => item.id === taskId ? task : item),
@@ -678,12 +796,13 @@ export function updateOperationTask(taskId: string, patch: OperationTaskPatch, a
   return saved;
 }
 
-export function syncProjectTasksToOperations(detail: ProjectDetailData, actorId: string) {
-  const state = readOperationsState();
+export function syncProjectTasksToOperations(context: OperationFixtureContext, detail: ProjectDetailData, actorId: string) {
+  requireFixtureActor(context, actorId);
+  const state = readOperationsState(context);
   if (state.command.projectId !== detail.project.id) return state;
   const hydrated = hydrateOperationsFromProject(state);
   const actor = getActor(actorId);
-  return saveOperationsState({
+  return saveOperationsState(context, {
     ...hydrated,
     events: [event(actorId, "同步任务主数据", `${actor.name}在项目中心更新任务，角色工作台与领导决策进度已同步。`, state.command.id), ...hydrated.events],
   });
@@ -694,8 +813,9 @@ function upsertKnowledgeForTask(entries: KnowledgeEntry[], task: OperationTask, 
   return [{ id: `knowledge-${task.id}`, commandId: task.commandId, sourceTaskId: task.id, title: `${task.title} · 交付成果`, summary: `由任务“${task.title}”验收通过后自动归档，保留执行记录和成果文件。`, category: task.department === "财务中心" ? "财务资料" as const : task.department === "人力资源中心" ? "人事资料" as const : "项目成果" as const, tags: ["AI试点", task.department], fileIds: [], status: "draft" as const, createdById: actorId, updatedAt: nowIso() }, ...entries];
 }
 
-export function updateSupportRequest(requestId: string, status: SupportRequestStatus, actorId: string, result?: string) {
-  const state = readOperationsState();
+export function updateSupportRequest(context: OperationFixtureContext, requestId: string, status: SupportRequestStatus, actorId: string, result?: string) {
+  requireFixtureActor(context, actorId);
+  const state = readOperationsState(context);
   const request = state.supportRequests.find(({ id }) => id === requestId);
   if (!request) throw new Error("未找到协同申请");
   if (request.handlerId !== actorId) throw new Error("只有当前协同处理人可以办理该事项");
@@ -704,7 +824,7 @@ export function updateSupportRequest(requestId: string, status: SupportRequestSt
   const sourceTask = state.tasks.find(({ id }) => id === request.sourceTaskId);
   const shouldAdvanceSource = status === "completed" && sourceTask?.status === "in_progress";
   const tasks = state.tasks.map((item) => item.id === request.sourceTaskId && shouldAdvanceSource ? { ...item, progress: Math.max(item.progress, 75), updatedAt } : item);
-  return saveOperationsState({
+  return saveOperationsState(context, {
     ...state,
     tasks,
     supportRequests: state.supportRequests.map((item) => item.id === requestId ? { ...item, status, result: result ?? item.result, updatedAt } : item),
@@ -712,8 +832,9 @@ export function updateSupportRequest(requestId: string, status: SupportRequestSt
   });
 }
 
-export function createSupportRequest(sourceTaskId: string, type: "finance" | "staffing", actorId: string) {
-  const state = readOperationsState();
+export function createSupportRequest(context: OperationFixtureContext, sourceTaskId: string, type: "finance" | "staffing", actorId: string) {
+  requireFixtureActor(context, actorId);
+  const state = readOperationsState(context);
   const task = state.tasks.find(({ id }) => id === sourceTaskId);
   if (!task) throw new Error("未找到任务");
   if (task.assigneeId !== actorId) throw new Error("只有任务执行人可以发起协同");
@@ -723,11 +844,12 @@ export function createSupportRequest(sourceTaskId: string, type: "finance" | "st
   const request: SupportRequest = type === "finance"
     ? { id: `support-${Date.now()}`, commandId: state.command.id, sourceTaskId, type, title: `${task.title} · 预算协同`, description: "请财务核验本任务所需预算并反馈办理结果。", requesterId: actorId, handlerId: "actor-finance", amountWan: 3, status: "pending", updatedAt: nowIso() }
     : { id: `support-${Date.now()}`, commandId: state.command.id, sourceTaskId, type, title: `${task.title} · 人员协同`, description: "请人事评估人员调配或临时支持方案。", requesterId: actorId, handlerId: "actor-hr", status: "pending", updatedAt: nowIso() };
-  return saveOperationsState({ ...state, supportRequests: [request, ...state.supportRequests], events: [event(actorId, "发起协同", `${getActor(actorId).name}为“${task.title}”发起${type === "finance" ? "财务" : "人事"}协同。`), ...state.events] });
+  return saveOperationsState(context, { ...state, supportRequests: [request, ...state.supportRequests], events: [event(actorId, "发起协同", `${getActor(actorId).name}为“${task.title}”发起${type === "finance" ? "财务" : "人事"}协同。`), ...state.events] });
 }
 
-export function addOperationFile(file: OperationFile) {
-  const state = readOperationsState();
+export function addOperationFile(context: OperationFixtureContext, file: OperationFile) {
+  requireFixtureActor(context, file.uploadedById);
+  const state = readOperationsState(context);
   const actor = requireActorById(file.uploadedById);
   if (file.entityType === "task") {
     const task = state.tasks.find(({ id }) => id === file.entityId);
@@ -746,34 +868,38 @@ export function addOperationFile(file: OperationFile) {
   const attendance = file.entityType === "attendance"
     ? { ...state.attendance, corrections: state.attendance.corrections.map((item) => item.id === file.entityId ? { ...item, attachmentFileIds: [...new Set([...item.attachmentFileIds, file.id])], updatedAt: file.createdAt } : item) }
     : state.attendance;
-  return saveOperationsState({ ...state, files: [file, ...state.files], knowledge, attendance, events: [event(file.uploadedById, "上传文件", `${actor.name}上传了“${file.name}”。`), ...state.events] });
+  return saveOperationsState(context, { ...state, files: [file, ...state.files], knowledge, attendance, events: [event(file.uploadedById, "上传文件", `${actor.name}上传了“${file.name}”。`), ...state.events] });
 }
 
-export function addKnowledgeEntry(entry: KnowledgeEntry) {
-  const state = readOperationsState();
-  return saveOperationsState({ ...state, knowledge: [entry, ...state.knowledge], events: [event(entry.createdById, "沉淀知识", `${getActor(entry.createdById).name}新增知识“${entry.title}”。`), ...state.events] });
+export function addKnowledgeEntry(context: OperationFixtureContext, entry: KnowledgeEntry) {
+  requireFixtureActor(context, entry.createdById);
+  const state = readOperationsState(context);
+  return saveOperationsState(context, { ...state, knowledge: [entry, ...state.knowledge], events: [event(entry.createdById, "沉淀知识", `${getActor(entry.createdById).name}新增知识“${entry.title}”。`), ...state.events] });
 }
 
-export function publishKnowledgeEntry(entryId: string, actorId: string) {
-  const state = readOperationsState();
+export function publishKnowledgeEntry(context: OperationFixtureContext, entryId: string, actorId: string) {
+  requireFixtureActor(context, actorId);
+  const state = readOperationsState(context);
   const entry = state.knowledge.find(({ id }) => id === entryId);
   if (!entry) throw new Error("未找到知识文档");
   const updatedAt = nowIso();
-  return saveOperationsState({ ...state, knowledge: state.knowledge.map((item) => item.id === entryId ? { ...item, status: "published" as const, updatedAt } : item), events: [event(actorId, "发布知识", `${getActor(actorId).name}发布了“${entry.title}”。`), ...state.events] });
+  return saveOperationsState(context, { ...state, knowledge: state.knowledge.map((item) => item.id === entryId ? { ...item, status: "published" as const, updatedAt } : item), events: [event(actorId, "发布知识", `${getActor(actorId).name}发布了“${entry.title}”。`), ...state.events] });
 }
 
-export function submitLeaveRequest(input: Pick<LeaveRequest, "leaveType" | "startDate" | "endDate" | "days" | "reason" | "handover">, actorId: string) {
-  const state = readOperationsState();
+export function submitLeaveRequest(context: OperationFixtureContext, input: Pick<LeaveRequest, "leaveType" | "startDate" | "endDate" | "days" | "reason" | "handover">, actorId: string) {
+  requireFixtureActor(context, actorId);
+  const state = readOperationsState(context);
   const actor = getActor(actorId);
   if (!input.startDate || !input.endDate || input.days <= 0 || !input.reason.trim() || !input.handover.trim()) throw new Error("请完整填写请假时间、事由和工作交接");
   if (input.endDate < input.startDate) throw new Error("结束日期不能早于开始日期");
   const submittedAt = nowIso();
   const request: LeaveRequest = { id: `leave-${Date.now()}`, code: `LEAVE-${submittedAt.slice(0, 10).replaceAll("-", "")}-${String(state.leaveRequests.length + 1).padStart(3, "0")}`, employeeId: actorId, managerId: actor.role === "department_head" ? "actor-executive" : "actor-manager", ...input, reason: input.reason.trim(), handover: input.handover.trim(), status: "pending_manager", submittedAt, updatedAt: submittedAt };
-  return saveOperationsState({ ...state, leaveRequests: [request, ...state.leaveRequests], events: [event(actorId, "提交请假", `${actor.name}提交${input.days}天请假申请，进入负责人审批。`), ...state.events] });
+  return saveOperationsState(context, { ...state, leaveRequests: [request, ...state.leaveRequests], events: [event(actorId, "提交请假", `${actor.name}提交${input.days}天请假申请，进入负责人审批。`), ...state.events] });
 }
 
-export function reviewLeaveRequest(requestId: string, action: "approve" | "reject" | "cancel", actorId: string, comment: string) {
-  const state = readOperationsState();
+export function reviewLeaveRequest(context: OperationFixtureContext, requestId: string, action: "approve" | "reject" | "cancel", actorId: string, comment: string) {
+  requireFixtureActor(context, actorId);
+  const state = readOperationsState(context);
   const request = state.leaveRequests.find(({ id }) => id === requestId);
   if (!request) throw new Error("未找到请假申请");
   const actor = getActor(actorId);
@@ -795,7 +921,7 @@ export function reviewLeaveRequest(requestId: string, action: "approve" | "rejec
   const updatedAt = nowIso();
   const updated = { ...request, status, managerComment: request.status === "pending_manager" ? comment.trim() || "同意，交接安排清晰。" : request.managerComment, hrComment: request.status === "pending_hr" ? comment.trim() || "假期余额与考勤规则校验通过。" : request.hrComment, updatedAt };
   const actionLabel = action === "reject" ? "驳回请假" : action === "cancel" ? "撤回请假" : status === "pending_hr" ? "负责人同意" : "人事复核通过";
-  return saveOperationsState({ ...state, leaveRequests: state.leaveRequests.map((item) => item.id === requestId ? updated : item), events: [event(actorId, actionLabel, `${actor.name}处理了${getActor(request.employeeId).name}的请假申请。`), ...state.events] });
+  return saveOperationsState(context, { ...state, leaveRequests: state.leaveRequests.map((item) => item.id === requestId ? updated : item), events: [event(actorId, actionLabel, `${actor.name}处理了${getActor(request.employeeId).name}的请假申请。`), ...state.events] });
 }
 
 function attendanceCode(prefix: string, date: string, count: number) {
@@ -813,8 +939,9 @@ function countOpenAttendanceItems(attendance: AttendanceOperations, month: strin
     + attendance.overtimeRequests.filter((item) => item.date.startsWith(month) && ["pending_manager", "pending_hr"].includes(item.status)).length;
 }
 
-export function clockAttendance(actorId: string, kind: AttendancePunchKind, method: AttendancePunchMethod = "web") {
-  const state = readOperationsState();
+export function clockAttendance(context: OperationFixtureContext, actorId: string, kind: AttendancePunchKind, method: AttendancePunchMethod = "web") {
+  requireFixtureActor(context, actorId);
+  const state = readOperationsState(context);
   const actor = getActor(actorId);
   if (actor.role === "executive") throw new Error("决策人账号不参与日常打卡");
   const { demoDate, policy } = state.attendance;
@@ -828,11 +955,12 @@ export function clockAttendance(actorId: string, kind: AttendancePunchKind, meth
   const occurredAt = `${demoDate}T${time}:00+08:00`;
   const punch = { id: `punch-${Date.now()}`, employeeId: actorId, date: demoDate, kind, time, occurredAt, method, locationName: policy.locationName, verified: true };
   const action = kind === "check_in" ? "上班签到" : "下班签退";
-  return saveOperationsState({ ...state, attendance: { ...state.attendance, punches: [punch, ...state.attendance.punches] }, events: [event(actorId, action, `${actor.name}于 ${time} 通过${method === "web" ? "工作站" : method === "office_wifi" ? "办公 Wi-Fi" : "手机定位"}${action}。`), ...state.events] });
+  return saveOperationsState(context, { ...state, attendance: { ...state.attendance, punches: [punch, ...state.attendance.punches] }, events: [event(actorId, action, `${actor.name}于 ${time} 通过${method === "web" ? "工作站" : method === "office_wifi" ? "办公 Wi-Fi" : "手机定位"}${action}。`), ...state.events] });
 }
 
-export function submitAttendanceCorrection(input: { date: string; issueType: AttendanceIssueType; correctedTime: string; reason: string }, actorId: string) {
-  const state = readOperationsState();
+export function submitAttendanceCorrection(context: OperationFixtureContext, input: { date: string; issueType: AttendanceIssueType; correctedTime: string; reason: string }, actorId: string) {
+  requireFixtureActor(context, actorId);
+  const state = readOperationsState(context);
   const actor = getActor(actorId);
   if (actor.role === "executive" || actor.role === "hr") throw new Error("当前角色不发起个人补卡");
   if (!input.date || !input.correctedTime || !input.reason.trim()) throw new Error("请完整填写异常日期、修正时间和补卡原因");
@@ -842,11 +970,12 @@ export function submitAttendanceCorrection(input: { date: string; issueType: Att
   const submittedAt = nowIso();
   const request: AttendanceCorrectionRequest = { id: `correction-${Date.now()}`, code: attendanceCode("BUKA", input.date, state.attendance.corrections.length), employeeId: actorId, managerId: actor.role === "department_head" ? "actor-executive" : "actor-manager", date: input.date, issueType: input.issueType, correctedTime: input.correctedTime, reason: input.reason.trim(), attachmentFileIds: [], status: "pending_manager", submittedAt, updatedAt: submittedAt };
   const attendance = { ...state.attendance, corrections: [request, ...state.attendance.corrections] };
-  return saveOperationsState({ ...state, attendance, payrollRun: { ...state.payrollRun, attendanceLocked: false, exceptionCount: countOpenAttendanceItems(attendance, state.attendance.period.month) }, events: [event(actorId, "提交补卡", `${actor.name}提交 ${input.date} 的补卡申请，进入负责人审批。`), ...state.events] });
+  return saveOperationsState(context, { ...state, attendance, payrollRun: { ...state.payrollRun, attendanceLocked: false, exceptionCount: countOpenAttendanceItems(attendance, state.attendance.period.month) }, events: [event(actorId, "提交补卡", `${actor.name}提交 ${input.date} 的补卡申请，进入负责人审批。`), ...state.events] });
 }
 
-export function reviewAttendanceCorrection(requestId: string, action: "approve" | "reject", actorId: string, comment: string) {
-  const state = readOperationsState();
+export function reviewAttendanceCorrection(context: OperationFixtureContext, requestId: string, action: "approve" | "reject", actorId: string, comment: string) {
+  requireFixtureActor(context, actorId);
+  const state = readOperationsState(context);
   const request = state.attendance.corrections.find(({ id }) => id === requestId);
   if (!request) throw new Error("未找到补卡申请");
   if (state.attendance.period.status === "locked" && request.date.startsWith(state.attendance.period.month)) throw new Error("该考勤周期已封账，不能再变更补卡状态");
@@ -859,11 +988,12 @@ export function reviewAttendanceCorrection(requestId: string, action: "approve" 
   const updatedAt = nowIso();
   const updated = { ...request, status, managerComment: request.status === "pending_manager" ? comment.trim() || "异常说明与现场记录一致。" : request.managerComment, hrComment: request.status === "pending_hr" ? comment.trim() || "规则校验通过，准予修正。" : request.hrComment, updatedAt };
   const attendance = { ...state.attendance, corrections: state.attendance.corrections.map((item) => item.id === requestId ? updated : item) };
-  return saveOperationsState({ ...state, attendance, payrollRun: { ...state.payrollRun, attendanceLocked: false, exceptionCount: countOpenAttendanceItems(attendance, state.attendance.period.month) }, events: [event(actorId, action === "approve" ? "审批补卡" : "驳回补卡", `${actor.name}${action === "approve" ? "处理并通过" : "驳回"}了 ${getActor(request.employeeId).name} 的补卡申请。`), ...state.events] });
+  return saveOperationsState(context, { ...state, attendance, payrollRun: { ...state.payrollRun, attendanceLocked: false, exceptionCount: countOpenAttendanceItems(attendance, state.attendance.period.month) }, events: [event(actorId, action === "approve" ? "审批补卡" : "驳回补卡", `${actor.name}${action === "approve" ? "处理并通过" : "驳回"}了 ${getActor(request.employeeId).name} 的补卡申请。`), ...state.events] });
 }
 
-export function submitOvertimeRequest(input: { date: string; startTime: string; endTime: string; reason: string }, actorId: string) {
-  const state = readOperationsState();
+export function submitOvertimeRequest(context: OperationFixtureContext, input: { date: string; startTime: string; endTime: string; reason: string }, actorId: string) {
+  requireFixtureActor(context, actorId);
+  const state = readOperationsState(context);
   const actor = getActor(actorId);
   if (actor.role === "executive" || actor.role === "hr") throw new Error("当前角色不发起个人加班");
   if (state.attendance.period.status === "locked" && input.date.startsWith(state.attendance.period.month)) throw new Error("该考勤周期已封账，加班申请需由人事先发起解锁审批");
@@ -874,11 +1004,12 @@ export function submitOvertimeRequest(input: { date: string; startTime: string; 
   const submittedAt = nowIso();
   const request: AttendanceOvertimeRequest = { id: `overtime-${Date.now()}`, code: attendanceCode("OT", input.date, state.attendance.overtimeRequests.length), employeeId: actorId, managerId: actor.role === "department_head" ? "actor-executive" : "actor-manager", date: input.date, startTime: input.startTime, endTime: input.endTime, hours: Math.round(duration / 6) / 10, reason: input.reason.trim(), status: "pending_manager", submittedAt, updatedAt: submittedAt };
   const attendance = { ...state.attendance, overtimeRequests: [request, ...state.attendance.overtimeRequests] };
-  return saveOperationsState({ ...state, attendance, payrollRun: { ...state.payrollRun, attendanceLocked: false, exceptionCount: countOpenAttendanceItems(attendance, state.attendance.period.month) }, events: [event(actorId, "申请加班", `${actor.name}提交 ${request.hours} 小时加班申请。`), ...state.events] });
+  return saveOperationsState(context, { ...state, attendance, payrollRun: { ...state.payrollRun, attendanceLocked: false, exceptionCount: countOpenAttendanceItems(attendance, state.attendance.period.month) }, events: [event(actorId, "申请加班", `${actor.name}提交 ${request.hours} 小时加班申请。`), ...state.events] });
 }
 
-export function reviewOvertimeRequest(requestId: string, action: "approve" | "reject", actorId: string, comment: string) {
-  const state = readOperationsState();
+export function reviewOvertimeRequest(context: OperationFixtureContext, requestId: string, action: "approve" | "reject", actorId: string, comment: string) {
+  requireFixtureActor(context, actorId);
+  const state = readOperationsState(context);
   const request = state.attendance.overtimeRequests.find(({ id }) => id === requestId);
   if (!request) throw new Error("未找到加班申请");
   const actor = getActor(actorId);
@@ -891,22 +1022,24 @@ export function reviewOvertimeRequest(requestId: string, action: "approve" | "re
   const updatedAt = nowIso();
   const updated = { ...request, status, managerComment: request.status === "pending_manager" ? comment.trim() || "业务需要明确，同意。" : request.managerComment, hrComment: request.status === "pending_hr" ? comment.trim() || "工时与考勤记录校验通过。" : request.hrComment, updatedAt };
   const attendance = { ...state.attendance, overtimeRequests: state.attendance.overtimeRequests.map((item) => item.id === requestId ? updated : item) };
-  return saveOperationsState({ ...state, attendance, payrollRun: { ...state.payrollRun, attendanceLocked: false, exceptionCount: countOpenAttendanceItems(attendance, state.attendance.period.month) }, events: [event(actorId, action === "approve" ? "审批加班" : "驳回加班", `${actor.name}${action === "approve" ? "处理并通过" : "驳回"}了 ${getActor(request.employeeId).name} 的加班申请。`), ...state.events] });
+  return saveOperationsState(context, { ...state, attendance, payrollRun: { ...state.payrollRun, attendanceLocked: false, exceptionCount: countOpenAttendanceItems(attendance, state.attendance.period.month) }, events: [event(actorId, action === "approve" ? "审批加班" : "驳回加班", `${actor.name}${action === "approve" ? "处理并通过" : "驳回"}了 ${getActor(request.employeeId).name} 的加班申请。`), ...state.events] });
 }
 
-export function updateAttendancePolicy(patch: Pick<AttendancePolicy, "workStart" | "workEnd" | "breakStart" | "breakEnd" | "graceMinutes" | "overtimeStartsAfter" | "overtimeMinimumMinutes" | "correctionDeadlineDays">, actorId: string) {
-  const state = readOperationsState();
+export function updateAttendancePolicy(context: OperationFixtureContext, patch: Pick<AttendancePolicy, "workStart" | "workEnd" | "breakStart" | "breakEnd" | "graceMinutes" | "overtimeStartsAfter" | "overtimeMinimumMinutes" | "correctionDeadlineDays">, actorId: string) {
+  requireFixtureActor(context, actorId);
+  const state = readOperationsState(context);
   const actor = getActor(actorId);
   if (actor.role !== "hr") throw new Error("只有人事可以维护考勤制度");
   if (patch.workEnd <= patch.workStart || patch.breakEnd <= patch.breakStart) throw new Error("上下班或休息时间配置不正确");
   if (patch.graceMinutes < 0 || patch.graceMinutes > 30) throw new Error("迟到宽限应设置为 0–30 分钟");
   const updatedAt = nowIso();
   const policy = { ...state.attendance.policy, ...patch, updatedAt, updatedById: actorId };
-  return saveOperationsState({ ...state, attendance: { ...state.attendance, policy }, events: [event(actorId, "更新考勤制度", `${actor.name}更新了“${policy.name}”，${policy.effectiveDate} 起生效。`), ...state.events] });
+  return saveOperationsState(context, { ...state, attendance: { ...state.attendance, policy }, events: [event(actorId, "更新考勤制度", `${actor.name}更新了“${policy.name}”，${policy.effectiveDate} 起生效。`), ...state.events] });
 }
 
-export function lockAttendancePeriod(actorId: string) {
-  const state = readOperationsState();
+export function lockAttendancePeriod(context: OperationFixtureContext, actorId: string) {
+  requireFixtureActor(context, actorId);
+  const state = readOperationsState(context);
   const actor = getActor(actorId);
   if (actor.role !== "hr") throw new Error("只有人事可以完成考勤封账");
   if (state.attendance.period.status === "locked") return state;
@@ -917,11 +1050,12 @@ export function lockAttendancePeriod(actorId: string) {
   const lockedAt = nowIso();
   const attendance = { ...state.attendance, period: { ...state.attendance.period, status: "locked" as const, lockedAt, lockedById: actorId } };
   const payrollRun = { ...state.payrollRun, attendanceLocked: true, exceptionCount: 0, updatedAt: lockedAt };
-  return saveOperationsState({ ...state, attendance, payrollRun, events: [event(actorId, "考勤封账", `${actor.name}完成 ${state.attendance.period.month} 考勤封账，薪资核算输入已生成。`), ...state.events] });
+  return saveOperationsState(context, { ...state, attendance, payrollRun, events: [event(actorId, "考勤封账", `${actor.name}完成 ${state.attendance.period.month} 考勤封账，薪资核算输入已生成。`), ...state.events] });
 }
 
-export function updatePayrollRun(status: PayrollRunStatus, actorId: string) {
-  const state = readOperationsState();
+export function updatePayrollRun(context: OperationFixtureContext, status: PayrollRunStatus, actorId: string) {
+  requireFixtureActor(context, actorId);
+  const state = readOperationsState(context);
   const actor = getActor(actorId);
   const current = state.payrollRun;
   const allowed = (current.status === "draft" && status === "calculated" && actor.role === "finance" && current.attendanceLocked)
@@ -933,21 +1067,24 @@ export function updatePayrollRun(status: PayrollRunStatus, actorId: string) {
   const updatedAt = nowIso();
   const payrollRun = { ...current, status, exceptionCount: status === "verified" ? 0 : current.exceptionCount, calculatedAt: status === "calculated" ? updatedAt : current.calculatedAt, verifiedAt: status === "verified" ? updatedAt : current.verifiedAt, approvedAt: status === "approved" ? updatedAt : current.approvedAt, paidAt: status === "paid" ? updatedAt : current.paidAt, updatedAt };
   const labels: Record<PayrollRunStatus, string> = { draft: "建立薪资周期", calculated: "完成薪资核算", verified: "完成人员与考勤复核", approved: "批准薪资发放", paid: "完成工资发放" };
-  return saveOperationsState({ ...state, payrollRun, events: [event(actorId, labels[status], `${actor.name}${labels[status]}（${current.month}）。`), ...state.events] });
+  return saveOperationsState(context, { ...state, payrollRun, events: [event(actorId, labels[status], `${actor.name}${labels[status]}（${current.month}）。`), ...state.events] });
 }
 
-export function setCommandStatus(status: CommandStatus, actorId: string) {
-  const state = readOperationsState();
+export function setCommandStatus(context: OperationFixtureContext, status: CommandStatus, actorId: string) {
+  requireFixtureActor(context, actorId);
+  const state = readOperationsState(context);
   if ((status === "accepted" || status === "archived") && state.tasks.some(({ status: taskStatus }) => taskStatus !== "done")) {
     throw new Error("仍有任务未验收，不能完成总验收");
   }
   const labels: Record<CommandStatus, string> = { executing: "恢复执行", review: "提交总验收", accepted: "完成总验收", archived: "归档闭环" };
   const updatedAt = nowIso();
-  return saveOperationsState({ ...state, command: { ...state.command, status, updatedAt }, knowledge: status === "archived" ? state.knowledge.map((entry) => ({ ...entry, status: "published" as const, updatedAt })) : state.knowledge, events: [event(actorId, labels[status], `${getActor(actorId).name}${labels[status]}“${state.command.title}”。`), ...state.events] });
+  return saveOperationsState(context, { ...state, command: { ...state.command, status, updatedAt }, knowledge: status === "archived" ? state.knowledge.map((entry) => ({ ...entry, status: "published" as const, updatedAt })) : state.knowledge, events: [event(actorId, labels[status], `${getActor(actorId).name}${labels[status]}“${state.command.title}”。`), ...state.events] });
 }
 
-export function syncDecisionToOperations(input: DecisionInput, plan: DecisionPlan, projectId: string) {
-  const state = readOperationsState();
+export function syncDecisionToOperations(context: OperationFixtureContext, input: DecisionInput, plan: DecisionPlan, projectId: string) {
+  const actor = requireFixtureActor(context);
+  if (actor.role !== "executive") throw new Error("只有显式绑定的决策人可以下发本地业务夹具");
+  const state = readOperationsState(context);
   const memberActors = new Map(operationFixtureActors.map((actor) => [actor.memberId, actor.id]));
   const ownerByDepartment = new Map(plan.departments.map((department) => {
     const actorId = memberActors.get(department.owner.id);
@@ -974,5 +1111,5 @@ export function syncDecisionToOperations(input: DecisionInput, plan: DecisionPla
     updatedAt: nowIso(),
   })));
   const command = { id: plan.id, title: input.goal, summary: input.constraints || "由 AI 拆解并下发的企业级决策。", ownerId: "actor-executive", status: "executing" as const, deadline: input.deadline, budgetWan: Number(input.budget) || 0, projectId, createdAt: plan.createdAt, updatedAt: nowIso() };
-  return saveOperationsState({ ...state, command, tasks, supportRequests: [], files: [], knowledge: [], events: [event("actor-executive", "确认下发", `李总确认 AI 拆解方案，${tasks.length} 项任务已进入角色工作台。`, plan.id), ...state.events] });
+  return saveOperationsState(context, { ...state, command, tasks, supportRequests: [], files: [], knowledge: [], events: [event(actor.id, "确认下发", `${actor.name}确认 AI 拆解方案，${tasks.length} 项任务已进入角色工作台。`, plan.id), ...state.events] });
 }

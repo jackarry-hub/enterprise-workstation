@@ -19,9 +19,12 @@ import { getEffectiveProjectDetails } from "@/features/projects/data/effective-p
 import { PROJECTS_CHANGED_EVENT, readLocalProjects, saveLocalProject } from "@/features/projects/data/mock-project-repository";
 
 export function ActivitiesPage() {
-  const { actor: workspaceActor } = useWorkspaceSession();
-  const actor = toOperationFixtureActor(workspaceActor);
-  const [allActivities, setAllActivities] = useState(() => buildActivityProjectViews(getEffectiveProjectDetails([])));
+  const session = useWorkspaceSession();
+  const auditActor = session.actor;
+  const fixtureActor = toOperationFixtureActor(session);
+  const actor = fixtureActor ?? auditActor;
+  const isFixtureBound = fixtureActor !== null;
+  const [allActivities, setAllActivities] = useState(() => isFixtureBound ? buildActivityProjectViews(getEffectiveProjectDetails([])) : []);
   const activities = actor.role === "executive" ? allActivities : allActivities.filter(({ project, members }) => project.ownerId === actor.memberId || members.some(({ member }) => member.id === actor.memberId));
   const [selectedId, setSelectedId] = useState(allActivities.find(({ project }) => project.name === "新产品发布活动")?.project.id ?? allActivities[0]?.project.id ?? "");
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -29,7 +32,7 @@ export function ActivitiesPage() {
   const selectedActivity = activities.find(({ project }) => project.id === selectedId) ?? activities[0];
   const members = Array.from(new Map(activities.flatMap(({ owner, members: projectMembers }) => [owner, ...projectMembers.map(({ member }) => member)]).map((member) => [member.id, member])).values());
 
-  const refreshActivities = useCallback(() => setAllActivities(buildActivityProjectViews(getEffectiveProjectDetails(readLocalProjects()))), []);
+  const refreshActivities = useCallback(() => setAllActivities(isFixtureBound ? buildActivityProjectViews(getEffectiveProjectDetails(readLocalProjects())) : []), [isFixtureBound]);
   useEffect(() => {
     refreshActivities();
     window.addEventListener(PROJECTS_CHANGED_EVENT, refreshActivities);
@@ -37,7 +40,8 @@ export function ActivitiesPage() {
   }, [refreshActivities]);
 
   function createActivity(activity: (typeof allActivities)[number]) {
-    saveLocalProject({ project: activity.project, objective: activity.objective, owner: activity.owner, members: activity.members, milestones: activity.stages, tasks: activity.tasks, comments: [], files: [], dailyReports: [], activities: [{ id: `activity-${Date.now()}`, organizationId: activity.project.organizationId, projectId: activity.project.id, userId: actor.memberId, actionType: "project_created", content: `${actor.name}创建了活动“${activity.project.name}”。`, createdAt: activity.project.createdAt }], risks: [], fileRelations: [] });
+    if (!isFixtureBound) throw new Error("当前真实身份未绑定本地业务夹具");
+    saveLocalProject({ project: activity.project, objective: activity.objective, owner: activity.owner, members: activity.members, milestones: activity.stages, tasks: activity.tasks, comments: [], files: [], dailyReports: [], activities: [{ id: `activity-${Date.now()}`, organizationId: activity.project.organizationId, projectId: activity.project.id, userId: auditActor.id, actionType: "project_created", content: `${auditActor.name}创建了活动“${activity.project.name}”。`, createdAt: activity.project.createdAt }], risks: [], fileRelations: [] });
     setSelectedId(activity.project.id);
   }
 

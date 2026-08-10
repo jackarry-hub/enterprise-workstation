@@ -11,7 +11,6 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
-import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import { getActor, reviewLeaveRequest, submitLeaveRequest } from "@/features/operations/operations-data";
 import type { LeaveRequest, LeaveRequestStatus } from "@/features/operations/operations-types";
 import { useOperations } from "@/features/operations/use-operations";
@@ -38,8 +37,8 @@ function LeaveFlow({ request }: { request: LeaveRequest }) {
 }
 
 function LeaveCard({ request, onFeedback }: { request: LeaveRequest; onFeedback: (message: string, error?: boolean) => void }) {
-  const { actor: workspaceActor } = useWorkspaceSession();
-  const actor = toOperationFixtureActor(workspaceActor);
+  const session = useWorkspaceSession();
+  const { context, actor } = useOperations(session);
   const [comment, setComment] = useState("");
   const employee = getActor(request.employeeId);
   const canManagerReview = request.status === "pending_manager" && (actor.role === "department_head" || actor.role === "executive") && (request.managerId === actor.id || actor.role === "executive");
@@ -48,7 +47,7 @@ function LeaveCard({ request, onFeedback }: { request: LeaveRequest; onFeedback:
 
   function review(action: "approve" | "reject" | "cancel") {
     try {
-      reviewLeaveRequest(request.id, action, actor.id, comment);
+      reviewLeaveRequest(context, request.id, action, actor.id, comment);
       setComment("");
       onFeedback(action === "approve" ? "审批已提交到下一节点" : action === "reject" ? "申请已驳回并通知员工" : "申请已撤回");
     } catch (error) {
@@ -66,9 +65,8 @@ function LeaveCard({ request, onFeedback }: { request: LeaveRequest; onFeedback:
 }
 
 export function LeaveWorkbench() {
-  const { actor: workspaceActor } = useWorkspaceSession();
-  const actor = toOperationFixtureActor(workspaceActor);
-  const { state } = useOperations();
+  const session = useWorkspaceSession();
+  const { state, context, actor } = useOperations(session);
   const [feedback, setFeedback] = useState<{ message: string; error?: boolean } | null>(null);
   const [form, setForm] = useState({ leaveType: "annual" as LeaveRequest["leaveType"], startDate: "2026-08-17", endDate: "2026-08-17", days: "1", reason: "家庭事务安排", handover: "当前任务由刘洋临时跟进，资料已同步到项目空间。" });
   const requests = useMemo(() => {
@@ -81,7 +79,7 @@ export function LeaveWorkbench() {
   function notify(message: string, error = false) { setFeedback({ message, error }); }
   function submit() {
     try {
-      submitLeaveRequest({ ...form, days: Number(form.days) }, actor.id);
+      submitLeaveRequest(context, { ...form, days: Number(form.days) }, actor.id);
       notify("请假申请已提交给部门负责人");
     } catch (error) { notify(error instanceof Error ? error.message : "请假申请提交失败", true); }
   }

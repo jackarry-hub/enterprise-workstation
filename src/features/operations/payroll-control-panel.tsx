@@ -8,7 +8,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
-import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import { updatePayrollRun } from "@/features/operations/operations-data";
 import type { PayrollRunStatus } from "@/features/operations/operations-types";
 import { useOperations } from "@/features/operations/use-operations";
@@ -25,9 +24,8 @@ const steps: Array<{ status: PayrollRunStatus; label: string; owner: string }> =
 function currency(value: number) { return new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(value); }
 
 export function PayrollControlPanel() {
-  const { actor: workspaceActor } = useWorkspaceSession();
-  const actor = toOperationFixtureActor(workspaceActor);
-  const { state } = useOperations();
+  const session = useWorkspaceSession();
+  const { state, context, actor } = useOperations(session);
   const [feedback, setFeedback] = useState<{ message: string; error?: boolean } | null>(null);
   const run = state.payrollRun;
   const statusIndex = steps.findIndex(({ status }) => status === run.status);
@@ -38,7 +36,7 @@ export function PayrollControlPanel() {
 
   function advance() {
     if (!next) return;
-    try { updatePayrollRun(next.status, actor.id); setFeedback({ message: `${next.label}成功，已通知下一责任角色` }); }
+    try { updatePayrollRun(context, next.status, actor.id); setFeedback({ message: `${next.label}成功，已通知下一责任角色` }); }
     catch (error) { setFeedback({ message: error instanceof Error ? error.message : "薪资周期更新失败", error: true }); }
   }
 

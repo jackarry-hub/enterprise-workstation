@@ -5,7 +5,7 @@ import type {
   TaskComment,
   TaskPriority,
 } from "@/features/projects/types";
-import { getCurrentUser } from "@/lib/auth/mock-user";
+import type { WorkspaceActor } from "@/features/auth/workspace-session-types";
 
 export type TaskExecutionStatus = "todo" | "in_progress" | "done";
 
@@ -43,6 +43,7 @@ export function calculateProjectProgress(tasks: readonly ProjectTask[]) {
 export function createMockTask(
   detail: ProjectDetailData,
   input: CreateMockTaskInput,
+  actor: WorkspaceActor,
   options?: TaskOperationOptions,
 ): ProjectDetailData {
   const title = input.title.trim();
@@ -89,14 +90,13 @@ export function createMockTask(
     updatedAt: timestamp,
   };
   const tasks = [...detail.tasks, task];
-  const actor = getCurrentUser();
   const activity: ProjectActivity = {
     id: createIdentifier(options),
     organizationId: detail.project.organizationId,
     projectId: detail.project.id,
     userId: actor.id,
     actionType: "task_updated",
-    content: `${actor.displayName}创建了任务“${task.title}”。`,
+    content: `${actor.name}创建了任务“${task.title}”。`,
     createdAt: timestamp,
   };
 
@@ -122,6 +122,7 @@ export function updateMockTaskStatus(
   detail: ProjectDetailData,
   taskId: string,
   status: TaskExecutionStatus,
+  actor: WorkspaceActor,
   options?: TaskOperationOptions,
 ): ProjectDetailData {
   if (!detail.tasks.some(({ id }) => id === taskId)) {
@@ -140,7 +141,6 @@ export function updateMockTaskStatus(
     }
     : task);
 
-  const actor = getCurrentUser();
   const statusLabels: Record<TaskExecutionStatus, string> = { todo: "待开始", in_progress: "进行中", done: "已完成" };
   const activity: ProjectActivity = {
     id: createIdentifier(options),
@@ -148,7 +148,7 @@ export function updateMockTaskStatus(
     projectId: detail.project.id,
     userId: actor.id,
     actionType: "task_updated",
-    content: `${actor.displayName}将任务“${previousTask?.title ?? "任务"}”更新为${statusLabels[status]}。`,
+    content: `${actor.name}将任务“${previousTask?.title ?? "任务"}”更新为${statusLabels[status]}。`,
     createdAt: timestamp,
   };
 
@@ -168,6 +168,7 @@ export function addMockTaskComment(
   detail: ProjectDetailData,
   taskId: string,
   body: string,
+  actor: WorkspaceActor,
   options?: TaskOperationOptions,
 ): ProjectDetailData {
   const task = detail.tasks.find(({ id }) => id === taskId);
@@ -176,7 +177,6 @@ export function addMockTaskComment(
   if (!normalizedBody) throw new Error("请输入评论内容");
 
   const timestamp = currentDate(options).toISOString();
-  const actor = getCurrentUser();
   const comment: TaskComment = {
     id: createIdentifier(options),
     organizationId: detail.project.organizationId,
@@ -193,7 +193,7 @@ export function addMockTaskComment(
     projectId: detail.project.id,
     userId: actor.id,
     actionType: "task_updated",
-    content: `${actor.displayName}评论了任务“${task.title}”。`,
+    content: `${actor.name}评论了任务“${task.title}”。`,
     createdAt: timestamp,
   };
 

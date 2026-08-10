@@ -44,6 +44,43 @@ const base = {
 };
 
 describe("parseWorkspaceAccess", () => {
+  it("keeps same-role users distinct through their authenticated and membership identifiers", () => {
+    const first = parseWorkspaceAccess({ ...base, roleCodes: ["employee"] });
+    const second = parseWorkspaceAccess({
+      ...base,
+      authUserId: "10000000-0000-4000-8000-000000000011",
+      memberId: 11,
+      employeeProfileId: "10000000-0000-4000-8000-000000000013",
+      roleCodes: ["employee"],
+    });
+
+    expect(first?.actor).toMatchObject({
+      id: "10000000-0000-4000-8000-000000000001",
+      memberId: "10",
+    });
+    expect(second?.actor).toMatchObject({
+      id: "10000000-0000-4000-8000-000000000011",
+      memberId: "11",
+    });
+    expect(first?.actor.id).not.toBe(second?.actor.id);
+  });
+
+  it("keeps cross-tenant sessions distinct even when they have the same role", () => {
+    const first = parseWorkspaceAccess({ ...base, roleCodes: ["employee"] });
+    const second = parseWorkspaceAccess({
+      ...base,
+      tenantId: "10000000-0000-4000-8000-000000000020",
+      authUserId: "10000000-0000-4000-8000-000000000021",
+      memberId: 21,
+      employeeProfileId: "10000000-0000-4000-8000-000000000023",
+      roleCodes: ["employee"],
+    });
+
+    expect(first?.tenantId).toBe("10000000-0000-4000-8000-000000000000");
+    expect(second?.tenantId).toBe("10000000-0000-4000-8000-000000000020");
+    expect(first?.actor).not.toEqual(second?.actor);
+  });
+
   it.each([
     ["owner", "executive", "CEO", "/dashboard"],
     ["department_head", "department_head", "管理层", "/department"],

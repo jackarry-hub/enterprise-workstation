@@ -44,6 +44,8 @@ import {
   readStoredDecision,
   saveStoredDecision,
 } from "@/features/decision-workbench/decision-workbench-data";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { useOperationFixtureContext } from "@/features/operations/use-operations";
 import type {
   DecisionInput,
   DecisionPlan,
@@ -464,6 +466,8 @@ function TaskDetail({
 }
 
 export function DecisionWorkbench() {
+  const session = useWorkspaceSession();
+  const operationContext = useOperationFixtureContext(session);
   const [decision, setDecision] = useState<StoredDecision>(() => createDraftDecision());
   const [project, setProject] = useState<ProjectDetailData>();
   const [ready, setReady] = useState(false);
@@ -472,23 +476,23 @@ export function DecisionWorkbench() {
   const [selectedTask, setSelectedTask] = useState<DecisionTask | null>(null);
 
   useEffect(() => {
-    const stored = readStoredDecision();
+    const stored = readStoredDecision(operationContext);
     if (stored) {
       setDecision(stored);
-      setProject(findDecisionProject(stored.projectId));
+      setProject(findDecisionProject(operationContext, stored.projectId));
     }
     setReady(true);
-  }, []);
+  }, [operationContext]);
 
   useEffect(() => {
-    if (ready) saveStoredDecision(decision);
-  }, [decision, ready]);
+    if (ready && operationContext.actor) saveStoredDecision(operationContext, decision);
+  }, [decision, operationContext, ready]);
 
   useEffect(() => {
-    const refresh = () => setProject(findDecisionProject(decision.projectId));
+    const refresh = () => setProject(findDecisionProject(operationContext, decision.projectId));
     window.addEventListener(PROJECTS_CHANGED_EVENT, refresh);
     return () => window.removeEventListener(PROJECTS_CHANGED_EVENT, refresh);
-  }, [decision.projectId]);
+  }, [decision.projectId, operationContext]);
 
   const plan = useMemo(
     () => decision.plan ? hydrateDecisionPlan(decision.plan, project) : undefined,
@@ -529,7 +533,7 @@ export function DecisionWorkbench() {
   function dispatch() {
     if (!plan) return;
     try {
-      const dispatched = dispatchDecisionPlan(decision.input, plan);
+      const dispatched = dispatchDecisionPlan(operationContext, decision.input, plan);
       setProject(dispatched);
       setDecision((current) => ({ ...current, stage: "issued", plan, projectId: dispatched.project.id }));
     } catch {
@@ -556,7 +560,7 @@ export function DecisionWorkbench() {
   }
 
   function resetDecision() {
-    clearStoredDecision();
+    if (operationContext.actor) clearStoredDecision(operationContext);
     setDecision(createDraftDecision());
     setProject(undefined);
     setSelectedTask(null);

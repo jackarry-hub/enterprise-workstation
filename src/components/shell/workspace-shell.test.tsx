@@ -38,8 +38,8 @@ const executiveSession: WorkspaceSession = {
   landingPath: "/dashboard",
   isAdmin: false,
   actor: {
-    id: "actor-executive",
-    memberId: "20000000-0000-4000-8000-000000000010",
+    id: "10000000-0000-4000-8000-000000000001",
+    memberId: "10",
     name: "张星河",
     role: "executive",
     roleLabel: "CEO",

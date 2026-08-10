@@ -7,6 +7,8 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { findLocalProject } from "@/features/projects/data/mock-project-repository";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import { ProjectDetailWorkspace } from "@/features/projects/project-detail-workspace";
 import type { ProjectDetailResult } from "@/features/projects/types";
 
@@ -16,12 +18,20 @@ type ProjectDetailPageProps = {
 };
 
 export function ProjectDetailPage({ projectId, initialResult }: ProjectDetailPageProps) {
-  const [result, setResult] = useState<ProjectDetailResult | undefined>(initialResult);
+  const session = useWorkspaceSession();
+  const isFixtureBound = toOperationFixtureActor(session) !== null;
+  const [result, setResult] = useState<ProjectDetailResult | undefined>(
+    isFixtureBound ? initialResult : undefined,
+  );
 
   useEffect(() => {
+    if (!isFixtureBound) {
+      setResult(undefined);
+      return;
+    }
     const localDetail = findLocalProject(projectId);
     setResult(localDetail ? { detail: localDetail, source: "mock" } : initialResult);
-  }, [initialResult, projectId]);
+  }, [initialResult, isFixtureBound, projectId]);
 
   if (!result) {
     return (

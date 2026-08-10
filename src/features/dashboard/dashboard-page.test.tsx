@@ -1,13 +1,16 @@
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { DashboardPage } from "@/features/dashboard/dashboard-page";
-import { DECISION_STORAGE_KEY } from "@/features/decision-workbench/decision-workbench-data";
+import { getDecisionStorageKey } from "@/features/decision-workbench/decision-workbench-data";
+import { createOperationFixtureContext } from "@/features/operations/operation-actor-compat";
+import { executiveWorkspaceSession } from "@/test/workspace-session-test-utils";
+import { renderWithWorkspaceSession as render } from "@/test/workspace-session-test-utils";
 
 describe("DashboardPage", () => {
   beforeEach(() => {
-    window.localStorage.removeItem(DECISION_STORAGE_KEY);
+    window.localStorage.removeItem(getDecisionStorageKey(createOperationFixtureContext(executiveWorkspaceSession))!);
   });
 
   it("shows the decision input and the simplified responsibility workflow", () => {

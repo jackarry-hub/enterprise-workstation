@@ -49,15 +49,17 @@ type ProjectsWorkspaceProps = {
 };
 
 export function ProjectsWorkspace({ projects, stats, reminders }: ProjectsWorkspaceProps) {
-  const { actor: workspaceActor } = useWorkspaceSession();
-  const actor = toOperationFixtureActor(workspaceActor);
+  const session = useWorkspaceSession();
+  const fixtureActor = toOperationFixtureActor(session);
+  const actor = fixtureActor ?? session.actor;
+  const isFixtureBound = fixtureActor !== null;
   const router = useRouter();
   const [filters, setFilters] = useState<ProjectListFilters>(defaultFilters);
-  const [visibleProjects, setVisibleProjects] = useState<ProjectListItem[]>([...projects]);
+  const [visibleProjects, setVisibleProjects] = useState<ProjectListItem[]>(isFixtureBound ? [...projects] : []);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const refreshLocalProjects = useCallback(() => {
-    setVisibleProjects(mergeProjectList(projects, readLocalProjects()));
-  }, [projects]);
+    setVisibleProjects(isFixtureBound ? mergeProjectList(projects, readLocalProjects()) : []);
+  }, [isFixtureBound, projects]);
 
   useEffect(() => {
     refreshLocalProjects();
@@ -83,6 +85,7 @@ export function ProjectsWorkspace({ projects, stats, reminders }: ProjectsWorksp
   );
 
   function handleCreateProject(input: CreateMockProjectInput) {
+    if (!isFixtureBound) throw new Error("当前真实身份未绑定本地业务夹具");
     const detail = createLocalProject(input);
     refreshLocalProjects();
     router.push(`/projects/${detail.project.id}`);
@@ -94,7 +97,7 @@ export function ProjectsWorkspace({ projects, stats, reminders }: ProjectsWorksp
         title="项目管理中心"
         description="全面掌控项目进展，确保每个项目按时高质量交付"
         actions={(
-          <Button type="button" size="lg" onClick={() => setIsCreateOpen(true)} className="h-10 rounded-xl px-4 shadow-[0_10px_24px_rgba(47,125,246,0.24)]">
+          <Button type="button" size="lg" disabled={!isFixtureBound} onClick={() => setIsCreateOpen(true)} className="h-10 rounded-xl px-4 shadow-[0_10px_24px_rgba(47,125,246,0.24)]">
             <Plus data-icon="inline-start" aria-hidden="true" />
             新建项目
           </Button>

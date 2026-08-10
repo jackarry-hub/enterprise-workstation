@@ -35,19 +35,18 @@ const shortcutItems = [
 ] as const;
 
 export function TaskCenterWorkspace() {
-  const { actor: workspaceActor } = useWorkspaceSession();
-  const actor = useMemo(
-    () => toOperationFixtureActor(workspaceActor),
-    [workspaceActor],
-  );
-  const [projects, setProjects] = useState<ProjectDetailData[]>(() => getEffectiveProjectDetails([]));
+  const session = useWorkspaceSession();
+  const fixtureActor = toOperationFixtureActor(session);
+  const actor = fixtureActor ?? session.actor;
+  const isFixtureBound = fixtureActor !== null;
+  const [projects, setProjects] = useState<ProjectDetailData[]>(() => isFixtureBound ? getEffectiveProjectDetails([]) : []);
   const [filters, setFilters] = useState<TaskCenterFilters>(defaultFilters);
   const [selectedItem, setSelectedItem] = useState<TaskCenterItem | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
 
   const refreshProjects = useCallback(() => {
-    setProjects(getEffectiveProjectDetails(readLocalProjects()));
-  }, []);
+    setProjects(isFixtureBound ? getEffectiveProjectDetails(readLocalProjects()) : []);
+  }, [isFixtureBound]);
 
   useEffect(() => {
     refreshProjects();

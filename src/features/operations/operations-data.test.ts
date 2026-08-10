@@ -3,30 +3,32 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   createDecisionPlan,
   createDefaultDecisionInput,
-  dispatchDecisionPlan,
+  dispatchDecisionPlan as dispatchDecisionPlanWithContext,
 } from "@/features/decision-workbench/decision-workbench-data";
 import {
-  addOperationFile,
+  addOperationFile as addOperationFileWithContext,
   applyTaskEscalations,
   getActorByMemberId,
+  getActor,
   getOperationActionItems,
   getOperationNotifications,
   getOperationWeeklySummary,
   getTaskReviewerId,
-  lockAttendancePeriod,
-  markOperationNotificationRead,
+  lockAttendancePeriod as lockAttendancePeriodWithContext,
+  markOperationNotificationRead as markOperationNotificationReadWithContext,
   OPERATIONS_STORAGE_KEY,
-  readOperationsState,
-  resetOperationsState,
-  saveOperationsState,
-  reviewAttendanceCorrection,
-  reviewOvertimeRequest,
-  reviewLeaveRequest,
-  submitLeaveRequest,
-  syncProjectTasksToOperations,
-  updateOperationTask,
-  updatePayrollRun,
+  readOperationsState as readOperationsStateWithContext,
+  resetOperationsState as resetOperationsStateWithContext,
+  saveOperationsState as saveOperationsStateWithContext,
+  reviewAttendanceCorrection as reviewAttendanceCorrectionWithContext,
+  reviewOvertimeRequest as reviewOvertimeRequestWithContext,
+  reviewLeaveRequest as reviewLeaveRequestWithContext,
+  submitLeaveRequest as submitLeaveRequestWithContext,
+  syncProjectTasksToOperations as syncProjectTasksToOperationsWithContext,
+  updateOperationTask as updateOperationTaskWithContext,
+  updatePayrollRun as updatePayrollRunWithContext,
 } from "@/features/operations/operations-data";
+import { createOperationFixtureContext } from "@/features/operations/operation-actor-compat";
 import {
   clearLocalProjects,
   findLocalProject,
@@ -34,6 +36,33 @@ import {
 } from "@/features/projects/data/mock-project-repository";
 import { updateMockTaskStatus } from "@/features/projects/data/project-task-operations";
 import { mockMembers } from "@/features/projects/mock-data";
+import { executiveWorkspaceSession } from "@/test/workspace-session-test-utils";
+import type { OperationFixtureContext } from "@/features/operations/operation-actor-compat";
+
+type Tail<T extends readonly unknown[]> = T extends readonly [unknown, ...infer Rest] ? Rest : never;
+
+const boundContext: OperationFixtureContext = {
+  ...createOperationFixtureContext(executiveWorkspaceSession),
+  storageNamespace: "test-shared-operations",
+};
+const contextFor = (actorId: string): OperationFixtureContext => ({
+  ...boundContext,
+  actor: getActor(actorId),
+});
+const dispatchDecisionPlan = (...args: Tail<Parameters<typeof dispatchDecisionPlanWithContext>>) => dispatchDecisionPlanWithContext(boundContext, ...args);
+const addOperationFile = (...args: Tail<Parameters<typeof addOperationFileWithContext>>) => addOperationFileWithContext(contextFor(args[0].uploadedById), ...args);
+const lockAttendancePeriod = (...args: Tail<Parameters<typeof lockAttendancePeriodWithContext>>) => lockAttendancePeriodWithContext(contextFor(args[0]), ...args);
+const markOperationNotificationRead = (...args: Tail<Parameters<typeof markOperationNotificationReadWithContext>>) => markOperationNotificationReadWithContext(contextFor(args[1]), ...args);
+const readOperationsState = (...args: Tail<Parameters<typeof readOperationsStateWithContext>>) => readOperationsStateWithContext(boundContext, ...args);
+const resetOperationsState = (...args: Tail<Parameters<typeof resetOperationsStateWithContext>>) => resetOperationsStateWithContext(boundContext, ...args);
+const saveOperationsState = (...args: Tail<Parameters<typeof saveOperationsStateWithContext>>) => saveOperationsStateWithContext(boundContext, ...args);
+const reviewAttendanceCorrection = (...args: Tail<Parameters<typeof reviewAttendanceCorrectionWithContext>>) => reviewAttendanceCorrectionWithContext(contextFor(args[2]), ...args);
+const reviewOvertimeRequest = (...args: Tail<Parameters<typeof reviewOvertimeRequestWithContext>>) => reviewOvertimeRequestWithContext(contextFor(args[2]), ...args);
+const reviewLeaveRequest = (...args: Tail<Parameters<typeof reviewLeaveRequestWithContext>>) => reviewLeaveRequestWithContext(contextFor(args[2]), ...args);
+const submitLeaveRequest = (...args: Tail<Parameters<typeof submitLeaveRequestWithContext>>) => submitLeaveRequestWithContext(contextFor(args[1]), ...args);
+const syncProjectTasksToOperations = (...args: Tail<Parameters<typeof syncProjectTasksToOperationsWithContext>>) => syncProjectTasksToOperationsWithContext(contextFor(args[1]), ...args);
+const updateOperationTask = (...args: Tail<Parameters<typeof updateOperationTaskWithContext>>) => updateOperationTaskWithContext(contextFor(args[2]), ...args);
+const updatePayrollRun = (...args: Tail<Parameters<typeof updatePayrollRunWithContext>>) => updatePayrollRunWithContext(contextFor(args[1]), ...args);
 
 describe("operations business closure", () => {
   beforeEach(() => {
@@ -74,6 +103,7 @@ describe("operations business closure", () => {
       projectAfterExecution,
       operationTask.id,
       "done",
+      executiveWorkspaceSession.actor,
       {
         now: () => new Date("2026-08-09T09:00:00.000Z"),
         createId: () => "activity-sync-test",

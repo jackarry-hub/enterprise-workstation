@@ -31,7 +31,6 @@ import { useWorkspaceSession } from "@/features/auth/workspace-session-provider"
 import type { WorkspaceRole } from "@/features/auth/workspace-session-types";
 import { downloadOperationFile, storeOperationFile } from "@/features/operations/file-storage";
 import { OperationActionInbox } from "@/features/operations/operation-action-inbox";
-import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import {
   addOperationFile,
   createSupportRequest,
@@ -76,9 +75,8 @@ function formatBytes(value: number) {
 }
 
 function OperationUpload({ entityType, entityId, label = "上传成果", onFeedback }: { entityType: OperationFile["entityType"]; entityId: string; label?: string; onFeedback: (message: string, tone?: "error" | "success") => void }) {
-  const { actor: workspaceActor } = useWorkspaceSession();
-  const actor = toOperationFixtureActor(workspaceActor);
-  const { state } = useOperations();
+  const session = useWorkspaceSession();
+  const { state, context, actor } = useOperations(session);
   const [busy, setBusy] = useState(false);
 
   async function upload(event: ChangeEvent<HTMLInputElement>) {
@@ -89,7 +87,7 @@ function OperationUpload({ entityType, entityId, label = "上传成果", onFeedb
     try {
       const version = state.files.filter((item) => item.entityType === entityType && item.entityId === entityId && item.name === file.name).length + 1;
       const stored = await storeOperationFile({ file, commandId: state.command.id, entityType, entityId, uploadedById: actor.id, version });
-      addOperationFile(stored);
+      addOperationFile(context, stored);
       onFeedback(`${file.name} 已上传并关联到当前${entityType === "task" ? "任务" : entityType === "support" ? "协同事项" : "知识文档"}`);
     } catch (error) {
       onFeedback(error instanceof Error ? error.message : "文件上传失败", "error");
@@ -120,9 +118,8 @@ function TaskFiles({ taskId, files, onFeedback }: { taskId: string; files: Opera
 }
 
 function TaskCard({ task, onFeedback }: { task: OperationTask; onFeedback: (message: string, tone?: "error" | "success") => void }) {
-  const { actor: workspaceActor } = useWorkspaceSession();
-  const actor = toOperationFixtureActor(workspaceActor);
-  const { state } = useOperations();
+  const session = useWorkspaceSession();
+  const { state, context, actor } = useOperations(session);
   const [note, setNote] = useState("");
   const meta = taskStatusMeta[task.status];
   const assignee = getActor(task.assigneeId);
@@ -140,7 +137,7 @@ function TaskCard({ task, onFeedback }: { task: OperationTask; onFeedback: (mess
 
   function update(status: OperationTaskStatus, message: string, extra?: Partial<OperationTask>) {
     try {
-      updateOperationTask(task.id, { status, ...extra }, actor.id);
+      updateOperationTask(context, task.id, { status, ...extra }, actor.id);
       setNote("");
       onFeedback(message);
     } catch (error) {
@@ -164,7 +161,7 @@ function TaskCard({ task, onFeedback }: { task: OperationTask; onFeedback: (mess
         <div className="rounded-xl bg-muted/55 p-3">
           <p className="text-[11px] text-muted-foreground">唯一执行人</p>
           {canAssign ? (
-            <select aria-label={`${task.title}执行人`} value={task.assigneeId} onChange={(event) => { updateOperationTask(task.id, { assigneeId: event.target.value }, actor.id); onFeedback(`已将任务分配给 ${getActor(event.target.value).name}`); }} className="mt-1.5 h-9 w-full rounded-lg border border-input bg-background px-2 text-sm font-medium">
+            <select aria-label={`${task.title}执行人`} value={task.assigneeId} onChange={(event) => { updateOperationTask(context, task.id, { assigneeId: event.target.value }, actor.id); onFeedback(`已将任务分配给 ${getActor(event.target.value).name}`); }} className="mt-1.5 h-9 w-full rounded-lg border border-input bg-background px-2 text-sm font-medium">
               {assigneeOptions.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name} · {candidate.title}</option>)}
             </select>
           ) : <div className="mt-1.5 flex items-center gap-2"><Avatar size="sm"><AvatarFallback className="bg-brand-soft text-primary">{assignee.name.slice(0, 1)}</AvatarFallback></Avatar><span className="text-sm font-medium">{assignee.name} · {assignee.title}</span></div>}
@@ -187,8 +184,8 @@ function TaskCard({ task, onFeedback }: { task: OperationTask; onFeedback: (mess
             {task.status === "in_progress" || task.status === "blocked" ? <OperationUpload entityType="task" entityId={task.id} onFeedback={onFeedback} /> : null}
             {task.status === "in_progress" && files.length ? <Button size="sm" onClick={() => update("review", "成果已提交给负责人验收")}>提交验收</Button> : null}
             {task.status === "in_progress" ? <Button size="sm" variant="outline" onClick={() => update("blocked", "已上报任务阻塞", { blocker: note.trim() || "需要负责人协调前置依赖与资源。" })}>上报阻塞</Button> : null}
-            {task.status === "in_progress" || task.status === "blocked" ? <Button size="sm" variant="ghost" onClick={() => { createSupportRequest(task.id, "finance", actor.id); onFeedback("财务协同申请已发送"); }}><Banknote />申请预算</Button> : null}
-            {task.status === "in_progress" || task.status === "blocked" ? <Button size="sm" variant="ghost" onClick={() => { createSupportRequest(task.id, "staffing", actor.id); onFeedback("人事协同申请已发送"); }}><UsersRound />申请人员</Button> : null}
+            {task.status === "in_progress" || task.status === "blocked" ? <Button size="sm" variant="ghost" onClick={() => { createSupportRequest(context, task.id, "finance", actor.id); onFeedback("财务协同申请已发送"); }}><Banknote />申请预算</Button> : null}
+            {task.status === "in_progress" || task.status === "blocked" ? <Button size="sm" variant="ghost" onClick={() => { createSupportRequest(context, task.id, "staffing", actor.id); onFeedback("人事协同申请已发送"); }}><UsersRound />申请人员</Button> : null}
           </>
         ) : null}
         {isReviewer ? (
@@ -205,13 +202,12 @@ function TaskCard({ task, onFeedback }: { task: OperationTask; onFeedback: (mess
 }
 
 function SupportCard({ request, role, onFeedback }: { request: SupportRequest; role: "finance" | "hr"; onFeedback: (message: string, tone?: "error" | "success") => void }) {
-  const { actor: workspaceActor } = useWorkspaceSession();
-  const actor = toOperationFixtureActor(workspaceActor);
-  const { state } = useOperations();
+  const session = useWorkspaceSession();
+  const { state, context, actor } = useOperations(session);
   const meta = supportStatusMeta[request.status];
   const sourceTask = state.tasks.find(({ id }) => id === request.sourceTaskId);
   const files = state.files.filter(({ entityType, entityId }) => entityType === "support" && entityId === request.id);
-  const action = (status: SupportRequest["status"], message: string, result?: string) => { updateSupportRequest(request.id, status, actor.id, result); onFeedback(message); };
+  const action = (status: SupportRequest["status"], message: string, result?: string) => { updateSupportRequest(context, request.id, status, actor.id, result); onFeedback(message); };
   return (
     <article className="rounded-2xl border border-border/70 bg-white/60 p-4">
       <div className="flex flex-wrap items-start gap-3">
@@ -231,12 +227,11 @@ function SupportCard({ request, role, onFeedback }: { request: SupportRequest; r
 }
 
 export function RoleWorkbench({ role }: { role: Exclude<WorkspaceRole, "executive"> }) {
-  const { actor: workspaceActor } = useWorkspaceSession();
-  const { state } = useOperations();
+  const session = useWorkspaceSession();
+  const { state, context, actor, isFixtureBound } = useOperations(session);
   const [feedback, setFeedback] = useState<{ message: string; tone: "error" | "success" } | null>(null);
   const copy = roleCopy[role];
 
-  const actor = toOperationFixtureActor(workspaceActor);
   const tasks = useMemo(() => role === "department_head"
     ? state.tasks.filter(({ departmentOwnerId }) => departmentOwnerId === actor.id)
     : role === "employee" ? state.tasks.filter(({ assigneeId }) => assigneeId === actor.id)
@@ -281,7 +276,7 @@ export function RoleWorkbench({ role }: { role: Exclude<WorkspaceRole, "executiv
 
         <aside className="grid h-fit gap-3 xl:sticky xl:top-22">
           <GlassCard className="p-4"><div className="flex items-center gap-2"><Clock3 className="size-4 text-primary" /><h2 className="font-semibold">最近流转</h2></div><div className="mt-3 grid gap-3">{state.events.slice(0, 6).map((item) => <div key={item.id} className="border-l-2 border-brand-soft pl-3"><p className="text-xs font-medium">{item.action} · {getActor(item.actorId).name}</p><p className="mt-1 text-[11px] leading-4 text-muted-foreground">{item.detail}</p></div>)}</div></GlassCard>
-          <GlassCard className="p-4"><h2 className="font-semibold">常用入口</h2><div className="mt-3 grid gap-2">{role === "department_head" || role === "employee" ? <Button asChild variant="outline" className="justify-between"><Link href="/tasks">查看我的任务<ArrowRight /></Link></Button> : null}{role === "finance" ? <Button asChild variant="outline" className="justify-between"><Link href="/payroll">薪资办理<ArrowRight /></Link></Button> : null}{role === "hr" ? <Button asChild variant="outline" className="justify-between"><Link href="/people">人员管理<ArrowRight /></Link></Button> : null}<Button asChild variant="outline" className="justify-between"><Link href="/approvals">我的审批待办<ArrowRight /></Link></Button><Button type="button" variant="ghost" onClick={() => { resetOperationsState(); notify("本地业务数据已恢复到初始状态"); }}><RotateCcw />重置本地试用数据</Button></div></GlassCard>
+          <GlassCard className="p-4"><h2 className="font-semibold">常用入口</h2><div className="mt-3 grid gap-2">{role === "department_head" || role === "employee" ? <Button asChild variant="outline" className="justify-between"><Link href="/tasks">查看我的任务<ArrowRight /></Link></Button> : null}{role === "finance" ? <Button asChild variant="outline" className="justify-between"><Link href="/payroll">薪资办理<ArrowRight /></Link></Button> : null}{role === "hr" ? <Button asChild variant="outline" className="justify-between"><Link href="/people">人员管理<ArrowRight /></Link></Button> : null}<Button asChild variant="outline" className="justify-between"><Link href="/approvals">我的审批待办<ArrowRight /></Link></Button>{isFixtureBound ? <Button type="button" variant="ghost" onClick={() => { resetOperationsState(context); notify("本地业务数据已恢复到初始状态"); }}><RotateCcw />重置本地试用数据</Button> : null}</div></GlassCard>
         </aside>
       </section>
     </main>

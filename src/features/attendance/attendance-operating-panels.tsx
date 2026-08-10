@@ -30,7 +30,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { downloadOperationFile, storeOperationFile } from "@/features/operations/file-storage";
-import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import {
   addOperationFile,
   clockAttendance,
@@ -80,9 +79,8 @@ export function AttendanceWorkflowStrip() {
 }
 
 export function TodayClockPanel() {
-  const { actor: workspaceActor } = useWorkspaceSession();
-  const actor = toOperationFixtureActor(workspaceActor);
-  const { state } = useOperations();
+  const session = useWorkspaceSession();
+  const { state, context, actor } = useOperations(session);
   const [method, setMethod] = useState<"web" | "mobile_gps" | "office_wifi">("office_wifi");
   const [feedback, setFeedback] = useState<Feedback>(null);
   const { policy, demoDate, punches } = state.attendance;
@@ -93,7 +91,7 @@ export function TodayClockPanel() {
 
   function punch(kind: "check_in" | "check_out") {
     try {
-      clockAttendance(actor.id, kind, method);
+      clockAttendance(context, actor.id, kind, method);
       setFeedback({ message: kind === "check_in" ? "签到成功，位置与设备校验已通过" : "签退成功，今日工时已进入计算" });
     } catch (error) {
       setFeedback({ message: error instanceof Error ? error.message : "打卡失败", error: true });
@@ -116,7 +114,8 @@ export function TodayClockPanel() {
 }
 
 function AttachmentLinks({ requestId, fileIds }: { requestId: string; fileIds: string[] }) {
-  const { state } = useOperations();
+  const session = useWorkspaceSession();
+  const { state } = useOperations(session);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const files = state.files.filter((file) => file.entityType === "attendance" && file.entityId === requestId && fileIds.includes(file.id));
   if (!files.length) return null;
@@ -124,9 +123,8 @@ function AttachmentLinks({ requestId, fileIds }: { requestId: string; fileIds: s
 }
 
 export function AttendanceSelfService() {
-  const { actor: workspaceActor } = useWorkspaceSession();
-  const actor = toOperationFixtureActor(workspaceActor);
-  const { state } = useOperations();
+  const session = useWorkspaceSession();
+  const { state, context, actor } = useOperations(session);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [busy, setBusy] = useState(false);
   const [attachment, setAttachment] = useState<File | null>(null);
@@ -139,11 +137,11 @@ export function AttendanceSelfService() {
   async function submitCorrection() {
     setBusy(true);
     try {
-      const nextState = submitAttendanceCorrection(correction, actor.id);
+      const nextState = submitAttendanceCorrection(context, correction, actor.id);
       const request = nextState.attendance.corrections[0];
       if (attachment) {
         const file = await storeOperationFile({ file: attachment, commandId: state.command.id, entityType: "attendance", entityId: request.id, uploadedById: actor.id, version: 1 });
-        addOperationFile(file);
+        addOperationFile(context, file);
       }
       setAttachment(null);
       setFeedback({ message: "补卡申请已提交，证明材料已关联，等待负责人审批" });
@@ -154,7 +152,7 @@ export function AttendanceSelfService() {
 
   function submitOvertime() {
     try {
-      submitOvertimeRequest(overtime, actor.id);
+      submitOvertimeRequest(context, overtime, actor.id);
       setFeedback({ message: "加班申请已提交，审批通过后才计入有效加班时长" });
     } catch (error) { setFeedback({ message: error instanceof Error ? error.message : "加班申请失败", error: true }); }
   }
@@ -170,8 +168,8 @@ export function AttendanceSelfService() {
 }
 
 function ApprovalCard({ kind, request }: { kind: "correction"; request: AttendanceCorrectionRequest } | { kind: "overtime"; request: AttendanceOvertimeRequest }) {
-  const { actor: workspaceActor } = useWorkspaceSession();
-  const actor = toOperationFixtureActor(workspaceActor);
+  const session = useWorkspaceSession();
+  const { context, actor } = useOperations(session);
   const [comment, setComment] = useState("");
   const [feedback, setFeedback] = useState<Feedback>(null);
   const employee = getActor(request.employeeId);
@@ -179,8 +177,8 @@ function ApprovalCard({ kind, request }: { kind: "correction"; request: Attendan
 
   function review(action: "approve" | "reject") {
     try {
-      if (kind === "correction") reviewAttendanceCorrection(request.id, action, actor.id, comment);
-      else reviewOvertimeRequest(request.id, action, actor.id, comment);
+      if (kind === "correction") reviewAttendanceCorrection(context, request.id, action, actor.id, comment);
+      else reviewOvertimeRequest(context, request.id, action, actor.id, comment);
       setComment("");
       setFeedback({ message: action === "approve" ? "已通过并推送到下一责任节点" : "已驳回并通知申请人" });
     } catch (error) { setFeedback({ message: error instanceof Error ? error.message : "审批失败", error: true }); }
@@ -190,18 +188,16 @@ function ApprovalCard({ kind, request }: { kind: "correction"; request: Attendan
 }
 
 export function AttendanceApprovalQueue() {
-  const { actor: workspaceActor } = useWorkspaceSession();
-  const actor = toOperationFixtureActor(workspaceActor);
-  const { state } = useOperations();
+  const session = useWorkspaceSession();
+  const { state, actor } = useOperations(session);
   const corrections = useMemo(() => state.attendance.corrections.filter((request) => actor.role === "hr" ? request.status === "pending_hr" : actor.role === "executive" ? request.status === "pending_manager" && request.managerId === actor.id : actor.role === "department_head" ? request.status === "pending_manager" && request.managerId === actor.id : request.employeeId === actor.id), [actor.id, actor.role, state.attendance.corrections]);
   const overtime = useMemo(() => state.attendance.overtimeRequests.filter((request) => actor.role === "hr" ? request.status === "pending_hr" : actor.role === "executive" ? request.status === "pending_manager" && request.managerId === actor.id : actor.role === "department_head" ? request.status === "pending_manager" && request.managerId === actor.id : request.employeeId === actor.id), [actor.id, actor.role, state.attendance.overtimeRequests]);
   return <GlassCard className="p-4 sm:p-5"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold">{actor.role === "department_head" || actor.role === "hr" || actor.role === "executive" ? "考勤审批队列" : "我的考勤申请"}</h2><p className="mt-1 text-xs text-muted-foreground">补卡：员工 → 负责人 → 人事；加班：先审批，批准后计入有效工时。</p></div><Badge variant="info">{corrections.length + overtime.length} 项</Badge></div><div className="mt-4 grid gap-3">{corrections.map((request) => <ApprovalCard key={request.id} kind="correction" request={request} />)}{overtime.map((request) => <ApprovalCard key={request.id} kind="overtime" request={request} />)}{!corrections.length && !overtime.length ? <div className="rounded-2xl border border-dashed border-border p-8 text-center"><CheckCircle2 className="mx-auto text-success" /><p className="mt-2 font-medium">当前没有待处理事项</p><p className="mt-1 text-xs text-muted-foreground">新的异常或加班申请会按责任人自动进入这里。</p></div> : null}</div></GlassCard>;
 }
 
 export function AttendancePolicyAndPeriod() {
-  const { actor: workspaceActor } = useWorkspaceSession();
-  const actor = toOperationFixtureActor(workspaceActor);
-  const { state } = useOperations();
+  const session = useWorkspaceSession();
+  const { state, context, actor } = useOperations(session);
   const policy = state.attendance.policy;
   const period = state.attendance.period;
   const [feedback, setFeedback] = useState<Feedback>(null);
@@ -215,13 +211,13 @@ export function AttendancePolicyAndPeriod() {
 
   function savePolicy() {
     try {
-      updateAttendancePolicy({ ...form, graceMinutes: Number(form.graceMinutes), overtimeMinimumMinutes: Number(form.overtimeMinimumMinutes), correctionDeadlineDays: Number(form.correctionDeadlineDays) }, actor.id);
+      updateAttendancePolicy(context, { ...form, graceMinutes: Number(form.graceMinutes), overtimeMinimumMinutes: Number(form.overtimeMinimumMinutes), correctionDeadlineDays: Number(form.correctionDeadlineDays) }, actor.id);
       setFeedback({ message: "考勤制度已保存，所有角色工作台已同步新规则" });
     } catch (error) { setFeedback({ message: error instanceof Error ? error.message : "制度保存失败", error: true }); }
   }
 
   function lockPeriod() {
-    try { lockAttendancePeriod(actor.id); setFeedback({ message: `${period.month} 考勤已封账，薪资输入已生成并交给财务` }); }
+    try { lockAttendancePeriod(context, actor.id); setFeedback({ message: `${period.month} 考勤已封账，薪资输入已生成并交给财务` }); }
     catch (error) { setFeedback({ message: error instanceof Error ? error.message : "封账失败", error: true }); }
   }
 
@@ -244,6 +240,9 @@ export function AttendancePolicyAndPeriod() {
 }
 
 export function AttendanceResetNotice() {
+  const session = useWorkspaceSession();
+  const { context, isFixtureBound } = useOperations(session);
   const [resetDone, setResetDone] = useState(false);
-  return <div className="flex items-center gap-2"><Button type="button" size="sm" variant="ghost" className="h-8 text-xs text-muted-foreground" onClick={() => { resetOperationsState(); setResetDone(true); }}><RotateCcw />重置考勤演示</Button>{resetDone ? <span role="status" className="text-[11px] text-success">已恢复初始流程</span> : null}</div>;
+  if (!isFixtureBound) return null;
+  return <div className="flex items-center gap-2"><Button type="button" size="sm" variant="ghost" className="h-8 text-xs text-muted-foreground" onClick={() => { resetOperationsState(context); setResetDone(true); }}><RotateCcw />重置考勤演示</Button>{resetDone ? <span role="status" className="text-[11px] text-success">已恢复初始流程</span> : null}</div>;
 }

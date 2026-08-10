@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { Textarea } from "@/components/ui/textarea";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { getActor, getTaskReviewerId, setCommandStatus, updateOperationTask } from "@/features/operations/operations-data";
 import { OperationActionInbox } from "@/features/operations/operation-action-inbox";
 import { OperationWeeklyBrief } from "@/features/operations/operation-weekly-brief";
@@ -17,7 +18,8 @@ import { useOperations } from "@/features/operations/use-operations";
 const commandStatusLabel = { executing: "协同执行中", review: "待领导总验收", accepted: "总验收通过", archived: "已归档闭环" } as const;
 
 export function ExecutiveClosurePanel() {
-  const { state } = useOperations();
+  const session = useWorkspaceSession();
+  const { state, context, actor } = useOperations(session);
   const [feedback, setFeedback] = useState("");
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
   const done = state.tasks.filter(({ status }) => status === "done").length;
@@ -26,14 +28,14 @@ export function ExecutiveClosurePanel() {
   const openSupport = state.supportRequests.filter(({ status }) => status !== "completed" && status !== "rejected").length;
   const completion = state.tasks.length ? Math.round((done / state.tasks.length) * 100) : 0;
   const allDone = done === state.tasks.length && openSupport === 0;
-  const executiveReviews = state.tasks.filter((task) => task.status === "review" && getTaskReviewerId(task) === "actor-executive");
+  const executiveReviews = state.tasks.filter((task) => task.status === "review" && getTaskReviewerId(task) === actor.id);
 
   function reviewTask(taskId: string, action: "approve" | "return") {
     try {
       const reviewNote = reviewNotes[taskId]?.trim() || (action === "approve" ? "成果符合验收标准，同意通过。" : "请根据验收标准补充成果后重新提交。");
-      updateOperationTask(taskId, action === "approve"
+      updateOperationTask(context, taskId, action === "approve"
         ? { status: "done", reviewNote }
-        : { status: "in_progress", reviewNote, progress: 70 }, "actor-executive");
+        : { status: "in_progress", reviewNote, progress: 70 }, actor.id);
       setFeedback(action === "approve" ? "负责人任务已验收通过" : "任务已退回负责人修改");
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "任务验收失败");
@@ -42,9 +44,9 @@ export function ExecutiveClosurePanel() {
 
   function advance() {
     try {
-      if (state.command.status === "executing") setCommandStatus("review", "actor-executive");
-      else if (state.command.status === "review") setCommandStatus("accepted", "actor-executive");
-      else if (state.command.status === "accepted") setCommandStatus("archived", "actor-executive");
+      if (state.command.status === "executing") setCommandStatus(context, "review", actor.id);
+      else if (state.command.status === "review") setCommandStatus(context, "accepted", actor.id);
+      else if (state.command.status === "accepted") setCommandStatus(context, "archived", actor.id);
       setFeedback(state.command.status === "executing" ? "已进入领导总验收" : state.command.status === "review" ? "总验收已通过" : "命令成果已发布到知识库");
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "状态更新失败");
@@ -75,9 +77,9 @@ export function ExecutiveClosurePanel() {
         </div>
       </GlassCard>
 
-      <OperationActionInbox state={state} actor={getActor("actor-executive")} />
+      <OperationActionInbox state={state} actor={actor} />
 
-      <OperationWeeklyBrief state={state} actor={getActor("actor-executive")} />
+      <OperationWeeklyBrief state={state} actor={actor} />
 
       {executiveReviews.length ? <GlassCard className="p-4 sm:p-5">
         <div className="flex items-center justify-between gap-3"><div><h2 className="font-semibold">直属负责人任务验收</h2><p className="mt-1 text-xs text-muted-foreground">部门负责人本人执行的任务由决策人验收，避免自提自批。</p></div><Badge variant="warning">{executiveReviews.length} 项待处理</Badge></div>

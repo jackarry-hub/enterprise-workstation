@@ -23,8 +23,23 @@ import type {
   StoredDecision,
 } from "@/features/decision-workbench/decision-workbench-types";
 import { syncDecisionToOperations } from "@/features/operations/operations-data";
+import type { OperationFixtureContext } from "@/features/operations/operation-actor-compat";
 
 export const DECISION_STORAGE_KEY = "enterprise-workspace.decision-workbench.v1";
+
+export function getDecisionStorageKey(context: OperationFixtureContext) {
+  return context.storageNamespace
+    ? `${DECISION_STORAGE_KEY}:${context.storageNamespace}`
+    : null;
+}
+
+function requireDecisionFixtureContext(context: OperationFixtureContext) {
+  const storageKey = getDecisionStorageKey(context);
+  if (!context.actor || !storageKey) {
+    throw new Error("褰撳墠鐪熷疄韬唤鏈粦瀹氭湰鍦颁笟鍔″す鍏?");
+  }
+  return storageKey;
+}
 
 const departmentDefinitions = [
   {
@@ -382,10 +397,14 @@ function projectTaskDescription(task: DecisionTask, department: DepartmentPlan) 
 }
 
 export function dispatchDecisionPlan(
+  context: OperationFixtureContext,
   input: DecisionInput,
   plan: DecisionPlan,
   now = new Date(),
 ): ProjectDetailData {
+  if (!context.actor || context.actor.role !== "executive") {
+    throw new Error("当前真实身份未绑定本地业务夹具");
+  }
   const startDate = toIsoDate(now);
   const projectDescription = `${input.goal}\n关键约束：${input.constraints || "无"}\n预算上限：${input.budget || "未设置"} 万元`;
   const existing = readLocalProjects().find(({ project }) => (
@@ -443,19 +462,24 @@ export function dispatchDecisionPlan(
     activities: [activity, ...detail.activities],
   };
   saveLocalProject(dispatched);
-  syncDecisionToOperations(input, plan, dispatched.project.id);
+  syncDecisionToOperations(context, input, plan, dispatched.project.id);
   return dispatched;
 }
 
-export function findDecisionProject(projectId?: string) {
-  return projectId ? findLocalProject(projectId) : undefined;
+export function findDecisionProject(context: OperationFixtureContext, projectId?: string) {
+  return context.actor && projectId ? findLocalProject(projectId) : undefined;
 }
 
-export function readStoredDecision(storage?: Pick<Storage, "getItem">): StoredDecision | undefined {
+export function readStoredDecision(
+  context: OperationFixtureContext,
+  storage?: Pick<Storage, "getItem">,
+): StoredDecision | undefined {
+  const storageKey = getDecisionStorageKey(context);
+  if (!context.actor || !storageKey) return undefined;
   const resolved = storage ?? (typeof window === "undefined" ? undefined : window.localStorage);
   if (!resolved) return undefined;
   try {
-    const value = JSON.parse(resolved.getItem(DECISION_STORAGE_KEY) ?? "null") as Partial<StoredDecision> | null;
+    const value = JSON.parse(resolved.getItem(storageKey) ?? "null") as Partial<StoredDecision> | null;
     if (value?.version !== 1 || !value.input || !value.stage) return undefined;
     const stored = value as StoredDecision;
     if (!stored.plan) return stored;
@@ -480,14 +504,20 @@ export function readStoredDecision(storage?: Pick<Storage, "getItem">): StoredDe
 }
 
 export function saveStoredDecision(
+  context: OperationFixtureContext,
   decision: StoredDecision,
   storage?: Pick<Storage, "setItem">,
 ) {
+  const storageKey = requireDecisionFixtureContext(context);
   const resolved = storage ?? (typeof window === "undefined" ? undefined : window.localStorage);
-  resolved?.setItem(DECISION_STORAGE_KEY, JSON.stringify(decision));
+  resolved?.setItem(storageKey, JSON.stringify(decision));
 }
 
-export function clearStoredDecision(storage?: Pick<Storage, "removeItem">) {
+export function clearStoredDecision(
+  context: OperationFixtureContext,
+  storage?: Pick<Storage, "removeItem">,
+) {
+  const storageKey = requireDecisionFixtureContext(context);
   const resolved = storage ?? (typeof window === "undefined" ? undefined : window.localStorage);
-  resolved?.removeItem(DECISION_STORAGE_KEY);
+  resolved?.removeItem(storageKey);
 }

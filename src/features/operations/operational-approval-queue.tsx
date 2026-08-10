@@ -10,8 +10,9 @@ import { useWorkspaceSession } from "@/features/auth/workspace-session-provider"
 import { useOperations } from "@/features/operations/use-operations";
 
 export function OperationalApprovalQueue() {
-  const { actor } = useWorkspaceSession();
-  const { state } = useOperations();
+  const session = useWorkspaceSession();
+  const { actor } = session;
+  const { state } = useOperations(session);
   const leavePending = state.leaveRequests.filter(({ status }) => status === "pending_manager" || status === "pending_hr").length;
   const financePending = state.supportRequests.filter(({ type, status }) => type === "finance" && !["completed", "rejected"].includes(status)).length;
   const hrPending = state.supportRequests.filter(({ type, status }) => type !== "finance" && !["completed", "rejected"].includes(status)).length;

@@ -1,22 +1,26 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
-  DECISION_STORAGE_KEY,
   createDecisionPlan,
   createDefaultDecisionInput,
   dispatchDecisionPlan,
   getDecisionCandidateRanking,
   getDecisionProgress,
+  getDecisionStorageKey,
   getDecisionTalentProfile,
   hydrateDecisionPlan,
   readStoredDecision,
   saveStoredDecision,
 } from "@/features/decision-workbench/decision-workbench-data";
 import { clearLocalProjects } from "@/features/projects/data/mock-project-repository";
+import { createOperationFixtureContext } from "@/features/operations/operation-actor-compat";
+import { executiveWorkspaceSession } from "@/test/workspace-session-test-utils";
+
+const operationContext = createOperationFixtureContext(executiveWorkspaceSession);
 
 describe("decision workbench data", () => {
   beforeEach(() => {
-    window.localStorage.removeItem(DECISION_STORAGE_KEY);
+    window.localStorage.removeItem(getDecisionStorageKey(operationContext)!);
     clearLocalProjects();
   });
 
@@ -47,22 +51,22 @@ describe("decision workbench data", () => {
   it("dispatches the AI plan into the existing project and task repository", () => {
     const input = createDefaultDecisionInput();
     const plan = createDecisionPlan(input);
-    const project = dispatchDecisionPlan(input, plan, new Date("2026-08-08T08:00:00.000Z"));
+    const project = dispatchDecisionPlan(operationContext, input, plan, new Date("2026-08-08T08:00:00.000Z"));
 
     expect(project.tasks).toHaveLength(13);
     expect(project.members).toHaveLength(6);
     expect(project.tasks.every(({ assigneeId, description }) => assigneeId && description.startsWith("AI 决策下发"))).toBe(true);
     expect(hydrateDecisionPlan(plan, { ...project, tasks: project.tasks.map((task, index) => index === 0 ? { ...task, status: "done" as const } : task) }).departments.flatMap(({ tasks }) => tasks).filter(({ status }) => status === "done")).toHaveLength(1);
 
-    const repeated = dispatchDecisionPlan(input, plan, new Date("2026-08-09T08:00:00.000Z"));
+    const repeated = dispatchDecisionPlan(operationContext, input, plan, new Date("2026-08-09T08:00:00.000Z"));
     expect(repeated.project.id).toBe(project.project.id);
     expect(repeated.tasks).toHaveLength(13);
   });
 
   it("persists the decision stage for returning decision makers", () => {
     const decision = { version: 1 as const, stage: "review" as const, input: createDefaultDecisionInput(), plan: createDecisionPlan(createDefaultDecisionInput()) };
-    saveStoredDecision(decision);
+    saveStoredDecision(operationContext, decision);
 
-    expect(readStoredDecision()).toEqual(decision);
+    expect(readStoredDecision(operationContext)).toEqual(decision);
   });
 });

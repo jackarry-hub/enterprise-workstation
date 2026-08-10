@@ -27,7 +27,6 @@ import type { AttendanceFilters as Filters, AttendanceRecord, AttendanceResult }
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import type { WorkspaceRole } from "@/features/auth/workspace-session-types";
 import { getActor, operationFixtureActors } from "@/features/operations/operations-data";
-import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import { useOperations } from "@/features/operations/use-operations";
 import { cn } from "@/lib/utils";
 
@@ -117,9 +116,8 @@ function mergeOperationalAttendance(result: AttendanceResult, state: ReturnType<
 }
 
 export function AttendanceWorkspace({ result }: { result: AttendanceResult }) {
-  const { actor: workspaceActor } = useWorkspaceSession();
-  const actor = toOperationFixtureActor(workspaceActor);
-  const { state } = useOperations();
+  const session = useWorkspaceSession();
+  const { state, actor, isFixtureBound } = useOperations(session);
   const [filters, setFilters] = useState(defaultFilters);
   const [view, setView] = useState<View>(defaultView[actor.role]);
 
@@ -128,14 +126,17 @@ export function AttendanceWorkspace({ result }: { result: AttendanceResult }) {
     setFilters(defaultFilters);
   }, [actor.role]);
 
-  const sourceRecords = useMemo(() => mergeOperationalAttendance(result, state), [result, state]);
+  const sourceRecords = useMemo(
+    () => isFixtureBound ? mergeOperationalAttendance(result, state) : [],
+    [isFixtureBound, result, state],
+  );
   const ownDirectoryRecord = sourceRecords.find(({ employee }) => employee.displayName === actor.name);
   const visibleSourceRecords = useMemo(() => actor.role === "employee" || actor.role === "finance"
     ? sourceRecords.filter(({ employee }) => employee.displayName === actor.name)
     : actor.role === "department_head" ? sourceRecords.filter(({ department }) => department?.id === ownDirectoryRecord?.department?.id) : sourceRecords, [actor.name, actor.role, ownDirectoryRecord?.department?.id, sourceRecords]);
   const records = useMemo(() => filterAttendanceRecords(visibleSourceRecords, filters), [filters, visibleSourceRecords]);
   const anomalies = useMemo(() => getAttendanceAnomalies(visibleSourceRecords), [visibleSourceRecords]);
-  const visibleStats = useMemo(() => actor.role === "hr" || actor.role === "executive" ? result.data.stats : { presentToday: visibleSourceRecords.filter(({ status }) => status === "normal").length, lateToday: visibleSourceRecords.filter(({ status }) => status === "late").length, leaveToday: visibleSourceRecords.filter(({ status }) => status === "leave").length, monthlyAttendanceRate: visibleSourceRecords.length ? Math.round(visibleSourceRecords.filter(({ status }) => status === "normal").length / visibleSourceRecords.length * 1_000) / 10 : 0 }, [actor.role, result.data.stats, visibleSourceRecords]);
+  const visibleStats = useMemo(() => isFixtureBound && (actor.role === "hr" || actor.role === "executive") ? result.data.stats : { presentToday: visibleSourceRecords.filter(({ status }) => status === "normal").length, lateToday: visibleSourceRecords.filter(({ status }) => status === "late").length, leaveToday: visibleSourceRecords.filter(({ status }) => status === "leave").length, monthlyAttendanceRate: visibleSourceRecords.length ? Math.round(visibleSourceRecords.filter(({ status }) => status === "normal").length / visibleSourceRecords.length * 1_000) / 10 : 0 }, [actor.role, isFixtureBound, result.data.stats, visibleSourceRecords]);
   const showRecords = view === "overview" || view === "records";
 
   return (

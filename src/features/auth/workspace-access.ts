@@ -6,14 +6,6 @@ import type {
   WorkspaceSession,
 } from "@/features/auth/workspace-session-types";
 
-const compatibilityIds = {
-  executive: ["actor-executive", "20000000-0000-4000-8000-000000000010"],
-  department_head: ["actor-manager", "20000000-0000-4000-8000-000000000001"],
-  employee: ["actor-employee", "20000000-0000-4000-8000-000000000004"],
-  finance: ["actor-finance", "20000000-0000-4000-8000-000000000007"],
-  hr: ["actor-hr", "20000000-0000-4000-8000-000000000006"],
-} as const;
-
 const roleMapping: Record<Exclude<DatabaseRoleCode, "admin">, WorkspaceRole> = {
   owner: "executive",
   department_head: "department_head",
@@ -170,10 +162,9 @@ export function parseWorkspaceAccess(value: unknown): WorkspaceSession | null {
 
   const primaryRole = roleMapping[databaseRole];
   const landingPath = landingPaths[primaryRole];
-  const [id, memberId] = compatibilityIds[primaryRole];
   const actor: WorkspaceActor = {
-    id,
-    memberId,
+    id: raw.authUserId,
+    memberId: String(raw.memberId),
     name: raw.displayName,
     role: primaryRole,
     roleLabel: roleLabels[primaryRole],

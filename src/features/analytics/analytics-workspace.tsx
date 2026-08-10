@@ -12,7 +12,6 @@ import { HealthDistribution } from "@/features/analytics/components/health-distr
 import { RiskReminders } from "@/features/analytics/components/risk-reminders";
 import { TrendChart } from "@/features/analytics/components/trend-chart";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
-import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import { OperationWeeklyBrief } from "@/features/operations/operation-weekly-brief";
 import { useOperations } from "@/features/operations/use-operations";
 import { buildAnalyticsViewModel } from "@/features/analytics/analytics-selectors";
@@ -29,10 +28,9 @@ const rangeLabels: Record<AnalyticsRange, string> = {
 };
 
 export function AnalyticsWorkspace() {
-  const { actor: workspaceActor } = useWorkspaceSession();
-  const actor = toOperationFixtureActor(workspaceActor);
-  const { state: operationsState } = useOperations();
-  const [projects, setProjects] = useState<ProjectDetailData[]>(() => getEffectiveProjectDetails([]));
+  const session = useWorkspaceSession();
+  const { state: operationsState, actor, isFixtureBound } = useOperations(session);
+  const [projects, setProjects] = useState<ProjectDetailData[]>(() => isFixtureBound ? getEffectiveProjectDetails([]) : []);
   const [filters, setFilters] = useState<AnalyticsFilters>({ range: "month", department: "all" });
   const effectiveFilters = useMemo(
     () => actor.role === "department_head" ? { ...filters, department: actor.department } : filters,
@@ -40,8 +38,8 @@ export function AnalyticsWorkspace() {
   );
 
   const refreshProjects = useCallback(() => {
-    setProjects(getEffectiveProjectDetails(readLocalProjects()));
-  }, []);
+    setProjects(isFixtureBound ? getEffectiveProjectDetails(readLocalProjects()) : []);
+  }, [isFixtureBound]);
 
   useEffect(() => {
     refreshProjects();
@@ -50,12 +48,12 @@ export function AnalyticsWorkspace() {
   }, [refreshProjects]);
 
   const departments = useMemo(
-    () => Array.from(new Set(mockMembers.map(({ department }) => department))),
-    [],
+    () => isFixtureBound ? Array.from(new Set(mockMembers.map(({ department }) => department))) : [],
+    [isFixtureBound],
   );
   const viewModel = useMemo(
-    () => buildAnalyticsViewModel(projects, mockMembers, effectiveFilters),
-    [effectiveFilters, projects],
+    () => buildAnalyticsViewModel(projects, isFixtureBound ? mockMembers : [], effectiveFilters),
+    [effectiveFilters, isFixtureBound, projects],
   );
 
   return (

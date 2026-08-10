@@ -14,14 +14,13 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { navigationItems } from "@/config/navigation";
 import { signOut } from "@/features/auth/actions";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
-import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
 import { getOperationNotifications, markOperationNotificationRead } from "@/features/operations/operations-data";
 import { useOperations } from "@/features/operations/use-operations";
 
 export function WorkspaceHeader() {
-  const { actor: workspaceActor, profile } = useWorkspaceSession();
-  const operationActor = toOperationFixtureActor(workspaceActor);
-  const { state } = useOperations();
+  const session = useWorkspaceSession();
+  const { actor: workspaceActor, profile } = session;
+  const { state, context, actor: operationActor } = useOperations(session);
   const [searchOpen, setSearchOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const notifications = getOperationNotifications(state, operationActor.id);
@@ -67,7 +66,7 @@ export function WorkspaceHeader() {
               <DropdownMenuLabel className="flex items-center justify-between"><span>最新通知</span><span className="text-xs font-normal text-muted-foreground">{unreadCount} 条未读</span></DropdownMenuLabel><DropdownMenuSeparator />
               {notifications.slice(0, 4).map((item) => (
                 <DropdownMenuItem key={item.id} asChild className="rounded-xl p-0">
-                  <Link href={item.href} onClick={() => markOperationNotificationRead(item.id, operationActor.id)} className="block px-3 py-2.5"><span className="flex items-center gap-2 text-sm font-medium">{!item.read ? <span className="size-1.5 shrink-0 rounded-full bg-primary" /> : null}{item.title}</span><span className="mt-0.5 block line-clamp-2 text-xs text-muted-foreground">{item.description}</span></Link>
+                  <Link href={item.href} onClick={() => markOperationNotificationRead(context, item.id, operationActor.id)} className="block px-3 py-2.5"><span className="flex items-center gap-2 text-sm font-medium">{!item.read ? <span className="size-1.5 shrink-0 rounded-full bg-primary" /> : null}{item.title}</span><span className="mt-0.5 block line-clamp-2 text-xs text-muted-foreground">{item.description}</span></Link>
                 </DropdownMenuItem>
               ))}
               {!notifications.length ? <p className="px-3 py-5 text-center text-sm text-muted-foreground">当前没有新通知</p> : null}

@@ -1,53 +1,58 @@
 import { describe, expect, it } from "vitest";
 
-import type { WorkspaceActor, WorkspaceRole } from "@/features/auth/workspace-session-types";
-import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
+import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
+import {
+  createOperationFixtureContext,
+  toOperationFixtureActor,
+} from "@/features/operations/operation-actor-compat";
+import { executiveWorkspaceSession } from "@/test/workspace-session-test-utils";
 
-const expectedIdsByRole: Record<
-  WorkspaceRole,
-  { id: string; memberId: string }
-> = {
-  executive: {
-    id: "actor-executive",
-    memberId: "20000000-0000-4000-8000-000000000010",
-  },
-  department_head: {
-    id: "actor-manager",
-    memberId: "20000000-0000-4000-8000-000000000001",
-  },
-  employee: {
-    id: "actor-employee",
-    memberId: "20000000-0000-4000-8000-000000000004",
-  },
-  finance: {
-    id: "actor-finance",
-    memberId: "20000000-0000-4000-8000-000000000007",
-  },
-  hr: {
-    id: "actor-hr",
-    memberId: "20000000-0000-4000-8000-000000000006",
-  },
-};
+function session(overrides: Partial<WorkspaceSession> = {}): WorkspaceSession {
+  return {
+    ...executiveWorkspaceSession,
+    ...overrides,
+    actor: {
+      ...executiveWorkspaceSession.actor,
+      id: overrides.authUserId ?? executiveWorkspaceSession.authUserId,
+      memberId: String(overrides.member?.id ?? executiveWorkspaceSession.member.id),
+      ...overrides.actor,
+    },
+  };
+}
 
 describe("workspace actor operation fixture compatibility", () => {
-  it.each(Object.entries(expectedIdsByRole) as Array<[
-    WorkspaceRole,
-    { id: string; memberId: string },
-  ]>)("maps %s to its fixture identifiers while preserving trusted profile fields", (role, expectedIds) => {
-    const actor: WorkspaceActor = {
-      id: `authenticated-${role}`,
-      memberId: `database-member-${role}`,
-      name: `真实姓名-${role}`,
-      role,
-      roleLabel: `真实角色-${role}`,
-      department: `真实部门-${role}`,
-      title: `真实岗位-${role}`,
-      landingPath: `/${role}`,
-    };
+  it("binds only the exact tenant, authenticated user, membership, and role tuple", () => {
+    const boundSession = session();
 
-    expect(toOperationFixtureActor(actor)).toEqual({
-      ...actor,
-      ...expectedIds,
+    expect(toOperationFixtureActor(boundSession)).toMatchObject({
+      id: "actor-executive",
+      memberId: "20000000-0000-4000-8000-000000000010",
+      name: boundSession.profile.displayName,
+      role: "executive",
     });
+  });
+
+  it.each([
+    ["same role, different user", { authUserId: "10000000-0000-4000-8000-000000000099" }],
+    ["same role, different tenant", { tenantId: "10000000-0000-4000-8000-000000000098" }],
+    ["same role, different member", { member: { ...executiveWorkspaceSession.member, id: 99 } }],
+    ["same identity, different role", {
+      primaryRole: "employee" as const,
+      actor: { ...executiveWorkspaceSession.actor, role: "employee" as const },
+    }],
+  ])("fails closed for %s", (_label, overrides) => {
+    expect(toOperationFixtureActor(session(overrides))).toBeNull();
+  });
+
+  it("creates a tenant/user/member namespaced storage identity only for an explicit binding", () => {
+    const bound = createOperationFixtureContext(session());
+    const unbound = createOperationFixtureContext(session({
+      authUserId: "10000000-0000-4000-8000-000000000099",
+    }));
+
+    expect(bound.storageNamespace).toBe(
+      "10000000-0000-4000-8000-000000000000:10000000-0000-4000-8000-000000000001:10",
+    );
+    expect(unbound).toMatchObject({ actor: null, storageNamespace: null });
   });
 });
