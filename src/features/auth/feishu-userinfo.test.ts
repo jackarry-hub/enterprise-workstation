@@ -71,6 +71,32 @@ describe("Feishu UserInfo adapter", () => {
     expect(await response.json()).toEqual({ error: "upstream_failed" });
   });
 
+  it.each(["", "   "])(
+    "treats a %j tenant key as a failed upstream response",
+    async (upstreamTenantKey) => {
+      const response = await handleFeishuUserInfo(
+        new Request("https://brain.quantxy.com/api/auth/feishu/userinfo", {
+          headers: { Authorization: "Bearer test-token" },
+        }),
+        {
+          tenantKey: "tenant_qxy",
+          fetchImpl: vi.fn(async () =>
+            Response.json({
+              ...feishuBody,
+              data: {
+                ...feishuBody.data,
+                tenant_key: upstreamTenantKey,
+              },
+            }),
+          ),
+        },
+      );
+
+      expect(response.status).toBe(502);
+      expect(await response.json()).toEqual({ error: "upstream_failed" });
+    },
+  );
+
   it("rejects a missing bearer token before calling Feishu", async () => {
     const fetchImpl = vi.fn();
     const response = await handleFeishuUserInfo(
@@ -80,6 +106,42 @@ describe("Feishu UserInfo adapter", () => {
 
     expect(response.status).toBe(401);
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects a whitespace-only bearer token before calling Feishu", async () => {
+    const fetchImpl = vi.fn();
+    const response = await handleFeishuUserInfo(
+      new Request("https://brain.quantxy.com/api/auth/feishu/userinfo", {
+        headers: { Authorization: "Bearer \u00a0" },
+      }),
+      { tenantKey: "tenant_qxy", fetchImpl },
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "invalid_request" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("maps an upstream 401 to a stable invalid credential response", async () => {
+    const response = await handleFeishuUserInfo(
+      new Request("https://brain.quantxy.com/api/auth/feishu/userinfo", {
+        headers: { Authorization: "Bearer sensitive-user-token" },
+      }),
+      {
+        tenantKey: "tenant_qxy",
+        fetchImpl: vi.fn(async () =>
+          Response.json(
+            { message: "sensitive-user-token is invalid" },
+            { status: 401 },
+          ),
+        ),
+      },
+    );
+
+    expect(response.status).toBe(401);
+    const body = await response.text();
+    expect(JSON.parse(body)).toEqual({ error: "invalid_request" });
+    expect(body).not.toContain("sensitive-user-token");
   });
 
   it("returns a stable gateway error for a failed Feishu request", async () => {

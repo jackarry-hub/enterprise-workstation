@@ -12,7 +12,10 @@ export function normalizeFeishuUserInfo(
 ) {
   const data = body.data;
   if (body.code !== 0 || !data) throw new Error("invalid_feishu_response");
-  if (typeof data.tenant_key !== "string") {
+  if (
+    typeof data.tenant_key !== "string" ||
+    data.tenant_key.trim().length === 0
+  ) {
     throw new Error("invalid_feishu_identity");
   }
   if (data.tenant_key !== tenantKey) throw new Error("wrong_feishu_tenant");
@@ -42,7 +45,10 @@ export async function handleFeishuUserInfo(
   dependencies: { tenantKey: string; fetchImpl?: typeof fetch },
 ) {
   const authorization = request.headers.get("authorization") ?? "";
-  if (!authorization.startsWith("Bearer ") || authorization.length > 4096) {
+  const bearerToken = authorization.startsWith("Bearer ")
+    ? authorization.slice("Bearer ".length).trim()
+    : "";
+  if (!bearerToken || authorization.length > 4096) {
     return Response.json({ error: "invalid_request" }, { status: 401 });
   }
 
@@ -56,6 +62,9 @@ export async function handleFeishuUserInfo(
         signal: AbortSignal.timeout(5000),
       },
     );
+    if (upstream.status === 401) {
+      return Response.json({ error: "invalid_request" }, { status: 401 });
+    }
     if (!upstream.ok) {
       return Response.json({ error: "upstream_failed" }, { status: 502 });
     }
