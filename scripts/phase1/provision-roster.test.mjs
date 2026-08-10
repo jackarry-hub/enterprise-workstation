@@ -165,9 +165,9 @@ test("normalizes email and Feishu identifiers consistently", () => {
   assert.equal(item.feishuOpenId, "ou_employee_1");
 });
 
-test("enforces database-safe provider identifier and email limits", () => {
+test("enforces database-safe prefixed provider identifier and email limits", () => {
   assert.throws(
-    () => validateRoster(roster([employee({ feishuOpenId: "x".repeat(201) })])),
+    () => validateRoster(roster([employee({ feishuOpenId: "x".repeat(193) })])),
     /open_id不合法/,
   );
   assert.throws(
@@ -182,9 +182,9 @@ test("enforces database-safe provider identifier and email limits", () => {
     /企业邮箱不合法/,
   );
   assert.equal(
-    validateRoster(roster([employee({ feishuOpenId: "x".repeat(200) })])).employees[0]
+    validateRoster(roster([employee({ feishuOpenId: "x".repeat(192) })])).employees[0]
       .feishuOpenId.length,
-    200,
+    192,
   );
 });
 
@@ -234,16 +234,75 @@ test("maps Feishu adapter fields to provider-neutral RPC arguments", () => {
     p_role_code: "employee",
     p_provider_code: "feishu",
     p_provider_tenant_key: "tenant_qxy",
-    p_provider_subject: "ou_employee_1",
+    p_provider_subject: "open_id:ou_employee_1",
     p_provider_match_keys: [
-      "on_employee_1",
-      "ou_employee_1",
-      "employee@quantxy.example",
+      "open_id:ou_employee_1",
+      "union_id:on_employee_1",
+      "email:employee@quantxy.example",
     ],
     p_skills: ["product"],
     p_work_email: "employee@quantxy.example",
   });
   assert.equal(Object.keys(args).some((key) => key.includes("feishu")), false);
+});
+
+test("uses the same provider-neutral subject priority for open, union, and email-only rosters", () => {
+  const openOnly = validateRoster(
+    roster([
+      employee({
+        feishuUnionId: undefined,
+        workEmail: undefined,
+      }),
+    ]),
+  ).employees[0];
+  const unionOnly = validateRoster(
+    roster([
+      employee({
+        feishuOpenId: undefined,
+        workEmail: undefined,
+      }),
+    ]),
+  ).employees[0];
+  const emailOnly = validateRoster(
+    roster([
+      employee({
+        feishuUnionId: undefined,
+        feishuOpenId: undefined,
+      }),
+    ]),
+  ).employees[0];
+
+  assert.deepEqual(toProvisionRpcArgs(fixedRoot, openOnly, "tenant_qxy"), {
+    p_tenant_slug: "quantxy",
+    p_organization_slug: "quantum-galaxy",
+    p_employee_no: "QXY-001",
+    p_display_name: "测试员工",
+    p_department_code: "AI",
+    p_job_title: "产品经理",
+    p_role_code: "employee",
+    p_provider_code: "feishu",
+    p_provider_tenant_key: "tenant_qxy",
+    p_provider_subject: "open_id:ou_employee_1",
+    p_provider_match_keys: ["open_id:ou_employee_1"],
+    p_skills: ["product"],
+    p_work_email: null,
+  });
+  assert.equal(
+    toProvisionRpcArgs(fixedRoot, unionOnly, "tenant_qxy").p_provider_subject,
+    "union_id:on_employee_1",
+  );
+  assert.deepEqual(
+    toProvisionRpcArgs(fixedRoot, unionOnly, "tenant_qxy").p_provider_match_keys,
+    ["union_id:on_employee_1"],
+  );
+  assert.equal(
+    toProvisionRpcArgs(fixedRoot, emailOnly, "tenant_qxy").p_provider_subject,
+    "email:employee@quantxy.example",
+  );
+  assert.deepEqual(
+    toProvisionRpcArgs(fixedRoot, emailOnly, "tenant_qxy").p_provider_match_keys,
+    ["email:employee@quantxy.example"],
+  );
 });
 
 test("imports through the generic idempotent RPC and returns only safe summary data", async () => {

@@ -1,3 +1,5 @@
+import { buildProviderIdentityClaims } from "@/features/auth/provider-identity-claims.mjs";
+
 const FEISHU_USERINFO_URL =
   "https://open.feishu.cn/open-apis/authen/v1/user_info";
 const TOKEN68_PATTERN = /^[A-Za-z0-9._~+/-]+=*$/;
@@ -19,25 +21,50 @@ export function normalizeFeishuUserInfo(
   ) {
     throw new Error("invalid_feishu_identity");
   }
-  if (data.tenant_key !== tenantKey) throw new Error("wrong_feishu_tenant");
-  if (
-    typeof data.open_id !== "string" ||
-    typeof data.union_id !== "string" ||
-    typeof data.name !== "string"
-  ) {
+  const providerTenantKey = data.tenant_key.trim();
+  if (providerTenantKey !== tenantKey.trim()) {
+    throw new Error("wrong_feishu_tenant");
+  }
+  if (typeof data.name !== "string" || data.name.trim().length === 0) {
+    throw new Error("invalid_feishu_identity");
+  }
+
+  let claims;
+  try {
+    claims = buildProviderIdentityClaims({
+      openId: data.open_id,
+      unionId: data.union_id,
+      email: data.email,
+      emailVerified:
+        data.email_verified === undefined || data.email_verified === true,
+      ignoreInvalidEmail: true,
+    });
+  } catch {
     throw new Error("invalid_feishu_identity");
   }
 
   return {
-    sub: data.open_id,
-    name: data.name,
+    sub: claims.providerSubject,
+    provider_subject: claims.providerSubject,
+    provider_tenant_key: providerTenantKey,
+    provider_match_keys: claims.providerMatchKeys,
+    name: data.name.trim(),
     ...(typeof data.avatar_url === "string"
       ? { picture: data.avatar_url }
       : {}),
-    ...(typeof data.email === "string" ? { email: data.email } : {}),
-    open_id: data.open_id,
-    union_id: data.union_id,
-    tenant_key: data.tenant_key,
+    ...(claims.verifiedEmail
+      ? {
+          email: claims.verifiedEmail,
+          verified_email: claims.verifiedEmail,
+        }
+      : {}),
+    ...(claims.normalizedOpenId
+      ? { open_id: claims.normalizedOpenId }
+      : {}),
+    ...(claims.normalizedUnionId
+      ? { union_id: claims.normalizedUnionId }
+      : {}),
+    tenant_key: providerTenantKey,
   };
 }
 

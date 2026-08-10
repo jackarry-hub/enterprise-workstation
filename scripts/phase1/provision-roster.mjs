@@ -3,6 +3,11 @@ import { pathToFileURL } from "node:url";
 
 import nextEnv from "@next/env";
 import { createClient } from "@supabase/supabase-js";
+import {
+  buildProviderIdentityClaims,
+  normalizeProviderEmail,
+  normalizeProviderIdentifier,
+} from "../../src/features/auth/provider-identity-claims.mjs";
 
 const { loadEnvConfig } = nextEnv;
 
@@ -45,28 +50,22 @@ function requiredString(value, fieldLabel, rowNumber) {
   return value.trim();
 }
 
-function optionalIdentifier(value, fieldLabel, rowNumber) {
+function optionalIdentifier(value, fieldLabel, rowNumber, kind) {
   if (value === undefined || value === null) return null;
-  if (typeof value !== "string" || value.trim().length === 0) {
+  try {
+    return normalizeProviderIdentifier(kind, value);
+  } catch {
     throw new Error(`名单数据不合法：第 ${rowNumber} 名员工的${fieldLabel}不合法`);
   }
-  const normalized = value.trim().toLowerCase();
-  if (normalized.length > 200) {
-    throw new Error(`名单数据不合法：第 ${rowNumber} 名员工的${fieldLabel}不合法`);
-  }
-  return normalized;
 }
 
 function normalizeEmail(value, rowNumber) {
-  const normalized = optionalIdentifier(value, "企业邮箱", rowNumber);
-  if (
-    normalized &&
-    (normalized.length > 320 ||
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized))
-  ) {
+  if (value === undefined || value === null) return null;
+  try {
+    return normalizeProviderEmail(value);
+  } catch {
     throw new Error(`名单数据不合法：第 ${rowNumber} 名员工的企业邮箱不合法`);
   }
-  return normalized;
 }
 
 function normalizeSkills(value, rowNumber) {
@@ -148,20 +147,28 @@ export function validateRoster(payload) {
       record.feishuUnionId,
       "飞书 union_id",
       rowNumber,
+      "unionId",
     );
     const feishuOpenId = optionalIdentifier(
       record.feishuOpenId,
       "飞书 open_id",
       rowNumber,
+      "openId",
     );
     const workEmail = normalizeEmail(record.workEmail, rowNumber);
-    const identifiers = [feishuUnionId, feishuOpenId, workEmail].filter(Boolean);
-    if (identifiers.length === 0) {
+    let identityClaims;
+    try {
+      identityClaims = buildProviderIdentityClaims({
+        openId: feishuOpenId,
+        unionId: feishuUnionId,
+        email: workEmail,
+      });
+    } catch {
       throw new Error(
         `名单数据不合法：第 ${rowNumber} 名员工至少提供一个飞书标识或企业邮箱`,
       );
     }
-    for (const identifier of identifiers) {
+    for (const identifier of identityClaims.providerMatchKeys) {
       if (providerIdentifiers.has(identifier)) {
         throw new Error(`名单数据不合法：第 ${rowNumber} 名员工的身份匹配标识重复`);
       }
@@ -185,11 +192,11 @@ export function validateRoster(payload) {
 }
 
 export function toProvisionRpcArgs(root, employee, providerTenantKey) {
-  const providerMatchKeys = [
-    employee.feishuUnionId,
-    employee.feishuOpenId,
-    employee.workEmail,
-  ].filter(Boolean);
+  const identityClaims = buildProviderIdentityClaims({
+    openId: employee.feishuOpenId,
+    unionId: employee.feishuUnionId,
+    email: employee.workEmail,
+  });
 
   return {
     p_tenant_slug: root.tenantSlug,
@@ -201,9 +208,8 @@ export function toProvisionRpcArgs(root, employee, providerTenantKey) {
     p_role_code: employee.roleCode,
     p_provider_code: root.providerCode,
     p_provider_tenant_key: providerTenantKey,
-    p_provider_subject:
-      employee.feishuOpenId ?? employee.feishuUnionId ?? employee.workEmail,
-    p_provider_match_keys: providerMatchKeys,
+    p_provider_subject: identityClaims.providerSubject,
+    p_provider_match_keys: identityClaims.providerMatchKeys,
     p_skills: employee.skills,
     p_work_email: employee.workEmail,
   };

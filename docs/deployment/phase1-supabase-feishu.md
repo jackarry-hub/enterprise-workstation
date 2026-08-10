@@ -6,7 +6,7 @@
 
 - 当前系统只供“量子星河”这一家企业内部使用。名单里的 `tenantSlug` 固定为 `quantxy`，`organizationSlug` 固定为 `quantum-galaxy`。
 - 数据库中的 `tenant_id` 和名单中的 tenant slug 是应用的数据隔离边界。现在只启用量子星河，预留这个边界是为了未来可以安全交付多企业 SaaS；第一阶段没有企业创建、选择或切换功能。
-- `FEISHU_TENANT_KEY` 只是飞书登录服务返回的企业标识，用来确认登录者来自指定飞书企业。它不是应用的 `tenant_id`，也不能代替 tenant slug。
+- `FEISHU_TENANT_KEY` 只是飞书登录适配器在服务器端用来核对来源企业的 Provider 标识。它不是应用的 `tenant_id`，也不能代替 tenant slug。
 
 ## 1. 创建 Supabase 项目
 
@@ -39,13 +39,17 @@
 | 配置项 | 值 |
 | --- | --- |
 | Identifier | `custom:feishu` |
+| Client ID | 飞书企业自建应用的 App ID |
+| Client Secret | 飞书企业自建应用的 App Secret |
 | Authorization URL | `https://accounts.feishu.cn/open-apis/authen/v1/authorize` |
 | Token URL | `https://open.feishu.cn/open-apis/authen/v2/oauth/token` |
 | UserInfo URL | `${NEXT_PUBLIC_APP_URL}/api/auth/feishu/userinfo` |
 | Email optional | `true` |
 | PKCE enabled | `true` |
 
-预期结果：`custom:feishu` 已启用，邮箱不是登录必填项，PKCE 默认开启。
+App ID 和 App Secret 只填写在 Supabase 的自定义 Provider 配置中。当前 Next.js 服务端代码不读取这两个值，因此不要再把它们写入 `.env.local`；Client Secret 也不得出现在浏览器或日志中。
+
+预期结果：`custom:feishu` 已启用，飞书 App ID/App Secret 已分别配置为 Client ID/Client Secret，邮箱不是登录必填项，PKCE 默认开启。
 
 ## 4. 登记回调地址
 
@@ -76,11 +80,11 @@ NEXT_PUBLIC_APP_URL=https://phase1.example.invalid
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=replace-with-publishable-key
 SUPABASE_SERVICE_ROLE_KEY=replace-with-service-role-key
-FEISHU_APP_ID=replace-with-app-id
-FEISHU_APP_SECRET=replace-with-app-secret
 FEISHU_TENANT_KEY=replace-with-feishu-tenant-key
 PHASE1_ROSTER_PATH=private/phase1-roster.json
 ```
+
+这里保留 `FEISHU_TENANT_KEY`，因为 `/api/auth/feishu/userinfo` 的服务器端适配器会用它拒绝其他飞书企业。它仍然只是飞书 Provider 标识，不是量子星河应用的 tenant slug 或数据库 `tenant_id`。
 
 ### 6.2 推送数据库迁移
 
@@ -157,7 +161,7 @@ npx supabase db push
 
 - 岗位只能是 `owner`、`department_head`、`employee`、`finance`、`hr`。
 - 部门代码使用 `AI`、`ECOM`、`OPS`、`FIN`、`HR`。
-- 每名员工至少提供 `feishuUnionId`、`feishuOpenId`、唯一 `workEmail` 中的一项；不得重复。
+- 每名员工至少提供 `feishuUnionId`、`feishuOpenId`、唯一 `workEmail` 中的一项；不得重复。只填邮箱时，必须确认飞书身份接口能返回该格式有效的企业邮箱；未验证或格式异常的邮箱不会被用于身份认领。
 - `skills` 可省略，最多 30 项；每项 1–40 个字符。工具会去除首尾空格、把英文转为小写并去重，不合法数据会直接拒绝。
 
 ### 6.4 导入名单
