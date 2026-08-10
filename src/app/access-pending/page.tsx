@@ -4,7 +4,8 @@ import { GlassCard } from "@/components/ui/glass-card";
 
 const accessMessages = {
   not_provisioned: "你的飞书账号尚未开通企业工作站，请联系管理员。",
-  suspended: "你的工作站访问已暂停或撤销，请联系人事或管理员。",
+  suspended: "你的工作站账号已暂停，请联系人事或管理员。",
+  revoked: "你的工作站访问已撤销，请联系管理员。",
   departed: "该员工账号已停用，无法进入工作站。",
   identity_error: "账号身份信息异常，请联系管理员处理。",
   auth_error: "登录没有完成，请返回后重新尝试。",
@@ -13,15 +14,18 @@ const accessMessages = {
 
 type AccessReason = keyof typeof accessMessages;
 
+function isAccessReason(value: string | undefined): value is AccessReason {
+  return typeof value === "string"
+    && Object.prototype.hasOwnProperty.call(accessMessages, value);
+}
+
 export default async function AccessPendingPage({
   searchParams,
 }: {
   searchParams: Promise<{ reason?: string }>;
 }) {
   const { reason } = await searchParams;
-  const safeReason = reason && reason in accessMessages
-    ? reason as AccessReason
-    : "identity_error";
+  const safeReason = isAccessReason(reason) ? reason : "identity_error";
 
   return (
     <main

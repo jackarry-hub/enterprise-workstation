@@ -234,8 +234,27 @@ export function isPublicAuthPath(pathname: string) {
 }
 
 export function getSafeReturnPath(candidate: string | null | undefined) {
-  if (!candidate || !candidate.startsWith("/") || candidate.startsWith("//")) {
+  if (
+    !candidate
+    || hasUnsafeReturnPathText(candidate)
+    || hasMalformedPercentEncoding(candidate)
+    || !candidate.startsWith("/")
+    || candidate.startsWith("//")
+  ) {
     return null;
+  }
+
+  let decoded = candidate;
+  while (PERCENT_ESCAPE_PATTERN.test(decoded)) {
+    let next: string;
+    try {
+      next = decodeURIComponent(decoded);
+    } catch {
+      return null;
+    }
+    if (hasUnsafeReturnPathText(next) || next.startsWith("//")) return null;
+    if (next === decoded || hasMalformedPercentEncoding(next)) break;
+    decoded = next;
   }
 
   try {
@@ -246,6 +265,16 @@ export function getSafeReturnPath(candidate: string | null | undefined) {
   } catch {
     return null;
   }
+}
+
+const PERCENT_ESCAPE_PATTERN = /%[0-9a-f]{2}/i;
+
+function hasMalformedPercentEncoding(value: string) {
+  return /%(?![0-9a-f]{2})/i.test(value);
+}
+
+function hasUnsafeReturnPathText(value: string) {
+  return CONTROL_CHARACTER_PATTERN.test(value) || value.includes("\\");
 }
 
 export function getWorkspaceAccessFailureReason(

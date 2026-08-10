@@ -40,7 +40,7 @@ describe("handleAuthCallback", () => {
     ["not_provisioned", "not_provisioned"],
     ["suspended", "suspended"],
     ["departed", "departed"],
-    ["revoked", "suspended"],
+    ["revoked", "revoked"],
     ["invalid_identity", "identity_error"],
     ["identity_conflict", "identity_error"],
     ["unauthenticated", "auth_error"],
@@ -60,6 +60,11 @@ describe("handleAuthCallback", () => {
       expect(response.headers.get("location")).toBe(
         `${callbackOrigin}/access-pending?reason=${publicReason}`,
       );
+      if (claimResult === "revoked") {
+        expect(response.headers.get("location")).not.toContain(
+          "reason=suspended",
+        );
+      }
     },
   );
 

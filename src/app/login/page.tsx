@@ -11,7 +11,13 @@ export default async function LoginPage({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  const session = await getWorkspaceSession();
+  let session: Awaited<ReturnType<typeof getWorkspaceSession>> = null;
+  let sessionLookupFailed = false;
+  try {
+    session = await getWorkspaceSession();
+  } catch {
+    sessionLookupFailed = true;
+  }
   if (session) redirect(session.landingPath);
 
   const { error } = await searchParams;
@@ -20,7 +26,10 @@ export default async function LoginPage({
       id="main-content"
       className="workspace-mesh grid min-h-screen place-items-center px-4 py-10"
     >
-      <LoginCard action={signInWithFeishu} errorCode={error ?? null} />
+      <LoginCard
+        action={signInWithFeishu}
+        errorCode={sessionLookupFailed ? "login_unavailable" : error ?? null}
+      />
     </main>
   );
 }

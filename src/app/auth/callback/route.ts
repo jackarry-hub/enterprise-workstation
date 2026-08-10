@@ -14,6 +14,7 @@ export type IdentityClaimResult =
 type PublicAccessReason =
   | "not_provisioned"
   | "suspended"
+  | "revoked"
   | "departed"
   | "identity_error"
   | "auth_error"
@@ -33,7 +34,7 @@ const publicClaimReasons: Partial<
   invalid_identity: "identity_error",
   not_provisioned: "not_provisioned",
   identity_conflict: "identity_error",
-  revoked: "suspended",
+  revoked: "revoked",
   suspended: "suspended",
   departed: "departed",
 };

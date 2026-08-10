@@ -1,0 +1,35 @@
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+
+import AccessPendingPage from "@/app/access-pending/page";
+
+describe("AccessPendingPage", () => {
+  it("shows a distinct human message for revoked access", async () => {
+    render(
+      await AccessPendingPage({
+        searchParams: Promise.resolve({ reason: "revoked" }),
+      }),
+    );
+
+    expect(
+      screen.getByText("你的工作站访问已撤销，请联系管理员。"),
+    ).toBeVisible();
+    expect(document.body).not.toHaveTextContent("已暂停或撤销");
+  });
+
+  it.each(["constructor", "toString", "__proto__", "unknown"])(
+    "uses safe human fallback copy for non-whitelisted reason %s",
+    async (reason) => {
+      render(
+        await AccessPendingPage({
+          searchParams: Promise.resolve({ reason }),
+        }),
+      );
+
+      expect(
+        screen.getByText("账号身份信息异常，请联系管理员处理。"),
+      ).toBeVisible();
+      expect(screen.getByRole("link", { name: "返回登录" })).toBeVisible();
+    },
+  );
+});

@@ -14,6 +14,7 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("next/navigation", () => ({ redirect: dependencies.redirect }));
 
 import {
+  getSafeReturnPath,
   hasWorkspacePermission,
   parseWorkspaceAccess,
 } from "@/features/auth/workspace-access";
@@ -277,6 +278,47 @@ describe("hasWorkspacePermission", () => {
     expect(session).not.toBeNull();
     expect(hasWorkspacePermission(session!, "task.manage")).toBe(true);
     expect(hasWorkspacePermission(session!, "organization.manage")).toBe(false);
+  });
+});
+
+describe("getSafeReturnPath", () => {
+  it.each([
+    ["NUL", "/finance\u0000details"],
+    ["tab", "/finance\tdetails"],
+    ["line feed", "/finance\ndetails"],
+    ["carriage return", "/finance\rdetails"],
+    ["other C0", "/finance\u001fdetails"],
+    ["DEL", "/finance\u007fdetails"],
+    ["encoded NUL", "/finance%00details"],
+    ["encoded tab", "/finance%09details"],
+    ["encoded line feed", "/finance%0adetails"],
+    ["encoded carriage return", "/finance%0Ddetails"],
+    ["encoded DEL", "/finance%7fdetails"],
+  ])("rejects %s in a return path", (_label, candidate) => {
+    expect(getSafeReturnPath(candidate)).toBeNull();
+  });
+
+  it.each([
+    ["encoded protocol-relative path", "/%2f%2fevil.example/steal"],
+    ["encoded backslash authority", "/%5cevil.example/steal"],
+    ["encoded double backslash", "/safe%5c%5cevil.example/steal"],
+    ["double-encoded backslash", "/%255cevil.example/steal"],
+    ["mixed slash and backslash", "/%2f%5cevil.example/steal"],
+  ])("rejects an %s trick", (_label, candidate) => {
+    expect(getSafeReturnPath(candidate)).toBeNull();
+  });
+
+  it("rejects malformed percent encoding without throwing", () => {
+    expect(() => getSafeReturnPath("/finance?bad=%zz")).not.toThrow();
+    expect(getSafeReturnPath("/finance?bad=%zz")).toBeNull();
+  });
+
+  it("keeps a valid relative path, query, and fragment", () => {
+    expect(
+      getSafeReturnPath(
+        "/finance?tab=month&note=hello%20world#summary",
+      ),
+    ).toBe("/finance?tab=month&note=hello%20world#summary");
   });
 });
 
