@@ -21,7 +21,7 @@ const operationContext = createOperationFixtureContext(executiveWorkspaceSession
 describe("decision workbench data", () => {
   beforeEach(() => {
     window.localStorage.removeItem(getDecisionStorageKey(operationContext)!);
-    clearLocalProjects();
+    clearLocalProjects(operationContext);
   });
 
   it("creates an executable responsibility plan with one owner per task", () => {

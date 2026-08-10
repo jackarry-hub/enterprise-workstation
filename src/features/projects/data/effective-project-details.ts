@@ -1,4 +1,3 @@
-import { readLocalProjects } from "@/features/projects/data/mock-project-repository";
 import { getProjectDetailMock, mockProjects } from "@/features/projects/mock-data";
 import type { ProjectDetailData } from "@/features/projects/types";
 
@@ -28,7 +27,7 @@ export function mergeEffectiveProjectDetails(
 }
 
 export function getEffectiveProjectDetails(
-  localProjects: readonly ProjectDetailData[] = readLocalProjects(),
+  localProjects: readonly ProjectDetailData[] = [],
 ): ProjectDetailData[] {
   return mergeEffectiveProjectDetails(getDefaultProjectDetails(), localProjects);
 }

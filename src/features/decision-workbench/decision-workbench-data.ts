@@ -36,7 +36,7 @@ export function getDecisionStorageKey(context: OperationFixtureContext) {
 function requireDecisionFixtureContext(context: OperationFixtureContext) {
   const storageKey = getDecisionStorageKey(context);
   if (!context.actor || !storageKey) {
-    throw new Error("褰撳墠鐪熷疄韬唤鏈粦瀹氭湰鍦颁笟鍔″す鍏?");
+    throw new Error("当前真实身份未绑定本地业务夹具");
   }
   return storageKey;
 }
@@ -407,11 +407,11 @@ export function dispatchDecisionPlan(
   }
   const startDate = toIsoDate(now);
   const projectDescription = `${input.goal}\n关键约束：${input.constraints || "无"}\n预算上限：${input.budget || "未设置"} 万元`;
-  const existing = readLocalProjects().find(({ project }) => (
+  const existing = readLocalProjects(context).find(({ project }) => (
     project.name.startsWith("AI 决策专项 ·")
     && project.description.split("\n", 1)[0] === input.goal
   ));
-  const detail = existing ?? createLocalProject({
+  const detail = existing ?? createLocalProject(context, {
     name: `AI 决策专项 · ${input.goal.slice(0, 18)}`,
     description: projectDescription,
     ownerId: mockMembers[0].id,
@@ -420,7 +420,7 @@ export function dispatchDecisionPlan(
     dueDate: input.deadline,
     priority: "high",
     status: "active",
-  });
+  }, context.authenticatedActor);
   const timestamp = now.toISOString();
   const previousTasks = new Map(detail.tasks.map((task) => [task.id, task]));
   const tasks = plan.departments.flatMap((department) => department.tasks).map<ProjectTask>((task, index) => {
@@ -450,9 +450,9 @@ export function dispatchDecisionPlan(
     id: `${detail.project.id}-dispatch-${detail.activities.length + 1}`,
     organizationId: detail.project.organizationId,
     projectId: detail.project.id,
-    userId: detail.owner.id,
+    userId: context.authenticatedActor.id,
     actionType: "task_updated",
-    content: `AI 已将决策拆解为 ${tasks.length} 项任务，并分发给 ${new Set(tasks.map(({ assigneeId }) => assigneeId)).size} 位负责人。`,
+    content: `${context.authenticatedActor.name}确认 AI 将决策拆解为 ${tasks.length} 项任务，并分发给 ${new Set(tasks.map(({ assigneeId }) => assigneeId)).size} 位负责人。`,
     createdAt: timestamp,
   };
   const dispatched: ProjectDetailData = {
@@ -461,13 +461,13 @@ export function dispatchDecisionPlan(
     tasks,
     activities: [activity, ...detail.activities],
   };
-  saveLocalProject(dispatched);
+  saveLocalProject(context, dispatched);
   syncDecisionToOperations(context, input, plan, dispatched.project.id);
   return dispatched;
 }
 
 export function findDecisionProject(context: OperationFixtureContext, projectId?: string) {
-  return context.actor && projectId ? findLocalProject(projectId) : undefined;
+  return context.actor && projectId ? findLocalProject(context, projectId) : undefined;
 }
 
 export function readStoredDecision(

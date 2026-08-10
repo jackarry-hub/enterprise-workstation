@@ -1,10 +1,14 @@
 import { screen, within } from "@testing-library/react";
-import { renderWithWorkspaceSession as render } from "@/test/workspace-session-test-utils";
+import { executiveWorkspaceSession, renderWithWorkspaceSession as render } from "@/test/workspace-session-test-utils";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProjectsPage } from "@/features/projects/projects-page";
 import { mockProjects } from "@/features/projects/mock-data";
+import { createOperationFixtureContext } from "@/features/operations/operation-actor-compat";
+import { getProjectsStorageKey } from "@/features/projects/data/mock-project-repository";
+
+const context = createOperationFixtureContext(executiveWorkspaceSession);
 
 const navigation = vi.hoisted(() => ({
   push: vi.fn(),
@@ -93,7 +97,7 @@ describe("ProjectsPage", () => {
     expect((await screen.findAllByText("客户门户二期")).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByRole("dialog", { name: "新建项目" })).not.toBeInTheDocument();
     expect(navigation.push).toHaveBeenCalledWith(expect.stringMatching(/^\/projects\//));
-    expect(window.localStorage.getItem("enterprise-workspace.projects.v1")).toContain("客户门户二期");
+    expect(window.localStorage.getItem(getProjectsStorageKey(context)!)).toContain("客户门户二期");
   });
 
   it("keeps the dialog open when the project date range is invalid", async () => {

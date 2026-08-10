@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { findLocalProject } from "@/features/projects/data/mock-project-repository";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
-import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
+import { useOperationFixtureContext } from "@/features/operations/use-operations";
 import { ProjectDetailWorkspace } from "@/features/projects/project-detail-workspace";
 import type { ProjectDetailResult } from "@/features/projects/types";
 
@@ -19,7 +19,8 @@ type ProjectDetailPageProps = {
 
 export function ProjectDetailPage({ projectId, initialResult }: ProjectDetailPageProps) {
   const session = useWorkspaceSession();
-  const isFixtureBound = toOperationFixtureActor(session) !== null;
+  const context = useOperationFixtureContext(session);
+  const isFixtureBound = context.actor !== null;
   const [result, setResult] = useState<ProjectDetailResult | undefined>(
     isFixtureBound ? initialResult : undefined,
   );
@@ -29,9 +30,9 @@ export function ProjectDetailPage({ projectId, initialResult }: ProjectDetailPag
       setResult(undefined);
       return;
     }
-    const localDetail = findLocalProject(projectId);
+    const localDetail = findLocalProject(context, projectId);
     setResult(localDetail ? { detail: localDetail, source: "mock" } : initialResult);
-  }, [initialResult, isFixtureBound, projectId]);
+  }, [context, initialResult, isFixtureBound, projectId]);
 
   if (!result) {
     return (

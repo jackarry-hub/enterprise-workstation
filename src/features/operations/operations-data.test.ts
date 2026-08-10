@@ -60,13 +60,20 @@ const reviewAttendanceCorrection = (...args: Tail<Parameters<typeof reviewAttend
 const reviewOvertimeRequest = (...args: Tail<Parameters<typeof reviewOvertimeRequestWithContext>>) => reviewOvertimeRequestWithContext(contextFor(args[2]), ...args);
 const reviewLeaveRequest = (...args: Tail<Parameters<typeof reviewLeaveRequestWithContext>>) => reviewLeaveRequestWithContext(contextFor(args[2]), ...args);
 const submitLeaveRequest = (...args: Tail<Parameters<typeof submitLeaveRequestWithContext>>) => submitLeaveRequestWithContext(contextFor(args[1]), ...args);
-const syncProjectTasksToOperations = (...args: Tail<Parameters<typeof syncProjectTasksToOperationsWithContext>>) => syncProjectTasksToOperationsWithContext(contextFor(args[1]), ...args);
-const updateOperationTask = (...args: Tail<Parameters<typeof updateOperationTaskWithContext>>) => updateOperationTaskWithContext(contextFor(args[2]), ...args);
+const syncProjectTasksToOperations = (
+  detail: Parameters<typeof syncProjectTasksToOperationsWithContext>[1],
+  actorId: string,
+) => syncProjectTasksToOperationsWithContext(contextFor(actorId), detail, actorId, executiveWorkspaceSession.actor);
+const updateOperationTask = (
+  taskId: Parameters<typeof updateOperationTaskWithContext>[1],
+  patch: Parameters<typeof updateOperationTaskWithContext>[2],
+  actorId: string,
+) => updateOperationTaskWithContext(contextFor(actorId), taskId, patch, actorId, executiveWorkspaceSession.actor);
 const updatePayrollRun = (...args: Tail<Parameters<typeof updatePayrollRunWithContext>>) => updatePayrollRunWithContext(contextFor(args[1]), ...args);
 
 describe("operations business closure", () => {
   beforeEach(() => {
-    clearLocalProjects();
+    clearLocalProjects(boundContext);
     window.localStorage.removeItem(OPERATIONS_STORAGE_KEY);
     resetOperationsState();
   });
@@ -93,11 +100,17 @@ describe("operations business closure", () => {
       operationTask.assigneeId,
     );
 
-    const projectAfterExecution = findLocalProject(dispatched.project.id)!;
+    const projectAfterExecution = findLocalProject(boundContext, dispatched.project.id)!;
     expect(projectAfterExecution.tasks.find(({ id }) => id === operationTask.id)).toMatchObject({
       status: "in_progress",
       progress: 35,
     });
+    expect(projectAfterExecution.activities[0]).toMatchObject({
+      userId: executiveWorkspaceSession.actor.id,
+      actionType: "task_updated",
+    });
+    expect(projectAfterExecution.activities[0].content).toContain(executiveWorkspaceSession.actor.name);
+    expect(projectAfterExecution.activities[0].content).not.toContain(getActor(operationTask.assigneeId).name);
 
     const completedProject = updateMockTaskStatus(
       projectAfterExecution,
@@ -109,7 +122,7 @@ describe("operations business closure", () => {
         createId: () => "activity-sync-test",
       },
     );
-    saveLocalProject(completedProject);
+    saveLocalProject(boundContext, completedProject);
     syncProjectTasksToOperations(completedProject, "actor-manager");
 
     expect(readOperationsState().tasks.find(({ id }) => id === operationTask.id)).toMatchObject({

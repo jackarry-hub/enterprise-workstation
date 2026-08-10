@@ -115,11 +115,11 @@ export function TodayClockPanel() {
 
 function AttachmentLinks({ requestId, fileIds }: { requestId: string; fileIds: string[] }) {
   const session = useWorkspaceSession();
-  const { state } = useOperations(session);
+  const { state, context } = useOperations(session);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const files = state.files.filter((file) => file.entityType === "attendance" && file.entityId === requestId && fileIds.includes(file.id));
   if (!files.length) return null;
-  return <div className="mt-2 grid gap-1">{files.map((file) => <button key={file.id} type="button" className="flex items-center gap-2 rounded-lg bg-muted/60 px-2.5 py-2 text-left text-xs hover:bg-brand-soft" onClick={() => downloadOperationFile(file).catch((error) => setFeedback({ message: error instanceof Error ? error.message : "下载失败", error: true }))}><Download className="size-3.5 text-primary" /><span className="min-w-0 flex-1 truncate">{file.name}</span><span className="text-muted-foreground">v{file.version}</span></button>)}<FeedbackBanner feedback={feedback} /></div>;
+  return <div className="mt-2 grid gap-1">{files.map((file) => <button key={file.id} type="button" className="flex items-center gap-2 rounded-lg bg-muted/60 px-2.5 py-2 text-left text-xs hover:bg-brand-soft" onClick={() => downloadOperationFile(context, file).catch((error) => setFeedback({ message: error instanceof Error ? error.message : "下载失败", error: true }))}><Download className="size-3.5 text-primary" /><span className="min-w-0 flex-1 truncate">{file.name}</span><span className="text-muted-foreground">v{file.version}</span></button>)}<FeedbackBanner feedback={feedback} /></div>;
 }
 
 export function AttendanceSelfService() {
@@ -140,7 +140,7 @@ export function AttendanceSelfService() {
       const nextState = submitAttendanceCorrection(context, correction, actor.id);
       const request = nextState.attendance.corrections[0];
       if (attachment) {
-        const file = await storeOperationFile({ file: attachment, commandId: state.command.id, entityType: "attendance", entityId: request.id, uploadedById: actor.id, version: 1 });
+        const file = await storeOperationFile({ context, file: attachment, commandId: state.command.id, entityType: "attendance", entityId: request.id, uploadedById: actor.id, version: 1 });
         addOperationFile(context, file);
       }
       setAttachment(null);

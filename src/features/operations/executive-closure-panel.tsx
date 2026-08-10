@@ -35,7 +35,7 @@ export function ExecutiveClosurePanel() {
       const reviewNote = reviewNotes[taskId]?.trim() || (action === "approve" ? "成果符合验收标准，同意通过。" : "请根据验收标准补充成果后重新提交。");
       updateOperationTask(context, taskId, action === "approve"
         ? { status: "done", reviewNote }
-        : { status: "in_progress", reviewNote, progress: 70 }, actor.id);
+        : { status: "in_progress", reviewNote, progress: 70 }, actor.id, session.actor);
       setFeedback(action === "approve" ? "负责人任务已验收通过" : "任务已退回负责人修改");
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "任务验收失败");
@@ -94,7 +94,7 @@ export function ExecutiveClosurePanel() {
         </div>
       </GlassCard> : null}
 
-      <GlassCard className="p-4 sm:p-5"><div className="flex items-center justify-between"><div><h2 className="font-semibold">跨部门动态</h2><p className="mt-1 text-xs text-muted-foreground">所有执行、审批、上传和验收操作自动留痕。</p></div><Badge variant="outline">{state.events.length} 条记录</Badge></div><div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{state.events.slice(0, 8).map((item) => <div key={item.id} className="rounded-xl border border-border/70 bg-white/55 p-3"><p className="text-xs font-semibold">{item.action} · {getActor(item.actorId).name}</p><p className="mt-1.5 text-[11px] leading-5 text-muted-foreground">{item.detail}</p></div>)}</div></GlassCard>
+      <GlassCard className="p-4 sm:p-5"><div className="flex items-center justify-between"><div><h2 className="font-semibold">跨部门动态</h2><p className="mt-1 text-xs text-muted-foreground">所有执行、审批、上传和验收操作自动留痕。</p></div><Badge variant="outline">{state.events.length} 条记录</Badge></div><div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{state.events.slice(0, 8).map((item) => <div key={item.id} className="rounded-xl border border-border/70 bg-white/55 p-3"><p className="text-xs font-semibold">{item.action} · {item.actorName ?? getActor(item.actorId).name}</p><p className="mt-1.5 text-[11px] leading-5 text-muted-foreground">{item.detail}</p></div>)}</div></GlassCard>
     </section>
   );
 }

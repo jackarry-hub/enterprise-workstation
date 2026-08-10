@@ -1,13 +1,15 @@
 import { screen, within } from "@testing-library/react";
-import { renderWithWorkspaceSession as render } from "@/test/workspace-session-test-utils";
+import { executiveWorkspaceSession, renderWithWorkspaceSession as render } from "@/test/workspace-session-test-utils";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { saveLocalProject } from "@/features/projects/data/mock-project-repository";
+import { getProjectsStorageKey, saveLocalProject } from "@/features/projects/data/mock-project-repository";
+import { createOperationFixtureContext } from "@/features/operations/operation-actor-compat";
 import { getProjectDetailMock, mockProjects } from "@/features/projects/mock-data";
 import { ProjectDetailPage } from "@/features/projects/project-detail-page";
 
 const detail = getProjectDetailMock(mockProjects[0].id);
+const context = createOperationFixtureContext(executiveWorkspaceSession);
 
 if (!detail) {
   throw new Error("Expected the primary project detail fixture.");
@@ -119,7 +121,7 @@ describe("ProjectDetailPage", () => {
       risks: [],
       fileRelations: [],
     };
-    saveLocalProject(localDetail);
+    saveLocalProject(context, localDetail);
 
     render(<ProjectDetailPage projectId="project-local-1" />);
 
@@ -146,7 +148,7 @@ describe("ProjectDetailPage", () => {
     expect(await screen.findByText("完成客户门户原型")).toBeVisible();
     expect(screen.queryByRole("dialog", { name: "新建任务" })).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "任务" })).toHaveAttribute("data-state", "active");
-    expect(window.localStorage.getItem("enterprise-workspace.projects.v1")).toContain("完成客户门户原型");
+    expect(window.localStorage.getItem(getProjectsStorageKey(context)!)).toContain("完成客户门户原型");
   });
 
   it("marks a task complete and recalculates the visible project progress", async () => {
@@ -159,7 +161,7 @@ describe("ProjectDetailPage", () => {
 
     expect(screen.getByRole("progressbar", { name: "项目当前进度" })).toHaveAttribute("aria-valuenow", "33");
     expect(screen.getByRole("combobox", { name: "搭建官网前端工程与组件基线状态" })).toHaveTextContent("已完成");
-    expect(window.localStorage.getItem("enterprise-workspace.projects.v1")).toContain('"progress":33');
+    expect(window.localStorage.getItem(getProjectsStorageKey(context)!)).toContain('"progress":33');
   });
 
   it("edits project information, adds task feedback, and uploads a project file", async () => {
@@ -185,12 +187,12 @@ describe("ProjectDetailPage", () => {
     await user.upload(screen.getByLabelText("选择项目文件"), new File(["demo"], "交付清单.txt", { type: "text/plain" }));
     expect(screen.getByText("交付清单.txt")).toBeVisible();
     expect(screen.getByRole("status")).toHaveTextContent("已添加文件");
-    expect(window.localStorage.getItem("enterprise-workspace.projects.v1")).toContain("交付清单.txt");
+    expect(window.localStorage.getItem(getProjectsStorageKey(context)!)).toContain("交付清单.txt");
   });
 
   it("restores locally persisted project files after the detail page remounts", async () => {
     const user = userEvent.setup();
-    saveLocalProject({
+    saveLocalProject(context, {
       ...detail,
       files: [
         {
@@ -229,13 +231,13 @@ describe("ProjectDetailPage", () => {
     await user.type(screen.getByLabelText("下一步计划"), "进行全角色验收");
     await user.click(screen.getByRole("button", { name: "提交日报" }));
     expect(screen.getByText("完成最终版模块联调")).toBeVisible();
-    expect(window.localStorage.getItem("enterprise-workspace.projects.v1")).toContain("完成最终版模块联调");
+    expect(window.localStorage.getItem(getProjectsStorageKey(context)!)).toContain("完成最终版模块联调");
 
     await user.click(screen.getByRole("tab", { name: "复盘" }));
     await user.type(screen.getByLabelText("结果总结"), "主要闭环已完成");
     await user.type(screen.getByLabelText("经验教训"), "依赖和验收必须提前定义");
     await user.click(screen.getByRole("button", { name: "保存复盘" }));
     expect(screen.getByRole("status")).toHaveTextContent("复盘已保存");
-    expect(window.localStorage.getItem("enterprise-workspace.projects.v1")).toContain("依赖和验收必须提前定义");
+    expect(window.localStorage.getItem(getProjectsStorageKey(context)!)).toContain("依赖和验收必须提前定义");
   });
 });

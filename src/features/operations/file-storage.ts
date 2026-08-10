@@ -3,11 +3,19 @@
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { OperationFile } from "@/features/operations/operations-types";
+import type { WorkspaceIdentityContext } from "@/features/operations/operation-actor-compat";
 
 const DATABASE_NAME = "enterprise-workstation-files";
 const STORE_NAME = "files";
 const STORAGE_BUCKET = "workbench-files";
 const memoryFiles = new Map<string, Blob>();
+
+function fileStorageKey(context: WorkspaceIdentityContext, id: string) {
+  if (!context.actor || !context.storageNamespace) {
+    throw new Error("当前真实身份未绑定本地文件夹具");
+  }
+  return `${context.storageNamespace}:${id}`;
+}
 
 function openDatabase() {
   return new Promise<IDBDatabase>((resolve, reject) => {
@@ -24,26 +32,28 @@ function openDatabase() {
   });
 }
 
-async function putLocalFile(id: string, file: File) {
+async function putLocalFile(context: WorkspaceIdentityContext, id: string, file: File) {
+  const storageKey = fileStorageKey(context, id);
   if (typeof indexedDB === "undefined") {
-    memoryFiles.set(id, file);
+    memoryFiles.set(storageKey, file);
     return;
   }
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
     const transaction = database.transaction(STORE_NAME, "readwrite");
-    transaction.objectStore(STORE_NAME).put(file, id);
+    transaction.objectStore(STORE_NAME).put(file, storageKey);
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error ?? new Error("文件保存失败"));
   });
   database.close();
 }
 
-async function getLocalFile(id: string) {
-  if (typeof indexedDB === "undefined") return memoryFiles.get(id);
+async function getLocalFile(context: WorkspaceIdentityContext, id: string) {
+  const storageKey = fileStorageKey(context, id);
+  if (typeof indexedDB === "undefined") return memoryFiles.get(storageKey);
   const database = await openDatabase();
   const file = await new Promise<Blob | undefined>((resolve, reject) => {
-    const request = database.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME).get(id);
+    const request = database.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME).get(storageKey);
     request.onsuccess = () => resolve(request.result as Blob | undefined);
     request.onerror = () => reject(request.error ?? new Error("文件读取失败"));
   });
@@ -51,14 +61,39 @@ async function getLocalFile(id: string) {
   return file;
 }
 
-export async function storeProjectFileBlob(fileId: string, file: File) {
+async function deleteLocalFile(context: WorkspaceIdentityContext, id: string) {
+  const storageKey = fileStorageKey(context, id);
+  if (typeof indexedDB === "undefined") {
+    memoryFiles.delete(storageKey);
+    return;
+  }
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(STORE_NAME, "readwrite");
+    transaction.objectStore(STORE_NAME).delete(storageKey);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error("文件删除失败"));
+  });
+  database.close();
+}
+
+export async function storeProjectFileBlob(context: WorkspaceIdentityContext, fileId: string, file: File) {
+  fileStorageKey(context, fileId);
   if (file.size > 30 * 1024 * 1024) throw new Error("单个文件不能超过 30MB");
-  await putLocalFile(fileId, file);
+  await putLocalFile(context, fileId, file);
   return fileId;
 }
 
-export async function downloadProjectFileBlob(fileId: string, fileName: string) {
-  const blob = await getLocalFile(fileId);
+export function readProjectFileBlob(context: WorkspaceIdentityContext, fileId: string) {
+  return getLocalFile(context, fileId);
+}
+
+export function deleteProjectFileBlob(context: WorkspaceIdentityContext, fileId: string) {
+  return deleteLocalFile(context, fileId);
+}
+
+export async function downloadProjectFileBlob(context: WorkspaceIdentityContext, fileId: string, fileName: string) {
+  const blob = await getLocalFile(context, fileId);
   if (!blob) throw new Error("未找到文件内容；内置示例文件仅保留元数据，请上传本地文件后下载");
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -73,6 +108,7 @@ function safeFileName(name: string) {
 }
 
 export async function storeOperationFile({
+  context,
   file,
   commandId,
   entityType,
@@ -80,6 +116,7 @@ export async function storeOperationFile({
   uploadedById,
   version,
 }: {
+  context: WorkspaceIdentityContext;
   file: File;
   commandId: string;
   entityType: OperationFile["entityType"];
@@ -87,6 +124,10 @@ export async function storeOperationFile({
   uploadedById: string;
   version: number;
 }): Promise<OperationFile> {
+  fileStorageKey(context, "operation-file-access");
+  if (uploadedById !== context.actor?.id) {
+    throw new Error("当前真实身份无权代表其他夹具身份上传文件");
+  }
   if (file.size > 30 * 1024 * 1024) throw new Error("单个文件不能超过 30MB");
   const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `file-${Date.now()}`;
   const createdAt = new Date().toISOString();
@@ -97,7 +138,7 @@ export async function storeOperationFile({
       const client = getSupabaseBrowserClient();
       const { data: sessionData } = await client.auth.getSession();
       if (sessionData.session) {
-        const objectPath = `${sessionData.session.user.id}/${relativePath}`;
+        const objectPath = `${context.storageNamespace}/${relativePath}`;
         const { error } = await client.storage.from(STORAGE_BUCKET).upload(objectPath, file, { upsert: false, contentType: file.type || undefined });
         if (!error) return { id, commandId, entityType, entityId, name: file.name, mimeType: file.type || "application/octet-stream", sizeBytes: file.size, version, uploadedById, provider: "supabase", objectPath, createdAt };
       }
@@ -106,11 +147,12 @@ export async function storeOperationFile({
     }
   }
 
-  await putLocalFile(id, file);
+  await putLocalFile(context, id, file);
   return { id, commandId, entityType, entityId, name: file.name, mimeType: file.type || "application/octet-stream", sizeBytes: file.size, version, uploadedById, provider: "indexeddb", objectPath: id, createdAt };
 }
 
-export async function downloadOperationFile(file: OperationFile) {
+export async function downloadOperationFile(context: WorkspaceIdentityContext, file: OperationFile) {
+  fileStorageKey(context, file.objectPath);
   if (file.provider === "supabase") {
     const client = getSupabaseBrowserClient();
     const { data, error } = await client.storage.from(STORAGE_BUCKET).createSignedUrl(file.objectPath, 60);
@@ -119,7 +161,7 @@ export async function downloadOperationFile(file: OperationFile) {
     return;
   }
 
-  const blob = await getLocalFile(file.objectPath);
+  const blob = await getLocalFile(context, file.objectPath);
   if (!blob) throw new Error("未找到本地文件，请重新上传");
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");

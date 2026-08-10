@@ -29,7 +29,7 @@ export function OperationalKnowledgePanel() {
     setBusy(true);
     const entryId = `knowledge-manual-${Date.now()}`;
     try {
-      const stored = await storeOperationFile({ file, commandId: state.command.id, entityType: "knowledge", entityId: entryId, uploadedById: actor.id, version: 1 });
+      const stored = await storeOperationFile({ context, file, commandId: state.command.id, entityType: "knowledge", entityId: entryId, uploadedById: actor.id, version: 1 });
       addKnowledgeEntry(context, { id: entryId, commandId: state.command.id, title: titleFromFile(file.name), summary: `由 ${actor.name} 直接上传并纳入“${state.command.title}”知识资产。`, category: "项目成果", tags: ["用户上传", "AI试点"], fileIds: [stored.id], status: "published", createdById: actor.id, updatedAt: stored.createdAt });
       addOperationFile(context, stored);
       setFeedback({ message: `${file.name} 已上传、发布并关联到当前命令` });
@@ -47,7 +47,7 @@ export function OperationalKnowledgePanel() {
       return;
     }
     try {
-      await downloadOperationFile(file);
+      await downloadOperationFile(context, file);
     } catch (error) {
       setFeedback({ message: error instanceof Error ? error.message : "文件下载失败", error: true });
     }

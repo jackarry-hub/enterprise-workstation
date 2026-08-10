@@ -1,3 +1,8 @@
+import type { WorkspaceActor } from "@/features/auth/workspace-session-types";
+import {
+  requireAuthenticatedActor,
+  type WorkspaceIdentityContext,
+} from "@/features/operations/operation-actor-compat";
 import { mockMembers, mockProjects } from "@/features/projects/mock-data";
 import type {
   CreateMockProjectInput,
@@ -5,7 +10,7 @@ import type {
   ProjectMember,
 } from "@/features/projects/types";
 
-const STORAGE_KEY = "enterprise-workspace.projects.v1";
+export const PROJECTS_STORAGE_KEY = "enterprise-workspace.projects.v1";
 const STORAGE_VERSION = 1;
 
 export const PROJECTS_CHANGED_EVENT = "enterprise-workspace:projects-changed";
@@ -24,6 +29,20 @@ export type MockProjectRepositoryOptions = {
 function resolveStorage(options?: MockProjectRepositoryOptions) {
   return options?.storage
     ?? (typeof window === "undefined" ? undefined : window.localStorage);
+}
+
+export function getProjectsStorageKey(context: WorkspaceIdentityContext) {
+  return context.storageNamespace
+    ? `${PROJECTS_STORAGE_KEY}:${context.storageNamespace}`
+    : null;
+}
+
+function requireProjectContext(context: WorkspaceIdentityContext) {
+  const storageKey = getProjectsStorageKey(context);
+  if (!context.actor || !storageKey) {
+    throw new Error("当前真实身份未绑定本地项目夹具");
+  }
+  return storageKey;
 }
 
 function currentDate(options?: MockProjectRepositoryOptions) {
@@ -122,30 +141,36 @@ function nextProjectCode(
 }
 
 export function readLocalProjects(
+  context: WorkspaceIdentityContext,
   options?: MockProjectRepositoryOptions,
 ): ProjectDetailData[] {
+  const storageKey = getProjectsStorageKey(context);
+  if (!context.actor || !storageKey) return [];
   const storage = resolveStorage(options);
-  return storage ? parseStore(storage.getItem(STORAGE_KEY)).projects.map(({ detail }) => detail) : [];
+  return storage ? parseStore(storage.getItem(storageKey)).projects.map(({ detail }) => detail) : [];
 }
 
 export function findLocalProject(
+  context: WorkspaceIdentityContext,
   projectId: string,
   options?: MockProjectRepositoryOptions,
 ) {
-  return readLocalProjects(options).find(({ project }) => project.id === projectId);
+  return readLocalProjects(context, options).find(({ project }) => project.id === projectId);
 }
 
 export function saveLocalProject(
+  context: WorkspaceIdentityContext,
   detail: ProjectDetailData,
   options?: MockProjectRepositoryOptions,
 ) {
+  const storageKey = requireProjectContext(context);
   const storage = resolveStorage(options);
   if (!storage) {
     return;
   }
 
   const now = currentDate(options).toISOString();
-  const current = parseStore(storage.getItem(STORAGE_KEY));
+  const current = parseStore(storage.getItem(storageKey));
   const nextRecords = current.projects.filter(
     ({ detail: record }) => record.project.id !== detail.project.id,
   );
@@ -155,14 +180,18 @@ export function saveLocalProject(
     projects: nextRecords,
   };
 
-  storage.setItem(STORAGE_KEY, JSON.stringify(nextStore));
+  storage.setItem(storageKey, JSON.stringify(nextStore));
   notifyProjectChange();
 }
 
 export function createLocalProject(
+  context: WorkspaceIdentityContext,
   input: CreateMockProjectInput,
+  auditActor: WorkspaceActor,
   options?: MockProjectRepositoryOptions,
 ): ProjectDetailData {
+  requireProjectContext(context);
+  requireAuthenticatedActor(context, auditActor);
   validateCreateInput(input);
 
   const now = currentDate(options);
@@ -191,11 +220,11 @@ export function createLocalProject(
     project: {
       id: projectId,
       organizationId: mockProjects[0].organizationId,
-      code: nextProjectCode(readLocalProjects(options), now),
+      code: nextProjectCode(readLocalProjects(context, options), now),
       name: input.name.trim(),
       description: input.description.trim(),
       ownerId: owner.id,
-      createdById: owner.id,
+      createdById: auditActor.memberId,
       status: input.status,
       health: "on_track",
       priority: input.priority,
@@ -212,21 +241,33 @@ export function createLocalProject(
     comments: [],
     files: [],
     dailyReports: [],
-    activities: [],
+    activities: [{
+      id: createIdentifier(options),
+      organizationId: mockProjects[0].organizationId,
+      projectId,
+      userId: auditActor.id,
+      actionType: "project_created",
+      content: `${auditActor.name}创建了项目“${input.name.trim()}”。`,
+      createdAt: timestamp,
+    }],
     risks: [],
     fileRelations: [],
   };
 
-  saveLocalProject(detail, options);
+  saveLocalProject(context, detail, options);
   return detail;
 }
 
-export function clearLocalProjects(options?: MockProjectRepositoryOptions) {
+export function clearLocalProjects(
+  context: WorkspaceIdentityContext,
+  options?: MockProjectRepositoryOptions,
+) {
+  const storageKey = requireProjectContext(context);
   const storage = resolveStorage(options);
   if (!storage) {
     return;
   }
 
-  storage.removeItem(STORAGE_KEY);
+  storage.removeItem(storageKey);
   notifyProjectChange();
 }

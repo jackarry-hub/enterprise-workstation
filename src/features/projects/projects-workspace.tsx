@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
-import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
+import { useOperations } from "@/features/operations/use-operations";
 import { CreateProjectDialog } from "@/features/projects/components/create-project-dialog";
 import { ProjectAside } from "@/features/projects/components/project-aside";
 import { ProjectFilters } from "@/features/projects/components/project-filters";
@@ -50,16 +50,14 @@ type ProjectsWorkspaceProps = {
 
 export function ProjectsWorkspace({ projects, stats, reminders }: ProjectsWorkspaceProps) {
   const session = useWorkspaceSession();
-  const fixtureActor = toOperationFixtureActor(session);
-  const actor = fixtureActor ?? session.actor;
-  const isFixtureBound = fixtureActor !== null;
+  const { context, actor, isFixtureBound } = useOperations(session);
   const router = useRouter();
   const [filters, setFilters] = useState<ProjectListFilters>(defaultFilters);
   const [visibleProjects, setVisibleProjects] = useState<ProjectListItem[]>(isFixtureBound ? [...projects] : []);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const refreshLocalProjects = useCallback(() => {
-    setVisibleProjects(isFixtureBound ? mergeProjectList(projects, readLocalProjects()) : []);
-  }, [isFixtureBound, projects]);
+    setVisibleProjects(isFixtureBound ? mergeProjectList(projects, readLocalProjects(context)) : []);
+  }, [context, isFixtureBound, projects]);
 
   useEffect(() => {
     refreshLocalProjects();
@@ -86,7 +84,7 @@ export function ProjectsWorkspace({ projects, stats, reminders }: ProjectsWorksp
 
   function handleCreateProject(input: CreateMockProjectInput) {
     if (!isFixtureBound) throw new Error("当前真实身份未绑定本地业务夹具");
-    const detail = createLocalProject(input);
+    const detail = createLocalProject(context, input, session.actor);
     refreshLocalProjects();
     router.push(`/projects/${detail.project.id}`);
   }

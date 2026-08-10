@@ -28,9 +28,12 @@ export type OperationFixtureContext = {
   tenantId: string;
   authUserId: string;
   memberId: string;
+  authenticatedActor: WorkspaceActor;
   actor: WorkspaceActor | null;
   storageNamespace: string | null;
 };
+
+export type WorkspaceIdentityContext = OperationFixtureContext;
 
 export type OperationFixtureIdentity = {
   tenantId: string;
@@ -65,11 +68,27 @@ export function createOperationFixtureContextForIdentity(
     tenantId: identity.tenantId,
     authUserId: identity.authUserId,
     memberId: identity.memberId,
+    authenticatedActor: identity.actor,
     actor,
     storageNamespace: actor
       ? `${identity.tenantId}:${identity.authUserId}:${identity.memberId}`
       : null,
   };
+}
+
+export function requireAuthenticatedActor(
+  context: WorkspaceIdentityContext,
+  actor: WorkspaceActor,
+) {
+  if (
+    actor.id !== context.authUserId
+    || actor.memberId !== context.memberId
+    || actor.id !== context.authenticatedActor.id
+    || actor.memberId !== context.authenticatedActor.memberId
+  ) {
+    throw new Error("审计身份与当前登录身份不一致");
+  }
+  return actor;
 }
 
 export function toOperationFixtureActor(session: WorkspaceSession): WorkspaceActor | null {

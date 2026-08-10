@@ -59,7 +59,7 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
 
   useEffect(() => {
     if (result.source === "mock") {
-      const persistedDetail = findLocalProject(result.detail.project.id);
+      const persistedDetail = findLocalProject(context, result.detail.project.id);
       if (persistedDetail) setDetail(persistedDetail);
     }
 
@@ -68,17 +68,17 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
     if (projectDetailTabs.some(({ value }) => value === requestedTab)) setActiveTab(requestedTab as ProjectDetailTab);
     const requestedTask = params.get("task");
     if (requestedTask) { setActiveTab("tasks"); setInitialTaskId(requestedTask); }
-  }, [result.detail.project.id, result.source]);
+  }, [context, result.detail.project.id, result.source]);
 
   useEffect(() => {
     if (result.source !== "mock") return;
     const refresh = () => {
-      const persistedDetail = findLocalProject(result.detail.project.id);
+      const persistedDetail = findLocalProject(context, result.detail.project.id);
       if (persistedDetail) setDetail(persistedDetail);
     };
     window.addEventListener(PROJECTS_CHANGED_EVENT, refresh);
     return () => window.removeEventListener(PROJECTS_CHANGED_EVENT, refresh);
-  }, [result.detail.project.id, result.source]);
+  }, [context, result.detail.project.id, result.source]);
 
   function addMilestone(milestone: Milestone) {
     const next = {
@@ -86,13 +86,13 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
       milestones: [...detail.milestones, milestone].sort((left, right) => left.sortOrder - right.sortOrder),
     };
     if (result.source === "mock") {
-      saveLocalProject(next);
+      saveLocalProject(context, next);
     }
     setDetail(next);
   }
 
   function persistDetail(next: ProjectDetailData) {
-    saveLocalProject(next);
+    saveLocalProject(context, next);
     setDetail(next);
   }
 
@@ -105,7 +105,7 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
     if (!canManageProject) throw new Error("只有项目负责人可以新建任务");
     const next = createMockTask(detail, input, auditActor);
     persistDetail(next);
-    syncProjectTasksToOperations(context, next, actor.id);
+    syncProjectTasksToOperations(context, next, actor.id, auditActor);
   }
 
   function updateTaskStatus(taskId: string, status: TaskExecutionStatus) {
@@ -113,7 +113,7 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
     if (workflowManaged) throw new Error("该任务由执行与验收流程统一管理，请前往对应角色工作台操作");
     const next = updateMockTaskStatus(detail, taskId, status, auditActor);
     persistDetail(next);
-    syncProjectTasksToOperations(context, next, actor.id);
+    syncProjectTasksToOperations(context, next, actor.id, auditActor);
   }
 
   function addTaskComment(taskId: string, body: string) {
@@ -129,7 +129,7 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
   async function uploadFile(file: globalThis.File) {
     const now = new Date().toISOString();
     const id = `file-${Date.now()}`;
-    const objectPath = await storeProjectFileBlob(id, file);
+    const objectPath = await storeProjectFileBlob(context, id, file);
     const projectFile: ProjectFile = { id, organizationId: detail.project.organizationId, projectId: detail.project.id, bucket: "indexeddb-project-files", objectPath, originalName: file.name, mimeType: file.type || "application/octet-stream", sizeBytes: file.size, accessScope: "restricted", uploadedById: auditActor.memberId, createdAt: now };
     const relation: FileRelation = { id: `relation-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, fileId: id, relationType: "project", createdById: auditActor.memberId, createdAt: now };
     const activity: ProjectActivity = { id: `activity-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, userId: auditActor.id, actionType: "file_uploaded", content: `${auditActor.name}上传了《${file.name}》。`, createdAt: now };
@@ -176,7 +176,7 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
           <ProjectTasksTab actor={auditActor} detail={detail} onCreate={() => setIsTaskOpen(true)} onStatusChange={updateTaskStatus} onComment={addTaskComment} initialTaskId={initialTaskId} canManage={canManageProject} workflowManaged={workflowManaged} />
         ) : null}
         {activeTab === "gantt" ? <ProjectGanttTab detail={detail} /> : null}
-        {activeTab === "files" ? <ProjectFilesTab detail={detail} onUpload={uploadFile} /> : null}
+        {activeTab === "files" ? <ProjectFilesTab context={context} detail={detail} onUpload={uploadFile} /> : null}
         {activeTab === "reports" ? <ProjectReportsTab detail={detail} canSubmit={canViewProject} onSubmit={submitDailyReport} /> : null}
         {activeTab === "retrospective" ? <ProjectRetrospectiveTab detail={detail} canManage={canManageProject} onSave={saveRetrospective} onRiskStatusChange={updateRiskStatus} /> : null}
       </Tabs>

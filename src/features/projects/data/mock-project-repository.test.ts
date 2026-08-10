@@ -3,16 +3,21 @@ import { describe, expect, it } from "vitest";
 import {
   clearLocalProjects,
   createLocalProject,
+  getProjectsStorageKey,
   readLocalProjects,
   saveLocalProject,
 } from "@/features/projects/data/mock-project-repository";
+import { createOperationFixtureContext } from "@/features/operations/operation-actor-compat";
 import { getProjectDetailMock, mockMembers, mockProjects } from "@/features/projects/mock-data";
+import { executiveWorkspaceSession } from "@/test/workspace-session-test-utils";
+
+const context = createOperationFixtureContext(executiveWorkspaceSession);
 
 function createMemoryStorage(initialValue?: string) {
   const values = new Map<string, string>();
 
   if (initialValue !== undefined) {
-    values.set("enterprise-workspace.projects.v1", initialValue);
+    values.set(getProjectsStorageKey(context)!, initialValue);
   }
 
   return {
@@ -33,7 +38,7 @@ describe("mock project repository", () => {
     const storage = createMemoryStorage();
     const ids = ["project-local-1", "owner-membership-1", "member-membership-1"];
 
-    const detail = createLocalProject({
+    const detail = createLocalProject(context, {
       name: "客户门户二期",
       description: "完善客户自助服务与交付进度查询。",
       ownerId: mockMembers[0].id,
@@ -42,7 +47,7 @@ describe("mock project repository", () => {
       dueDate: "2026-10-30",
       priority: "high",
       status: "planning",
-    }, {
+    }, executiveWorkspaceSession.actor, {
       storage,
       now: () => new Date("2026-08-05T02:00:00.000Z"),
       createId: () => ids.shift() ?? "extra-id",
@@ -62,7 +67,7 @@ describe("mock project repository", () => {
     ]);
     expect(detail.tasks).toEqual([]);
     expect(detail.milestones).toEqual([]);
-    expect(readLocalProjects({ storage })).toEqual([detail]);
+    expect(readLocalProjects(context, { storage })).toEqual([detail]);
   });
 
   it("deduplicates the owner and advances project codes across local records", () => {
@@ -79,7 +84,7 @@ describe("mock project repository", () => {
       createId: () => ids.shift() ?? "extra-id",
     };
 
-    createLocalProject({
+    createLocalProject(context, {
       name: "项目甲",
       description: "第一个本地项目",
       ownerId: mockMembers[0].id,
@@ -88,8 +93,8 @@ describe("mock project repository", () => {
       dueDate: "2026-09-10",
       priority: "medium",
       status: "planning",
-    }, options);
-    const second = createLocalProject({
+    }, executiveWorkspaceSession.actor, options);
+    const second = createLocalProject(context, {
       name: "项目乙",
       description: "第二个本地项目",
       ownerId: mockMembers[1].id,
@@ -98,16 +103,16 @@ describe("mock project repository", () => {
       dueDate: "2026-09-20",
       priority: "high",
       status: "active",
-    }, options);
+    }, executiveWorkspaceSession.actor, options);
 
     expect(second.project.code).toBe("PRJ-2026-026");
-    expect(readLocalProjects({ storage })[0].members).toHaveLength(1);
+    expect(readLocalProjects(context, { storage })[0].members).toHaveLength(1);
   });
 
   it("treats corrupt browser storage as an empty local portfolio", () => {
     const storage = createMemoryStorage("{broken-json");
 
-    expect(readLocalProjects({ storage })).toEqual([]);
+    expect(readLocalProjects(context, { storage })).toEqual([]);
   });
 
   it("replaces a matching local project and can clear the store", () => {
@@ -119,18 +124,18 @@ describe("mock project repository", () => {
       return;
     }
 
-    saveLocalProject(detail, { storage });
+    saveLocalProject(context, detail, { storage });
     const updated = {
       ...detail,
       project: { ...detail.project, progress: 88 },
     };
-    saveLocalProject(updated, { storage });
+    saveLocalProject(context, updated, { storage });
 
-    expect(readLocalProjects({ storage })).toHaveLength(1);
-    expect(readLocalProjects({ storage })[0].project.progress).toBe(88);
+    expect(readLocalProjects(context, { storage })).toHaveLength(1);
+    expect(readLocalProjects(context, { storage })[0].project.progress).toBe(88);
 
-    clearLocalProjects({ storage });
-    expect(readLocalProjects({ storage })).toEqual([]);
+    clearLocalProjects(context, { storage });
+    expect(readLocalProjects(context, { storage })).toEqual([]);
   });
 
   it("does not report a successful write when storage rejects it", () => {
@@ -143,6 +148,6 @@ describe("mock project repository", () => {
       removeItem: () => undefined,
     };
 
-    expect(() => saveLocalProject(detail!, { storage })).toThrow("quota exceeded");
+    expect(() => saveLocalProject(context, detail!, { storage })).toThrow("quota exceeded");
   });
 });

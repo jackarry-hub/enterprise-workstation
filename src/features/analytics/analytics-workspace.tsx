@@ -29,7 +29,7 @@ const rangeLabels: Record<AnalyticsRange, string> = {
 
 export function AnalyticsWorkspace() {
   const session = useWorkspaceSession();
-  const { state: operationsState, actor, isFixtureBound } = useOperations(session);
+  const { state: operationsState, context, actor, isFixtureBound } = useOperations(session);
   const [projects, setProjects] = useState<ProjectDetailData[]>(() => isFixtureBound ? getEffectiveProjectDetails([]) : []);
   const [filters, setFilters] = useState<AnalyticsFilters>({ range: "month", department: "all" });
   const effectiveFilters = useMemo(
@@ -38,8 +38,8 @@ export function AnalyticsWorkspace() {
   );
 
   const refreshProjects = useCallback(() => {
-    setProjects(isFixtureBound ? getEffectiveProjectDetails(readLocalProjects()) : []);
-  }, [isFixtureBound]);
+    setProjects(isFixtureBound ? getEffectiveProjectDetails(readLocalProjects(context)) : []);
+  }, [context, isFixtureBound]);
 
   useEffect(() => {
     refreshProjects();

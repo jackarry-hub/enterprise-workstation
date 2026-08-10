@@ -8,7 +8,7 @@
 - `projects-workspace.tsx`：项目列表页面的搜索、分组、筛选、本地项目合并与新建项目入口。
 - `project-detail-page.tsx`：`/projects/[id]` 的详情页组合入口，并解析浏览器本地创建的项目。
 - `project-detail-workspace.tsx`：统一持有当前项目聚合，协调概览、里程碑、任务与后续 Tab 占位状态。
-- `data/mock-project-repository.ts`：版本化 Mock 仓库，使用 `enterprise-workspace.projects.v1` 保存完整项目聚合并支持刷新恢复。
+- `data/mock-project-repository.ts`：版本化 Mock 仓库，使用租户、登录用户和成员命名空间保存完整项目聚合并支持刷新恢复；未显式绑定的身份不能读取或写入本地夹具。
 - `data/project-list-operations.ts`：本地项目与默认列表的覆盖合并、稳定排序和组合统计增量计算。
 - `data/project-task-operations.ts`：任务创建、三态更新与项目完成比例自动计算的纯业务操作。
 - `data/project-list-data.ts`：Supabase 项目、负责人、成员、目标与里程碑列表装配，失败时自动回退 Mock。

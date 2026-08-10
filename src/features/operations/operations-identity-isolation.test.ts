@@ -95,6 +95,7 @@ describe("operations fixture identity isolation", () => {
       "flow-task-01",
       { status: "in_progress" },
       "actor-executive",
+      executiveWorkspaceSession.actor,
     )).toThrow("当前真实身份未绑定本地业务夹具");
     expect(getItem).not.toHaveBeenCalled();
     expect(setItem).not.toHaveBeenCalled();
@@ -137,7 +138,7 @@ describe("operations fixture identity isolation", () => {
 
     expect(readStoredDecision(context, browserStorage)).toBeUndefined();
     expect(() => saveStoredDecision(context, decision, browserStorage)).toThrow(
-      "褰撳墠鐪熷疄韬唤鏈粦瀹氭湰鍦颁笟鍔″す鍏?",
+      "当前真实身份未绑定本地业务夹具",
     );
     expect(browserStorage.getItem).not.toHaveBeenCalled();
     expect(browserStorage.setItem).not.toHaveBeenCalled();

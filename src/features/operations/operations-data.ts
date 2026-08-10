@@ -3,7 +3,10 @@ import type {
   WorkspaceActor,
   WorkspaceRole,
 } from "@/features/auth/workspace-session-types";
-import type { OperationFixtureContext } from "@/features/operations/operation-actor-compat";
+import {
+  requireAuthenticatedActor,
+  type OperationFixtureContext,
+} from "@/features/operations/operation-actor-compat";
 import { calculateProjectProgress } from "@/features/projects/data/project-task-operations";
 import { findLocalProject, saveLocalProject } from "@/features/projects/data/mock-project-repository";
 import type { ProjectActivity, ProjectDetailData, ProjectTask, TaskStatus } from "@/features/projects/types";
@@ -300,10 +303,10 @@ function operationTaskFromProject(
   };
 }
 
-function hydrateOperationsFromProject(state: OperationsState): OperationsState {
+function hydrateOperationsFromProject(context: OperationFixtureContext, state: OperationsState): OperationsState {
   const projectId = state.command.projectId;
   if (!projectId) return state;
-  const detail = findLocalProject(projectId);
+  const detail = findLocalProject(context, projectId);
   if (!detail) return state;
   const previousById = new Map(state.tasks.map((task) => [task.id, task]));
   const tasks = detail.tasks
@@ -321,10 +324,15 @@ function hydrateOperationsFromProject(state: OperationsState): OperationsState {
   };
 }
 
-function saveOperationTaskToProject(state: OperationsState, task: OperationTask, actorId: string) {
+function saveOperationTaskToProject(
+  context: OperationFixtureContext,
+  state: OperationsState,
+  task: OperationTask,
+  auditActor: WorkspaceActor,
+) {
   const projectId = state.command.projectId;
   if (!projectId) return;
-  const detail = findLocalProject(projectId);
+  const detail = findLocalProject(context, projectId);
   if (!detail) return;
   const projectTask = detail.tasks.find(({ id }) => id === task.id);
   if (!projectTask) throw new Error(`项目主数据中未找到任务“${task.title}”`);
@@ -338,17 +346,16 @@ function saveOperationTaskToProject(state: OperationsState, task: OperationTask,
     completedAt: task.status === "done" ? timestamp : undefined,
     updatedAt: timestamp,
   } : item);
-  const actor = getActor(actorId);
   const activity: ProjectActivity = {
     id: `activity-unified-${Date.now()}`,
     organizationId: detail.project.organizationId,
     projectId,
-    userId: actor.memberId,
+    userId: auditActor.id,
     actionType: "task_updated",
-    content: `${actor.name}在工作台更新了任务“${task.title}”，状态已同步到项目与决策中心。`,
+    content: `${auditActor.name}在工作台更新了任务“${task.title}”，状态已同步到项目与决策中心。`,
     createdAt: timestamp,
   };
-  saveLocalProject({
+  saveLocalProject(context, {
     ...detail,
     project: { ...detail.project, progress: calculateProjectProgress(tasks), updatedAt: timestamp },
     tasks,
@@ -406,14 +413,14 @@ export function readOperationsState(
       const seed = createSeedState();
       const normalized: OperationsState = { ...parsed, tasks: parsed.tasks.map((task) => ({ ...task, dependencyIds: task.dependencyIds ?? [], escalationLevel: task.escalationLevel ?? "none" })), leaveRequests: parsed.leaveRequests ?? seed.leaveRequests, attendance: parsed.attendance ?? seed.attendance, payrollRun: parsed.payrollRun ?? seed.payrollRun, notificationReads: parsed.notificationReads ?? {} };
       if (!parsed.leaveRequests || !parsed.attendance || !parsed.payrollRun || !parsed.notificationReads) resolved.setItem(storageKey, JSON.stringify(normalized));
-      return applyTaskEscalations(hydrateOperationsFromProject(normalized));
+      return applyTaskEscalations(hydrateOperationsFromProject(context, normalized));
     }
   } catch {
     // Corrupt demo data is replaced with a deterministic seed below.
   }
   const seed = createSeedState();
   resolved.setItem(storageKey, JSON.stringify(seed));
-  return applyTaskEscalations(hydrateOperationsFromProject(seed));
+  return applyTaskEscalations(hydrateOperationsFromProject(context, seed));
 }
 
 export function saveOperationsState(
@@ -571,7 +578,7 @@ function isEventRelevant(state: OperationsState, actor: WorkspaceActor, item: Op
   if (actor.role === "hr") return /人事|人员|请假|考勤|补卡|加班|薪资/.test(`${item.action}${item.detail}`);
   const visibleTasks = state.tasks.filter((task) => task.assigneeId === actor.id || task.departmentOwnerId === actor.id);
   if (visibleTasks.some((task) => item.detail.includes(task.title))) return true;
-  if (actor.role === "department_head") return getActor(item.actorId).department === actor.department;
+  if (actor.role === "department_head") return operationFixtureActors.find(({ id }) => id === item.actorId)?.department === actor.department;
   return false;
 }
 
@@ -599,7 +606,7 @@ export function getOperationNotifications(
     .map<OperationNotification>((item) => ({
       id: `event:${item.id}`,
       actorId,
-      title: `${item.action} · ${getActor(item.actorId).name}`,
+      title: `${item.action} · ${item.actorName ?? getActor(item.actorId).name}`,
       description: item.detail,
       severity: "info",
       category: "system",
@@ -734,8 +741,8 @@ function assertTaskMutationAllowed(
   }
 }
 
-function event(actorId: string, action: string, detail: string, commandId = COMMAND_ID) {
-  return { id: `event-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, commandId, actorId, action, detail, createdAt: nowIso() };
+function event(actorId: string, action: string, detail: string, commandId = COMMAND_ID, actorName?: string) {
+  return { id: `event-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, commandId, actorId, actorName, action, detail, createdAt: nowIso() };
 }
 
 export function updateOperationTask(
@@ -743,8 +750,10 @@ export function updateOperationTask(
   taskId: string,
   patch: OperationTaskPatch,
   actorId: string,
+  auditActor: WorkspaceActor,
 ) {
   requireFixtureActor(context, actorId);
+  requireAuthenticatedActor(context, auditActor);
   const state = readOperationsState(context);
   const before = state.tasks.find(({ id }) => id === taskId);
   if (!before) throw new Error("未找到任务");
@@ -792,19 +801,24 @@ export function updateOperationTask(
     knowledge: nextKnowledge,
     events: [event(actorId, labels[task.status], `${actor.name}将“${task.title}”${labels[task.status]}。`), ...state.events],
   });
-  saveOperationTaskToProject(saved, task, actorId);
+  saveOperationTaskToProject(context, saved, task, auditActor);
   return saved;
 }
 
-export function syncProjectTasksToOperations(context: OperationFixtureContext, detail: ProjectDetailData, actorId: string) {
+export function syncProjectTasksToOperations(
+  context: OperationFixtureContext,
+  detail: ProjectDetailData,
+  actorId: string,
+  auditActor: WorkspaceActor,
+) {
   requireFixtureActor(context, actorId);
+  requireAuthenticatedActor(context, auditActor);
   const state = readOperationsState(context);
   if (state.command.projectId !== detail.project.id) return state;
-  const hydrated = hydrateOperationsFromProject(state);
-  const actor = getActor(actorId);
+  const hydrated = hydrateOperationsFromProject(context, state);
   return saveOperationsState(context, {
     ...hydrated,
-    events: [event(actorId, "同步任务主数据", `${actor.name}在项目中心更新任务，角色工作台与领导决策进度已同步。`, state.command.id), ...hydrated.events],
+    events: [event(auditActor.id, "同步任务主数据", `${auditActor.name}在项目中心更新任务，角色工作台与领导决策进度已同步。`, state.command.id, auditActor.name), ...hydrated.events],
   });
 }
 

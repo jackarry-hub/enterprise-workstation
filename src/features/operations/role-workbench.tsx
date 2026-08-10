@@ -86,7 +86,7 @@ function OperationUpload({ entityType, entityId, label = "上传成果", onFeedb
     setBusy(true);
     try {
       const version = state.files.filter((item) => item.entityType === entityType && item.entityId === entityId && item.name === file.name).length + 1;
-      const stored = await storeOperationFile({ file, commandId: state.command.id, entityType, entityId, uploadedById: actor.id, version });
+      const stored = await storeOperationFile({ context, file, commandId: state.command.id, entityType, entityId, uploadedById: actor.id, version });
       addOperationFile(context, stored);
       onFeedback(`${file.name} 已上传并关联到当前${entityType === "task" ? "任务" : entityType === "support" ? "协同事项" : "知识文档"}`);
     } catch (error) {
@@ -104,12 +104,14 @@ function OperationUpload({ entityType, entityId, label = "上传成果", onFeedb
 }
 
 function TaskFiles({ taskId, files, onFeedback }: { taskId: string; files: OperationFile[]; onFeedback: (message: string, tone?: "error" | "success") => void }) {
+  const session = useWorkspaceSession();
+  const { context } = useOperations(session);
   const relevant = files.filter(({ entityType, entityId }) => entityType === "task" && entityId === taskId);
   if (!relevant.length) return <p className="text-xs text-muted-foreground">尚未上传成果，提交验收前至少上传一个文件。</p>;
   return (
     <div className="grid gap-1.5">
       {relevant.map((file) => (
-        <button key={file.id} type="button" onClick={() => downloadOperationFile(file).catch((error) => onFeedback(error instanceof Error ? error.message : "下载失败", "error"))} className="flex items-center gap-2 rounded-lg bg-background/80 px-2.5 py-2 text-left text-xs transition-colors hover:bg-brand-soft">
+        <button key={file.id} type="button" onClick={() => downloadOperationFile(context, file).catch((error) => onFeedback(error instanceof Error ? error.message : "下载失败", "error"))} className="flex items-center gap-2 rounded-lg bg-background/80 px-2.5 py-2 text-left text-xs transition-colors hover:bg-brand-soft">
           <FileCheck2 className="size-3.5 shrink-0 text-primary" /><span className="min-w-0 flex-1 truncate">{file.name}</span><span className="text-muted-foreground">v{file.version} · {formatBytes(file.sizeBytes)}</span><Download className="size-3.5" />
         </button>
       ))}
@@ -137,7 +139,7 @@ function TaskCard({ task, onFeedback }: { task: OperationTask; onFeedback: (mess
 
   function update(status: OperationTaskStatus, message: string, extra?: Partial<OperationTask>) {
     try {
-      updateOperationTask(context, task.id, { status, ...extra }, actor.id);
+      updateOperationTask(context, task.id, { status, ...extra }, actor.id, session.actor);
       setNote("");
       onFeedback(message);
     } catch (error) {
@@ -161,7 +163,7 @@ function TaskCard({ task, onFeedback }: { task: OperationTask; onFeedback: (mess
         <div className="rounded-xl bg-muted/55 p-3">
           <p className="text-[11px] text-muted-foreground">唯一执行人</p>
           {canAssign ? (
-            <select aria-label={`${task.title}执行人`} value={task.assigneeId} onChange={(event) => { updateOperationTask(context, task.id, { assigneeId: event.target.value }, actor.id); onFeedback(`已将任务分配给 ${getActor(event.target.value).name}`); }} className="mt-1.5 h-9 w-full rounded-lg border border-input bg-background px-2 text-sm font-medium">
+            <select aria-label={`${task.title}执行人`} value={task.assigneeId} onChange={(event) => { updateOperationTask(context, task.id, { assigneeId: event.target.value }, actor.id, session.actor); onFeedback(`已将任务分配给 ${getActor(event.target.value).name}`); }} className="mt-1.5 h-9 w-full rounded-lg border border-input bg-background px-2 text-sm font-medium">
               {assigneeOptions.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name} · {candidate.title}</option>)}
             </select>
           ) : <div className="mt-1.5 flex items-center gap-2"><Avatar size="sm"><AvatarFallback className="bg-brand-soft text-primary">{assignee.name.slice(0, 1)}</AvatarFallback></Avatar><span className="text-sm font-medium">{assignee.name} · {assignee.title}</span></div>}
@@ -275,7 +277,7 @@ export function RoleWorkbench({ role }: { role: Exclude<WorkspaceRole, "executiv
         </GlassCard>
 
         <aside className="grid h-fit gap-3 xl:sticky xl:top-22">
-          <GlassCard className="p-4"><div className="flex items-center gap-2"><Clock3 className="size-4 text-primary" /><h2 className="font-semibold">最近流转</h2></div><div className="mt-3 grid gap-3">{state.events.slice(0, 6).map((item) => <div key={item.id} className="border-l-2 border-brand-soft pl-3"><p className="text-xs font-medium">{item.action} · {getActor(item.actorId).name}</p><p className="mt-1 text-[11px] leading-4 text-muted-foreground">{item.detail}</p></div>)}</div></GlassCard>
+          <GlassCard className="p-4"><div className="flex items-center gap-2"><Clock3 className="size-4 text-primary" /><h2 className="font-semibold">最近流转</h2></div><div className="mt-3 grid gap-3">{state.events.slice(0, 6).map((item) => <div key={item.id} className="border-l-2 border-brand-soft pl-3"><p className="text-xs font-medium">{item.action} · {item.actorName ?? getActor(item.actorId).name}</p><p className="mt-1 text-[11px] leading-4 text-muted-foreground">{item.detail}</p></div>)}</div></GlassCard>
           <GlassCard className="p-4"><h2 className="font-semibold">常用入口</h2><div className="mt-3 grid gap-2">{role === "department_head" || role === "employee" ? <Button asChild variant="outline" className="justify-between"><Link href="/tasks">查看我的任务<ArrowRight /></Link></Button> : null}{role === "finance" ? <Button asChild variant="outline" className="justify-between"><Link href="/payroll">薪资办理<ArrowRight /></Link></Button> : null}{role === "hr" ? <Button asChild variant="outline" className="justify-between"><Link href="/people">人员管理<ArrowRight /></Link></Button> : null}<Button asChild variant="outline" className="justify-between"><Link href="/approvals">我的审批待办<ArrowRight /></Link></Button>{isFixtureBound ? <Button type="button" variant="ghost" onClick={() => { resetOperationsState(context); notify("本地业务数据已恢复到初始状态"); }}><RotateCcw />重置本地试用数据</Button> : null}</div></GlassCard>
         </aside>
       </section>

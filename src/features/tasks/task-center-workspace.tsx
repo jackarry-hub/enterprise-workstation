@@ -12,7 +12,7 @@ import { TaskCenterSummary } from "@/features/tasks/components/task-center-summa
 import { TaskDetailDialog } from "@/features/tasks/components/task-detail-dialog";
 import { getEffectiveProjectDetails } from "@/features/projects/data/effective-project-details";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
-import { toOperationFixtureActor } from "@/features/operations/operation-actor-compat";
+import { useOperations } from "@/features/operations/use-operations";
 import { PROJECTS_CHANGED_EVENT, readLocalProjects } from "@/features/projects/data/mock-project-repository";
 import type { ProjectDetailData } from "@/features/projects/types";
 import { createTaskCenterItems, filterTaskCenterItems, getAssigneeDistribution, getTaskCenterSummary, getUpcomingTaskDeadlines, scopeTaskCenterItems } from "@/features/tasks/task-center-selectors";
@@ -36,17 +36,15 @@ const shortcutItems = [
 
 export function TaskCenterWorkspace() {
   const session = useWorkspaceSession();
-  const fixtureActor = toOperationFixtureActor(session);
-  const actor = fixtureActor ?? session.actor;
-  const isFixtureBound = fixtureActor !== null;
+  const { context, actor, isFixtureBound } = useOperations(session);
   const [projects, setProjects] = useState<ProjectDetailData[]>(() => isFixtureBound ? getEffectiveProjectDetails([]) : []);
   const [filters, setFilters] = useState<TaskCenterFilters>(defaultFilters);
   const [selectedItem, setSelectedItem] = useState<TaskCenterItem | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
 
   const refreshProjects = useCallback(() => {
-    setProjects(isFixtureBound ? getEffectiveProjectDetails(readLocalProjects()) : []);
-  }, [isFixtureBound]);
+    setProjects(isFixtureBound ? getEffectiveProjectDetails(readLocalProjects(context)) : []);
+  }, [context, isFixtureBound]);
 
   useEffect(() => {
     refreshProjects();

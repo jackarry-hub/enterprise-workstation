@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { downloadProjectFileBlob } from "@/features/operations/file-storage";
+import type { WorkspaceIdentityContext } from "@/features/operations/operation-actor-compat";
 import type { ProjectDetailData, ProjectFile } from "@/features/projects/types";
 
 function formatSize(size: number) {
@@ -23,7 +24,7 @@ function FileTypeIcon({ file }: { file: ProjectFile }) {
   return <File className="size-5" />;
 }
 
-export function ProjectFilesTab({ detail, onUpload }: { detail: ProjectDetailData; onUpload: (file: globalThis.File) => Promise<void> }) {
+export function ProjectFilesTab({ context, detail, onUpload }: { context: WorkspaceIdentityContext; detail: ProjectDetailData; onUpload: (file: globalThis.File) => Promise<void> }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   async function upload(file?: globalThis.File) {
@@ -41,7 +42,7 @@ export function ProjectFilesTab({ detail, onUpload }: { detail: ProjectDetailDat
 
   async function download(file: ProjectFile) {
     try {
-      await downloadProjectFileBlob(file.objectPath, file.originalName);
+      await downloadProjectFileBlob(context, file.objectPath, file.originalName);
       setMessage(`已开始下载：${file.originalName}`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "文件下载失败");

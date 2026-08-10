@@ -253,6 +253,7 @@ export type OperationEvent = {
   id: string;
   commandId: string;
   actorId: string;
+  actorName?: string;
   action: string;
   detail: string;
   createdAt: string;
