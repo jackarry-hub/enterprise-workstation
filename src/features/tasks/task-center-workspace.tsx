@@ -15,6 +15,7 @@ import { useDemoSession } from "@/features/operations/demo-session";
 import { PROJECTS_CHANGED_EVENT, readLocalProjects } from "@/features/projects/data/mock-project-repository";
 import type { ProjectDetailData } from "@/features/projects/types";
 import { createTaskCenterItems, filterTaskCenterItems, getAssigneeDistribution, getTaskCenterSummary, getUpcomingTaskDeadlines, scopeTaskCenterItems } from "@/features/tasks/task-center-selectors";
+import { getTaskCenterAction } from "@/features/tasks/task-center-action";
 import type { TaskCenterFilters, TaskCenterItem, TaskCenterTab } from "@/features/tasks/task-center-types";
 
 const defaultFilters: TaskCenterFilters = {
@@ -68,6 +69,7 @@ export function TaskCenterWorkspace() {
     () => projects.flatMap(({ activities: projectActivities }) => projectActivities).sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
     [projects],
   );
+  const roleAction = getTaskCenterAction(actor.role);
 
   function resetFilters() {
     setFilters(defaultFilters);
@@ -117,8 +119,8 @@ export function TaskCenterWorkspace() {
         item={selectedItem}
         open={isDetailOpen}
         onOpenChange={setIsDetailOpen}
-        actionHref={actor.role === "employee" ? "/execution" : actor.role === "department_head" ? "/department" : actor.role === "finance" ? "/finance" : actor.role === "hr" ? "/hr" : "/dashboard"}
-        actionLabel={actor.role === "executive" ? "返回领导调度台" : actor.role === "department_head" ? "前往负责人工作台" : "前往我的执行工作台"}
+        actionHref={roleAction.href}
+        actionLabel={roleAction.label}
       />
     </main>
   );
