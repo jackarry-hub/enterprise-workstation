@@ -27,6 +27,53 @@ describe("getSupabaseEnv", () => {
   });
 
   it.each([
+    ["http://localhost:54321", "http://localhost:54321"],
+    ["http://LOCALHOST:54321", "http://localhost:54321"],
+    ["http://127.0.0.1:54321", "http://127.0.0.1:54321"],
+    ["http://127.1:54321", "http://127.0.0.1:54321"],
+    ["http://[::1]:54321", "http://[::1]:54321"],
+  ])(
+    "allows cleartext HTTP for normalized local loopback URL %s",
+    (url, expectedUrl) => {
+      vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", url);
+      vi.stubEnv(
+        "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+        "sb_publishable_example",
+      );
+
+      expect(getSupabaseEnv()).toEqual({
+        url: expectedUrl,
+        publishableKey: "sb_publishable_example",
+      });
+    },
+  );
+
+  it.each([
+    "http://example.supabase.co",
+    "http://192.168.1.20:54321",
+    "http://10.0.0.5:54321",
+    "http://172.16.0.5:54321",
+    "http://supabase.localhost:54321",
+    "http://localhost.example.com:54321",
+    "http://localhost.:54321",
+    "http://127.0.0.2:54321",
+    "http://[::ffff:127.0.0.1]:54321",
+  ])(
+    "rejects cleartext HTTP for non-allowlisted hostname %s",
+    (url) => {
+      vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", url);
+      vi.stubEnv(
+        "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+        "sb_publishable_example",
+      );
+
+      expect(() => getSupabaseEnv()).toThrow(
+        "Supabase 配置无效：NEXT_PUBLIC_SUPABASE_URL",
+      );
+    },
+  );
+
+  it.each([
     ["dashboard", "NEXT_PUBLIC_SUPABASE_URL"],
     ["file:///tmp/supabase", "NEXT_PUBLIC_SUPABASE_URL"],
     ["https://user:password@example.supabase.co", "NEXT_PUBLIC_SUPABASE_URL"],

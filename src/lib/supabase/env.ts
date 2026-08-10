@@ -3,6 +3,10 @@ const SUPABASE_ENV_KEYS = [
   "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
 ] as const;
 
+// URL.hostname normalizes casing and IPv4 shorthand; IPv6 remains bracketed.
+// Keep local HTTP explicit: .localhost subdomains and other loopback aliases are rejected.
+const LOCAL_HTTP_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
 export type SupabaseEnv = {
   url: string;
   publishableKey: string;
@@ -36,8 +40,11 @@ export function getSupabaseEnv(): SupabaseEnv {
     throw new Error("Supabase 配置无效：NEXT_PUBLIC_SUPABASE_URL");
   }
 
+  const isSecure = projectUrl.protocol === "https:";
+  const isAllowedLocalHttp = projectUrl.protocol === "http:"
+    && LOCAL_HTTP_HOSTNAMES.has(projectUrl.hostname);
   if (
-    !["http:", "https:"].includes(projectUrl.protocol)
+    (!isSecure && !isAllowedLocalHttp)
     || projectUrl.username.length > 0
     || projectUrl.password.length > 0
   ) {
