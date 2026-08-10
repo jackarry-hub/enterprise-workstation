@@ -8,9 +8,15 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test": "vitest run --exclude \"scripts/phase1/**/*.test.mjs\"",
+    "test:watch": "vitest --exclude \"scripts/phase1/**/*.test.mjs\"",
+    "test:e2e": "playwright test",
+    "db:start": "npx supabase start",
+    "db:reset": "npx supabase db reset",
+    "db:test": "npx supabase test db",
+    "phase1:provision": "node scripts/phase1/provision-roster.mjs",
+    "phase1:provision:test": "node --test scripts/phase1/provision-roster.test.mjs",
+    "phase1:verify": "npm run phase1:provision:test && npm test && npm run typecheck && npm run lint && npm run build"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",
@@ -29,6 +35,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "3.3.6",
+    "@next/env": "15.5.22",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^7.0.0",

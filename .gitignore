@@ -12,6 +12,7 @@
 
 # testing
 /coverage
+/playwright/.auth/
 
 # next.js
 /.next/
@@ -43,6 +44,9 @@ yarn-error.log*
 /AGENTS.md
 /CLAUDE.md
 /task-2-report.md
+
+# private Phase 1 operator inputs
+/private/
 
 # local QA and source archives
 /artifacts/
