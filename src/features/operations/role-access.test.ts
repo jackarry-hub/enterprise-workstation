@@ -28,4 +28,11 @@ describe("role access policy", () => {
       expect(canRoleAccessPath(role, "/notifications")).toBe(true);
     }
   });
+
+  it("lets every role deliver tasks and follow old attendance bookmarks to that work", () => {
+    for (const role of ["executive", "department_head", "employee", "finance", "hr"] as const) {
+      expect(canRoleAccessPath(role, "/tasks")).toBe(true);
+      expect(canRoleAccessPath(role, "/attendance")).toBe(true);
+    }
+  });
 });

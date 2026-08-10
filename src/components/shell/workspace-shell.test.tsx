@@ -1,11 +1,16 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { AppSidebar } from "@/components/shell/app-sidebar";
+import { WorkspaceHeader } from "@/components/shell/workspace-header";
 import { WorkspaceShell } from "@/components/shell/workspace-shell";
+import { DemoSessionProvider } from "@/features/operations/demo-session";
+import { OPERATIONS_ACTOR_KEY } from "@/features/operations/operations-data";
 
 describe("WorkspaceShell", () => {
+  beforeEach(() => window.localStorage.clear());
+
   it("exposes the enterprise navigation and workspace controls", () => {
     render(
       <WorkspaceShell>
@@ -21,7 +26,7 @@ describe("WorkspaceShell", () => {
     expect(screen.getByText("AI 决策调度台")).toBeVisible();
     expect(screen.getByText("项目管理")).toBeVisible();
     expect(screen.getByText("审批中心")).toBeVisible();
-    expect(screen.queryByRole("link", { name: "任务管理" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "任务管理" })).toHaveAttribute("href", "/tasks");
     expect(screen.queryByRole("link", { name: "知识库" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "客户管理" })).toHaveAttribute("href", "/customers");
     expect(screen.getByRole("link", { name: "数据分析" })).toHaveAttribute("href", "/analytics");
@@ -59,5 +64,17 @@ describe("WorkspaceShell", () => {
       "href",
       "/projects?view=overview#project-overview",
     );
+  });
+
+  it("sends employees to their tasks instead of attendance", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem(OPERATIONS_ACTOR_KEY, "actor-employee");
+
+    render(<DemoSessionProvider><WorkspaceHeader /></DemoSessionProvider>);
+    await screen.findByText("陈晨");
+    await user.click(screen.getByRole("button", { name: "打开用户菜单" }));
+
+    expect(screen.getByRole("menuitem", { name: /我的任务/ })).toHaveAttribute("href", "/tasks");
+    expect(screen.queryByRole("menuitem", { name: /我的考勤/ })).not.toBeInTheDocument();
   });
 });

@@ -21,7 +21,7 @@
 - 通用员工预置只能由 `service_role` 调用；`authenticated` 只能认领当前登录身份匹配的既有预置记录，未知用户不得自助创建成员或档案。
 - `audit_logs` 在第一阶段只记录身份、用户、权限和名单预置事件，必须 tenant-scoped、append-only；浏览器不得直接写入，metadata 必须净化且不得含 Secret、Token、OAuth code、Authorization/Cookie、service_role 或原始 IP。
 - `employee_profiles.skills` 使用 `text[]`、默认空数组、最多 30 项；每项去首尾空白、英文小写、去重且长度 1–40 字符。第一阶段不实现 AI 匹配、推荐或打分。
-- 第一阶段不迁移项目、任务、文件、审批、考勤、薪资等业务写入；这些页面保持可浏览，真实数据迁移从第二阶段开始。
+- 第一阶段不迁移项目、任务、文件、审批、请假、薪资等业务写入；这些页面保持可浏览，真实数据迁移从第二阶段开始。传统考勤能力已经产品退役，不进入后续真实写入迁移。
 - 第一阶段不引入 LangGraph、Dify、n8n、AI 模型 Provider、Agent、AI 匹配、CRM、复杂 ERP、OA 流程设计器或移动端 App。
 - 登录页和状态页沿用现有白色、浅蓝渐变、透明卡片、大圆角的玻璃拟态风格，不做传统 OA 蓝色后台。
 - 每个页面只保留一个明显主操作；错误文案面向非技术员工，不显示 OAuth、JWT、RLS、RPC、provider token 等术语。
@@ -54,7 +54,15 @@
 
 本计划不交付：项目/任务/文件真实写入、业务工作流审计、AI 战略中心、Agent、AI 任务匹配、知识库、Dify、n8n、飞书通知、租户管理 UI 及全部旧页面内容清理。这些需求已保留在总设计的第二至第四阶段，不代表取消。
 
-**Amendment precedence:** 本次新增的 Global Constraints、Task 2 Mandatory revised contract 以及 Task 3/5/7/8/9 amendment notes，优先于下方尚未机械改写的旧示例。旧示例若出现飞书专用核心、无 `tenant_id`、`claim_current_feishu_identity`、`provision_feishu_employee` 作为唯一入口或把身份审计延后等冲突，只能视为适配器/历史说明，不得作为实现或验收依据。
+### 传统考勤退役修订（2026-08-10）
+
+- 量子星河不采用上下班打卡制，也不限制工作时间或地点；不建设排班、迟到早退、定位/Wi-Fi 打卡、补卡或考勤加班流程。员工责任边界是任务截止时间、成果提交和验收。
+- 本阶段只做误导 UI 的最小退役：从导航移除“考勤管理”，五岗位均开放“任务管理”，员工菜单改为“我的任务”，旧 `/attendance` 服务端重定向至 `/tasks`。
+- 为让现有客户端路由保护放行后执行服务端重定向，五岗位暂时保留 `/attendance` 路由访问兼容；该例外不代表仍有考勤产品能力。
+- 本阶段不新建任务后端，不迁移/删除旧考勤代码和本地数据。历史演示薪资、通知仍可能引用这些结构，待后续业务迁移时一并移除失效考勤数据及薪资耦合。
+- 请假继续作为独立的人事协同事项，不用于考勤跟踪。
+
+**Amendment precedence:** 本次新增的 Global Constraints、传统考勤退役修订、Task 2 Mandatory revised contract 以及 Task 3/5/7/8/9 amendment notes，优先于下方尚未机械改写的旧示例。旧示例若出现飞书专用核心、无 `tenant_id`、`claim_current_feishu_identity`、`provision_feishu_employee` 作为唯一入口、把身份审计延后或把考勤作为在用产品能力等冲突，只能视为适配器/历史说明，不得作为实现或验收依据。
 
 ## File Map
 

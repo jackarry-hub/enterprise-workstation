@@ -1,12 +1,15 @@
 import type { DemoRole } from "@/features/operations/operations-types";
 
 const roleRoutePrefixes: Record<DemoRole, readonly string[]> = {
+  // Keep /attendance accessible only so legacy bookmarks can reach its server redirect to /tasks.
   executive: [
     "/help",
     "/notifications",
     "/dashboard",
     "/projects",
     "/activities",
+    "/tasks",
+    "/attendance",
     "/approvals",
     "/people",
     "/payroll",
@@ -41,6 +44,7 @@ const roleRoutePrefixes: Record<DemoRole, readonly string[]> = {
     "/help",
     "/notifications",
     "/finance",
+    "/tasks",
     "/approvals",
     "/payroll",
     "/attendance",
@@ -50,6 +54,7 @@ const roleRoutePrefixes: Record<DemoRole, readonly string[]> = {
     "/help",
     "/notifications",
     "/hr",
+    "/tasks",
     "/people",
     "/attendance",
     "/leave",
