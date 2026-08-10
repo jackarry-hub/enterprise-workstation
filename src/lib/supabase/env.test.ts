@@ -27,13 +27,14 @@ describe("getSupabaseEnv", () => {
   });
 
   it.each([
+    ["http://localhost", "http://localhost"],
     ["http://localhost:54321", "http://localhost:54321"],
-    ["http://LOCALHOST:54321", "http://localhost:54321"],
+    ["http://127.0.0.1", "http://127.0.0.1"],
     ["http://127.0.0.1:54321", "http://127.0.0.1:54321"],
-    ["http://127.1:54321", "http://127.0.0.1:54321"],
+    ["http://[::1]", "http://[::1]"],
     ["http://[::1]:54321", "http://[::1]:54321"],
   ])(
-    "allows cleartext HTTP for normalized local loopback URL %s",
+    "allows cleartext HTTP for exact local loopback authority %s",
     (url, expectedUrl) => {
       vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", url);
       vi.stubEnv(
@@ -53,11 +54,22 @@ describe("getSupabaseEnv", () => {
     "http://192.168.1.20:54321",
     "http://10.0.0.5:54321",
     "http://172.16.0.5:54321",
+    "http://LOCALHOST:54321",
+    "http://local%68ost:54321",
     "http://supabase.localhost:54321",
     "http://localhost.example.com:54321",
     "http://localhost.:54321",
+    "http://127.1:54321",
+    "http://127.0.1:54321",
+    "http://127.000.000.001:54321",
+    "http://2130706433:54321",
+    "http://0x7f000001:54321",
+    "http://017700000001:54321",
     "http://127.0.0.2:54321",
+    "http://[0:0:0:0:0:0:0:1]:54321",
     "http://[::ffff:127.0.0.1]:54321",
+    "http://user@localhost:54321",
+    "http://localhost@evil.example:54321",
   ])(
     "rejects cleartext HTTP for non-allowlisted hostname %s",
     (url) => {
@@ -70,6 +82,26 @@ describe("getSupabaseEnv", () => {
       expect(() => getSupabaseEnv()).toThrow(
         "Supabase 配置无效：NEXT_PUBLIC_SUPABASE_URL",
       );
+    },
+  );
+
+  it.each([
+    ["https://LOCALHOST:54321", "https://localhost:54321"],
+    ["https://127.1:54321", "https://127.0.0.1:54321"],
+    ["https://supabase.localhost:54321", "https://supabase.localhost:54321"],
+  ])(
+    "keeps HTTPS host normalization behavior unchanged for %s",
+    (url, expectedUrl) => {
+      vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", url);
+      vi.stubEnv(
+        "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+        "sb_publishable_example",
+      );
+
+      expect(getSupabaseEnv()).toEqual({
+        url: expectedUrl,
+        publishableKey: "sb_publishable_example",
+      });
     },
   );
 
