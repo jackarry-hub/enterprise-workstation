@@ -38,9 +38,6 @@ for (const [role, landingPath, forbiddenPath] of roleScenarios) {
     await expect(
       page.getByRole("img", { name: roleFixtures[role].displayName }),
     ).toBeVisible();
-    await expect(page.getByRole("status")).toHaveText(
-      "你没有权限查看刚才的页面，已返回可访问的工作台。",
-    );
 
     await page.goto("/tasks");
     await expect(page).toHaveURL(/\/tasks$/);
@@ -55,6 +52,9 @@ for (const [role, landingPath, forbiddenPath] of roleScenarios) {
     await expect(
       page.getByRole("img", { name: roleFixtures[role].displayName }),
     ).toBeVisible();
+    await expect(page.getByRole("status")).toHaveText(
+      "你没有权限查看刚才的页面，已返回可访问的工作台。",
+    );
 
     await context.close();
   });

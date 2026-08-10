@@ -33,4 +33,17 @@ describe("Phase 1 real-session E2E contract", () => {
     expect(source).toContain("你没有权限查看刚才的页面，已返回可访问的工作台。");
     expect(source).not.toContain('route: "/knowledge"');
   });
+
+  it("checks the no-access notice only after the forbidden-route redirect", () => {
+    const source = e2e("phase1-auth-rbac.spec.ts");
+    const landingNavigation = source.indexOf("await page.goto(landingPath)");
+    const forbiddenNavigation = source.indexOf("await page.goto(forbiddenPath)");
+    const noticeAssertion = source.indexOf(
+      'await expect(page.getByRole("status")).toHaveText',
+    );
+
+    expect(landingNavigation).toBeGreaterThan(-1);
+    expect(forbiddenNavigation).toBeGreaterThan(landingNavigation);
+    expect(noticeAssertion).toBeGreaterThan(forbiddenNavigation);
+  });
 });
