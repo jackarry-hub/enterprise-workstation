@@ -14,7 +14,7 @@
 
 V1.0 必须跑通以下核心闭环：
 
-1. 老板通过飞书登录并输入经营目标。
+1. 老板通过当前启用的企业 OAuth 登录；V1.0 登录页只开放飞书，并在后续阶段输入经营目标。
 2. AI 生成项目、里程碑、任务、负责人、期限和验收标准。
 3. 老板检查并确认下发。
 4. 管理层和员工在各自工作台执行、反馈、上传成果并提交验收。
@@ -24,11 +24,12 @@ V1.0 必须跑通以下核心闭环：
 
 ## 2. 已确认的产品决策
 
-- V1.0 只服务量子星河一家企业，不提供企业注册、租户切换、套餐或多租户后台。
-- 保留 organizations 和 organization_id，数据库只初始化一个量子星河组织。
+- V1.0 运行时只启用量子星河一家企业，不提供企业注册、租户选择、租户切换、套餐、计费或多租户后台。
+- 数据库从第一阶段建立 `tenants` SaaS 边界，所有身份、组织、权限和审计数据显式携带 `tenant_id`；只初始化一个量子星河租户和一个主组织。
+- 保留 `organizations` 作为租户下的组织结构；`organization_id` 不能代替 `tenant_id`，跨租户引用由组合约束、组合外键和 RLS 共同阻止。
 - 使用 Supabase Cloud 新加坡区域提供 Auth、PostgreSQL、Storage 和托管备份。
 - 香港 Ubuntu 22.04 服务器部署 Next.js、Nginx 和 n8n。
-- 所有员工统一使用飞书登录，不开放邮箱密码注册。
+- 所有员工统一使用企业 OAuth 登录，不开放邮箱密码注册；V1.0 只启用 `custom:feishu`，但身份、预置、认领和会话核心采用 Provider 无关契约。
 - AI 模型采用厂商无关接口，不强制绑定 OpenAI、Claude 或 DeepSeek。
 - Dify 负责知识库和知识检索，不作为项目、任务和权限的事实数据源。
 - n8n 负责通知和外部自动化，不直接拥有核心业务状态。
@@ -36,6 +37,10 @@ V1.0 必须跑通以下核心闭环：
 - 当前浏览器中的演示项目、任务、文件和身份数据不迁入正式数据库。
 - 现有页面全部保留并完善内容，但不扩展为复杂 ERP、CRM 或 OA。
 - 不开发独立移动端 App，继续提供响应式网页。
+
+### 2.1 第一阶段硬边界
+
+第一阶段只交付登录、用户、权限和组织身份，以及支撑这些能力的租户边界与身份审计。项目、任务、文件等业务数据仍沿用现有页面和阶段一兼容读取；不在第一阶段迁移其写入，也不开发 AI 战略中心、Agent、Dify、n8n 或飞书通知。
 
 ## 3. 当前代码基线
 
@@ -94,10 +99,10 @@ V1.0 必须跑通以下核心闭环：
 
 用户请求链路：
 
-    飞书扫码
-      -> Supabase Auth 自定义飞书 OAuth
+    当前启用的企业 OAuth（V1.0 仅飞书）
+      -> Provider Adapter / Supabase Auth custom:* Provider
       -> Next.js Server Component / Route Handler / Server Action
-      -> PostgreSQL + RLS
+      -> Provider 无关身份核心 + tenant_id + PostgreSQL RLS
       -> Supabase Storage
 
 AI 链路：
@@ -126,55 +131,79 @@ AI 链路：
 
 ## 6. 登录、用户和权限
 
-### 6.1 飞书登录
+### 6.1 OAuth Provider 边界与飞书登录
 
-Supabase Auth 配置 custom:feishu OAuth2 Provider，使用飞书授权、Token 和用户信息端点。由 Supabase Auth 处理 OAuth state、PKCE、会话签发、刷新和退出。
+Supabase Auth 配置 `custom:feishu` OAuth2 Provider，使用飞书授权、Token 和用户信息端点。由 Supabase Auth 处理 OAuth state、PKCE、会话签发、刷新和退出。飞书 UserInfo 代码只是 Provider Adapter，负责把飞书响应标准化；它不是身份、认领或会话的事实来源。
+
+应用维护小型 OAuth Provider Registry。V1.0 Registry 只启用 `feishu -> custom:feishu`，登录页仍只有“使用飞书登录”一个主操作。以后增加其他 OAuth Provider 时，只新增适配器和 Registry 项，不重建 `WorkspaceSession`、员工表、身份表或权限模型。
 
 旧版自制 HMAC 会话 Cookie 设计不再实施。
 
 ### 6.2 用户模型
 
-- auth.users 保存 Supabase 登录身份。
-- organization_members 保存用户与量子星河的成员关系。
-- employee_profiles 保存工号、姓名、头像、部门、职位、汇报关系和在职状态。
+- `tenants` 保存 SaaS 数据边界；V1.0 只存在启用的 `quantxy` 租户。
+- `auth.users` 保存 Supabase 登录身份，不作为企业员工档案。
+- `identity_providers` 保存租户内 Provider 配置标识：`provider_code`、`auth_provider`、`provider_tenant_key`、启用状态和不含密钥的安全元数据。
+- `external_identities` 保存 Provider 无关身份：`tenant_id`、`identity_provider_id`、`provider_subject`、`provider_tenant_key`、安全匹配键、`auth_user_id`、`organization_member_id` 和最近登录时间；不得保存 OAuth Token、授权码、App Secret 或 Cookie。
+- `organization_members` 保存用户与租户下组织的成员关系，并显式携带 `tenant_id`。
+- `employee_profiles` 保存工号、姓名、头像、部门、职位、汇报关系、在职状态和 `skills text[]` 能力标签，并显式携带 `tenant_id`。`skills` 默认空数组，最多 30 项；每项去首尾空白、英文转小写、去重，长度 1–40 字符。
 - member_roles 复用现有数据库角色代码：owner、admin、department_head、employee、finance、hr。
 - 界面岗位映射为 owner = CEO、department_head = 管理层、employee = 普通员工、finance = 财务、hr = 人事；admin 是不出现在普通岗位导航中的系统管理角色。
-- 新增 external_identities，保存 provider、provider_user_id、feishu_open_id、feishu_union_id、auth_user_id、organization_member_id、last_login_at。
+- `WorkspaceSession` 必须返回 `tenantId` 和 Provider 无关的身份摘要（`providerCode`、`authProvider`、`providerSubject`），不得把 `feishu_open_id`、`feishu_union_id` 或 `tenant_key` 暴露给普通页面。
 
-飞书首次登录规则：
+首次登录规则：
 
-1. 根据 union_id 优先、open_id 次优查找已预置的员工身份。
+1. Provider Adapter 产出标准化的 `provider_code`、`provider_subject`、`provider_tenant_key` 和匹配键；飞书适配器可用 union_id 优先、open_id 次优、唯一工作邮箱最后匹配。
 2. 找不到员工档案时拒绝进入，并提示联系管理员开通。
 3. 找到后绑定 auth.users 和 organization_members。
 4. 停用或离职员工即使飞书授权成功，也不能读取业务数据。
+5. 通用员工预置函数仅允许 `service_role` 调用；`authenticated` 只能认领当前登录身份对应的已预置记录，未知用户不能自助注册。
 
 ### 6.3 权限模型
 
 - 前端导航根据角色隐藏。
 - Workspace Layout 在服务端验证会话和员工状态。
 - Server Action 和 Route Handler 再次验证操作权限。
-- PostgreSQL RLS 是最终数据边界。
+- PostgreSQL RLS 是最终数据边界；每条身份、组织、权限和审计策略都先限定当前 `tenant_id`，再限定角色或本人范围。
 - service_role 只允许出现在服务端管理任务，不进入浏览器 Bundle。
 - AI 和 n8n 不能绕过用户权限直接修改任意业务数据。
 
 ## 7. 数据模型调整
 
-### 7.1 复用而不重复建表
+### 7.1 复用与新增边界
 
-不新增简化版 public.users、audit_logs 或重复 files 表。
+用户继续使用 `auth.users + organization_members + employee_profiles`，文件继续使用 `files + storage.objects`；新增 `tenants`、`identity_providers`、`external_identities` 和 `audit_logs` 作为可持续的租户、身份与安全审计基线。
 
-- 用户：auth.users + organization_members + employee_profiles。
-- 审计：audit_events。
+- 用户：`auth.users + organization_members + employee_profiles`。
+- 身份：`identity_providers + external_identities`，核心不绑定飞书。
+- 审计：第一阶段新增 `audit_logs` 记录身份、用户、权限和名单预置事件；现有 `audit_events` 的业务事件在第二阶段评估向 `audit_logs` 归并，不用于替代第一阶段安全审计。
 - 文件：files + storage.objects。
+
+### 7.1.1 租户边界
+
+- `tenants` 是未来 SaaS 的顶层边界；V1.0 只种子化 `quantxy / 量子星河`。
+- `organizations` 是租户下的组织实体；V1.0 只种子化 `quantum-galaxy / 量子星河` 主组织。
+- `organizations`、`organization_members`、`departments`、`employee_profiles`、`roles`、`member_roles`、`role_permissions`、`identity_providers`、`external_identities` 和 `audit_logs` 显式携带 `tenant_id`，权限目录 `permissions` 保持全局只读定义。
+- 父部门、部门负责人、员工成员、角色分配、Provider 身份和审计 actor/target 必须通过 `(tenant_id, id)` 或等价守卫证明属于同一租户；RLS 不允许仅凭 `organization_id` 跨越租户边界。
+- 第一阶段没有租户注册、选择、切换、计费或跨租户管理 UI；未来启用多企业时再增加活跃租户选择和管理面，不改动身份与会话合同。
+
+### 7.1.2 身份操作审计
+
+`audit_logs` 仅记录第一阶段的 `identity.provisioned`、`identity.claimed`、`identity.revoked`、`member.status_changed`、`member.role_changed`、`profile.updated` 和 `roster.imported` 等事件。日志追加写入且按租户隔离；浏览器和普通数据库客户端无直接 insert/update/delete 权限，只有受控的服务端或数据库函数可以追加净化后的记录。
+
+每条记录包含 `tenant_id`、可选 `organization_id`、actor、action、target、请求编号、IP 摘要、安全 metadata 和 `created_at`。禁止记录 Secret、Token、原始 OAuth code、Authorization/Cookie、工资明细或原始 IP；metadata 限制为对象且不超过 8 KB，键名命中 `token|secret|authorization|code|cookie|service_role` 时拒绝写入。
 
 ### 7.2 组织
 
 departments 增加：
 
+- tenant_id
 - leader_member_id
 - description
 
 保留 parent_department_id 构建树形组织。
+
+employee_profiles 增加 `tenant_id` 和 `skills text[] not null default '{}'::text[]`。第一阶段只保存和展示标签数据，不做 AI 自动匹配、推荐或打分。
 
 ### 7.3 项目
 
@@ -387,11 +416,12 @@ V1.0 发送：
 ## 14. 安全与审计
 
 - 所有公开业务表启用 RLS。
-- 所有外键按 organization_id 保证同组织引用。
+- 第一阶段身份、组织、权限和审计表显式携带 `tenant_id`；所有 RLS 先限定当前租户，所有跨表引用使用组合外键或等价守卫阻止跨租户关系。
+- `organization_id` 只表示租户内组织，不能单独充当 SaaS 隔离键。
 - 高敏感表按角色与本人范围限制。
 - 薪资明细仅本人、财务、人事和已授权老板可见。
-- audit_events 采用追加写入，普通业务角色不能更新或删除。
-- 关键 Server Action 写入 actor、action、entity、before、after、request_id、IP 摘要和时间。
+- `audit_logs` 采用追加写入，浏览器和普通业务角色不能直接插入、更新或删除；第一阶段只覆盖身份、用户、权限和名单事件。
+- 受控 Server Action 或数据库函数写入 tenant、actor、action、target、request_id、IP 摘要、安全 metadata 和时间；绝不写入 Secret、Token、原始授权码或 Cookie。
 - Storage 路径与 RLS 同时校验组织和业务实体权限。
 - 所有密钥仅存在服务器环境或密钥管理服务。
 - 生产环境使用 HTTPS、安全 Cookie、CSP、速率限制和请求大小限制。
@@ -425,22 +455,25 @@ V1.0 不在香港服务器自托管 Supabase、PostgreSQL 或 Redis。没有经�
 
 ## 16. 渐进迁移阶段
 
-### 阶段 1：Supabase、飞书登录、用户和权限
+### 阶段 1：Supabase、企业 OAuth 登录、用户、权限和组织身份
 
 - 创建 Supabase Cloud 开发项目。
 - 整理现有迁移并建立干净数据库。
-- 配置 custom:feishu。
-- 建立量子星河、部门、员工、身份和角色种子。
+- 建立 `tenants` SaaS 边界，但运行时只启用量子星河，不提供任何多租户 UI。
+- 建立 Provider Registry 和 Provider 无关身份核心，配置第一项 `custom:feishu`；登录页只显示飞书。
+- 建立量子星河租户、主组织、部门、员工、身份和角色种子，员工档案包含规范化 `skills` 标签。
+- 建立 tenant-scoped、append-only `audit_logs`，记录第一阶段身份、用户、权限和名单事件。
 - 用真实服务端会话替换 DemoSession。
 - 实现 Workspace 路由保护与 RLS 验证。
 - 保持现有业务页面可浏览，不改变业务写入。
+- 不开发 AI 战略中心、Agent、Dify、n8n 或任何 AI 自动匹配能力。
 
-验收：五种岗位通过飞书进入各自工作台，越权访问被前端和数据库同时拒绝。
+验收：五种岗位通过飞书进入各自工作台，`WorkspaceSession` 含 `tenantId` 和 Provider 无关身份摘要；越权及跨租户引用被前端、服务端和数据库同时拒绝；身份/权限关键事件进入 `audit_logs`。
 
-### 阶段 2：项目、任务、文件、审计和现有核心内容
+### 阶段 2：项目、任务、文件、业务审计和现有核心内容
 
 - 建立统一 repository 和 Server Action 边界。
-- 迁移项目、任务、里程碑、成果、验收、文件和日志。
+- 迁移项目、任务、里程碑、成果、验收、文件和业务日志，并评估现有 `audit_events` 向 `audit_logs` 的归并。
 - 移除这些模块的 localStorage 和 IndexedDB。
 - 完善老板驾驶舱、负责人工作台和员工执行台。
 - 接入经营快照。
@@ -472,6 +505,10 @@ V1.0 不在香港服务器自托管 Supabase、PostgreSQL 或 Redis。没有经�
 必须包含：
 
 - Schema 与迁移测试。
+- 租户组合约束、跨租户引用拒绝和 tenant-scoped RLS 测试。
+- Provider Registry、通用身份认领、未知身份拒绝和新增 Provider 合同测试。
+- `audit_logs` 追加写入、客户端直写拒绝、跨租户不可见和敏感 metadata 拒绝测试。
+- `employee_profiles.skills` 默认空数组、规范化、上限和非法标签测试；不测试 AI 匹配，因为第一阶段不实现该能力。
 - RLS 五角色权限矩阵测试。
 - 飞书 OAuth 回调、未开通、停用员工和退出测试。
 - Repository 映射与错误测试。
@@ -500,7 +537,7 @@ V1.0 不在香港服务器自托管 Supabase、PostgreSQL 或 Redis。没有经�
 
 ## 19. V1.0 明确不做
 
-- 多企业租户。
+- 多企业运行能力，包括租户注册、选择、切换、计费、跨租户管理和相关 UI；数据库仍必须从第一阶段具备 `tenant_id` 隔离边界。
 - 复杂 ERP 总账、采购和库存。
 - 复杂 CRM 销售漏斗和营销自动化。
 - 可配置 OA 流程设计器。
@@ -513,7 +550,9 @@ V1.0 不在香港服务器自托管 Supabase、PostgreSQL 或 Redis。没有经�
 
 V1.0 完成必须同时满足：
 
-- 所有正式页面使用真实飞书身份、Supabase 数据和 RLS。
+- 所有正式页面使用真实企业 OAuth 身份、Supabase 数据和 RLS；V1.0 当前启用 Provider 为飞书。
+- 身份核心不绑定飞书，`WorkspaceSession` 和数据库合同包含 `tenantId` 与 Provider 无关身份摘要。
+- 身份、用户、权限和组织操作进入 tenant-scoped、append-only `audit_logs`，员工档案具有规范化 `skills` 标签。
 - 生产代码不再以 localStorage 或 IndexedDB 保存业务数据和文件。
 - 现有页面内容完成清理和真实数据接入。
 - 老板目标到员工执行再到老板验收形成真实闭环。

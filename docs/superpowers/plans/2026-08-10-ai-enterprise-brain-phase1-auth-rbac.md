@@ -2,22 +2,27 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在不破坏现有业务页面的前提下，为量子星河建立 Supabase Cloud、飞书统一登录、真实员工身份、五岗位 RBAC、服务端路由保护和数据库 RLS 基线。
+**Goal:** 在不破坏现有业务页面的前提下，为量子星河建立可扩展 OAuth Provider、显式租户边界、真实员工身份、五岗位 RBAC、组织身份审计、服务端路由保护和数据库 RLS 基线；V1.0 当前只启用飞书和量子星河一个租户。
 
-**Architecture:** Supabase Auth 使用 `custom:feishu` OAuth2 Provider 签发和刷新会话；Next.js 只负责登录入口、OAuth 回调、会话解析和岗位界面。数据库预置“受邀成员 + 员工档案 + 飞书身份 + 角色”，首次登录由安全数据库函数完成绑定，随后 Middleware、Workspace Layout、Server Action 和 RLS 分层校验。现有本地业务数据暂不迁移，通过只读兼容投影保持页面可浏览，第二阶段再移除该投影。
+**Architecture:** Supabase Auth 通过小型 Provider Registry 启动企业 OAuth，V1.0 Registry 只启用 `feishu -> custom:feishu`；飞书代码只是 UserInfo Adapter，数据库预置、身份认领、会话和权限核心均使用 Provider 无关合同。`tenants` 是 SaaS 顶层边界，量子星河租户下只种子化一个主组织；身份/RBAC/审计表显式携带 `tenant_id`，组合约束和 RLS 阻止跨租户引用。数据库预置“受邀成员 + 员工档案 + 外部身份 + 角色”，首次登录由通用安全函数绑定，随后 Middleware、Workspace Layout、Server Action 和 RLS 分层校验；现有本地业务数据暂不迁移，通过只读兼容投影保持页面可浏览。
 
 **Tech Stack:** Next.js 15.5.22 App Router、React 19.2.4、TypeScript 5、Tailwind CSS 4、Shadcn、Supabase Auth/PostgreSQL/RLS、`@supabase/ssr` 0.12.4、Vitest 4、Testing Library、Playwright 1.62、Supabase CLI、pgTAP。
 
 ## Global Constraints
 
-- 系统只供“量子星河”一家企业内部使用；保留 `organizations` 和 `organization_id`，但不提供多租户选择、创建、切换或计费能力。
+- 系统运行时只供“量子星河”一家企业内部使用；新增 `tenants` 和显式 `tenant_id` 作为未来 SaaS 边界，只种子化 `quantxy` 租户与 `quantum-galaxy` 主组织，但不提供租户创建、选择、切换、计费、跨租户后台或相关 UI。
+- `organizations` 是租户内组织结构，不是租户本身；身份、组织、RBAC 和审计关系必须使用 `(tenant_id, id)` 组合约束/外键或等价守卫，并由 RLS 先限定当前租户。
 - Supabase 使用 Cloud 新加坡区域和付费方案；香港 Ubuntu 22.04 服务器在第四阶段承载 Next.js、Nginx 和 n8n。
-- 所有正式员工统一使用飞书登录；关闭邮箱密码注册、匿名注册和自助注册入口。
-- 采用 Supabase Auth `custom:feishu`；旧版 `docs/superpowers/plans/2026-08-05-feishu-oauth-login.md` 的自制 HMAC Cookie 会话方案作废，不得实施。
+- 所有正式员工统一使用企业 OAuth；关闭邮箱密码注册、匿名注册和自助注册入口。V1.0 登录页只显示“使用飞书登录”，但登录动作必须通过 Provider Registry 的通用启动边界。
+- 当前 Provider 采用 Supabase Auth `custom:feishu`；飞书 UserInfo 是首个 Provider Adapter，不得让员工预置、身份认领、`WorkspaceSession` 或数据库授权依赖飞书专属字段。旧版 `docs/superpowers/plans/2026-08-05-feishu-oauth-login.md` 的自制 HMAC Cookie 会话方案作废，不得实施。
 - 飞书 App Secret、Supabase `service_role`、OAuth 授权码、用户访问令牌不得进入浏览器 Bundle、普通 Cookie、HTML、日志、截图或 Git。
 - 正式权限只信任服务端 `WorkspaceSession`、数据库角色和 RLS；兼容 `actor` 仅供第一阶段读取现有演示页面，禁止用于数据库授权或正式写入。
+- `WorkspaceSession` 必须携带 `tenantId` 以及 `{ providerCode, authProvider, providerSubject }` Provider 无关身份摘要；普通页面不得读取 Provider Token、飞书 open_id/union_id 或 provider tenant key。
+- 通用员工预置只能由 `service_role` 调用；`authenticated` 只能认领当前登录身份匹配的既有预置记录，未知用户不得自助创建成员或档案。
+- `audit_logs` 在第一阶段只记录身份、用户、权限和名单预置事件，必须 tenant-scoped、append-only；浏览器不得直接写入，metadata 必须净化且不得含 Secret、Token、OAuth code、Authorization/Cookie、service_role 或原始 IP。
+- `employee_profiles.skills` 使用 `text[]`、默认空数组、最多 30 项；每项去首尾空白、英文小写、去重且长度 1–40 字符。第一阶段不实现 AI 匹配、推荐或打分。
 - 第一阶段不迁移项目、任务、文件、审批、考勤、薪资等业务写入；这些页面保持可浏览，真实数据迁移从第二阶段开始。
-- 第一阶段不引入 LangGraph、Dify、n8n、AI Provider、CRM、复杂 ERP、OA 流程设计器或移动端 App。
+- 第一阶段不引入 LangGraph、Dify、n8n、AI 模型 Provider、Agent、AI 匹配、CRM、复杂 ERP、OA 流程设计器或移动端 App。
 - 登录页和状态页沿用现有白色、浅蓝渐变、透明卡片、大圆角的玻璃拟态风格，不做传统 OA 蓝色后台。
 - 每个页面只保留一个明显主操作；错误文案面向非技术员工，不显示 OAuth、JWT、RLS、RPC、provider token 等术语。
 - 所有代码步骤遵循 TDD：先看到预期失败，再写最小实现，再运行定向测试和完整回归。
@@ -33,19 +38,23 @@
 - 现有 `DemoSessionProvider` 通过 `localStorage` 切换身份，约 30 个组件消费 `useDemoSession()`；必须一次机械迁移并以搜索结果为零作为验收。
 - 现有业务页面仍读取 localStorage/IndexedDB；这是第二阶段及第四阶段的迁移范围，第一阶段不得误称已经完成全部数据迁移。
 - 当前 45 个测试文件、186 个单元测试、类型检查、Lint 和构建均通过；新增认证后必须保持这些基线为绿。
+- Task 1 的飞书 UserInfo Adapter 已实现并完成审查；它只作为 Provider Adapter 保留，不视为通用身份核心。
+- Task 2 在提交 `57985f4` 有一次飞书专用、单组织的初稿；该初稿必须按本计划修订并重新审查后才能接受。当前本机没有 Docker/Podman，`supabase db reset` 和 pgTAP 仍是环境验证缺口，不得宣称数据库集成测试已完成。
 
 ## Phase 1 Boundary
 
 本计划交付：
 
-1. 飞书 OAuth 用户信息标准化接口。
-2. 单企业身份、员工预置和角色绑定迁移。
-3. Supabase SSR Cookie 刷新、真实会话解析和路由保护。
-4. 飞书登录、回调、退出、未开通和停用提示。
+1. 飞书 OAuth UserInfo Provider Adapter；通用 OAuth Provider Registry 预留扩展能力。
+2. `tenants`、Provider 无关身份、员工预置/认领、五岗位 RBAC、`skills` 和 `audit_logs` 数据库迁移。
+3. 携带 `tenantId` 与 Provider 无关身份摘要的 Supabase SSR 真实会话和路由保护。
+4. 当前启用的飞书登录、回调、退出、未开通和停用提示。
 5. 真实员工信息替换演示身份切换，现有业务页面继续可浏览。
-6. 五岗位自动化权限矩阵、真实飞书联调和运维手册。
+6. 五岗位与跨租户自动化权限矩阵、真实飞书联调和运维手册。
 
-本计划不交付：项目/任务/文件真实写入、业务日志、AI 战略中心、Agent、知识库、n8n、飞书通知及全部旧页面内容清理。这些需求已保留在总设计的第二至第四阶段，不代表取消。
+本计划不交付：项目/任务/文件真实写入、业务工作流审计、AI 战略中心、Agent、AI 任务匹配、知识库、Dify、n8n、飞书通知、租户管理 UI 及全部旧页面内容清理。这些需求已保留在总设计的第二至第四阶段，不代表取消。
+
+**Amendment precedence:** 本次新增的 Global Constraints、Task 2 Mandatory revised contract 以及 Task 3/5/7/8/9 amendment notes，优先于下方尚未机械改写的旧示例。旧示例若出现飞书专用核心、无 `tenant_id`、`claim_current_feishu_identity`、`provision_feishu_employee` 作为唯一入口或把身份审计延后等冲突，只能视为适配器/历史说明，不得作为实现或验收依据。
 
 ## File Map
 
@@ -53,10 +62,10 @@
 
 - `src/features/auth/auth-env.ts`: 服务端认证环境变量解析和 URL 校验。
 - `src/features/auth/auth-env.test.ts`: 环境变量缺失、协议和脱敏测试。
-- `src/features/auth/feishu-userinfo.ts`: 飞书用户信息响应校验和 OAuth 标准化。
+- `src/features/auth/feishu-userinfo.ts`: 飞书用户信息响应校验和 OAuth 标准化；只负责 Provider Adapter。
 - `src/features/auth/feishu-userinfo.test.ts`: 正常、租户不符、Token 缺失、上游失败测试。
 - `src/app/api/auth/feishu/userinfo/route.ts`: 供 Supabase Custom OAuth 调用的公开 UserInfo 适配端点。
-- `supabase/migrations/202608100001_phase1_identity_rbac.sql`: 单企业、外部身份、部门负责人、预置/绑定函数和 RLS。
+- `supabase/migrations/202608100001_phase1_identity_rbac.sql`: 修订现有 Task 2 初稿，新增租户边界、Provider 无关身份、技能标签、审计、预置/认领函数和 tenant-scoped RLS。
 - `supabase/config.toml`: Supabase CLI 本地数据库与仅限 E2E 的邮箱测试登录配置。
 - `src/lib/supabase/phase1-identity-migration.test.ts`: 不依赖 Docker 的迁移契约测试。
 - `supabase/tests/phase1_identity_rbac.sql`: 本地 PostgreSQL/pgTAP 身份和 RLS 集成测试。
@@ -69,6 +78,8 @@
 - `src/lib/supabase/middleware.ts`: Request/Response Cookie 适配和 Supabase 会话刷新。
 - `src/middleware.ts`: 未登录、未开通、停用和岗位越权的服务端路由保护。
 - `src/features/auth/route-policy.test.ts`: 公开路由和五岗位路由矩阵测试。
+- `src/features/auth/oauth-provider-registry.ts`: Provider Registry、通用 OAuth 启动定义和当前启用 Provider 查询。
+- `src/features/auth/oauth-provider-registry.test.ts`: 当前只启用飞书、未知 Provider 拒绝和无飞书专属会话依赖测试。
 - `src/features/auth/actions.ts`: 发起飞书 OAuth 与退出登录 Server Actions。
 - `src/features/auth/login-card.tsx`: 简洁飞书登录卡片。
 - `src/features/auth/login-card.test.tsx`: 登录页主操作和错误文案测试。
@@ -76,8 +87,8 @@
 - `src/app/auth/callback/route.ts`: 交换 Supabase PKCE code、绑定身份并按岗位跳转。
 - `src/app/auth/callback/route.test.ts`: 回调成功、未开通、停用和错误测试。
 - `src/app/access-pending/page.tsx`: 未开通、停用、离职和配置异常状态页。
-- `scripts/phase1/provision-roster.mjs`: 从本地 JSON 名单调用受限 RPC 预置员工。
-- `scripts/phase1/provision-roster.test.mjs`: 名单字段、角色和重复标识校验测试。
+- `scripts/phase1/provision-roster.mjs`: 从本地 JSON 名单把飞书字段映射为通用身份合同并调用受限 RPC 预置员工。
+- `scripts/phase1/provision-roster.test.mjs`: 名单字段、角色、技能标签、Provider 和重复标识校验测试。
 - `docs/deployment/phase1-supabase-feishu.md`: 非技术化的 Supabase、飞书、名单导入和验收手册。
 - `tests/e2e/auth-state.ts`: 通过本地 Supabase 生成 Playwright Cookie 状态。
 - `tests/e2e/global-setup.ts`: 在浏览器测试前生成五岗位认证状态。
@@ -85,7 +96,7 @@
 
 ### Modify
 
-- `.env.example`: 增加应用 URL、飞书租户和仅服务端运维变量说明。
+- `.env.example`: 增加应用 URL、当前飞书 Adapter 租户和仅服务端运维变量说明；不得把它作为应用租户 ID。
 - `.gitignore`: 忽略真实员工名单和 Playwright 认证状态。
 - `package.json`: 增加数据库和阶段一验收脚本。
 - `package-lock.json`: 锁定显式使用的 `@next/env` 15.5.22。
@@ -136,6 +147,8 @@
 
 ### Task 1: 飞书 UserInfo 标准化边界
 
+**Execution note:** 本任务已实现并完成审查。它仅是首个 OAuth Provider Adapter，负责把飞书响应交给 Supabase Auth；后续任务不得把这里的 `open_id`、`union_id` 或 `tenant_key` 直接变成应用会话、员工预置或授权合同。
+
 **Files:**
 - Create: `src/features/auth/auth-env.test.ts`
 - Create: `src/features/auth/auth-env.ts`
@@ -146,7 +159,7 @@
 
 **Interfaces:**
 - Consumes: `NEXT_PUBLIC_APP_URL`、`FEISHU_TENANT_KEY`、请求头 `Authorization: Bearer <user_access_token>`。
-- Produces: `getAuthEnv(env?)`、`normalizeFeishuUserInfo(body, tenantKey)`、`handleFeishuUserInfo(request, dependencies)`、`GET /api/auth/feishu/userinfo`。
+- Produces: `getAuthEnv(env?)`、`normalizeFeishuUserInfo(body, tenantKey)`、`handleFeishuUserInfo(request, dependencies)`、`GET /api/auth/feishu/userinfo`；输出只供 `custom:feishu` Adapter/Supabase identity data 使用，通用身份核心从 Task 2 开始。
 
 - [ ] **Step 1: 写环境变量失败测试**
 
@@ -349,17 +362,52 @@ git commit -m "feat: add feishu oauth userinfo adapter"
 
 ---
 
-### Task 2: 单企业身份、员工预置和 RBAC 数据库迁移
+### Task 2: 租户化、Provider 无关身份、员工预置、RBAC 与审计迁移
+
+#### Mandatory revised contract (supersedes conflicting Task 2 samples below)
+
+Task 2 在提交 `57985f4` 的初稿尚未接受。实施者必须修改现有迁移、静态契约测试和 pgTAP；完成下列合同并重新审查后，Task 2 才能标记完成。下方任何 Feishu-only 表、函数或 SQL 片段最多是 `custom:feishu` 兼容包装器，不能定义身份核心。
+
+**Schema contract:**
+
+- 新建 `public.tenants`，字段至少为 `id`、`public_id`、`name`、`slug`、`status`、`created_at`、`updated_at`；只种子化一个 `('量子星河', 'quantxy')` 活跃租户。
+- `organizations` 是租户下的组织，种子为 `('量子星河', 'quantum-galaxy')`；运行时没有租户注册、选择、切换、计费或跨租户 UI。
+- `organizations`、`organization_members`、`departments`、`employee_profiles`、`roles`、`member_roles`、`role_permissions`、`identity_providers`、`external_identities`、`audit_logs` 必须显式含非空 `tenant_id`。`permissions` 保持全局只读目录。
+- 为上述父表提供 `unique (tenant_id, id)`；组织成员、父部门、部门负责人、员工部门/经理、角色分配、Provider 身份和审计 actor/organization 使用 `(tenant_id, id)` 组合外键或等价触发器守卫。pgTAP 必须创建第二测试租户并证明跨租户引用失败。
+- `employee_profiles.skills` 固定为 `text[] not null default '{}'::text[]`。写入时先拒绝超过 30 项、空标签或长度超过 40 字符，再进行 `btrim + lower + distinct` 规范化；第一阶段只存取标签，不实现 AI 匹配、推荐或打分。
+
+**Provider-neutral identity contract:**
+
+- 新建 `identity_providers(tenant_id, provider_code, auth_provider, provider_tenant_key, display_name, status, safe_metadata, ...)`；唯一键至少包含 `(tenant_id, provider_code)` 和 `(tenant_id, auth_provider)`。只种子化 `('feishu', 'custom:feishu')`，但禁止 `check (provider_code = 'feishu')`。
+- `external_identities` 使用通用字段 `tenant_id`、`organization_id`、`organization_member_id`、`identity_provider_id`、`provider_subject`、`provider_tenant_key`、`provider_match_keys text[]`、`verified_email`、`auth_user_id`、`status`、`last_login_at`；不得把 `feishu_open_id`/`feishu_union_id` 作为核心列，不得保存 Token、OAuth code、App Secret 或 Cookie。
+- 通用预置函数名固定为 `provision_employee_identity(...)`，参数必须包含 `p_tenant_slug`、`p_organization_slug`、`p_provider_code`、`p_provider_tenant_key`、`p_provider_subject`、`p_provider_match_keys` 和 `p_skills`；只允许 `service_role` 执行。可保留 `provision_feishu_employee(...)` 薄包装器，但它也只能由 `service_role` 执行且只负责字段映射。
+- 通用管理员修复/E2E 绑定函数名固定为 `bind_preprovisioned_identity(...)`，只允许 `service_role` 执行。
+- 当前用户认领函数名固定为 `claim_current_identity()`，只读取 `auth.uid()` 与 `auth.identities`，不得接收浏览器提交的 subject/match key。它先把 Provider Adapter 数据归一为 `auth_provider/provider_subject/provider_tenant_key/provider_match_keys/verified_email/display_name/avatar_url`，再匹配已预置身份；未知用户返回 `not_provisioned` 且不得自建成员。
+- `current_workspace_access()` 通过当前绑定身份解析租户，不得把 `organization.slug = 'quantum-galaxy'` 当授权条件；返回 `tenantId`、`providerCode`、`authProvider`、`providerSubject`，且不返回 provider tenant key、match keys、open_id、union_id 或 Token。
+
+**Audit contract:**
+
+- 新建 `audit_logs`，至少含 `tenant_id`、可选 `organization_id`、`actor_auth_user_id`、`actor_member_id`、`action`、`target_type`、`target_id`、`request_id`、`ip_hash`、`metadata jsonb`、`created_at`。
+- 第一阶段 action 白名单只覆盖 `identity.provisioned`、`identity.claimed`、`identity.revoked`、`member.status_changed`、`member.role_changed`、`profile.updated`、`roster.imported`；不记录项目、任务、文件、AI 或 Agent 工作流。
+- 日志 tenant-scoped、append-only。`public/anon/authenticated` 无直接 insert/update/delete 权限；owner/admin 只可读取当前租户，普通员工和另一租户不可读取。受控数据库函数可追加净化记录，update/delete 触发器必须拒绝修改历史。
+- `metadata` 必须为对象且序列化后不超过 8192 bytes；所有层级键名大小写不敏感地拒绝 `token|secret|authorization|code|cookie|service_role`。只保存 IP HMAC/hash 摘要，不保存原始 IP。
+- 通用预置、身份认领、状态/角色/档案变更必须在同一事务追加相应审计，不记录原始 OAuth claims。
+
+**RLS and validation contract:**
+
+- `current_tenant_id()` 从当前已绑定且有效的身份/成员解析租户。所有身份、组织、RBAC 和审计 RLS 先校验 `row.tenant_id = current_tenant_id()`，再校验本人或角色；单企业种子不是绕过租户条件的理由。
+- pgTAP 覆盖五岗位、第二 Provider 可预置、跨租户 FK/RLS 拒绝、未知/停用/离职/撤销身份、service_role-only RPC、审计直写/修改拒绝、审计跨租户不可见，以及 skills 默认值/规范化/上限。
+- 静态 Vitest 只能证明迁移文本合同。当前本机没有 Docker/Podman，因此 `npx supabase db reset` 和 `npx supabase test db` 必须记录为 `NOT RUN — ENVIRONMENT BLOCKED`，直到在支持的容器环境或开发 Supabase 执行成功；不得据此宣称云端迁移或 RLS 已完成。
 
 **Files:**
-- Create: `supabase/migrations/202608100001_phase1_identity_rbac.sql`
-- Create: `supabase/config.toml`
-- Create: `src/lib/supabase/phase1-identity-migration.test.ts`
-- Create: `supabase/tests/phase1_identity_rbac.sql`
+- Modify: `supabase/migrations/202608100001_phase1_identity_rbac.sql`
+- Modify: `src/lib/supabase/phase1-identity-migration.test.ts`
+- Modify: `supabase/tests/phase1_identity_rbac.sql`
+- Keep/Create as needed: `supabase/config.toml`
 
 **Interfaces:**
-- Consumes: 现有 `organizations`、`organization_members`、`roles`、`member_roles`、`departments`、`employee_profiles`、`auth.users`、`auth.identities`。
-- Produces: `external_identities`、`provision_feishu_employee(...)`、`bind_preprovisioned_member(...)`、`claim_current_feishu_identity()`、`current_workspace_access()`、量子星河及五个部门种子。
+- Consumes: 现有 `organizations`、`organization_members`、`roles`、`permissions`、`member_roles`、`role_permissions`、`departments`、`employee_profiles`、`auth.users`、`auth.identities`，以及 Task 1 的飞书 Provider Adapter identity data。
+- Produces: `tenants`、`identity_providers`、`external_identities`、`audit_logs`、`employee_profiles.skills`、`provision_employee_identity(...)`、`bind_preprovisioned_identity(...)`、`claim_current_identity()`、`current_tenant_id()`、`current_workspace_access()`、量子星河租户/主组织及五个部门种子。
 
 - [ ] **Step 1: 写迁移契约失败测试**
 
@@ -368,24 +416,53 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-describe("phase 1 identity migration", () => {
+describe("phase 1 tenant identity migration", () => {
   const sql = readFileSync(resolve("supabase/migrations/202608100001_phase1_identity_rbac.sql"), "utf8");
 
-  it("adds pre-provisioned Feishu identities and safe RPC boundaries", () => {
+  it("adds tenant and provider-neutral identity boundaries", () => {
+    expect(sql).toContain("create table public.tenants");
+    expect(sql).toContain("create table public.identity_providers");
     expect(sql).toContain("create table public.external_identities");
+    expect(sql).toContain("provider_code");
+    expect(sql).toContain("auth_provider");
+    expect(sql).toContain("provider_subject");
+    expect(sql).toContain("provider_tenant_key");
     expect(sql).toContain("alter column user_id drop not null");
-    expect(sql).toContain("create or replace function public.provision_feishu_employee");
-    expect(sql).toContain("create or replace function public.bind_preprovisioned_member");
-    expect(sql).toContain("create or replace function public.claim_current_feishu_identity");
+    expect(sql).toContain("create or replace function public.provision_employee_identity");
+    expect(sql).toContain("create or replace function public.bind_preprovisioned_identity");
+    expect(sql).toContain("create or replace function public.claim_current_identity");
+    expect(sql).toContain("create or replace function public.current_tenant_id");
     expect(sql).toContain("create or replace function public.current_workspace_access");
-    expect(sql).toContain("grant execute on function public.claim_current_feishu_identity() to authenticated");
-    expect(sql).toContain("grant execute on function public.provision_feishu_employee");
+    expect(sql).toContain("grant execute on function public.claim_current_identity() to authenticated");
+    expect(sql).toContain("grant execute on function public.provision_employee_identity");
     expect(sql).toContain("to service_role");
-    expect(sql).not.toMatch(/grant execute on function public\.provision_feishu_employee\([^;\n]+to authenticated;/i);
+    expect(sql).not.toMatch(/grant execute on function public\.provision_employee_identity\([^;\n]+to authenticated;/i);
+    expect(sql).not.toContain("claim_current_feishu_identity");
+    expect(sql).not.toMatch(/check\s*\(\s*provider(?:_code)?\s*=\s*'feishu'\s*\)/i);
   });
 
-  it("seeds only the QuantXY organization used by the application", () => {
+  it("adds tenant-scoped audit logs and normalized employee skills", () => {
+    for (const table of [
+      "organizations", "organization_members", "departments", "employee_profiles",
+      "roles", "member_roles", "role_permissions", "identity_providers",
+      "external_identities", "audit_logs",
+    ]) {
+      expect(sql).toMatch(new RegExp(`(?:create|alter) table public\\.${table}[\\s\\S]*?tenant_id`, "i"));
+    }
+    expect(sql).toContain("skills text[]");
+    expect(sql).toContain("default '{}'::text[]");
+    expect(sql).toContain("create table public.audit_logs");
+    expect(sql).toMatch(/revoke all on public\.audit_logs from public, anon, authenticated/i);
+    expect(sql).toContain("8192");
+    for (const forbidden of ["token", "secret", "authorization", "code", "cookie", "service_role"]) {
+      expect(sql.toLowerCase()).toContain(forbidden);
+    }
+  });
+
+  it("seeds one QuantXY tenant, one primary organization, and Feishu as the first provider", () => {
+    expect(sql).toContain("'量子星河', 'quantxy'");
     expect(sql).toContain("'量子星河', 'quantum-galaxy'");
+    expect(sql).toContain("'feishu', 'custom:feishu'");
     for (const name of ["AI事业部", "电商事业部", "运营部", "财务部", "人力资源部"]) {
       expect(sql).toContain(name);
     }
@@ -393,15 +470,15 @@ describe("phase 1 identity migration", () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试并确认迁移文件不存在**
+- [ ] **Step 2: 运行修订后的测试并确认当前初稿不满足合同**
 
 Run: `npx vitest run src/lib/supabase/phase1-identity-migration.test.ts`
 
-Expected: FAIL，`ENOENT` 指向 `202608100001_phase1_identity_rbac.sql`。
+Expected: FAIL against `57985f4`，明确缺少 `tenants`、`identity_providers`、通用 RPC、`audit_logs`、`skills` 或 tenant-aware 约束；不得把测试改回只接受飞书专用初稿。
 
-- [ ] **Step 3: 写身份表、单企业和组织种子**
+- [ ] **Step 3: 按 Mandatory revised contract 重写租户、身份和组织迁移**
 
-迁移文件先写入以下结构；`organization_members.user_id` 允许为空，使员工可以在首次登录前先分配角色：
+`organization_members.user_id` 允许为空，使员工可以在首次登录前先分配角色。下方旧 SQL 只说明已有表的改动起点；其中无 `tenant_id`、飞书专用列或单组织硬编码必须按本任务顶部合同替换，不能原样实施：
 
 ```sql
 alter table public.organization_members alter column user_id drop not null;
@@ -952,6 +1029,8 @@ git commit -m "feat: add phase one identity and rbac schema"
 
 ### Task 3: 真实 WorkspaceSession 领域模型
 
+**Mandatory amendment note:** 本任务的类型、fixture、解析器和测试必须在旧示例基础上增加 `tenantId: string`、`identity: { providerCode: string; authProvider: string; providerSubject: string }` 与 `profile.skills: string[]`。`parseWorkspaceAccess()` 缺少这些字段时返回 `null`；不得检查 `organizationName === "量子星河"` 作为租户验证，不得把 open_id、union_id 或 providerTenantKey 放进 `WorkspaceSession`。本说明优先于下方旧类型和 `base` fixture。
+
 **Files:**
 - Create: `src/features/auth/workspace-session-types.ts`
 - Create: `src/features/auth/workspace-access.test.ts`
@@ -961,7 +1040,7 @@ git commit -m "feat: add phase one identity and rbac schema"
 - Create: `src/features/auth/workspace-session-provider.tsx`
 
 **Interfaces:**
-- Consumes: `supabase.rpc("current_workspace_access")` 的 JSON 结果。
+- Consumes: `supabase.rpc("current_workspace_access")` 的 JSON 结果，包含 `tenantId`、`providerCode`、`authProvider`、`providerSubject` 和规范化 `skills`。
 - Produces: `WorkspaceRole`、`WorkspaceActor`、`WorkspaceSession`、`parseWorkspaceAccess(value)`、`hasWorkspacePermission(session, permission)`、`getWorkspaceSession()`、`requireWorkspaceSession()`、`WorkspaceSessionProvider`、`useWorkspaceSession()`。
 
 - [ ] **Step 1: 写五岗位和无效会话测试**
@@ -1316,7 +1395,11 @@ git commit -m "feat: protect workspace routes with supabase auth"
 
 ### Task 5: 飞书登录、回调、退出和状态页面
 
+**Mandatory amendment note:** 新建 `oauth-provider-registry.ts` 和对应测试，定义通用 `OAuthProviderDefinition { code, label, supabaseProvider, enabled, loginButtonLabel }`；Registry 当前只有 `{ code: "feishu", supabaseProvider: "custom:feishu", enabled: true }`。Server Action 固定通过 `signInWithOAuthProvider("feishu")`/Registry 查找后调用 Supabase，未知或停用 Provider 返回稳定错误；`signInWithFeishu()` 可保留为 UI 薄包装。登录页仍只有“使用飞书登录”一个主按钮，不显示 Provider 选择器。回调必须调用通用 `claim_current_identity()`，不能调用 `claim_current_feishu_identity()`。本说明优先于下方旧 Action/回调示例。
+
 **Files:**
+- Create: `src/features/auth/oauth-provider-registry.ts`
+- Create: `src/features/auth/oauth-provider-registry.test.ts`
 - Create: `src/features/auth/actions.ts`
 - Create: `src/features/auth/login-card.tsx`
 - Create: `src/features/auth/login-card.test.tsx`
@@ -1328,8 +1411,8 @@ git commit -m "feat: protect workspace routes with supabase auth"
 - Modify: `src/app/layout.tsx`
 
 **Interfaces:**
-- Consumes: `getSupabaseServerClient()`、`getAuthEnv()`、`claim_current_feishu_identity()`、`current_workspace_access()`。
-- Produces: `signInWithFeishu()`、`signOut()`、`/login`、`GET /auth/callback`、`/access-pending`。
+- Consumes: `getSupabaseServerClient()`、`getAuthEnv()`、OAuth Provider Registry、`claim_current_identity()`、`current_workspace_access()`。
+- Produces: `getEnabledOAuthProvider(code)`、`signInWithOAuthProvider(code)`、飞书 UI 薄包装 `signInWithFeishu()`、`signOut()`、`/login`、`GET /auth/callback`、`/access-pending`。
 
 - [ ] **Step 1: 写登录卡片失败测试**
 
@@ -1698,6 +1781,8 @@ git commit -m "refactor: replace demo identity with workspace session"
 
 ### Task 7: 员工名单预置工具和云端配置手册
 
+**Mandatory amendment note:** 名单根级固定包含 `tenantSlug: "quantxy"`、`organizationSlug: "quantum-galaxy"` 和 `providerCode: "feishu"`；每名员工可含 `skills: string[]`。脚本把 `feishuUnionId/openId/workEmail` 转换为通用 `providerSubject/providerMatchKeys`，调用 `provision_employee_identity`，不得把飞书字段直接变成数据库核心合同。校验复用 Task 2 的技能规则（最多 30 项、每项 1–40 字符、trim/lower/deduplicate）并拒绝非启用租户/Provider。手册必须说明 `FEISHU_TENANT_KEY` 是 Provider 租户标识，不是应用 `tenant_id`；当前只配置量子星河，但数据库已具备未来 SaaS 隔离边界。本说明优先于下方旧名单和 RPC 示例。
+
 **Files:**
 - Create: `scripts/phase1/provision-roster.test.mjs`
 - Create: `scripts/phase1/provision-roster.mjs`
@@ -1707,8 +1792,8 @@ git commit -m "refactor: replace demo identity with workspace session"
 - Modify: `package-lock.json`
 
 **Interfaces:**
-- Consumes: `PHASE1_ROSTER_PATH` 指向的本地 JSON、`NEXT_PUBLIC_SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`。
-- Produces: `validateRoster(records)`、幂等调用 `provision_feishu_employee` 的 CLI、可由非技术管理员照做的配置清单。
+- Consumes: `PHASE1_ROSTER_PATH` 指向的租户/组织/Provider 通用本地 JSON、`NEXT_PUBLIC_SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`。
+- Produces: `validateRoster(payload)`、飞书字段到通用身份匹配键的映射、幂等调用 `provision_employee_identity` 的 CLI、可由非技术管理员照做的配置清单。
 
 - [ ] **Step 1: 写名单校验失败测试**
 
@@ -1854,6 +1939,8 @@ git commit -m "chore: add phase one provisioning runbook"
 ---
 
 ### Task 8: 自动化认证状态、五岗位 E2E 和真实联调
+
+**Mandatory amendment note:** 自动化除五岗位外，必须建立第二测试租户与第二测试 Provider，验证跨租户路由/数据访问被拒绝且另一个 Provider 无需改变 `WorkspaceSession` 合同；认证状态调用 `provision_employee_identity` 和 `bind_preprovisioned_identity`。数据库测试同时验证 `audit_logs` 的身份认领记录、owner/admin 当前租户可读、employee/另一租户不可读、客户端直写和 update/delete 失败。若本机无 Docker/Podman，这些数据库/E2E 前置步骤明确记录为环境阻塞，不能以静态测试代替；真实页面仍只联调飞书。本说明优先于下方旧 Feishu-only fixture/RPC 示例。
 
 **Files:**
 - Create: `tests/e2e/auth-state.ts`
@@ -2065,6 +2152,8 @@ git commit -m "test: verify phase one auth and role access"
 
 ### Task 9: 全量验证、运行恢复和阶段一交付
 
+**Mandatory amendment note:** 最终交付必须单独输出四部分：`数据库迁移结果`、`页面变化`、`测试结果`、`下一阶段建议`。数据库部分区分静态合同通过、本地 reset/pgTAP 是否因 Docker 阻塞、云端是否实际执行；不得把未运行写成通过。页面部分只报告登录/用户/权限/组织身份变化。测试部分列出实际命令与通过/阻塞数量。下一阶段只建议项目、任务、文件和业务审计迁移；第一阶段不得创建 `/agents`、Agent 表、Agent UI、AI 匹配、Dify 或 n8n 代码。
+
 **Files:**
 - Modify: `docs/deployment/phase1-supabase-feishu.md` only if verification reveals a command correction.
 
@@ -2099,7 +2188,7 @@ npm run test:e2e
 git diff --check
 ```
 
-Expected: 所有命令退出码 0；构建包含 `/login`、`/auth/callback`、`/access-pending`、`/api/auth/feishu/userinfo` 和现有全部工作台路由。
+Expected: 非数据库命令退出码 0；构建包含 `/login`、`/auth/callback`、`/access-pending`、`/api/auth/feishu/userinfo` 和现有全部工作台路由。`supabase db reset`、pgTAP 与依赖本地 Supabase 的 E2E 只有在 Docker/Podman 或受控开发数据库可用时才运行；当前环境不可用时记录 `NOT RUN — ENVIRONMENT BLOCKED`，不得写成通过。
 
 - [ ] **Step 3: 检查依赖安全但不擅自升级大版本**
 
@@ -2155,6 +2244,10 @@ Expected: 工作树干净；分支只包含本计划列出的阶段一提交。�
 | 财务 | 进入财务执行中心 | 越权跳回 `/finance` | finance 策略通过 |
 | 人事 | 进入人事协同中心 | 越权跳回 `/hr` | hr 策略通过 |
 | 退出登录 | 返回登录页 | Supabase local session 清除 | 后续请求没有 auth.uid() |
+| 跨租户引用/访问 | 不提供租户切换入口 | 会话只携带当前 tenantId | 组合 FK/守卫和 tenant-first RLS 拒绝 |
+| 新增 OAuth Provider 合同 | V1 仍只显示飞书 | Registry 可新增 Provider 定义 | 通用预置/认领/会话合同无需改表 |
+| 身份/权限操作审计 | 第一阶段不新增复杂日志页面 | 受控函数追加净化事件 | audit_logs 当前租户只读、客户端直写和修改拒绝 |
+| 员工技能标签 | 员工资料可携带简洁标签 | 会话返回规范化 skills | 默认空、最多 30 项、每项 1–40 字符 |
 
 ## Implementation References
 
@@ -2166,13 +2259,17 @@ Expected: 工作树干净；分支只包含本计划列出的阶段一提交。�
 
 ## Final Self-Review Checklist
 
-- [ ] 总设计阶段一的 Supabase、飞书登录、用户、权限、路由保护和 RLS 均能指向具体任务。
-- [ ] `custom:feishu`、`email_optional=true`、PKCE 默认开启、飞书租户限制和 UserInfo 标准化均有实现与测试。
+- [ ] 总设计阶段一的 Supabase、企业 OAuth 登录、用户、权限、组织身份、租户边界、身份审计、路由保护和 RLS 均能指向具体任务。
+- [ ] `custom:feishu`、`email_optional=true`、PKCE 默认开启、飞书租户限制和 UserInfo Adapter 均有实现与测试；预置、认领和会话合同不绑定飞书。
+- [ ] `tenants` 和所有身份/RBAC/审计表的 `tenant_id`、组合约束、tenant-first RLS 及第二测试租户均有测试。
+- [ ] `audit_logs` tenant-scoped、append-only、敏感 metadata 拒绝且客户端无直接写权限。
+- [ ] `employee_profiles.skills` 默认空数组、规范化、数量/长度限制已测试，且没有任何 AI 匹配实现。
 - [ ] 未开通、停用、离职、身份冲突和退出均有稳定用户文案与自动化测试。
 - [ ] 五岗位数据库代码、界面岗位、岗位首页和路由矩阵名称一致。
 - [ ] `WorkspaceSession.actor` 被明确限制为第一阶段业务 fixture 兼容，不参与正式授权。
 - [ ] 所有现有 `useDemoSession` Consumer 已在 File Map 列出，扫描验收为零。
 - [ ] 真实名单、service_role、App Secret 和 Token 均不进入 Git 或浏览器。
 - [ ] 当前业务页面内容完善没有被取消，已明确进入第二至第四阶段。
+- [ ] 最终交付按数据库迁移结果、页面变化、测试结果、下一阶段建议四部分输出，并如实列出 Docker/云端验证缺口。
 - [ ] 所有实现步骤都给出实际内容，并为失败分支写明可验证结果。
 - [ ] 每个任务都有定向测试、预期失败、最小实现、通过命令和独立提交。
