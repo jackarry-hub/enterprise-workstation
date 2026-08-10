@@ -18,7 +18,7 @@ export async function getSupabaseServerClient() {
             cookieStore.set(name, value, options);
           });
         } catch {
-          // Server Components cannot write cookies. A future auth proxy owns refreshes.
+          // Middleware owns refresh writes; Server Components can only read cookies.
         }
       },
     },

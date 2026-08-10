@@ -1,6 +1,6 @@
-import type { DemoRole } from "@/features/operations/operations-types";
+import type { WorkspaceRole } from "@/features/auth/workspace-session-types";
 
-const roleRoutePrefixes: Record<DemoRole, readonly string[]> = {
+const roleRoutePrefixes: Record<WorkspaceRole, readonly string[]> = {
   // Keep /attendance accessible only so legacy bookmarks can reach its server redirect to /tasks.
   executive: [
     "/help",
@@ -63,12 +63,12 @@ const roleRoutePrefixes: Record<DemoRole, readonly string[]> = {
   ],
 };
 
-export function canRoleAccessPath(role: DemoRole, pathname: string) {
+export function canRoleAccessPath(role: WorkspaceRole, pathname: string) {
   return roleRoutePrefixes[role].some((prefix) => (
     pathname === prefix || pathname.startsWith(`${prefix}/`)
   ));
 }
 
-export function getRoleRoutePrefixes(role: DemoRole) {
+export function getRoleRoutePrefixes(role: WorkspaceRole) {
   return roleRoutePrefixes[role];
 }

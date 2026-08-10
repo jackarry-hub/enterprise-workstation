@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import { canRoleAccessPath } from "@/features/operations/role-access";
+import type { WorkspaceRole } from "@/features/auth/workspace-session-types";
+
+const workspaceRoles = [
+  "executive",
+  "department_head",
+  "employee",
+  "finance",
+  "hr",
+] as const satisfies readonly WorkspaceRole[];
 
 describe("role access policy", () => {
   it("keeps every role inside its own workstation", () => {
@@ -17,20 +26,20 @@ describe("role access policy", () => {
   });
 
   it("removes the standalone knowledge module for every role", () => {
-    for (const role of ["executive", "department_head", "employee", "finance", "hr"] as const) {
+    for (const role of workspaceRoles) {
       expect(canRoleAccessPath(role, "/knowledge")).toBe(false);
     }
   });
 
   it("allows every role to use help and its own notification center", () => {
-    for (const role of ["executive", "department_head", "employee", "finance", "hr"] as const) {
+    for (const role of workspaceRoles) {
       expect(canRoleAccessPath(role, "/help")).toBe(true);
       expect(canRoleAccessPath(role, "/notifications")).toBe(true);
     }
   });
 
   it("lets every role deliver tasks and follow old attendance bookmarks to that work", () => {
-    for (const role of ["executive", "department_head", "employee", "finance", "hr"] as const) {
+    for (const role of workspaceRoles) {
       expect(canRoleAccessPath(role, "/tasks")).toBe(true);
       expect(canRoleAccessPath(role, "/attendance")).toBe(true);
     }

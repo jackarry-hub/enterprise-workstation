@@ -24,8 +24,50 @@ export function getSupabaseEnv(): SupabaseEnv {
     throw new Error(`Supabase 配置缺失：${missing.join(", ")}`);
   }
 
+  const rawUrl = values.NEXT_PUBLIC_SUPABASE_URL as string;
+  const publishableKey = (
+    values.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY as string
+  ).trim();
+
+  let projectUrl: URL;
+  try {
+    projectUrl = new URL(rawUrl.trim());
+  } catch {
+    throw new Error("Supabase 配置无效：NEXT_PUBLIC_SUPABASE_URL");
+  }
+
+  if (
+    !["http:", "https:"].includes(projectUrl.protocol)
+    || projectUrl.username.length > 0
+    || projectUrl.password.length > 0
+  ) {
+    throw new Error("Supabase 配置无效：NEXT_PUBLIC_SUPABASE_URL");
+  }
+
+  if (isSecretSupabaseKey(publishableKey)) {
+    throw new Error(
+      "Supabase 配置无效：NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+    );
+  }
+
   return {
-    url: values.NEXT_PUBLIC_SUPABASE_URL as string,
-    publishableKey: values.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY as string,
+    url: projectUrl.toString().replace(/\/$/, ""),
+    publishableKey,
   };
+}
+
+function isSecretSupabaseKey(value: string) {
+  if (/^(?:sb_secret_|service_role$)/i.test(value)) return true;
+
+  const payload = value.split(".")[1];
+  if (!payload || typeof globalThis.atob !== "function") return false;
+
+  try {
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padding = "=".repeat((4 - (normalized.length % 4)) % 4);
+    const claims = JSON.parse(globalThis.atob(`${normalized}${padding}`));
+    return claims?.role === "service_role";
+  } catch {
+    return false;
+  }
 }

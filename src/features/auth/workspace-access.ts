@@ -218,3 +218,51 @@ export function hasWorkspacePermission(
 ) {
   return session.permissionCodes.includes(permission);
 }
+
+export type WorkspaceAccessFailureReason =
+  | "not_provisioned"
+  | "suspended"
+  | "departed"
+  | "misconfigured";
+
+export function isPublicAuthPath(pathname: string) {
+  return pathname === "/login"
+    || pathname === "/access-pending"
+    || pathname === "/auth/callback"
+    || pathname.startsWith("/auth/callback/")
+    || pathname === "/api/auth/feishu/userinfo";
+}
+
+export function getSafeReturnPath(candidate: string | null | undefined) {
+  if (!candidate || !candidate.startsWith("/") || candidate.startsWith("//")) {
+    return null;
+  }
+
+  try {
+    const base = new URL("https://workspace.invalid");
+    const destination = new URL(candidate, base);
+    if (destination.origin !== base.origin) return null;
+    return `${destination.pathname}${destination.search}${destination.hash}`;
+  } catch {
+    return null;
+  }
+}
+
+export function getWorkspaceAccessFailureReason(
+  value: unknown,
+  error: unknown,
+  expectedAuthUserId?: string,
+): WorkspaceAccessFailureReason | null {
+  if (error) return "misconfigured";
+  if (value === null || value === undefined) return "not_provisioned";
+
+  const raw = record(value);
+  if (!raw) return "misconfigured";
+  if (expectedAuthUserId && raw.authUserId !== expectedAuthUserId) {
+    return "misconfigured";
+  }
+  if (raw.memberStatus === "suspended") return "suspended";
+  if (raw.employmentStatus === "departed") return "departed";
+
+  return parseWorkspaceAccess(value) ? null : "misconfigured";
+}
