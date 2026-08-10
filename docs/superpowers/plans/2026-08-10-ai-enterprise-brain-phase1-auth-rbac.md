@@ -302,8 +302,11 @@ export async function handleFeishuUserInfo(
     const identity = normalizeFeishuUserInfo(await upstream.json() as FeishuEnvelope, dependencies.tenantKey);
     return Response.json(identity, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
-    const code = error instanceof Error ? error.message : "upstream_failed";
-    return Response.json({ error: code }, { status: code === "wrong_feishu_tenant" ? 403 : 502 });
+    const wrongTenant = error instanceof Error && error.message === "wrong_feishu_tenant";
+    return Response.json(
+      { error: wrongTenant ? "wrong_feishu_tenant" : "upstream_failed" },
+      { status: wrongTenant ? 403 : 502 },
+    );
   }
 }
 ```
@@ -378,7 +381,7 @@ describe("phase 1 identity migration", () => {
     expect(sql).toContain("grant execute on function public.claim_current_feishu_identity() to authenticated");
     expect(sql).toContain("grant execute on function public.provision_feishu_employee");
     expect(sql).toContain("to service_role");
-    expect(sql).not.toMatch(/grant execute on function public\.provision_feishu_employee[\s\S]*to authenticated/);
+    expect(sql).not.toMatch(/grant execute on function public\.provision_feishu_employee\([^;\n]+to authenticated;/i);
   });
 
   it("seeds only the QuantXY organization used by the application", () => {
