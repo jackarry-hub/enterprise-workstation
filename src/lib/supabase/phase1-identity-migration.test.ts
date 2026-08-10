@@ -16,6 +16,17 @@ describe("phase 1 tenant identity migration", () => {
       ),
     )?.[0] ?? "";
 
+  it("selects the provider registry row without colliding with the auth provider column", () => {
+    const claimSql = functionSql("claim_current_identity");
+
+    expect(claimSql).toContain(
+      "select row(provider.*)::public.identity_providers, identity.identity_data, identity.provider_id",
+    );
+    expect(claimSql).not.toMatch(
+      /select provider,\s*identity\.identity_data,\s*identity\.provider_id/i,
+    );
+  });
+
   it("declares every local used by the generic claim function", () => {
     const claimSql = functionSql("claim_current_identity");
 

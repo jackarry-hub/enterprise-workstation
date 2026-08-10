@@ -1030,7 +1030,7 @@ begin
     return 'unauthenticated';
   end if;
 
-  select provider, identity.identity_data, identity.provider_id
+  select row(provider.*)::public.identity_providers, identity.identity_data, identity.provider_id
   into v_provider, v_identity_data, v_auth_provider_subject
   from auth.identities identity
   join public.identity_providers provider
