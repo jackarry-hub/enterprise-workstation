@@ -8,6 +8,64 @@ describe("phase 1 tenant identity migration", () => {
     "utf8",
   );
   const normalizedSql = sql.toLowerCase();
+  const functionSql = (name: string) =>
+    sql.match(
+      new RegExp(
+        `create or replace function public\\.${name}\\([\\s\\S]*?\\n\\$\\$;`,
+        "i",
+      ),
+    )?.[0] ?? "";
+
+  it("declares every local used by the generic claim function", () => {
+    const claimSql = functionSql("claim_current_identity");
+
+    expect(claimSql).toMatch(/declare[\s\S]*?v_match_count bigint;[\s\S]*?begin/i);
+    expect(claimSql).toContain("select count(*) into v_match_count");
+  });
+
+  it("rejects null skill elements before normalization", () => {
+    const skillsSql = functionSql("normalize_employee_skills");
+
+    expect(skillsSql).toMatch(
+      /where skill is null\s+or length\(btrim\(skill\)\) not between 1 and 40/i,
+    );
+  });
+
+  it("requires an active tenant for bind, claim, and current tenant resolution", () => {
+    for (const name of [
+      "bind_preprovisioned_identity",
+      "claim_current_identity",
+      "current_tenant_id",
+    ]) {
+      const rpcSql = functionSql(name);
+      expect(rpcSql).toMatch(
+        /(?:from|join) public\.tenants tenant[\s\S]*?tenant\.status = 'active'/i,
+      );
+    }
+  });
+
+  it("never treats an unverified raw identity email as verified", () => {
+    const claimSql = functionSql("claim_current_identity");
+
+    expect(claimSql).toContain(
+      "v_verified_email := nullif(lower(btrim(v_identity_data ->> 'verified_email')), '');",
+    );
+    expect(claimSql).not.toContain("v_identity_data ->> 'email'");
+  });
+
+  it("requires audit actors to resolve to the same tenant and member", () => {
+    const auditSql = functionSql("append_audit_log");
+
+    expect(auditSql).toContain(
+      "if p_actor_auth_user_id is not null or p_actor_member_id is not null then",
+    );
+    expect(auditSql).toContain("member.tenant_id = p_tenant_id");
+    expect(auditSql).toContain("member.user_id = p_actor_auth_user_id");
+    expect(auditSql).toContain(
+      "member.id = p_actor_member_id",
+    );
+    expect(auditSql).toContain("member.status = 'active'");
+  });
 
   it("adds explicit tenant boundaries and same-tenant relationship guards", () => {
     expect(sql).toContain("create table public.tenants");

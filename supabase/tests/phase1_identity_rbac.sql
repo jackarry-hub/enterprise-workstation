@@ -110,7 +110,8 @@ with users(id, email) as (values
   ('11000000-0000-4000-8000-000000000007'::uuid, 'suspended@example.test'),
   ('11000000-0000-4000-8000-000000000008'::uuid, 'departed@example.test'),
   ('11000000-0000-4000-8000-000000000009'::uuid, 'revoked@example.test'),
-  ('11000000-0000-4000-8000-000000000010'::uuid, 'entra@example.test')
+  ('11000000-0000-4000-8000-000000000010'::uuid, 'entra@example.test'),
+  ('11000000-0000-4000-8000-000000000011'::uuid, 'raw-email-only@example.test')
 )
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -151,6 +152,22 @@ select
   ),
   provider, now(), now(), now()
 from identities;
+
+insert into auth.identities (
+  id, provider_id, user_id, identity_data, provider,
+  last_sign_in_at, created_at, updated_at
+) values (
+  gen_random_uuid(), 'subject-raw-email-only',
+  '11000000-0000-4000-8000-000000000011'::uuid,
+  jsonb_build_object(
+    'sub', 'subject-raw-email-only',
+    'provider_subject', 'subject-raw-email-only',
+    'provider_tenant_key', 'tenant_qxy',
+    'provider_match_keys', '[]'::jsonb,
+    'email', 'owner@example.test'
+  ),
+  'custom:feishu', now(), now(), now()
+);
 
 select public.provision_employee_identity(
   'quantxy', 'quantum-galaxy', 'QXY-OWNER', '老板测试', 'AI', 'CEO',
@@ -243,6 +260,16 @@ select throws_ok(
   'Skills must contain 1 to 40 characters',
   'skills reject labels longer than 40 characters'
 );
+select throws_ok(
+  $$
+    update public.employee_profiles
+    set skills = array[null]::text[]
+    where employee_no = 'QXY-EMPLOYEE'
+  $$,
+  '22023',
+  'Skills must contain 1 to 40 characters',
+  'skills reject null array elements'
+);
 
 update public.organization_members set status = 'suspended'
 where id = (
@@ -328,6 +355,13 @@ select set_config('request.jwt.claim.sub', '11000000-0000-4000-8000-000000000010
 select is(public.claim_current_identity(), 'active', 'a second provider can claim a preprovisioned identity');
 select is(public.current_workspace_access() ->> 'providerCode', 'entra', 'second provider remains provider-neutral in workspace access');
 
+select set_config('request.jwt.claim.sub', '11000000-0000-4000-8000-000000000011', true);
+select is(
+  public.claim_current_identity(),
+  'not_provisioned',
+  'raw identity email without normalized verification cannot claim a roster record'
+);
+
 select throws_ok(
   $$
     select public.append_audit_log(
@@ -378,6 +412,20 @@ select lives_ok(
   'controlled audit insertion accepts a hash digest and safe metadata'
 );
 select throws_ok(
+  $$
+    select public.append_audit_log(
+      (select id from public.tenants where slug = 'tenant-isolation-test'),
+      (select id from public.organizations where slug = 'tenant-isolation-organization'),
+      '11000000-0000-4000-8000-000000000001'::uuid,
+      null, 'roster.imported', 'roster', 'cross-tenant-actor', null,
+      null, '{}'::jsonb
+    )
+  $$,
+  '23514',
+  'Audit actor must be bound to the same tenant and member',
+  'audit events reject an auth actor bound to another tenant'
+);
+select throws_ok(
   $$ update public.audit_logs set target_id = 'changed' where id = (select min(id) from public.audit_logs) $$,
   '42501',
   'Audit logs are append-only',
@@ -417,6 +465,25 @@ reset role;
 select set_config('request.jwt.claim.sub', '11000000-0000-4000-8000-000000000003', true);
 set local role authenticated;
 select is((select count(*) from public.audit_logs), 0::bigint, 'ordinary employee cannot read audit events');
+reset role;
+
+update public.tenants set status = 'suspended' where slug = 'quantxy';
+select set_config('request.jwt.claim.sub', '11000000-0000-4000-8000-000000000001', true);
+select is(public.claim_current_identity(), 'invalid_identity', 'claim rejects an identity from a suspended tenant');
+select is(public.current_tenant_id(), null::bigint, 'suspended tenant cannot resolve as current');
+select throws_ok(
+  $$
+    select public.bind_preprovisioned_identity(
+      'quantxy', 'feishu', 'tenant_qxy', 'subject-owner',
+      '11000000-0000-4000-8000-000000000001'::uuid
+    )
+  $$,
+  'P0002',
+  null,
+  'service binding rejects a suspended tenant'
+);
+set local role authenticated;
+select is((select count(*) from public.organizations), 0::bigint, 'suspended tenant loses organization access through RLS');
 reset role;
 
 select * from finish();

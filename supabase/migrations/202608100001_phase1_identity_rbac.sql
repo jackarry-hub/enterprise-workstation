@@ -205,7 +205,8 @@ begin
   end if;
   if exists (
     select 1 from unnest(new.skills) as skill
-    where length(btrim(skill)) not between 1 and 40
+    where skill is null
+      or length(btrim(skill)) not between 1 and 40
   ) then
     raise exception 'Skills must contain 1 to 40 characters' using errcode = '22023';
   end if;
@@ -565,6 +566,20 @@ begin
   end if;
   if p_ip_hash is not null and p_ip_hash !~ '^[0-9a-f]{64}$' then
     raise exception 'Only an IP HMAC or hash digest may be stored' using errcode = '22023';
+  end if;
+  if p_actor_auth_user_id is not null or p_actor_member_id is not null then
+    if p_actor_auth_user_id is null
+       or p_actor_member_id is null
+       or not exists (
+         select 1
+         from public.organization_members member
+         where member.tenant_id = p_tenant_id
+           and member.id = p_actor_member_id
+           and member.user_id = p_actor_auth_user_id
+           and member.status = 'active'
+       ) then
+      raise exception 'Audit actor must be bound to the same tenant and member' using errcode = '23514';
+    end if;
   end if;
 
   insert into public.audit_logs (
@@ -933,7 +948,6 @@ set search_path = ''
 as $$
 declare
   v_external public.external_identities%rowtype;
-  v_match_count bigint;
   v_member_status text;
   v_employment_status text;
 begin
@@ -947,6 +961,7 @@ begin
     on external.tenant_id = provider.tenant_id
    and external.identity_provider_id = provider.id
   where tenant.slug = lower(btrim(p_tenant_slug))
+    and tenant.status = 'active'
     and provider.provider_code = lower(btrim(p_provider_code))
     and provider.provider_tenant_key = btrim(p_provider_tenant_key)
     and external.provider_subject = btrim(p_provider_subject)
@@ -1007,6 +1022,7 @@ declare
   v_display_name text;
   v_avatar_url text;
   v_external public.external_identities%rowtype;
+  v_match_count bigint;
   v_member_status text;
   v_employment_status text;
 begin
@@ -1024,6 +1040,9 @@ begin
      nullif(identity.identity_data ->> 'tenant_key', '')
    )
    and provider.status = 'active'
+  join public.tenants tenant
+    on tenant.id = provider.tenant_id
+   and tenant.status = 'active'
   where identity.user_id = v_auth_user_id
   order by identity.updated_at desc
   limit 1;
@@ -1046,9 +1065,7 @@ begin
     from jsonb_array_elements_text(v_identity_data -> 'provider_match_keys') as match_key
     where length(btrim(match_key)) between 1 and 200;
   end if;
-  v_verified_email := nullif(lower(btrim(coalesce(
-    v_identity_data ->> 'verified_email', v_identity_data ->> 'email'
-  ))), '');
+  v_verified_email := nullif(lower(btrim(v_identity_data ->> 'verified_email')), '');
   v_display_name := nullif(btrim(coalesce(
     v_identity_data ->> 'display_name', v_identity_data ->> 'name'
   )), '');
@@ -1197,6 +1214,9 @@ set search_path = ''
 as $$
   select external.tenant_id
   from public.external_identities external
+  join public.tenants tenant
+    on tenant.id = external.tenant_id
+   and tenant.status = 'active'
   join public.identity_providers provider
     on provider.tenant_id = external.tenant_id
    and provider.id = external.identity_provider_id
