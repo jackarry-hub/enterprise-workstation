@@ -1,5 +1,6 @@
 import { screen } from "@testing-library/react";
 import { renderWithWorkspaceSession as render } from "@/test/workspace-session-test-utils";
+import { renderWithSpecificWorkspaceSession, unboundExecutiveWorkspaceSession } from "@/test/workspace-session-test-utils";
 import { describe, expect, it } from "vitest";
 
 import { EmployeeDetailPage } from "@/features/hr/employee-detail-page";
@@ -7,6 +8,16 @@ import { employeeDirectoryMockResult } from "@/features/hr/employee-mock-data";
 
 describe("EmployeeDetailPage", () => {
   const employee = employeeDirectoryMockResult.data.employees[1];
+
+  it("does not expose fixture employee detail to an unbound real identity", () => {
+    renderWithSpecificWorkspaceSession(
+      <EmployeeDetailPage employee={employee} />,
+      unboundExecutiveWorkspaceSession,
+    );
+
+    expect(screen.getByRole("heading", { name: "员工数据暂不可用" })).toBeVisible();
+    expect(screen.queryByText("wang.fang@quantxy.cn")).not.toBeInTheDocument();
+  });
 
   it("renders the employee identity and lifecycle status", () => {
     render(<EmployeeDetailPage employee={employee} />);

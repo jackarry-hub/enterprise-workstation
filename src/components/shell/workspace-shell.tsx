@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 
+import { WorkspaceAccessNotice } from "@/components/shell/workspace-access-notice";
 import { WorkspaceHeader } from "@/components/shell/workspace-header";
 import { RoleAccessGuard } from "@/components/shell/role-access-guard";
 import { WorkspaceSidebar } from "@/components/shell/workspace-sidebar";
@@ -21,7 +22,12 @@ export function WorkspaceShell({ children, session }: WorkspaceShellProps) {
           </div>
           <div className="min-h-screen lg:pl-56">
             <WorkspaceHeader />
-            <div id="main-content">{children}</div>
+            <div id="main-content">
+              <Suspense fallback={null}>
+                <WorkspaceAccessNotice />
+              </Suspense>
+              {children}
+            </div>
           </div>
         </div>
       </RoleAccessGuard>

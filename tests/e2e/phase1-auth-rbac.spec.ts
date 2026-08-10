@@ -38,6 +38,9 @@ for (const [role, landingPath, forbiddenPath] of roleScenarios) {
     await expect(
       page.getByRole("img", { name: roleFixtures[role].displayName }),
     ).toBeVisible();
+    await expect(page.getByRole("status")).toHaveText(
+      "你没有权限查看刚才的页面，已返回可访问的工作台。",
+    );
 
     await page.goto("/tasks");
     await expect(page).toHaveURL(/\/tasks$/);
@@ -91,18 +94,25 @@ test("退出登录后不能继续进入工作区", async ({ browser }) => {
   await context.close();
 });
 
-for (const blockedState of ["unknown", "suspended", "departed"] as const) {
-  test(`${blockedState} 身份不能进入工作区`, async ({ browser }) => {
+for (const [blockedState, reason, message] of [
+  ["unknown", "not_provisioned", "你的飞书账号尚未开通企业工作站，请联系管理员。"],
+  ["suspended", "suspended", "你的工作站账号已暂停，请联系人事或管理员。"],
+  ["departed", "departed", "该员工账号已停用，无法进入工作站。"],
+] as const) {
+  test(`${blockedState} 身份显示对应的拒绝原因`, async ({ browser }) => {
     const context = await browser.newContext({
       storageState: authStatePath(blockedState),
     });
     const page = await context.newPage();
 
     await page.goto("/tasks");
-    await expect(page).toHaveURL(/\/access-pending\?reason=not_provisioned$/);
+    await expect(page).toHaveURL(
+      new RegExp(`/access-pending\\?reason=${reason}$`),
+    );
     await expect(
       page.getByRole("heading", { name: "暂时无法进入" }),
     ).toBeVisible();
+    await expect(page.getByText(message)).toBeVisible();
 
     await context.close();
   });

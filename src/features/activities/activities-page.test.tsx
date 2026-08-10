@@ -1,11 +1,24 @@
 import { screen } from "@testing-library/react";
 import { renderWithWorkspaceSession as render } from "@/test/workspace-session-test-utils";
+import { renderWithSpecificWorkspaceSession, unboundExecutiveWorkspaceSession } from "@/test/workspace-session-test-utils";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { ActivitiesPage } from "@/features/activities/activities-page";
 
 describe("ActivitiesPage", () => {
+  it("shows a disabled empty state to an unbound real identity", () => {
+    renderWithSpecificWorkspaceSession(
+      <ActivitiesPage />,
+      unboundExecutiveWorkspaceSession,
+    );
+
+    expect(screen.getByRole("heading", { name: "活动推进中心" })).toBeVisible();
+    expect(screen.getByText("当前账号没有可显示的真实活动数据。" )).toBeVisible();
+    expect(screen.getByRole("button", { name: "活动日历" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "创建活动" })).toBeDisabled();
+  });
+
   it("renders the activity list and selected project detail", () => {
     render(<ActivitiesPage />);
 

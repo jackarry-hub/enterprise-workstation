@@ -356,6 +356,22 @@ async function signInAndWriteState(
   return { client, session };
 }
 
+async function assertIdentityClaim(
+  client: SupabaseClient,
+  email: string,
+  expected: "not_provisioned" | "suspended" | "departed",
+) {
+  const claimed = await client.rpc("claim_current_identity");
+  if (claimed.error) {
+    failure(`验证本地 E2E 身份状态 ${email}`, claimed.error);
+  }
+  if (claimed.data !== expected) {
+    throw new Error(
+      `本地 E2E 身份状态不匹配：${email}（期望 ${expected}，实际 ${String(claimed.data)}）`,
+    );
+  }
+}
+
 async function getTenantAndProvider(admin: SupabaseClient) {
   const tenant = await admin
     .from("tenants")
@@ -799,6 +815,7 @@ export async function prepareAuthStates(env: NodeJS.ProcessEnv = process.env) {
     password,
   );
   if (unknown.session) throw new Error("未知 E2E 员工不应获得工作身份");
+  await assertIdentityClaim(unknown.client, UNKNOWN_EMAIL, "not_provisioned");
 
   for (const status of ["suspended", "departed"] as const) {
     const fixture = BLOCKED_FIXTURES[status];
@@ -835,6 +852,7 @@ export async function prepareAuthStates(env: NodeJS.ProcessEnv = process.env) {
     if (blocked.session) {
       throw new Error(`拒绝场景员工仍获得工作身份：${status}`);
     }
+    await assertIdentityClaim(blocked.client, fixture.email, status);
   }
 
   const secondTenant = await ensureSecondTenant(admin);

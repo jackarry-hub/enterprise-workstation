@@ -1,5 +1,6 @@
 import { screen, within } from "@testing-library/react";
 import { renderWithWorkspaceSession as render } from "@/test/workspace-session-test-utils";
+import { renderWithSpecificWorkspaceSession, unboundExecutiveWorkspaceSession } from "@/test/workspace-session-test-utils";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -8,6 +9,26 @@ import { PayrollPage } from "@/features/salary/payroll-page";
 import { salaryMockResult } from "@/features/salary/salary-mock-data";
 
 describe("payroll pages", () => {
+  it("does not expose fixture payroll to an unbound real identity", () => {
+    renderWithSpecificWorkspaceSession(
+      <PayrollPage result={salaryMockResult} />,
+      unboundExecutiveWorkspaceSession,
+    );
+
+    expect(screen.getByText("当前账号没有可显示的真实薪资数据。" )).toBeVisible();
+    expect(screen.queryByText("林远")).not.toBeInTheDocument();
+  });
+
+  it("does not expose fixture payslip detail to an unbound real identity", () => {
+    renderWithSpecificWorkspaceSession(
+      <PayrollDetailPage record={salaryMockResult.data.records[0]} />,
+      unboundExecutiveWorkspaceSession,
+    );
+
+    expect(screen.getByRole("heading", { name: "薪资数据暂不可用" })).toBeVisible();
+    expect(screen.queryByRole("region", { name: "工资组成" })).not.toBeInTheDocument();
+  });
+
   it("renders and filters the salary management list", async () => {
     const user = userEvent.setup();
     render(<PayrollPage result={salaryMockResult} />);

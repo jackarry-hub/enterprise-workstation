@@ -1,5 +1,6 @@
 import { screen, within } from "@testing-library/react";
 import { renderWithWorkspaceSession as render } from "@/test/workspace-session-test-utils";
+import { renderWithSpecificWorkspaceSession, unboundExecutiveWorkspaceSession } from "@/test/workspace-session-test-utils";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -7,6 +8,17 @@ import { employeeDirectoryMockResult } from "@/features/hr/employee-mock-data";
 import { PeoplePage } from "@/features/hr/people-page";
 
 describe("PeoplePage", () => {
+  it("does not expose the fixture roster to an unbound real identity", () => {
+    renderWithSpecificWorkspaceSession(
+      <PeoplePage result={employeeDirectoryMockResult} />,
+      unboundExecutiveWorkspaceSession,
+    );
+
+    expect(screen.getByText("当前账号没有可显示的真实员工数据。" )).toBeVisible();
+    expect(screen.queryByText("王芳")).not.toBeInTheDocument();
+    expect(screen.getByText("当前显示 0 名员工")).toBeVisible();
+  });
+
   it("renders the approved employee directory surface", () => {
     render(<PeoplePage result={employeeDirectoryMockResult} />);
 

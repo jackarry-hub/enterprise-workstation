@@ -64,6 +64,22 @@ describe("phase 1 tenant identity migration", () => {
     expect(claimSql).not.toContain("v_identity_data ->> 'email'");
   });
 
+  it("preserves blocked status for a previously bound provider-neutral identity", () => {
+    const claimSql = functionSql("claim_current_identity");
+    const boundIdentityLookup = claimSql.indexOf(
+      "where external.auth_user_id = v_auth_user_id",
+    );
+    const providerLookup = claimSql.indexOf(
+      "select row(provider.*)::public.identity_providers",
+    );
+
+    expect(boundIdentityLookup).toBeGreaterThan(-1);
+    expect(boundIdentityLookup).toBeLessThan(providerLookup);
+    expect(claimSql).toMatch(
+      /if v_provider\.id is null then\s+return 'not_provisioned';/i,
+    );
+  });
+
   it("requires audit actors to resolve to the same tenant and member", () => {
     const auditSql = functionSql("append_audit_log");
 

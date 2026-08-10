@@ -45,17 +45,38 @@ export const executiveWorkspaceSession: WorkspaceSession = {
   },
 };
 
-export function renderWithWorkspaceSession(
+export const unboundExecutiveWorkspaceSession: WorkspaceSession = {
+  ...executiveWorkspaceSession,
+  authUserId: "90000000-0000-4000-8000-000000000001",
+  actor: {
+    ...executiveWorkspaceSession.actor,
+    id: "90000000-0000-4000-8000-000000000001",
+  },
+};
+
+export function renderWithSpecificWorkspaceSession(
   ui: ReactElement,
+  session: WorkspaceSession,
   options?: Omit<RenderOptions, "wrapper">,
 ) {
   function SessionWrapper({ children }: { children: ReactNode }) {
     return (
-      <WorkspaceSessionProvider session={executiveWorkspaceSession}>
+      <WorkspaceSessionProvider session={session}>
         {children}
       </WorkspaceSessionProvider>
     );
   }
 
   return render(ui, { ...options, wrapper: SessionWrapper });
+}
+
+export function renderWithWorkspaceSession(
+  ui: ReactElement,
+  options?: Omit<RenderOptions, "wrapper">,
+) {
+  return renderWithSpecificWorkspaceSession(
+    ui,
+    executiveWorkspaceSession,
+    options,
+  );
 }

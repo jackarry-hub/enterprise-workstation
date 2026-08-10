@@ -9,11 +9,18 @@ import { EmployeeAccountInfo } from "@/features/hr/components/employee-account-i
 import { EmployeeBasicInfo } from "@/features/hr/components/employee-basic-info";
 import { EmployeeDetailHeader } from "@/features/hr/components/employee-detail-header";
 import { EmployeeOrganizationInfo } from "@/features/hr/components/employee-organization-info";
+import { RealDataUnavailable } from "@/components/ui/real-data-boundary";
+import { useOperations } from "@/features/operations/use-operations";
 import type { EmployeeDirectoryItem } from "@/features/hr/employee-types";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 
 export function EmployeeDetailPage({ employee }: { employee: EmployeeDirectoryItem }) {
-  const { actor } = useWorkspaceSession();
+  const session = useWorkspaceSession();
+  const { actor } = session;
+  const { isFixtureBound } = useOperations(session);
+  if (!isFixtureBound) {
+    return <RealDataUnavailable title="员工数据暂不可用" description="当前账号不会显示演示员工档案。真实组织数据接入后，只会展示你有权查看的人员信息。" backHref="/people" backLabel="返回员工目录" />;
+  }
   const isOwnProfile = employee.profile.displayName === actor.name;
   const isDirectReport = employee.manager?.displayName === actor.name;
   const canView = actor.role === "executive" || actor.role === "hr" || (actor.role === "department_head" && (isOwnProfile || isDirectReport));

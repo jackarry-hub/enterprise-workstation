@@ -1,5 +1,6 @@
 import { screen, within } from "@testing-library/react";
 import { renderWithWorkspaceSession as render } from "@/test/workspace-session-test-utils";
+import { renderWithSpecificWorkspaceSession, unboundExecutiveWorkspaceSession } from "@/test/workspace-session-test-utils";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -8,6 +9,27 @@ import { ApprovalDetailPage } from "@/features/approvals/approval-detail-page";
 import { ApprovalsPage } from "@/features/approvals/approvals-page";
 
 describe("approval pages", () => {
+  it("does not expose fixture approvals to an unbound real identity", () => {
+    renderWithSpecificWorkspaceSession(
+      <ApprovalsPage result={approvalMockResult} />,
+      unboundExecutiveWorkspaceSession,
+    );
+
+    expect(screen.getByText("当前账号没有可显示的真实审批数据。" )).toBeVisible();
+    expect(screen.queryByText("王芳")).not.toBeInTheDocument();
+    expect(screen.getByText("当前显示 0 条审批")).toBeVisible();
+  });
+
+  it("does not expose fixture approval detail to an unbound real identity", () => {
+    renderWithSpecificWorkspaceSession(
+      <ApprovalDetailPage approval={approvalMockResult.data.approvals[1]} />,
+      unboundExecutiveWorkspaceSession,
+    );
+
+    expect(screen.getByRole("heading", { name: "审批数据暂不可用" })).toBeVisible();
+    expect(screen.queryByText("报销申请")).not.toBeInTheDocument();
+  });
+
   it("renders and filters the approval queue", async () => {
     const user = userEvent.setup();
     render(<ApprovalsPage result={approvalMockResult} />);

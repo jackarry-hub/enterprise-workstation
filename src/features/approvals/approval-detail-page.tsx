@@ -12,6 +12,9 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Textarea } from "@/components/ui/textarea";
+import { RealDataUnavailable } from "@/components/ui/real-data-boundary";
+import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { useOperations } from "@/features/operations/use-operations";
 import { approvalStatusMeta, approvalTypeMeta } from "@/features/approvals/approval-meta";
 import type { Approval, ApprovalStatus } from "@/features/approvals/approval-types";
 import { cn } from "@/lib/utils";
@@ -31,11 +34,24 @@ function Person({ person }: { person: Approval["applicant"] }) {
 }
 
 export function ApprovalDetailPage({ approval }: { approval: Approval }) {
+  const session = useWorkspaceSession();
+  const { isFixtureBound } = useOperations(session);
   const [status, setStatus] = useState<ApprovalStatus>(approval.status);
   const [decision, setDecision] = useState<Decision | null>(null);
   const [feedback, setFeedback] = useState("");
   const statusMeta = approvalStatusMeta[status];
   const isPending = status === "pending";
+
+  if (!isFixtureBound) {
+    return (
+      <RealDataUnavailable
+        title="审批数据暂不可用"
+        description="当前账号不会显示演示审批记录。真实审批数据接入后，可在权限范围内查看。"
+        backHref="/approvals"
+        backLabel="返回审批中心"
+      />
+    );
+  }
 
   function confirmDecision() {
     if (!decision) return;

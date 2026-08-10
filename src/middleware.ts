@@ -48,10 +48,27 @@ export async function middleware(request: NextRequest) {
     error = true;
   }
 
+  let claimedReason: string | null = null;
+  if ((data === null || data === undefined) && !error) {
+    try {
+      const claim = await supabase.rpc("claim_current_identity");
+      if (!claim.error && typeof claim.data === "string") {
+        claimedReason = claim.data;
+      }
+    } catch {
+      claimedReason = null;
+    }
+  }
+
   const failureReason = getWorkspaceAccessFailureReason(data, error, subject);
   const session = failureReason ? null : parseWorkspaceAccess(data);
   if (!session || session.authUserId !== subject) {
-    const reason = failureReason ?? "misconfigured";
+    const reason = claimedReason === "not_provisioned"
+      || claimedReason === "suspended"
+      || claimedReason === "departed"
+      || claimedReason === "revoked"
+      ? claimedReason
+      : failureReason ?? "misconfigured";
     return redirectWithRefreshedCookies(
       response,
       new URL(`/access-pending?reason=${reason}`, request.url),

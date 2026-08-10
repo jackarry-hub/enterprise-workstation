@@ -1025,9 +1025,56 @@ declare
   v_match_count bigint;
   v_member_status text;
   v_employment_status text;
+  v_bound_provider_active boolean;
+  v_bound_tenant_active boolean;
 begin
   if v_auth_user_id is null then
     return 'unauthenticated';
+  end if;
+
+  -- A rejected employee still needs a precise, provider-neutral reason. This
+  -- lookup is scoped to the authenticated user's existing binding and exposes
+  -- no tenant roster data.
+  select row(external.*)::public.external_identities,
+         member.status,
+         profile.employment_status,
+         provider.status = 'active',
+         tenant.status = 'active'
+  into v_external,
+       v_member_status,
+       v_employment_status,
+       v_bound_provider_active,
+       v_bound_tenant_active
+  from public.external_identities external
+  join public.identity_providers provider
+    on provider.tenant_id = external.tenant_id
+   and provider.id = external.identity_provider_id
+  join public.tenants tenant
+    on tenant.id = external.tenant_id
+  join public.organization_members member
+    on member.tenant_id = external.tenant_id
+   and member.id = external.organization_member_id
+  join public.employee_profiles profile
+    on profile.tenant_id = external.tenant_id
+   and profile.organization_member_id = member.id
+   and profile.deleted_at is null
+  where external.auth_user_id = v_auth_user_id
+  order by external.updated_at desc
+  limit 1;
+
+  if v_external.id is not null then
+    if not v_bound_provider_active or not v_bound_tenant_active then
+      return 'invalid_identity';
+    end if;
+    if v_external.status = 'revoked' then
+      return 'revoked';
+    end if;
+    if v_member_status = 'suspended' then
+      return 'suspended';
+    end if;
+    if v_employment_status = 'departed' then
+      return 'departed';
+    end if;
   end if;
 
   select row(provider.*)::public.identity_providers, identity.identity_data, identity.provider_id
@@ -1047,7 +1094,7 @@ begin
   order by identity.updated_at desc
   limit 1;
   if v_provider.id is null then
-    return 'invalid_identity';
+    return 'not_provisioned';
   end if;
 
   v_identity_provider_subject := coalesce(

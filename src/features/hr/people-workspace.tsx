@@ -6,7 +6,9 @@ import { Database, UsersRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { GlassCard } from "@/components/ui/glass-card";
 import { PageHeader } from "@/components/ui/page-header";
+import { RealDataNotice } from "@/components/ui/real-data-boundary";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { useOperations } from "@/features/operations/use-operations";
 import { EmployeeFilters } from "@/features/hr/components/employee-filters";
 import { EmployeeList } from "@/features/hr/components/employee-list";
 import { EmployeeStats } from "@/features/hr/components/employee-stats";
@@ -23,21 +25,24 @@ const defaultFilters: EmployeeDirectoryFilters = {
 };
 
 export function PeopleWorkspace({ result }: { result: EmployeeDirectoryResult }) {
-  const { actor } = useWorkspaceSession();
+  const session = useWorkspaceSession();
+  const { actor } = session;
+  const { isFixtureBound } = useOperations(session);
   const [filters, setFilters] = useState(defaultFilters);
   const scopedEmployees = useMemo(() => {
+    if (!isFixtureBound) return [];
     if (actor.role !== "department_head") return result.data.employees;
     const manager = result.data.employees.find(({ profile }) => profile.displayName === actor.name);
     if (!manager) return [];
     return result.data.employees.filter(({ profile }) => profile.id === manager.profile.id || profile.managerEmployeeId === manager.profile.id);
-  }, [actor.name, actor.role, result.data.employees]);
+  }, [actor.name, actor.role, isFixtureBound, result.data.employees]);
   const employees = useMemo(
     () => filterEmployees(scopedEmployees, filters),
     [filters, scopedEmployees],
   );
   const scopedDepartmentIds = new Set(scopedEmployees.flatMap(({ profile }) => profile.departmentId ? [profile.departmentId] : []));
   const departments = result.data.departments.filter(({ id }) => actor.role !== "department_head" || scopedDepartmentIds.has(id));
-  const stats = actor.role === "department_head" ? {
+  const stats = !isFixtureBound ? { total: 0, active: 0, probation: 0, departments: 0 } : actor.role === "department_head" ? {
     total: scopedEmployees.length,
     active: scopedEmployees.filter(({ profile }) => profile.employmentStatus === "active").length,
     probation: scopedEmployees.filter(({ profile }) => profile.employmentStatus === "probation").length,
@@ -66,6 +71,8 @@ export function PeopleWorkspace({ result }: { result: EmployeeDirectoryResult })
       </section>
 
       <EmployeeStats stats={stats} />
+
+      {!isFixtureBound ? <RealDataNotice message="当前账号没有可显示的真实员工数据。" /> : null}
 
       <GlassCard className="min-w-0 overflow-hidden p-3 sm:p-4">
         <div className="flex flex-col gap-1 px-1 pb-3 sm:flex-row sm:items-end sm:justify-between">

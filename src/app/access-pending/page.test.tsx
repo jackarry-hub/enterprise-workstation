@@ -4,6 +4,20 @@ import { describe, expect, it } from "vitest";
 import AccessPendingPage from "@/app/access-pending/page";
 
 describe("AccessPendingPage", () => {
+  it.each([
+    ["not_provisioned", "你的飞书账号尚未开通企业工作站，请联系管理员。"],
+    ["suspended", "你的工作站账号已暂停，请联系人事或管理员。"],
+    ["departed", "该员工账号已停用，无法进入工作站。"],
+  ])("shows the distinct %s access reason", async (reason, message) => {
+    render(
+      await AccessPendingPage({
+        searchParams: Promise.resolve({ reason }),
+      }),
+    );
+
+    expect(screen.getByText(message)).toBeVisible();
+  });
+
   it("shows a distinct human message for revoked access", async () => {
     render(
       await AccessPendingPage({

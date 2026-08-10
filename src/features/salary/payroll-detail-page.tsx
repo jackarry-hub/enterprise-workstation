@@ -9,6 +9,7 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { RealDataUnavailable } from "@/components/ui/real-data-boundary";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatSalaryCurrency, salaryStatusMeta } from "@/features/salary/salary-meta";
 import type { SalaryRecord, SalaryStatus } from "@/features/salary/salary-types";
@@ -17,7 +18,10 @@ import { useOperations } from "@/features/operations/use-operations";
 
 export function PayrollDetailPage({ record: sourceRecord }: { record: SalaryRecord }) {
   const session = useWorkspaceSession();
-  const { state } = useOperations(session);
+  const { state, isFixtureBound } = useOperations(session);
+  if (!isFixtureBound) {
+    return <RealDataUnavailable title="薪资数据暂不可用" description="当前账号不会显示演示工资单。真实薪资数据接入后，只会展示你有权查看的记录。" backHref="/payroll" backLabel="返回薪资管理" />;
+  }
   const cycleStatus: SalaryStatus = state.payrollRun.status === "draft" ? "draft" : state.payrollRun.status === "paid" ? "paid" : "processing";
   const record = sourceRecord.month === state.payrollRun.month ? { ...sourceRecord, status: cycleStatus, paidAt: cycleStatus === "paid" ? state.payrollRun.paidAt ? new Date(state.payrollRun.paidAt).toLocaleString("zh-CN") : sourceRecord.paidAt : undefined, history: sourceRecord.history.map((item) => item.month === state.payrollRun.month ? { ...item, status: cycleStatus } : item) } : sourceRecord;
   const status = salaryStatusMeta[record.status];

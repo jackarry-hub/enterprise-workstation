@@ -6,6 +6,8 @@ import { CalendarDays, Plus } from "lucide-react";
 import { MobileWorkspaceNav } from "@/components/shell/mobile-workspace-nav";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
+import { GlassCard } from "@/components/ui/glass-card";
+import { RealDataNotice } from "@/components/ui/real-data-boundary";
 import { buildActivityProjectViews } from "@/features/activities/activity-mock-data";
 import { ActivityDetail } from "@/features/activities/components/activity-detail";
 import { ActivityCalendarDialog } from "@/features/activities/components/activity-calendar-dialog";
@@ -43,7 +45,20 @@ export function ActivitiesPage() {
     setSelectedId(activity.project.id);
   }
 
-  if (!selectedActivity) return null;
+  if (!selectedActivity) {
+    return (
+      <main className="mx-auto flex w-full max-w-420 flex-col gap-4 px-3 pt-4 pb-26 sm:px-4 lg:px-5 lg:pt-6 lg:pb-8">
+        <PageHeader
+          title="活动推进中心"
+          description="活动以项目和任务交付为基础，不要求固定工作时间或地点。"
+          actions={<div className="flex items-center gap-2"><Button type="button" variant="outline" disabled><CalendarDays aria-hidden="true" />活动日历</Button><Button type="button" disabled><Plus aria-hidden="true" />创建活动</Button></div>}
+        />
+        <RealDataNotice message="当前账号没有可显示的真实活动数据。" />
+        <GlassCard className="p-8 text-center text-sm text-muted-foreground">真实项目数据接入后，相关活动会自动显示在这里。</GlassCard>
+        <MobileWorkspaceNav active="work" />
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto flex w-full max-w-420 flex-col gap-4 px-3 pt-4 pb-26 sm:px-4 lg:px-5 lg:pt-6 lg:pb-8">
@@ -52,11 +67,11 @@ export function ActivitiesPage() {
         description="多维度管理活动执行进度，驱动企业目标持续落地"
         actions={
           <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" className="rounded-xl bg-background/65" onClick={() => setCalendarOpen(true)}>
+            <Button type="button" variant="outline" className="rounded-xl bg-background/65" disabled={!isFixtureBound} onClick={() => setCalendarOpen(true)}>
               <CalendarDays aria-hidden="true" />
               活动日历
             </Button>
-            <Button type="button" className="rounded-xl px-3.5 shadow-[0_10px_24px_rgba(47,125,246,0.2)]" onClick={() => setCreateOpen(true)}>
+            <Button type="button" className="rounded-xl px-3.5 shadow-[0_10px_24px_rgba(47,125,246,0.2)]" disabled={!isFixtureBound} onClick={() => setCreateOpen(true)}>
               <Plus aria-hidden="true" />
               创建活动
             </Button>

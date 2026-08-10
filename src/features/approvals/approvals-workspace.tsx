@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
+import { RealDataNotice } from "@/components/ui/real-data-boundary";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApprovalAside } from "@/features/approvals/components/approval-aside";
@@ -18,16 +19,19 @@ import { filterApprovals } from "@/features/approvals/approval-selectors";
 import type { ApprovalFilters, ApprovalQueue, ApprovalResult, ApprovalType } from "@/features/approvals/approval-types";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { OperationalApprovalQueue } from "@/features/operations/operational-approval-queue";
+import { useOperations } from "@/features/operations/use-operations";
 
 const defaultFilters: ApprovalFilters = { query: "", queue: "all", type: "all" };
 
 export function ApprovalsWorkspace({ result }: { result: ApprovalResult }) {
-  const { actor } = useWorkspaceSession();
+  const session = useWorkspaceSession();
+  const { actor } = session;
+  const { isFixtureBound } = useOperations(session);
   const [filters, setFilters] = useState(defaultFilters);
-  const visibleApprovals = useMemo(() => actor.role === "employee"
+  const visibleApprovals = useMemo(() => !isFixtureBound ? [] : actor.role === "employee"
     ? result.data.approvals.filter(({ applicant }) => applicant.displayName === actor.name)
     : actor.role === "finance" ? result.data.approvals.filter(({ type, applicant }) => type === "reimbursement" || type === "purchase" || applicant.displayName === actor.name)
-      : actor.role === "department_head" ? result.data.approvals.filter(({ applicant, owner }) => applicant.department === actor.department || owner.displayName === actor.name) : result.data.approvals, [actor.department, actor.name, actor.role, result.data.approvals]);
+      : actor.role === "department_head" ? result.data.approvals.filter(({ applicant, owner }) => applicant.department === actor.department || owner.displayName === actor.name) : result.data.approvals, [actor.department, actor.name, actor.role, isFixtureBound, result.data.approvals]);
   const approvals = useMemo(() => filterApprovals(visibleApprovals, filters), [filters, visibleApprovals]);
 
   return (
@@ -38,8 +42,8 @@ export function ApprovalsWorkspace({ result }: { result: ApprovalResult }) {
           <PageHeader title="审批中心" description="高效审批，让企业流程清晰、协作顺畅。" actions={<Badge variant="info" className="h-8 gap-1.5 rounded-xl px-3"><ShieldCheck aria-hidden="true" className="size-3.5" />固定流程 V0.9</Badge>} />
         </div>
       </section>
-      <OperationalApprovalQueue />
-      <ApprovalStats stats={result.data.stats} />
+      {isFixtureBound ? <OperationalApprovalQueue /> : <RealDataNotice message="当前账号没有可显示的真实审批数据。" />}
+      <ApprovalStats stats={isFixtureBound ? result.data.stats : { pending: 0, initiated: 0, approved: 0, rejected: 0 }} />
       <section className="grid min-w-0 gap-4 xl:grid-cols-12">
         <GlassCard className="min-w-0 overflow-hidden p-3 sm:p-4 xl:col-span-9">
           <Tabs value={filters.queue} onValueChange={(value) => setFilters({ ...filters, queue: value as ApprovalQueue })}>

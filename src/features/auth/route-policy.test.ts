@@ -54,14 +54,23 @@ function refreshedSession({
   subject = authUserId,
   data = accessRow("employee"),
   error = null,
+  claimData = "not_provisioned",
+  claimError = null,
 }: {
   subject?: string | null;
   data?: unknown;
   error?: unknown;
+  claimData?: unknown;
+  claimError?: unknown;
 } = {}) {
   const response = NextResponse.next();
   const supabase = {
-    rpc: vi.fn().mockResolvedValue({ data, error }),
+    rpc: vi.fn().mockImplementation((name: string) =>
+      Promise.resolve(
+        name === "claim_current_identity"
+          ? { data: claimData, error: claimError }
+          : { data, error },
+      )),
   };
   dependencies.updateSupabaseSession.mockResolvedValue({
     response,
@@ -116,6 +125,27 @@ describe("workspace access failure policy", () => {
     "maps an unavailable workspace result to %s",
     (data, error, expected) => {
       expect(getWorkspaceAccessFailureReason(data, error)).toBe(expected);
+    },
+  );
+
+  it.each([
+    ["not_provisioned", "not_provisioned"],
+    ["suspended", "suspended"],
+    ["departed", "departed"],
+  ] as const)(
+    "uses the generic identity claim result %s when active workspace access is absent",
+    async (claimData, reason) => {
+      const { supabase } = refreshedSession({ data: null, claimData });
+
+      const response = await middleware(
+        new NextRequest("https://brain.example/tasks"),
+      );
+
+      expect(supabase.rpc).toHaveBeenNthCalledWith(1, "current_workspace_access");
+      expect(supabase.rpc).toHaveBeenNthCalledWith(2, "claim_current_identity");
+      expect(response.headers.get("location")).toBe(
+        `https://brain.example/access-pending?reason=${reason}`,
+      );
     },
   );
 
