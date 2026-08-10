@@ -122,6 +122,20 @@ describe("Feishu UserInfo adapter", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("rejects a bearer token with embedded whitespace before calling Feishu", async () => {
+    const fetchImpl = vi.fn();
+    const response = await handleFeishuUserInfo(
+      new Request("https://brain.quantxy.com/api/auth/feishu/userinfo", {
+        headers: { Authorization: "Bearer token extra" },
+      }),
+      { tenantKey: "tenant_qxy", fetchImpl },
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "invalid_request" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("maps an upstream 401 to a stable invalid credential response", async () => {
     const response = await handleFeishuUserInfo(
       new Request("https://brain.quantxy.com/api/auth/feishu/userinfo", {

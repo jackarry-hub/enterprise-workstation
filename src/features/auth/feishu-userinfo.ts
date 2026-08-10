@@ -1,5 +1,6 @@
 const FEISHU_USERINFO_URL =
   "https://open.feishu.cn/open-apis/authen/v1/user_info";
+const TOKEN68_PATTERN = /^[A-Za-z0-9._~+/-]+=*$/;
 
 type FeishuEnvelope = {
   code?: number;
@@ -46,9 +47,9 @@ export async function handleFeishuUserInfo(
 ) {
   const authorization = request.headers.get("authorization") ?? "";
   const bearerToken = authorization.startsWith("Bearer ")
-    ? authorization.slice("Bearer ".length).trim()
+    ? authorization.slice("Bearer ".length)
     : "";
-  if (!bearerToken || authorization.length > 4096) {
+  if (!TOKEN68_PATTERN.test(bearerToken) || authorization.length > 4096) {
     return Response.json({ error: "invalid_request" }, { status: 401 });
   }
 
