@@ -129,8 +129,8 @@ create policy approvals_requester_insert on public.approvals
       select 1
       from public.employee_profiles employee
       join public.organization_members member on member.id = employee.organization_member_id
-      where employee.id = applicant_employee_id
-        and employee.organization_id = organization_id
+      where employee.id = approvals.applicant_employee_id
+        and employee.organization_id = approvals.organization_id
         and member.user_id = (select auth.uid())
         and employee.deleted_at is null
     )

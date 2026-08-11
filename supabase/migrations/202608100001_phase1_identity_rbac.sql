@@ -1022,6 +1022,8 @@ declare
   v_display_name text;
   v_avatar_url text;
   v_external public.external_identities%rowtype;
+  v_bound_identity record;
+  v_provider_identity record;
   v_match_count bigint;
   v_member_status text;
   v_employment_status text;
@@ -1035,16 +1037,12 @@ begin
   -- A rejected employee still needs a precise, provider-neutral reason. This
   -- lookup is scoped to the authenticated user's existing binding and exposes
   -- no tenant roster data.
-  select row(external.*)::public.external_identities,
-         member.status,
-         profile.employment_status,
-         provider.status = 'active',
-         tenant.status = 'active'
-  into v_external,
-       v_member_status,
-       v_employment_status,
-       v_bound_provider_active,
-       v_bound_tenant_active
+  select row(external.*)::public.external_identities as external_identity,
+         member.status as member_status,
+         profile.employment_status as employment_status,
+         provider.status = 'active' as provider_active,
+         tenant.status = 'active' as tenant_active
+  into v_bound_identity
   from public.external_identities external
   join public.identity_providers provider
     on provider.tenant_id = external.tenant_id
@@ -1062,6 +1060,14 @@ begin
   order by external.updated_at desc
   limit 1;
 
+  if found then
+    v_external := v_bound_identity.external_identity;
+    v_member_status := v_bound_identity.member_status;
+    v_employment_status := v_bound_identity.employment_status;
+    v_bound_provider_active := v_bound_identity.provider_active;
+    v_bound_tenant_active := v_bound_identity.tenant_active;
+  end if;
+
   if v_external.id is not null then
     if not v_bound_provider_active or not v_bound_tenant_active then
       return 'invalid_identity';
@@ -1077,8 +1083,10 @@ begin
     end if;
   end if;
 
-  select row(provider.*)::public.identity_providers, identity.identity_data, identity.provider_id
-  into v_provider, v_identity_data, v_auth_provider_subject
+  select row(provider.*)::public.identity_providers as identity_provider,
+         identity.identity_data as identity_data,
+         identity.provider_id as auth_provider_subject
+  into v_provider_identity
   from auth.identities identity
   join public.identity_providers provider
     on provider.auth_provider = identity.provider
@@ -1093,9 +1101,12 @@ begin
   where identity.user_id = v_auth_user_id
   order by identity.updated_at desc
   limit 1;
-  if v_provider.id is null then
+  if not found then
     return 'not_provisioned';
   end if;
+  v_provider := v_provider_identity.identity_provider;
+  v_identity_data := v_provider_identity.identity_data;
+  v_auth_provider_subject := v_provider_identity.auth_provider_subject;
 
   v_identity_provider_subject := coalesce(
     nullif(btrim(v_identity_data ->> 'provider_subject'), ''),

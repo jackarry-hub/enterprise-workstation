@@ -20,7 +20,11 @@ describe("phase 1 tenant identity migration", () => {
     const claimSql = functionSql("claim_current_identity");
 
     expect(claimSql).toContain(
-      "select row(provider.*)::public.identity_providers, identity.identity_data, identity.provider_id",
+      "select row(provider.*)::public.identity_providers as identity_provider",
+    );
+    expect(claimSql).toContain("into v_provider_identity");
+    expect(claimSql).toContain(
+      "v_provider := v_provider_identity.identity_provider;",
     );
     expect(claimSql).not.toMatch(
       /select provider,\s*identity\.identity_data,\s*identity\.provider_id/i,
@@ -70,13 +74,13 @@ describe("phase 1 tenant identity migration", () => {
       "where external.auth_user_id = v_auth_user_id",
     );
     const providerLookup = claimSql.indexOf(
-      "select row(provider.*)::public.identity_providers",
+      "select row(provider.*)::public.identity_providers as identity_provider",
     );
 
     expect(boundIdentityLookup).toBeGreaterThan(-1);
     expect(boundIdentityLookup).toBeLessThan(providerLookup);
     expect(claimSql).toMatch(
-      /if v_provider\.id is null then\s+return 'not_provisioned';/i,
+      /into v_provider_identity[\s\S]*?if not found then\s+return 'not_provisioned';/i,
     );
   });
 

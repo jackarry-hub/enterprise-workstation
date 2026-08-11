@@ -69,12 +69,14 @@ export function classifyCounts(counts) {
 }
 
 export async function verifyDataApi(config, fetchImpl = fetch) {
-  const response = await fetchImpl(`${config.url}/rest/v1/`, {
+  const response = await fetchImpl(
+    `${config.url}/rest/v1/tenants?select=id&limit=0`,
+    {
     headers: {
       apikey: config.publishableKey,
-      Authorization: `Bearer ${config.publishableKey}`,
     },
-  });
+    },
+  );
   if (!response.ok) {
     throw new Error(`Supabase Data API 连接失败：HTTP ${response.status}`);
   }

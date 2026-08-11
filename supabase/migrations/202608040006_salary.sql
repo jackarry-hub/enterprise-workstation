@@ -61,8 +61,8 @@ create policy salary_self_or_manager_select on public.salary
         select 1
         from public.employee_profiles employee
         join public.organization_members member on member.id = employee.organization_member_id
-        where employee.id = employee_profile_id
-          and employee.organization_id = organization_id
+        where employee.id = salary.employee_profile_id
+          and employee.organization_id = salary.organization_id
           and member.user_id = (select auth.uid())
           and employee.deleted_at is null
       )

@@ -55,6 +55,10 @@ test("checks the public Data API without exposing the key", async () => {
     fetchImpl,
   );
 
-  assert.equal(requests[0].url, "https://abcxyz.supabase.co/rest/v1/");
+  assert.equal(
+    requests[0].url,
+    "https://abcxyz.supabase.co/rest/v1/tenants?select=id&limit=0",
+  );
   assert.equal(requests[0].options.headers.apikey, "sb_publishable_public");
+  assert.equal("Authorization" in requests[0].options.headers, false);
 });
