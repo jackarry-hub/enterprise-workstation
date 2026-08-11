@@ -16,7 +16,13 @@
     "db:test": "npx supabase test db",
     "phase1:provision": "node scripts/phase1/provision-roster.mjs",
     "phase1:provision:test": "node --test scripts/phase1/provision-roster.test.mjs",
-    "phase1:verify": "npm run phase1:provision:test && npm test && npm run typecheck && npm run lint && npm run build"
+    "phase1:verify": "npm run phase1:provision:test && npm test && npm run typecheck && npm run lint && npm run build",
+    "phase2:config:test": "node --test scripts/phase2/*.test.mjs",
+    "phase2:check": "node scripts/phase2/supabase-command.mjs check",
+    "phase2:dry-run": "node scripts/phase2/supabase-command.mjs dry-run",
+    "phase2:push": "node scripts/phase2/supabase-command.mjs push",
+    "phase2:db-test": "node scripts/phase2/supabase-command.mjs db-test",
+    "phase2:verify": "node scripts/phase2/verify-remote.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",
