@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildSupabaseCommand } from "./supabase-command.mjs";
+import {
+  buildSupabaseCommand,
+  buildSupabaseProcess,
+} from "./supabase-command.mjs";
 
 const dbUrl =
   "postgresql://postgres:password@db.abcxyz.supabase.co:5432/postgres";
@@ -57,4 +60,19 @@ test("rejects every command outside the fixed allowlist", () => {
     () => buildSupabaseCommand("reset", dbUrl),
     /不支持的 Phase2 命令/,
   );
+});
+
+test("launches npx through node on Windows without a command shell", () => {
+  const process = buildSupabaseProcess(["supabase", "migration", "list"], {
+    execPath: "C:\\Program Files\\nodejs\\node.exe",
+    npmExecPath: "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+  });
+
+  assert.equal(process.executable, "C:\\Program Files\\nodejs\\node.exe");
+  assert.deepEqual(process.args, [
+    "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npx-cli.js",
+    "supabase",
+    "migration",
+    "list",
+  ]);
 });

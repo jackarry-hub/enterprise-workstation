@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import {
@@ -24,13 +25,36 @@ export function buildSupabaseCommand(mode, dbUrl) {
   return [...base, "--db-url", dbUrl];
 }
 
+export function buildSupabaseProcess(
+  commandArgs,
+  runtime = {
+    execPath: process.execPath,
+    npmExecPath: process.env.npm_execpath,
+  },
+) {
+  const npmExecPath = runtime.npmExecPath
+    || path.join(
+      path.dirname(runtime.execPath),
+      "node_modules",
+      "npm",
+      "bin",
+      "npm-cli.js",
+    );
+  const npxCliPath = path.join(path.dirname(npmExecPath), "npx-cli.js");
+
+  return {
+    executable: runtime.execPath,
+    args: [npxCliPath, ...commandArgs],
+  };
+}
+
 export function runSupabaseCommand(mode) {
   const config = loadRemoteConfig();
   console.log(JSON.stringify(summarizeRemoteConfig(config)));
 
   const [command, ...args] = buildSupabaseCommand(mode, config.dbUrl);
-  const executable = process.platform === "win32" ? "npx.cmd" : "npx";
-  const result = spawnSync(executable, [command, ...args], {
+  const invocation = buildSupabaseProcess([command, ...args]);
+  const result = spawnSync(invocation.executable, invocation.args, {
     stdio: "inherit",
     shell: false,
   });

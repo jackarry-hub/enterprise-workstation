@@ -67,10 +67,17 @@ export function validateRemoteConfig(env) {
     throw new Error("Supabase 远程配置无效：SUPABASE_DB_URL");
   }
   const projectRef = hostMatch[1];
+  let databasePassword = "";
+  try {
+    databasePassword = decodeURIComponent(dbUrl.password);
+  } catch {
+    throw new Error("Supabase 远程配置无效：SUPABASE_DB_URL");
+  }
   if (
     !["postgres:", "postgresql:"].includes(dbUrl.protocol)
     || dbUrl.username.length === 0
-    || dbUrl.password.length === 0
+    || databasePassword.length === 0
+    || /your[-_ ]password|your_database_password/i.test(databasePassword)
     || dbUrl.hostname !== `db.${projectRef}.supabase.co`
     || dbUrl.pathname !== "/postgres"
   ) {

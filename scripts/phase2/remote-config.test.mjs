@@ -65,6 +65,18 @@ test("rejects a database connection for another Supabase project", () => {
   );
 });
 
+test("rejects an unreplaced database password placeholder", () => {
+  assert.throws(
+    () =>
+      validateRemoteConfig({
+        ...valid,
+        SUPABASE_DB_URL:
+          "postgresql://postgres:[YOUR-PASSWORD]@db.abcxyz.supabase.co:5432/postgres",
+      }),
+    /SUPABASE_DB_URL/,
+  );
+});
+
 test("produces a summary that contains no key or password", () => {
   const summary = JSON.stringify(
     summarizeRemoteConfig(validateRemoteConfig(valid)),
