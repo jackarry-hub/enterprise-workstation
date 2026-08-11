@@ -2,7 +2,7 @@
 
 ## 目标
 
-在没有公网域名、暂未部署香港服务器的前提下，让 `http://localhost:3000` 上的企业工作站完成真实飞书 OAuth 登录。首个登录人是当前应用所有者，并在受控的一次性开通后成为量子星河 `owner/CEO`。身份核心继续使用通用 OAuth Provider、`tenant_id`、RBAC 和审计合同，不把数据库重新绑定为飞书专用结构。
+在没有公网域名、暂未部署香港服务器的前提下，让 `http://localhost:3000` 上的企业工作站完成真实飞书 OAuth 登录。首个登录人是当前应用所有者，并在受控的一次性 tenant bootstrap 后成为量子星河 `owner/CEO`。量子星河 tenant 已由 migration 唯一预置，bootstrap 激活并锁定它、创建首个 tenant-scoped owner 身份，不重复插入第二个量子星河 tenant。身份核心继续使用通用 OAuth Provider、`tenant_id`、RBAC 和审计合同，不把数据库重新绑定为飞书专用结构。
 
 本设计只覆盖登录、首个管理员开通、会话、页面保护和权限验证，不开发 Agent，不导入其他员工或业务数据。
 
@@ -77,7 +77,7 @@ Supabase Edge Function 提供稳定的公网 HTTPS UserInfo URL，Supabase 可�
 
 函数仅接受格式合法的 Bearer Token，只允许 `GET`，调用上游使用短超时和 `no-store`。正式租户键写入 `identity_providers` 后，函数必须拒绝其他 `tenant_key`。首次管理员尚未锁定租户时，企业自建应用的 Client ID/Secret 是第一道企业边界；一次性开通过程会立即锁定真实租户键。
 
-## 首个管理员开通
+## CEO 首次登录 tenant bootstrap
 
 因为当前不知道企业邮箱，也不要求用户查找 `open_id` 或 `union_id`，采用受控的两次登录：
 
@@ -88,11 +88,18 @@ Supabase Edge Function 提供稳定的公网 HTTPS UserInfo URL，Supabase 可�
    - identity 包含非空 `provider_subject` 和 `tenant_key`；
    - 飞书 Provider 尚处于初始未锁定状态；
    - 目标角色固定为 `owner`，组织固定为 `quantxy / quantum-galaxy`。
-3. 命令从已验证的 Auth identity 读取姓名、主体标识和飞书租户键，创建 CEO 员工档案、分配 `owner`、绑定 Auth 用户、锁定 Provider 租户键并写入 `audit_logs`。
+3. 命令从已验证的 Auth identity 读取姓名、主体标识和飞书租户键，确认远程 `tenants` 中 `quantxy` 恰好为 1 条且无重复 slug，创建 CEO 员工档案、分配 `owner`、绑定 Auth 用户、锁定 Provider 租户键并写入 `audit_logs`。
 4. 任何成员已存在、候选身份不是恰好一个、Provider 不匹配或租户已被不同值锁定时，命令失败且不写数据。
 5. 用户第二次登录后进入 `/dashboard`。
 
 一次性函数在成功后仍保留“零成员”硬条件，因此无法用于创建第二个 owner；后续员工继续使用已有名单预开通流程。
+
+## 员工 workspace 与 RBAC 验证
+
+- 自动化验收创建受控的临时 Auth fixture，并通过现有通用预开通函数分别赋予 `employee`、`department_head`、`finance` 和 `hr`，验证每个身份解析到自己的 `landingPath`，其中普通员工固定进入 `/execution`。
+- 每个 fixture 只能读取当前 tenant，并按角色权限访问对应模块；员工不得读取组织管理、HR 管理、薪资管理或其他租户数据。
+- 远程测试在事务中执行并回滚，不把测试员工留在正式业务表。
+- 真实浏览器 OAuth 至少完成 CEO 闭环。若量子星河当前有第二个可用飞书账号，则再完成真实 employee OAuth；若没有第二个真实账号，报告必须把“真实员工 OAuth”单独标记为外部账号阻塞，不能用自动化 fixture 冒充真实飞书联调通过。
 
 ## 页面和错误处理
 
@@ -129,6 +136,7 @@ Supabase Edge Function 提供稳定的公网 HTTPS UserInfo URL，Supabase 可�
 4. 退出后直接访问工作台会返回登录页。
 5. 未开通飞书身份不能进入工作台。
 6. 日志和页面中没有 Secret、Token、授权码或完整身份标识。
+7. 受控员工身份解析为 `/execution`，CEO、管理层、财务、人事和员工的 RBAC 允许/拒绝矩阵全部通过。
 
 ## 不在本次范围
 
@@ -136,6 +144,7 @@ Supabase Edge Function 提供稳定的公网 HTTPS UserInfo URL，Supabase 可�
 - 其他员工名单导入和五岗位批量验收。
 - 正式域名、香港服务器、Nginx、Docker 生产部署。
 - 飞书消息、通讯录同步、考勤、审批或机器人能力。
+- Agent、Agent 管理页或任何 Agent 运行时。
 
 ## 完成标准
 
@@ -144,6 +153,9 @@ Supabase Edge Function 提供稳定的公网 HTTPS UserInfo URL，Supabase 可�
 - `custom:feishu` 已启用，飞书应用版本已发布，回调地址一致。
 - 真实飞书授权和 Supabase 会话交换成功。
 - 首个管理员已通过一次性安全流程成为 owner。
+- `quantxy` tenant 仍恰好为 1 条，CEO bootstrap 没有创建重复 tenant。
 - 第二次登录进入老板驾驶舱，路由保护和退出有效。
 - 未开通身份被拒绝，业务表除首个 owner 身份记录和审计外没有新增数据。
+- 员工 workspace 路由和 RBAC 自动化全部通过；真实员工 OAuth 的状态与是否存在第二个真实飞书账号如实记录。
 - 自动化、远程数据库验证和生产构建全部通过。
+- 生成 `docs/phase2.5-feishu-oauth-acceptance.md`，记录配置、CEO tenant bootstrap、员工 workspace、RBAC、测试结果、外部阻塞和下一阶段建议，且不包含任何 Secret、Token、授权码、Cookie 或完整身份标识。
