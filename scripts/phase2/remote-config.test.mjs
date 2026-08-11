@@ -18,6 +18,16 @@ test("accepts a complete hosted Supabase configuration", () => {
   assert.equal(validateRemoteConfig(valid).projectRef, "abcxyz");
 });
 
+test("accepts a same-project session pooler connection", () => {
+  const config = validateRemoteConfig({
+    ...valid,
+    SUPABASE_DB_URL:
+      "postgresql://postgres.abcxyz:password@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres",
+  });
+
+  assert.equal(config.projectRef, "abcxyz");
+});
+
 test("reports every missing remote setting", () => {
   assert.throws(
     () =>
@@ -62,6 +72,29 @@ test("rejects a database connection for another Supabase project", () => {
           "postgresql://postgres:password@db.other.supabase.co:5432/postgres",
       }),
     /SUPABASE_DB_URL/,
+  );
+});
+
+test("rejects a session pooler connection for another project", () => {
+  assert.throws(
+    () =>
+      validateRemoteConfig({
+        ...valid,
+        SUPABASE_DB_URL:
+          "postgresql://postgres.other:password@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres",
+      }),
+    /SUPABASE_DB_URL/,
+  );
+});
+
+test("rejects a REST endpoint where the project base URL is required", () => {
+  assert.throws(
+    () =>
+      validateRemoteConfig({
+        ...valid,
+        NEXT_PUBLIC_SUPABASE_URL: "https://abcxyz.supabase.co/rest/v1",
+      }),
+    /NEXT_PUBLIC_SUPABASE_URL/,
   );
 });
 

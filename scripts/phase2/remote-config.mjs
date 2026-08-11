@@ -45,6 +45,9 @@ export function validateRemoteConfig(env) {
     || projectUrl.username.length > 0
     || projectUrl.password.length > 0
     || !hostMatch
+    || projectUrl.pathname !== "/"
+    || projectUrl.search.length > 0
+    || projectUrl.hash.length > 0
   ) {
     throw new Error("Supabase 远程配置无效：NEXT_PUBLIC_SUPABASE_URL");
   }
@@ -67,6 +70,12 @@ export function validateRemoteConfig(env) {
     throw new Error("Supabase 远程配置无效：SUPABASE_DB_URL");
   }
   const projectRef = hostMatch[1];
+  const isDirectConnection =
+    dbUrl.hostname === `db.${projectRef}.supabase.co`
+    && dbUrl.username === "postgres";
+  const isSessionPooler =
+    dbUrl.hostname.endsWith(".pooler.supabase.com")
+    && dbUrl.username === `postgres.${projectRef}`;
   let databasePassword = "";
   try {
     databasePassword = decodeURIComponent(dbUrl.password);
@@ -78,7 +87,8 @@ export function validateRemoteConfig(env) {
     || dbUrl.username.length === 0
     || databasePassword.length === 0
     || /your[-_ ]password|your_database_password/i.test(databasePassword)
-    || dbUrl.hostname !== `db.${projectRef}.supabase.co`
+    || (!isDirectConnection && !isSessionPooler)
+    || dbUrl.port !== "5432"
     || dbUrl.pathname !== "/postgres"
   ) {
     throw new Error("Supabase 远程配置无效：SUPABASE_DB_URL");
