@@ -98,7 +98,7 @@ export function validateRemoteConfig(env) {
     url: projectUrl.toString().replace(/\/$/, ""),
     publishableKey,
     serviceRoleKey,
-    dbUrl: values.SUPABASE_DB_URL,
+    dbUrl: dbUrl.toString(),
     projectRef,
   };
 }

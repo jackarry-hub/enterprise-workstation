@@ -28,6 +28,19 @@ test("accepts a same-project session pooler connection", () => {
   assert.equal(config.projectRef, "abcxyz");
 });
 
+test("normalizes reserved characters in the database password", () => {
+  const config = validateRemoteConfig({
+    ...valid,
+    SUPABASE_DB_URL:
+      "postgresql://postgres.abcxyz:p@ss:word@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres",
+  });
+
+  assert.equal(
+    config.dbUrl,
+    "postgresql://postgres.abcxyz:p%40ss%3Aword@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres",
+  );
+});
+
 test("reports every missing remote setting", () => {
   assert.throws(
     () =>
