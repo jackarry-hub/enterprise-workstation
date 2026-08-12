@@ -8,6 +8,7 @@ import { WorkspaceShell } from "@/components/shell/workspace-shell";
 import { WorkspaceSessionProvider } from "@/features/auth/workspace-session-provider";
 import { useCustomerDemoSession } from "@/features/auth/workspace-session-provider";
 import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
+import { customerDemoSessions } from "@/features/demo/customer-demo-data";
 
 const executiveSession: WorkspaceSession = {
   tenantId: "10000000-0000-4000-8000-000000000000",
@@ -121,9 +122,9 @@ describe("WorkspaceShell", () => {
     expect(screen.getAllByRole("menuitem", { name: "退出登录" })).toHaveLength(1);
   });
 
-  it("passes customer demo session controls through the workspace shell", () => {
+  it("passes the ten customer demo sessions through the workspace shell", () => {
     render(
-      <WorkspaceShell session={executiveSession} demoSessions={[executiveSession]}>
+      <WorkspaceShell session={customerDemoSessions[0]} demoSessions={customerDemoSessions}>
         <DemoProbe />
       </WorkspaceShell>,
     );

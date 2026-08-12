@@ -6,6 +6,8 @@ import {
   toOperationFixtureActor,
 } from "@/features/operations/operation-actor-compat";
 import { executiveWorkspaceSession } from "@/test/workspace-session-test-utils";
+import { customerDemoPeople, customerDemoSessions } from "@/features/demo/customer-demo-data";
+import { CUSTOMER_DEMO_STORAGE_NAMESPACE } from "@/features/demo/customer-demo-state";
 
 function session(overrides: Partial<WorkspaceSession> = {}): WorkspaceSession {
   return {
@@ -21,6 +23,18 @@ function session(overrides: Partial<WorkspaceSession> = {}): WorkspaceSession {
 }
 
 describe("workspace actor operation fixture compatibility", () => {
+  it("binds all ten customer demo identities to one shared workflow namespace", () => {
+    const contexts = customerDemoSessions.map(createOperationFixtureContext);
+
+    expect(contexts.every(({ actor }) => actor !== null)).toBe(true);
+    expect(new Set(contexts.map(({ storageNamespace }) => storageNamespace))).toEqual(
+      new Set([CUSTOMER_DEMO_STORAGE_NAMESPACE]),
+    );
+    expect(contexts.map(({ actor }) => actor?.name).sort()).toEqual(
+      customerDemoPeople.map(({ name }) => name).sort(),
+    );
+  });
+
   it("binds only the exact tenant, authenticated user, membership, and role tuple", () => {
     const boundSession = session();
 

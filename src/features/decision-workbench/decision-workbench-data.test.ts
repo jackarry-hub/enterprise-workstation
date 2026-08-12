@@ -54,7 +54,7 @@ describe("decision workbench data", () => {
     const project = dispatchDecisionPlan(operationContext, input, plan, new Date("2026-08-08T08:00:00.000Z"));
 
     expect(project.tasks).toHaveLength(13);
-    expect(project.members).toHaveLength(6);
+    expect(project.members).toHaveLength(10);
     expect(project.tasks.every(({ assigneeId, description }) => assigneeId && description.startsWith("AI 决策下发"))).toBe(true);
     expect(hydrateDecisionPlan(plan, { ...project, tasks: project.tasks.map((task, index) => index === 0 ? { ...task, status: "done" as const } : task) }).departments.flatMap(({ tasks }) => tasks).filter(({ status }) => status === "done")).toHaveLength(1);
 

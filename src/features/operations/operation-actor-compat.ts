@@ -3,6 +3,8 @@ import type {
   WorkspaceRole,
   WorkspaceSession,
 } from "@/features/auth/workspace-session-types";
+import { customerDemoPeople } from "@/features/demo/customer-demo-data";
+import { CUSTOMER_DEMO_STORAGE_NAMESPACE } from "@/features/demo/customer-demo-state";
 
 type OperationFixtureBinding = {
   tenantId: string;
@@ -11,7 +13,18 @@ type OperationFixtureBinding = {
   role: WorkspaceRole;
   fixtureActorId: string;
   fixtureMemberId: string;
+  storageNamespace?: string;
 };
+
+const customerDemoBindings: readonly OperationFixtureBinding[] = customerDemoPeople.map((person) => ({
+  tenantId: "90000000-0000-4000-8000-000000000000",
+  authUserId: person.authUserId,
+  memberId: String(person.organizationMemberId),
+  role: person.role,
+  fixtureActorId: person.actorId,
+  fixtureMemberId: person.memberId,
+  storageNamespace: CUSTOMER_DEMO_STORAGE_NAMESPACE,
+}));
 
 const operationFixtureBindings: readonly OperationFixtureBinding[] = [
   {
@@ -22,6 +35,7 @@ const operationFixtureBindings: readonly OperationFixtureBinding[] = [
     fixtureActorId: "actor-executive",
     fixtureMemberId: "20000000-0000-4000-8000-000000000010",
   },
+  ...customerDemoBindings,
 ] as const;
 
 export type OperationFixtureContext = {
@@ -71,7 +85,7 @@ export function createOperationFixtureContextForIdentity(
     authenticatedActor: identity.actor,
     actor,
     storageNamespace: actor
-      ? `${identity.tenantId}:${identity.authUserId}:${identity.memberId}`
+      ? binding?.storageNamespace ?? `${identity.tenantId}:${identity.authUserId}:${identity.memberId}`
       : null,
   };
 }
