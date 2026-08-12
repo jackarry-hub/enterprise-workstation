@@ -63,21 +63,19 @@ describe("task center selectors", () => {
       projectId: target.project.id,
       assigneeId: target.assignee.id,
       priority: target.task.priority,
-    }, mockMembers[0].id);
+    });
 
     expect(result.map(({ task: item }) => item.id)).toEqual([target.task.id]);
   });
 
-  it("includes tasks assigned to or reported by the current member", () => {
-    const result = selectMyTaskItems(createTaskCenterItems(projects), mockMembers[0].id);
+  it("includes only tasks assigned to the current member", () => {
+    const result = selectMyTaskItems(createTaskCenterItems(projects), mockMembers[3].id);
 
     expect(result.length).toBeGreaterThan(0);
-    expect(result.every(({ task: item }) => (
-      item.assigneeId === mockMembers[0].id || item.reporterId === mockMembers[0].id
-    ))).toBe(true);
+    expect(result.every(({ task: item }) => item.assigneeId === mockMembers[3].id)).toBe(true);
   });
 
-  it("scopes employee tasks to the signed-in person and manager tasks to the department", () => {
+  it("scopes the task center to tasks uniquely assigned to the signed-in person", () => {
     const items = createTaskCenterItems(projects);
     const employee = operationFixtureActors.find(({ id }) => id === "actor-employee");
     const manager = operationFixtureActors.find(({ id }) => id === "actor-manager");
@@ -88,8 +86,9 @@ describe("task center selectors", () => {
     const employeeItems = scopeTaskCenterItems(items, employee);
     const managerItems = scopeTaskCenterItems(items, manager);
 
-    expect(employeeItems.every(({ task: item }) => item.assigneeId === employee.memberId || item.reporterId === employee.memberId)).toBe(true);
-    expect(managerItems.every(({ assignee, reporter, project }) => project.ownerId === manager.memberId || assignee?.department === manager.department || reporter?.department === manager.department)).toBe(true);
+    expect(employeeItems.every(({ task: item }) => item.assigneeId === employee.memberId)).toBe(true);
+    expect(managerItems.every(({ task: item }) => item.assigneeId === manager.memberId)).toBe(true);
+    expect(managerItems.some(({ assignee }) => assignee?.displayName !== manager.name)).toBe(false);
   });
 
   it("excludes cancelled tasks from the completion denominator", () => {

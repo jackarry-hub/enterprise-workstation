@@ -44,41 +44,25 @@ export function selectMyTaskItems(
   items: readonly TaskCenterItem[],
   viewerMemberId: string,
 ) {
-  return items.filter(({ task }) => (
-    task.assigneeId === viewerMemberId || task.reporterId === viewerMemberId
-  ));
+  return items.filter(({ task }) => task.assigneeId === viewerMemberId);
 }
 
 export function scopeTaskCenterItems(
   items: readonly TaskCenterItem[],
   actor: WorkspaceActor,
 ) {
-  if (actor.role === "executive") return [...items];
-  if (actor.role === "department_head") {
-    return items.filter(({ assignee, reporter, project }) => (
-      project.ownerId === actor.memberId
-      || assignee?.department === actor.department
-      || reporter?.department === actor.department
-    ));
-  }
-  return items.filter(({ task }) => (
-    task.assigneeId === actor.memberId || task.reporterId === actor.memberId
-  ));
+  return items.filter(({ task }) => task.assigneeId === actor.memberId);
 }
 
 export function filterTaskCenterItems(
   items: readonly TaskCenterItem[],
   filters: TaskCenterFilters,
-  viewerMemberId: string,
 ): TaskCenterItem[] {
   const query = filters.query.trim().toLocaleLowerCase("zh-CN");
 
   return items.filter((item) => {
     const status = toTaskCenterStatus(item.task.status);
-    const matchesTab = filters.tab === "all"
-      || (filters.tab === "mine"
-        && (item.task.assigneeId === viewerMemberId || item.task.reporterId === viewerMemberId))
-      || filters.tab === status;
+    const matchesTab = filters.tab === "all" || filters.tab === status;
     const matchesQuery = query === ""
       || item.task.title.toLocaleLowerCase("zh-CN").includes(query)
       || item.task.description.toLocaleLowerCase("zh-CN").includes(query)

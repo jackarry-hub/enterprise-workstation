@@ -5,7 +5,7 @@ import type {
   TaskPriority,
 } from "@/features/projects/types";
 
-export type TaskCenterTab = "all" | "mine" | "pending" | "in_progress" | "done";
+export type TaskCenterTab = "all" | "pending" | "in_progress" | "done";
 export type TaskCenterStatus = "pending" | "in_progress" | "done" | "cancelled";
 
 export interface TaskCenterItem {

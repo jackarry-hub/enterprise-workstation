@@ -1,4 +1,13 @@
-import type { ApprovalFilters, ApprovalResult } from "@/features/approvals/approval-types";
+import type { ApprovalFilters, ApprovalResult, ApprovalStats } from "@/features/approvals/approval-types";
+
+export function getApprovalStats(approvals: ApprovalResult["data"]["approvals"]): ApprovalStats {
+  return {
+    pending: approvals.filter(({ status }) => status === "pending").length,
+    initiated: approvals.filter(({ initiatedByViewer }) => initiatedByViewer).length,
+    approved: approvals.filter(({ status }) => status === "approved").length,
+    rejected: approvals.filter(({ status }) => status === "rejected").length,
+  };
+}
 
 export function filterApprovals(approvals: ApprovalResult["data"]["approvals"], filters: ApprovalFilters) {
   const query = filters.query.trim().toLocaleLowerCase("zh-CN");
@@ -9,7 +18,9 @@ export function filterApprovals(approvals: ApprovalResult["data"]["approvals"], 
     const matchesQueue = filters.queue === "all"
       || (filters.queue === "pending" && approval.status === "pending")
       || (filters.queue === "mine" && approval.initiatedByViewer)
-      || (filters.queue === "completed" && ["approved", "rejected"].includes(approval.status));
+      || (filters.queue === "completed" && ["approved", "rejected"].includes(approval.status))
+      || (filters.queue === "approved" && approval.status === "approved")
+      || (filters.queue === "rejected" && approval.status === "rejected");
     return matchesQuery && matchesType && matchesQueue;
   });
 }

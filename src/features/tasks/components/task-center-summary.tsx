@@ -34,12 +34,7 @@ export function TaskCenterSummary({ items, summary, onShowPending }: TaskCenterS
 
   return (
     <GlassCard className="flex min-h-76 flex-col p-4 sm:p-5">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-base font-semibold">今日待办</h2>
-        <Button type="button" size="icon-sm" variant="outline" aria-label="查看全部待开始任务" onClick={onShowPending}>
-          <ArrowRight aria-hidden="true" />
-        </Button>
-      </div>
+      <h2 className="text-base font-semibold">今日待办</h2>
       <div className="mt-4 flex items-end gap-3">
         <strong className="text-4xl leading-none font-semibold text-primary">{summary.pending + summary.inProgress}</strong>
         <span className="pb-1 text-sm text-muted-foreground">项待推进</span>

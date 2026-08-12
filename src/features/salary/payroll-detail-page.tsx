@@ -23,6 +23,10 @@ export function PayrollDetailPage({ record: sourceRecord }: { record: SalaryReco
   if (!isFixtureBound) {
     return <RealDataUnavailable title="薪资数据暂不可用" description="当前账号不会显示演示工资单。真实薪资数据接入后，只会展示你有权查看的记录。" backHref="/payroll" backLabel="返回薪资管理" />;
   }
+  const canManagePayroll = ["executive", "finance", "hr"].includes(actor.role);
+  if (!canManagePayroll && sourceRecord.employee.displayName !== actor.name) {
+    return <RealDataUnavailable title="无权查看此工资单" description="个人工资单仅限本人查看；请返回薪资管理查看自己的工资记录。" backHref="/payroll" backLabel="返回我的工资单" />;
+  }
   const cycleStatus: SalaryStatus = state.payrollRun.status === "draft" ? "draft" : state.payrollRun.status === "paid" ? "paid" : "processing";
   const record = sourceRecord.month === state.payrollRun.month ? { ...sourceRecord, status: cycleStatus, paidAt: cycleStatus === "paid" ? state.payrollRun.paidAt ? new Date(state.payrollRun.paidAt).toLocaleString("zh-CN") : sourceRecord.paidAt : undefined, history: sourceRecord.history.map((item) => item.month === state.payrollRun.month ? { ...item, status: cycleStatus } : item) } : sourceRecord;
   const status = salaryStatusMeta[record.status];

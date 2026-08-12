@@ -599,7 +599,7 @@ function actionCreatedAt(state: OperationsState, item: OperationActionItem) {
 function eventDestination(action: string) {
   if (/请假/.test(action)) return "/leave";
   if (/考勤|补卡|加班/.test(action)) return "/attendance";
-  if (/薪资|封账/.test(action)) return "/payroll";
+  if (/薪资|工资|封账/.test(action)) return "/payroll";
   if (/预算|财务|协同/.test(action)) return "/approvals";
   return "/tasks";
 }
@@ -634,6 +634,21 @@ export function getOperationNotifications(
     createdAt: actionCreatedAt(state, item),
     read: reads.has(`action:${item.id}`),
   }));
+  const payrollPaidNotification: OperationNotification[] = state.payrollRun.status === "paid" && state.payrollRun.paidAt
+    ? [{
+      id: `payroll-paid:${state.payrollRun.id}:${actorId}`,
+      actorId,
+      title: `${state.payrollRun.month.replace("-", "年")}月工资已发放`,
+      description: actor.role === "employee" || actor.role === "department_head"
+        ? "本月工资已到账，工资单现已可查看；如有疑问，请联系财务或人事。"
+        : `本月 ${state.payrollRun.headcount} 人工资已完成银行发放，付款凭证已归档。`,
+      severity: "info",
+      category: "system",
+      href: "/payroll",
+      createdAt: state.payrollRun.paidAt,
+      read: reads.has(`payroll-paid:${state.payrollRun.id}:${actorId}`),
+    }]
+    : [];
   const escalationNotifications = actor.role === "executive"
     ? state.tasks.filter(({ escalationLevel }) => escalationLevel === "executive").map<OperationNotification>((task) => ({
       id: `escalation:${task.id}`,
@@ -649,6 +664,7 @@ export function getOperationNotifications(
     : [];
   const eventNotifications = state.events
     .filter((item) => isEventRelevant(state, actor, item))
+    .filter((item) => !(state.payrollRun.status === "paid" && item.action === "完成工资发放"))
     .slice(0, 12)
     .map<OperationNotification>((item) => ({
       id: `event:${item.id}`,
@@ -662,7 +678,7 @@ export function getOperationNotifications(
       read: reads.has(`event:${item.id}`),
     }));
   const severityOrder = { critical: 0, warning: 1, info: 2 } as const;
-  return [...actionNotifications, ...escalationNotifications, ...eventNotifications].sort((left, right) => Number(left.read) - Number(right.read) || severityOrder[left.severity] - severityOrder[right.severity] || right.createdAt.localeCompare(left.createdAt));
+  return [...payrollPaidNotification, ...actionNotifications, ...escalationNotifications, ...eventNotifications].sort((left, right) => Number(left.read) - Number(right.read) || severityOrder[left.severity] - severityOrder[right.severity] || right.createdAt.localeCompare(left.createdAt));
 }
 
 export function markOperationNotificationRead(context: OperationFixtureContext, notificationId: string, actorId: string) {

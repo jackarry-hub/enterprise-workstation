@@ -401,6 +401,31 @@ describe("operations business closure", () => {
     expect(run.paidAt).toBeTruthy();
   });
 
+  it("notifies every demo person after payroll is paid and keeps the notice unread", () => {
+    reviewAttendanceCorrection("correction-20260804-01", "approve", "actor-hr", "门禁记录核验通过");
+    reviewOvertimeRequest("overtime-20260808-01", "approve", "actor-manager", "业务需要明确");
+    reviewOvertimeRequest("overtime-20260808-01", "approve", "actor-hr", "工时记录校验通过");
+    lockAttendancePeriod("actor-hr");
+    updatePayrollRun("calculated", "actor-finance");
+    updatePayrollRun("verified", "actor-hr");
+    updatePayrollRun("approved", "actor-executive");
+    updatePayrollRun("paid", "actor-finance");
+
+    const paidState = readOperationsState();
+    customerDemoPeople.forEach(({ actorId }) => {
+      expect(getOperationNotifications(paidState, actorId)).toContainEqual(expect.objectContaining({
+        id: `payroll-paid:${paidState.payrollRun.id}:${actorId}`,
+        title: "2026年08月工资已发放",
+        href: "/payroll",
+        read: false,
+      }));
+    });
+    expect(getOperationNotifications(paidState, "actor-executive")).not.toContainEqual(expect.objectContaining({
+      title: "完成工资发放 · 周倩",
+      href: "/tasks",
+    }));
+  });
+
   it("adds each payroll stage to the current owner's actionable inbox", () => {
     const initial = readOperationsState();
     const attendanceReady = {

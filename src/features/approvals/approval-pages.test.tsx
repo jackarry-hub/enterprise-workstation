@@ -47,6 +47,24 @@ describe("approval pages", () => {
     expect(within(list).queryByText("张伟")).not.toBeInTheDocument();
   });
 
+  it("filters the approval list when a summary card is clicked and toggles back to all", async () => {
+    const user = userEvent.setup();
+    render(<ApprovalsPage result={approvalMockResult} />);
+    const list = screen.getByRole("region", { name: "审批列表" });
+    const rejectedCard = screen.getByRole("button", { name: "筛选已拒绝审批，共 1 条" });
+    expect(rejectedCard.tagName).toBe("BUTTON");
+
+    await user.click(rejectedCard);
+    expect(rejectedCard).toHaveAttribute("aria-pressed", "true");
+    expect(within(list).getByText("合同申请")).toBeVisible();
+    expect(within(list).queryByText("采购申请")).not.toBeInTheDocument();
+    expect(screen.getByText("当前显示 1 条审批")).toBeVisible();
+
+    await user.click(rejectedCard);
+    expect(screen.getByRole("tab", { name: "全部" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("当前显示 6 条审批")).toBeVisible();
+  });
+
   it("shows fixed approval steps and completes an approve confirmation", async () => {
     const user = userEvent.setup();
     const approval = approvalMockResult.data.approvals[1];

@@ -38,6 +38,10 @@ describe("role access policy", () => {
     }
   });
 
+  it("lets department heads open payroll in personal payslip mode", () => {
+    expect(canRoleAccessPath("department_head", "/payroll")).toBe(true);
+  });
+
   it("lets every role deliver tasks and open the attendance operating workspace", () => {
     for (const role of workspaceRoles) {
       expect(canRoleAccessPath(role, "/tasks")).toBe(true);

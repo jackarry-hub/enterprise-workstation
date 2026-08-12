@@ -27,6 +27,7 @@ const roleRoutePrefixes: Record<WorkspaceRole, readonly string[]> = {
     "/people",
     "/attendance",
     "/leave",
+    "/payroll",
     "/approvals",
     "/analytics",
   ],

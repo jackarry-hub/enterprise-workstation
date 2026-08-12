@@ -1,7 +1,7 @@
 export type ApprovalType = "leave" | "reimbursement" | "purchase" | "contract";
 export type ApprovalStatus = "draft" | "pending" | "approved" | "rejected";
 export type ApprovalPriority = "low" | "medium" | "high";
-export type ApprovalQueue = "all" | "pending" | "mine" | "completed";
+export type ApprovalQueue = "all" | "pending" | "mine" | "completed" | "approved" | "rejected";
 
 export type ApprovalPerson = {
   id: string;

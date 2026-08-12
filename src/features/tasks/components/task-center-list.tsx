@@ -38,7 +38,6 @@ const priorityLabels = { low: "低", medium: "中", high: "高", urgent: "紧急
 export function TaskCenterList({ items, summary, tab, onTabChange, onOpenTask, onReset }: TaskCenterListProps) {
   const tabs: Array<{ id: TaskCenterTab; label: string; count: number }> = [
     { id: "all", label: "全部任务", count: summary.total },
-    { id: "mine", label: "我的任务", count: summary.mine },
     { id: "pending", label: "待开始", count: summary.pending },
     { id: "in_progress", label: "进行中", count: summary.inProgress },
     { id: "done", label: "已完成", count: summary.done },

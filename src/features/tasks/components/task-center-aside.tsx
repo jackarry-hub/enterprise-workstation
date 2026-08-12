@@ -1,22 +1,19 @@
-import { CalendarClock, CheckCircle2, Filter, RotateCcw, Sparkles, Users } from "lucide-react";
+import { CalendarClock, CheckCircle2, Filter, RotateCcw, Sparkles } from "lucide-react";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
-import { ProgressBar } from "@/components/ui/progress-bar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { MemberSummary, Project, ProjectActivity, TaskPriority } from "@/features/projects/types";
-import type { AssigneeTaskDistribution, TaskCenterFilters, TaskCenterItem } from "@/features/tasks/task-center-types";
+import type { Project, ProjectActivity, TaskPriority } from "@/features/projects/types";
+import type { TaskCenterFilters, TaskCenterItem } from "@/features/tasks/task-center-types";
 
 type TaskCenterFiltersCardProps = {
   filters: TaskCenterFilters;
   projects: readonly Project[];
-  assignees: readonly MemberSummary[];
   onChange: (filters: TaskCenterFilters) => void;
   onReset: () => void;
 };
 
-export function TaskCenterFiltersCard({ filters, projects, assignees, onChange, onReset }: TaskCenterFiltersCardProps) {
+export function TaskCenterFiltersCard({ filters, projects, onChange, onReset }: TaskCenterFiltersCardProps) {
   function patchFilter(patch: Partial<TaskCenterFilters>) {
     onChange({ ...filters, ...patch });
   }
@@ -27,7 +24,7 @@ export function TaskCenterFiltersCard({ filters, projects, assignees, onChange, 
         <Filter aria-hidden="true" className="size-4 text-primary" />
         <h2 className="text-base font-semibold">快捷筛选</h2>
       </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-2">
+      <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
         <label className="space-y-1.5 text-xs text-muted-foreground">
           <span>所属项目</span>
           <Select value={filters.projectId} onValueChange={(value) => patchFilter({ projectId: value })}>
@@ -35,16 +32,6 @@ export function TaskCenterFiltersCard({ filters, projects, assignees, onChange, 
             <SelectContent>
               <SelectItem value="all">全部项目</SelectItem>
               {projects.map((project) => <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </label>
-        <label className="space-y-1.5 text-xs text-muted-foreground">
-          <span>负责人</span>
-          <Select value={filters.assigneeId} onValueChange={(value) => patchFilter({ assigneeId: value })}>
-            <SelectTrigger aria-label="负责人筛选" className="w-full"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部负责人</SelectItem>
-              {assignees.map((member) => <SelectItem key={member.id} value={member.id}>{member.displayName}</SelectItem>)}
             </SelectContent>
           </Select>
         </label>
@@ -65,25 +52,6 @@ export function TaskCenterFiltersCard({ filters, projects, assignees, onChange, 
           <RotateCcw data-icon="inline-start" aria-hidden="true" />
           重置全部筛选
         </Button>
-      </div>
-    </GlassCard>
-  );
-}
-
-export function TeamCollaborationCard({ distribution }: { distribution: readonly AssigneeTaskDistribution[] }) {
-  return (
-    <GlassCard className="p-4 sm:p-5">
-      <div className="flex items-center gap-2"><Users aria-hidden="true" className="size-4 text-primary" /><h2 className="text-base font-semibold">团队协作</h2></div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-        {distribution.slice(0, 4).map(({ member, taskCount, completionRate }) => (
-          <div key={member.id} className="flex items-center gap-3 rounded-xl bg-white/55 p-2.5 ring-1 ring-border/60">
-            <Avatar className="size-9"><AvatarFallback className="bg-brand-soft font-medium text-primary">{member.displayName.slice(0, 1)}</AvatarFallback></Avatar>
-            <div className="min-w-0 flex-1">
-              <div className="flex justify-between gap-2 text-sm"><span className="truncate font-medium">{member.displayName}</span><span className="text-xs text-muted-foreground">{taskCount} 项</span></div>
-              <ProgressBar value={completionRate} className="mt-2 h-1.5" />
-            </div>
-          </div>
-        ))}
       </div>
     </GlassCard>
   );
