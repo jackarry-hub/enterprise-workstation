@@ -19,4 +19,11 @@ describe("workspace navigation", () => {
     expect(taskItem?.roles).toEqual(everyRole);
     expect(navigationItems.some(({ href }) => href === "/attendance")).toBe(false);
   });
+
+  it("gives every role a personal payroll entry", () => {
+    const payrollItem = navigationItems.find(({ href }) => href === "/payroll");
+
+    expect(payrollItem?.available).toBe(true);
+    expect(payrollItem?.roles).toEqual(everyRole);
+  });
 });

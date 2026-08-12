@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, ChevronDown } from "lucide-react";
 
-import { navigationItems } from "@/config/navigation";
+import { getNavigationItemLabel, navigationItems } from "@/config/navigation";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +53,7 @@ export function AppSidebar({
       <nav aria-label="主导航" className="flex flex-1 flex-col gap-1 px-4 py-4">
         {visibleItems.map((item) => {
           const Icon = item.icon;
+          const label = getNavigationItemLabel(item, actor.role);
           const isCurrent = currentPath === item.href || currentPath.startsWith(`${item.href}/`);
           const itemClassName = cn(
             "flex h-11 items-center gap-3 rounded-xl px-4 text-sm font-medium transition-colors [&>svg]:size-5",
@@ -70,7 +71,7 @@ export function AppSidebar({
                   className={itemClassName}
                 >
                   <Icon aria-hidden="true" />
-                  <span>{item.label}</span>
+                  <span>{label}</span>
                   {isCurrent ? (
                     item.href === "/projects" ? <ChevronDown aria-hidden="true" className="ml-auto" /> : <ArrowRight aria-hidden="true" className="ml-auto" />
                   ) : null}
@@ -112,7 +113,7 @@ export function AppSidebar({
               title="即将开放"
             >
               <Icon aria-hidden="true" />
-              <span>{item.label}</span>
+              <span>{label}</span>
             </span>
           );
         })}

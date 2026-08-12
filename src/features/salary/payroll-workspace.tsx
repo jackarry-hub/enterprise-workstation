@@ -37,7 +37,7 @@ export function PayrollWorkspace({ result }: { result: SalaryResult }) {
     <main className="mx-auto flex w-full max-w-420 flex-col gap-4 px-3 pt-5 pb-26 sm:px-4 lg:px-5 lg:pt-9 lg:pb-6">
       <section className="relative overflow-hidden rounded-3xl border border-glass-border bg-background px-5 py-6 shadow-[0_18px_50px_rgba(60,105,170,0.08)] sm:px-7">
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[url('/dashboard/welcome-space-bg.png')] bg-cover bg-[position:76%_center] opacity-75" />
-        <div className="relative max-w-4xl"><PageHeader title="薪资管理" description="统一查看员工薪资结果、发放状态与历史工资单。" actions={<Badge variant="info" className="h-8 gap-1.5 rounded-xl px-3"><WalletCards aria-hidden="true" className="size-3.5" />2026年08月工资</Badge>} /></div>
+        <div className="relative max-w-4xl"><PageHeader title={canManagePayroll ? "薪资管理" : "我的工资单"} description={canManagePayroll ? "统一查看员工薪资结果、发放状态与历史工资单。" : "查看本人每月实发工资、工资组成与历史记录。"} actions={<Badge variant="info" className="h-8 gap-1.5 rounded-xl px-3"><WalletCards aria-hidden="true" className="size-3.5" />2026年08月工资</Badge>} /></div>
       </section>
       {!isFixtureBound ? <RealDataNotice message="当前账号没有可显示的真实薪资数据。" /> : canManagePayroll ? <PayrollControlPanel /> : <GlassCard className="p-4 text-sm text-muted-foreground"><strong className="text-foreground">个人工资单模式：</strong>仅展示 {actor.name} 本人的工资记录，其他员工数据已按权限隐藏。</GlassCard>}
       <PayrollStats stats={visibleStats} />

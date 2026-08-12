@@ -259,6 +259,27 @@ describe("WorkspaceShell", () => {
     );
   });
 
+  it("shows a department head the personal payroll entry", () => {
+    const departmentHeadSession = customerDemoSessions.find(
+      ({ identity }) => identity.providerSubject === "customer-demo:demo-product-head",
+    )!;
+    render(withSession(departmentHeadSession, <AppSidebar currentPath="/department" />));
+
+    expect(screen.getByRole("link", { name: "我的工资单" })).toHaveAttribute("href", "/payroll");
+  });
+
+  it("also exposes a department head's payslip in the user menu", async () => {
+    const user = userEvent.setup();
+    const departmentHeadSession = customerDemoSessions.find(
+      ({ identity }) => identity.providerSubject === "customer-demo:demo-product-head",
+    )!;
+    render(withSession(departmentHeadSession, <WorkspaceHeader />));
+
+    await user.click(screen.getByRole("button", { name: "打开用户菜单" }));
+
+    expect(screen.getByRole("menuitem", { name: "我的工资单" })).toHaveAttribute("href", "/payroll");
+  });
+
   it("uses the server session instead of browser-selected fixture identity", async () => {
     const user = userEvent.setup();
     const legacyActorStorageKey = ["enterprise-workspace", "demo-actor", "v1"].join(".");

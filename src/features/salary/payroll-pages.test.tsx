@@ -90,6 +90,7 @@ describe("payroll pages", () => {
       managerSession,
     );
 
+    expect(screen.getByRole("heading", { name: "我的工资单" })).toBeVisible();
     const list = screen.getByRole("region", { name: "工资列表" });
     expect(within(list).getAllByText("张伟").length).toBeGreaterThan(0);
     expect(within(list).queryByText("林远")).not.toBeInTheDocument();
@@ -106,9 +107,31 @@ describe("payroll pages", () => {
       employeeSession,
     );
 
+    expect(screen.getByRole("heading", { name: "我的工资单" })).toBeVisible();
     expect(screen.getByText(/仅展示 陈晨 本人的工资记录/)).toBeVisible();
     expect(screen.queryByRole("heading", { name: "本月发放准备" })).not.toBeInTheDocument();
     expect(screen.queryByText("0 个节点待处理")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["demo-market-head", "王芳"],
+    ["demo-design-head", "刘洋"],
+  ])("shows %s only their own payslip", (personId, displayName) => {
+    const personalSession = customerDemoSessions.find(
+      ({ identity }) => identity.providerSubject === `customer-demo:${personId}`,
+    )!;
+    renderWithSpecificWorkspaceSession(
+      <WorkspaceSessionProvider session={personalSession} demoSessions={customerDemoSessions}>
+        <PayrollPage result={salaryMockResult} />
+      </WorkspaceSessionProvider>,
+      personalSession,
+    );
+
+    expect(screen.getByRole("heading", { name: "我的工资单" })).toBeVisible();
+    const list = screen.getByRole("region", { name: "工资列表" });
+    expect(within(list).getAllByText(displayName).length).toBeGreaterThan(0);
+    expect(screen.getByText(new RegExp(`仅展示 ${displayName} 本人的工资记录`))).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "本月发放准备" })).not.toBeInTheDocument();
   });
 
   it("keeps the progress summary informational and exposes only the current handling entry", () => {

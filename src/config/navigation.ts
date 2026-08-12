@@ -38,12 +38,19 @@ export const navigationItems: NavigationItem[] = [
   { label: "任务管理", href: "/tasks", icon: CheckSquare2, available: true, roles: ["executive", "department_head", "employee", "finance", "hr"] },
   { label: "组织人事", href: "/people", icon: UsersRound, available: true, roles: ["hr", "executive", "department_head"] },
   { label: "请假管理", href: "/leave", icon: CalendarCheck2, available: true, roles: ["hr", "department_head", "employee", "finance"] },
-  { label: "薪资管理", href: "/payroll", icon: WalletCards, available: true, roles: ["hr", "finance", "executive", "employee"] },
+  { label: "薪资管理", href: "/payroll", icon: WalletCards, available: true, roles: ["executive", "department_head", "employee", "finance", "hr"] },
   { label: "审批中心", href: "/approvals", icon: ClipboardCheck, available: true, roles: ["executive", "department_head", "employee", "finance", "hr"] },
   { label: "客户管理", href: "/customers", icon: UserRound, available: true, roles: ["executive"] },
   { label: "数据分析", href: "/analytics", icon: BarChart3, available: true, roles: ["executive", "department_head"] },
   { label: "系统设置", href: "/settings", icon: Settings, available: true, roles: ["executive"] },
 ];
+
+export function getNavigationItemLabel(item: NavigationItem, role: WorkspaceRole) {
+  if (item.href === "/payroll" && ["department_head", "employee"].includes(role)) {
+    return "我的工资单";
+  }
+  return item.label;
+}
 
 export const quickWorkspaceActions = [
   { label: "项目协同", icon: BriefcaseBusiness },
