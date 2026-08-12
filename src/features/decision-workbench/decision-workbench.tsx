@@ -44,8 +44,9 @@ import {
   readStoredDecision,
   saveStoredDecision,
 } from "@/features/decision-workbench/decision-workbench-data";
-import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
-import { useOperationFixtureContext } from "@/features/operations/use-operations";
+import { useCustomerDemoSession, useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { CUSTOMER_DEMO_RESET_EVENT } from "@/features/demo/customer-demo-state";
+import { useOperations } from "@/features/operations/use-operations";
 import type {
   DecisionInput,
   DecisionPlan,
@@ -467,7 +468,8 @@ function TaskDetail({
 
 export function DecisionWorkbench() {
   const session = useWorkspaceSession();
-  const operationContext = useOperationFixtureContext(session);
+  const demo = useCustomerDemoSession();
+  const { context: operationContext, state: operationState } = useOperations(session);
   const [decision, setDecision] = useState<StoredDecision>(() => createDraftDecision());
   const [project, setProject] = useState<ProjectDetailData>();
   const [ready, setReady] = useState(false);
@@ -494,12 +496,25 @@ export function DecisionWorkbench() {
     return () => window.removeEventListener(PROJECTS_CHANGED_EVENT, refresh);
   }, [decision.projectId, operationContext]);
 
+  useEffect(() => {
+    const reset = () => {
+      setDecision(createDraftDecision());
+      setProject(undefined);
+      setSelectedTask(null);
+      setBusy(false);
+      setFeedback("");
+    };
+    window.addEventListener(CUSTOMER_DEMO_RESET_EVENT, reset);
+    return () => window.removeEventListener(CUSTOMER_DEMO_RESET_EVENT, reset);
+  }, []);
+
   const plan = useMemo(
     () => decision.plan ? hydrateDecisionPlan(decision.plan, project) : undefined,
     [decision.plan, project],
   );
   const progress = getDecisionProgress(plan);
-  const currentStep = decision.stage === "draft" ? 0 : decision.stage === "review" ? 1 : progress.completionRate === 100 ? 3 : 2;
+  const decisionStep = decision.stage === "draft" ? 0 : decision.stage === "review" ? 1 : progress.completionRate === 100 ? 3 : 2;
+  const currentStep = demo.enabled ? (operationState.command.status === "executing" ? 2 : 3) : decisionStep;
   const selectedDepartment = plan?.departments.find(({ id }) => id === selectedTask?.departmentId);
 
   function updateInput(input: DecisionInput) {

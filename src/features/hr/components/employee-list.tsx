@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ChevronRight, SearchX } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import {
   Empty,
   EmptyDescription,
@@ -82,6 +83,7 @@ export function EmployeeList({ employees }: { employees: EmployeeDirectoryItem[]
               <TableHead className="pl-4">员工</TableHead>
               <TableHead>工号</TableHead>
               <TableHead>部门 / 岗位</TableHead>
+              <TableHead>职责 / 个人标签</TableHead>
               <TableHead>直属负责人</TableHead>
               <TableHead>入职时间</TableHead>
               <TableHead>状态</TableHead>
@@ -106,6 +108,10 @@ export function EmployeeList({ employees }: { employees: EmployeeDirectoryItem[]
                   <TableCell>
                     <p className="font-medium text-foreground">{department?.name ?? "待分配"}</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">{profile.jobTitle}</p>
+                  </TableCell>
+                  <TableCell className="max-w-72">
+                    <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{profile.responsibility ?? "职责待补充"}</p>
+                    {profile.skills?.length ? <div className="mt-1.5 flex flex-wrap gap-1">{profile.skills.map((skill) => <Badge key={skill} variant="outline" className="text-[10px]">{skill}</Badge>)}</div> : null}
                   </TableCell>
                   <TableCell className="text-muted-foreground">{manager?.displayName ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{formatDate(profile.hireDate)}</TableCell>
@@ -149,6 +155,8 @@ export function EmployeeList({ employees }: { employees: EmployeeDirectoryItem[]
                   <span>{profile.employeeNo}</span>
                   <span>负责人 {manager?.displayName ?? "—"}</span>
                 </div>
+                <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">{profile.responsibility ?? "职责待补充"}</p>
+                {profile.skills?.length ? <div className="mt-1.5 flex flex-wrap gap-1">{profile.skills.map((skill) => <Badge key={skill} variant="outline" className="text-[10px]">{skill}</Badge>)}</div> : null}
               </div>
               <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
             </Link>

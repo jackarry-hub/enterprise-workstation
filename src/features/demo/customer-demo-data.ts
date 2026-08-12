@@ -267,6 +267,41 @@ export const customerDemoPeople: readonly CustomerDemoPerson[] = [
   },
 ];
 
+const customerDemoSkillLabels: Record<string, string> = {
+  strategy: "战略决策",
+  governance: "经营治理",
+  decision: "决策闭环",
+  product: "产品规划",
+  architecture: "技术架构",
+  delivery: "交付管理",
+  frontend: "前端开发",
+  integration: "系统联调",
+  automation: "自动化",
+  testing: "回归测试",
+  quality: "质量保障",
+  acceptance: "验收管理",
+  research: "客户调研",
+  marketing: "市场增长",
+  content: "内容策划",
+  workflow: "流程设计",
+  prototype: "原型设计",
+  design: "体验设计",
+  customer: "客户成功",
+  value: "价值交付",
+  training: "培训运营",
+  operations: "交付运营",
+  feedback: "反馈闭环",
+  budget: "预算管理",
+  procurement: "采购协同",
+  finance: "财务管控",
+  raci: "责任体系",
+  staffing: "人才配置",
+};
+
+export function getCustomerDemoSkillLabel(skill: string) {
+  return customerDemoSkillLabels[skill] ?? skill;
+}
+
 const allPermissions: WorkspacePermissionCode[] = [
   "dashboard.read",
   "organization.manage",

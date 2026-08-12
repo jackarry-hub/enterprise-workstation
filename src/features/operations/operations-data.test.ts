@@ -98,6 +98,9 @@ describe("operations business closure", () => {
         status: "in_progress",
       }),
     ]);
+    for (const task of state.tasks.filter(({ status }) => status === "done")) {
+      expect(task.dependencyIds.every((dependencyId) => state.tasks.find(({ id }) => id === dependencyId)?.status === "done")).toBe(true);
+    }
   });
 
   it("maps every project member to an explicit workspace actor", () => {
@@ -182,26 +185,38 @@ describe("operations business closure", () => {
     expect(state.knowledge.length).toBeGreaterThan(0);
   });
 
-  it("blocks downstream work until every dependency is done", () => {
+  it("lets every assignee start their own work even when a reference dependency is unfinished", () => {
     const state = readOperationsState();
     const downstream = state.tasks.find(({ id }) => id === "flow-task-03")!;
 
-    expect(() => updateOperationTask(downstream.id, { status: "in_progress" }, downstream.assigneeId)).toThrow("前置任务尚未完成");
-    const legacyViolation = { ...state, tasks: state.tasks.map((task) => task.id === downstream.id ? { ...task, status: "in_progress" as const, progress: 20 } : task) };
-    expect(getOperationActionItems(legacyViolation, downstream.assigneeId, new Date("2026-08-09T08:00:00.000Z"))).toContainEqual(expect.objectContaining({ entityId: downstream.id, kind: "task_blocked", priority: "critical" }));
-
-    saveOperationsState({ ...state, tasks: state.tasks.map((task) => task.id === "flow-task-02" ? { ...task, status: "done", progress: 100 } : task) });
     updateOperationTask(downstream.id, { status: "in_progress" }, downstream.assigneeId);
     expect(readOperationsState().tasks.find(({ id }) => id === downstream.id)?.status).toBe("in_progress");
+    expect(getOperationActionItems(readOperationsState(), downstream.assigneeId, new Date("2026-08-09T08:00:00.000Z"))).not.toContainEqual(
+      expect.objectContaining({ entityId: downstream.id, kind: "task_blocked" }),
+    );
   });
 
-  it("escalates overdue review SLA into the executive decision inbox", () => {
+  it("routes every inbox action to the exact item that needs handling", () => {
+    const state = readOperationsState();
+
+    expect(getOperationActionItems(state, "actor-finance")).toContainEqual(
+      expect.objectContaining({ entityId: "support-finance-01", href: "/finance#support-support-finance-01" }),
+    );
+    expect(getOperationActionItems(state, "actor-manager")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ entityId: "leave-202608-01", href: "/leave#leave-leave-202608-01" }),
+      expect.objectContaining({ href: expect.stringMatching(/^\/attendance#attendance-/) }),
+    ]));
+  });
+
+  it("keeps another person's overdue task out of the executive action inbox", () => {
     const escalated = applyTaskEscalations(readOperationsState(), new Date("2026-08-09T08:00:00.000Z"));
     const reviewTask = escalated.tasks.find(({ id }) => id === "flow-task-04")!;
     const actions = getOperationActionItems(escalated, "actor-executive", new Date("2026-08-09T08:00:00.000Z"));
+    const summary = getOperationWeeklySummary(escalated, "actor-executive", new Date("2026-08-09T08:00:00.000Z"));
 
     expect(reviewTask.escalationLevel).toBe("executive");
-    expect(actions).toContainEqual(expect.objectContaining({ entityId: reviewTask.id, kind: "executive_decision", priority: "critical" }));
+    expect(actions).not.toContainEqual(expect.objectContaining({ entityId: reviewTask.id }));
+    expect(summary.decisions).toContain(`需协调：${reviewTask.title}`);
   });
 
   it("generates role notifications from live actions and persists read receipts", () => {
@@ -222,7 +237,7 @@ describe("operations business closure", () => {
 
     expect(summary.total).toBe(state.tasks.length);
     expect(summary.completionRate).toBe(Math.round((summary.completed / summary.total) * 100));
-    expect(summary.dependencyRisks).toBeGreaterThanOrEqual(1);
+    expect(summary.dependencyRisks).toBe(0);
     expect(summary.decisions.length).toBeGreaterThanOrEqual(1);
     expect(summary.narrative).toContain("完成率");
   });
@@ -281,6 +296,45 @@ describe("operations business closure", () => {
       status: "published",
       fileIds: ["customer-demo-deliverable"],
     });
+  });
+
+  it("turns a manager return into an employee action with a direct task link and accurate timeline label", () => {
+    const sessionFor = (personId: string) => customerDemoSessions.find(
+      ({ identity }) => identity.providerSubject === `customer-demo:${personId}`,
+    )!;
+    const executiveContext = createOperationFixtureContext(sessionFor("demo-executive"));
+    const managerContext = createOperationFixtureContext(sessionFor("demo-product-head"));
+    const employeeContext = createOperationFixtureContext(sessionFor("demo-engineer"));
+    const task = resetOperationsStateWithContext(executiveContext).tasks.find(({ id }) => id === "flow-task-02")!;
+
+    addOperationFileWithContext(employeeContext, {
+      id: "return-action-file",
+      commandId: task.commandId,
+      entityType: "task",
+      entityId: task.id,
+      name: "验收记录.txt",
+      mimeType: "text/plain",
+      sizeBytes: 512,
+      version: 1,
+      uploadedById: "actor-employee",
+      provider: "indexeddb",
+      objectPath: "return-action-file",
+      createdAt: "2026-08-12T09:00:00.000Z",
+    });
+    updateOperationTaskWithContext(employeeContext, task.id, { status: "review" }, "actor-employee", sessionFor("demo-engineer").actor);
+    const returned = updateOperationTaskWithContext(managerContext, task.id, { status: "in_progress", reviewNote: "请补充流程截图", progress: 70 }, "actor-manager", sessionFor("demo-product-head").actor);
+
+    expect(returned.events[0]).toMatchObject({
+      action: "退回修改",
+      actorId: "actor-manager",
+    });
+    expect(getOperationActionItems(returned, "actor-employee")).toContainEqual(expect.objectContaining({
+      kind: "task_return",
+      entityId: task.id,
+      title: "返工：实现目标拆解与责任映射",
+      href: "/execution#task-flow-task-02",
+      priority: "warning",
+    }));
   });
 
   it("enforces assignee submission and designated reviewer approval", () => {

@@ -19,6 +19,7 @@ describe("customer demo organization", () => {
       new Set(["executive", "department_head", "employee", "finance", "hr"]),
     );
     expect(customerDemoPeople.every(({ responsibility }) => responsibility.trim().length > 0)).toBe(true);
+    expect(customerDemoPeople.every(({ skills }) => skills.length === 3 && skills.every((skill) => skill.trim().length > 0))).toBe(true);
   });
 
   it("derives sessions, project members, and operation actors from the same people", () => {

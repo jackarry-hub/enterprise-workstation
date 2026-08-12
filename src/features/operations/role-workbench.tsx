@@ -55,6 +55,14 @@ const taskStatusMeta: Record<OperationTaskStatus, { label: string; variant: "neu
   done: { label: "已完成", variant: "success" },
 };
 
+const taskStatusOrder: Record<OperationTaskStatus, number> = {
+  blocked: 0,
+  review: 1,
+  in_progress: 2,
+  todo: 3,
+  done: 4,
+};
+
 const supportStatusMeta = {
   pending: { label: "待处理", variant: "warning" as const },
   approved: { label: "已批准", variant: "info" as const },
@@ -108,9 +116,9 @@ function OperationUpload({ entityType, entityId, label = "上传成果", onFeedb
         <label>{busy ? <LoaderCircle className="animate-spin" /> : <FileUp />}{busy ? "上传中…" : label}<input className="sr-only" type="file" onChange={upload} disabled={busy} /></label>
       </Button>
       {demo.enabled && entityType === "task" ? (
-        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => saveFile(createCustomerDemoDeliverableFile())}>
+        <><Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => saveFile(createCustomerDemoDeliverableFile())}>
           <Sparkles aria-hidden="true" />使用演示成果
-        </Button>
+        </Button><span className="basis-full text-[11px] leading-5 text-muted-foreground">演示快捷操作：自动添加一份可验收的示例成果，也可以使用左侧真实上传入口。</span></>
       ) : null}
     </>
   );
@@ -134,6 +142,7 @@ function TaskFiles({ taskId, files, onFeedback }: { taskId: string; files: Opera
 
 function TaskCard({ task, onFeedback }: { task: OperationTask; onFeedback: (message: string, tone?: "error" | "success") => void }) {
   const session = useWorkspaceSession();
+  const demo = useCustomerDemoSession();
   const { state, context, actor } = useOperations(session);
   const [note, setNote] = useState("");
   const meta = taskStatusMeta[task.status];
@@ -145,10 +154,21 @@ function TaskCard({ task, onFeedback }: { task: OperationTask; onFeedback: (mess
   const files = state.files.filter(({ entityType, entityId }) => entityType === "task" && entityId === task.id);
   const isAssignee = task.assigneeId === actor.id;
   const isReviewer = getTaskReviewerId(task) === actor.id;
+  const reviewer = getActor(getTaskReviewerId(task));
   const canAssign = task.departmentOwnerId === actor.id && !["review", "done"].includes(task.status);
-  const dependencies = (task.dependencyIds ?? []).map((dependencyId) => state.tasks.find(({ id }) => id === dependencyId));
-  const incompleteDependencies = dependencies.filter((dependency) => !dependency || dependency.status !== "done");
   const slaDueAt = task.status === "review" ? task.reviewDueAt : task.status === "blocked" ? task.blockerDueAt : undefined;
+  const returnedForChanges = task.status === "in_progress" && Boolean(task.reviewNote);
+  const progressHint = task.status === "review"
+    ? isAssignee
+      ? `你已完成个人提交，当前由${reviewer.name}验收；通过后进度会自动到 100%。`
+      : isReviewer
+        ? `${assignee.name}已完成个人提交；你验收通过后任务会自动到 100%。`
+        : `执行人已完成提交，当前由${reviewer.name}验收；通过后进度会自动到 100%。`
+    : task.status === "done"
+      ? "已验收通过，任务达到 100% 并完成闭环。"
+      : task.status === "todo"
+        ? "这是你的独立任务，点击“开始执行”即可推进。"
+        : "上传成果后点击“提交验收”，你的个人操作就完成了。";
 
   function update(status: OperationTaskStatus, message: string, extra?: Partial<OperationTask>) {
     try {
@@ -161,7 +181,7 @@ function TaskCard({ task, onFeedback }: { task: OperationTask; onFeedback: (mess
   }
 
   return (
-    <article className={cn("rounded-2xl border bg-white/60 p-4", task.status === "blocked" ? "border-destructive/30" : "border-border/70")}>
+    <article id={`task-${task.id}`} className={cn("scroll-mt-24 rounded-2xl border bg-white/60 p-4 transition target:border-primary target:ring-2 target:ring-primary/20", task.status === "blocked" ? "border-destructive/30" : "border-border/70")}>
       <div className="flex flex-wrap items-start gap-3">
         <span className={cn("grid size-10 shrink-0 place-items-center rounded-xl", task.status === "done" ? "bg-success-soft text-success" : task.status === "blocked" ? "bg-danger-soft text-destructive" : "bg-brand-soft text-primary")}>{task.status === "done" ? <CheckCircle2 /> : task.status === "blocked" ? <AlertTriangle /> : <CircleDot />}</span>
         <div className="min-w-0 flex-1">
@@ -169,7 +189,7 @@ function TaskCard({ task, onFeedback }: { task: OperationTask; onFeedback: (mess
           <h3 className="mt-1.5 text-base font-semibold">{task.title}</h3>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">{task.summary}</p>
         </div>
-        <div className="text-right"><p className="text-[11px] text-muted-foreground">截止时间</p><p className="mt-1 text-sm font-semibold">{task.dueDate}</p></div>
+        <div className="ml-auto flex shrink-0 flex-col items-end gap-2 text-right"><div><p className="text-[11px] text-muted-foreground">截止时间</p><p className="mt-1 text-sm font-semibold">{task.dueDate}</p></div>{isAssignee && task.status === "todo" ? <Button size="sm" aria-label={`开始执行：${task.title}`} onClick={() => update("in_progress", "任务已开始执行", { progress: 20 })}>开始执行<ArrowRight /></Button> : null}</div>
       </div>
 
       <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1.25fr]">
@@ -184,10 +204,9 @@ function TaskCard({ task, onFeedback }: { task: OperationTask; onFeedback: (mess
         <div className="rounded-xl bg-success-soft/55 p-3"><p className="text-[11px] text-success">验收标准</p><p className="mt-1.5 text-xs leading-5">{task.acceptance}</p></div>
       </div>
 
-      <div className="mt-3"><div className="flex items-center justify-between text-xs"><span className="text-muted-foreground">执行进度</span><span className="font-semibold text-primary">{task.progress}%</span></div><ProgressBar value={task.progress} className="mt-1.5 h-1.5" /></div>
+      <div className="mt-3"><div className="flex items-center justify-between text-xs"><span className="text-muted-foreground">任务闭环进度</span><span className="font-semibold text-primary">{task.progress}%</span></div><ProgressBar value={task.progress} className="mt-1.5 h-1.5" /><p className="mt-2 text-xs leading-5 text-muted-foreground">{progressHint}</p></div>
       {task.blocker ? <p className="mt-3 rounded-xl bg-danger-soft px-3 py-2 text-xs text-destructive"><strong>当前阻塞：</strong>{task.blocker}</p> : null}
-      {task.reviewNote ? <p className="mt-3 rounded-xl bg-warning-soft px-3 py-2 text-xs text-warning"><strong>验收意见：</strong>{task.reviewNote}</p> : null}
-      {dependencies.length ? <p className={cn("mt-3 rounded-xl px-3 py-2 text-xs", incompleteDependencies.length ? "bg-warning-soft text-warning" : "bg-success-soft text-success")}><strong>前置任务：</strong>{dependencies.map((dependency) => `${dependency?.code ?? "未知"} ${dependency?.title ?? "任务不存在"}${dependency?.status === "done" ? "（已完成）" : "（未完成）"}`).join("；")}</p> : null}
+      {task.reviewNote ? <div className="mt-3 rounded-xl bg-warning-soft px-3 py-2 text-xs text-warning"><p><strong>验收意见：</strong>{task.reviewNote}</p>{returnedForChanges && isAssignee ? <p className="mt-1 font-medium">补充说明后重新提交，完成后将再次通知张伟验收。</p> : null}</div> : null}
       {slaDueAt ? <p className={cn("mt-2 flex items-center gap-1.5 text-xs", task.escalationLevel === "executive" ? "font-semibold text-destructive" : "text-muted-foreground")}><Clock3 className="size-3.5" />处理时限 {new Date(slaDueAt).toLocaleString("zh-CN")}{task.escalationLevel === "executive" ? " · 已升级领导" : ""}</p> : null}
 
       <div className="mt-3 rounded-xl border border-dashed border-border/80 bg-muted/25 p-3"><p className="mb-2 text-[11px] font-medium text-muted-foreground">任务成果与版本</p><TaskFiles taskId={task.id} files={state.files} onFeedback={onFeedback} /></div>
@@ -195,18 +214,19 @@ function TaskCard({ task, onFeedback }: { task: OperationTask; onFeedback: (mess
       <div className="mt-3 flex flex-wrap items-end gap-2">
         {isAssignee ? (
           <>
-            {task.status === "todo" ? <Button size="sm" disabled={incompleteDependencies.length > 0} onClick={() => update("in_progress", "任务已开始执行", { progress: 20 })}>{incompleteDependencies.length ? "等待前置任务" : "开始执行"}</Button> : null}
             {task.status === "in_progress" || task.status === "blocked" ? <OperationUpload entityType="task" entityId={task.id} onFeedback={onFeedback} /> : null}
             {task.status === "in_progress" && files.length ? <Button size="sm" onClick={() => update("review", "成果已提交给负责人验收")}>提交验收</Button> : null}
-            {task.status === "in_progress" ? <Button size="sm" variant="outline" onClick={() => update("blocked", "已上报任务阻塞", { blocker: note.trim() || "需要负责人协调前置依赖与资源。" })}>上报阻塞</Button> : null}
+            {task.status === "in_progress" ? <Button size="sm" variant="outline" onClick={() => update("blocked", "已上报任务阻塞", { blocker: note.trim() || "需要负责人协调资源或处理当前阻塞。" })}>上报阻塞</Button> : null}
             {task.status === "in_progress" || task.status === "blocked" ? <Button size="sm" variant="ghost" onClick={() => { createSupportRequest(context, task.id, "finance", actor.id); onFeedback("财务协同申请已发送"); }}><Banknote />申请预算</Button> : null}
             {task.status === "in_progress" || task.status === "blocked" ? <Button size="sm" variant="ghost" onClick={() => { createSupportRequest(context, task.id, "staffing", actor.id); onFeedback("人事协同申请已发送"); }}><UsersRound />申请人员</Button> : null}
           </>
         ) : null}
         {isReviewer ? (
           <>
-            {task.status === "review" ? <Button size="sm" disabled={task.deliverableRequired && files.length === 0} onClick={() => update("done", "成果已通过负责人验收", { reviewNote: note.trim() || "成果符合验收标准。" })}><ShieldCheck />通过验收</Button> : null}
-            {task.status === "review" ? <Button size="sm" variant="outline" onClick={() => update("in_progress", "成果已退回员工修改", { reviewNote: note.trim() || "请补充验证记录后重新提交。", progress: 70 })}>退回修改</Button> : null}
+            {task.status === "review" && demo.enabled ? <Button size="sm" variant="ghost" onClick={() => setNote("请补充角色切换说明和验收步骤截图后重新提交。")}>填入退回示例</Button> : null}
+            {task.status === "review" && demo.enabled ? <Button size="sm" variant="ghost" onClick={() => setNote("验收通过，说明完整，流程可复现。")}>填入通过示例</Button> : null}
+            {task.status === "review" ? <Button size="sm" disabled={(task.deliverableRequired && files.length === 0) || !note.trim()} onClick={() => update("done", "成果已通过验收，结果已同步给林远进行总验收", { reviewNote: note.trim() })}><ShieldCheck />通过验收</Button> : null}
+            {task.status === "review" ? <Button size="sm" variant="outline" disabled={!note.trim()} onClick={() => update("in_progress", `成果已退回${assignee.name}修改，返工事项已同步到他的执行台`, { reviewNote: note.trim(), progress: 70 })}>退回修改</Button> : null}
             {task.status === "blocked" ? <Button size="sm" onClick={() => update("in_progress", "阻塞已解除，任务恢复执行", { blocker: undefined, progress: Math.max(task.progress, 30) })}>解除阻塞</Button> : null}
           </>
         ) : null}
@@ -224,7 +244,7 @@ function SupportCard({ request, role, onFeedback }: { request: SupportRequest; r
   const files = state.files.filter(({ entityType, entityId }) => entityType === "support" && entityId === request.id);
   const action = (status: SupportRequest["status"], message: string, result?: string) => { updateSupportRequest(context, request.id, status, actor.id, result); onFeedback(message); };
   return (
-    <article className="rounded-2xl border border-border/70 bg-white/60 p-4">
+    <article id={`support-${request.id}`} className="scroll-mt-24 rounded-2xl border border-border/70 bg-white/60 p-4 transition target:border-primary target:ring-2 target:ring-primary/20">
       <div className="flex flex-wrap items-start gap-3">
         <span className="grid size-10 place-items-center rounded-xl bg-brand-soft text-primary">{role === "finance" ? <Banknote /> : <UserRoundCheck />}</span>
         <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><Badge variant={meta.variant}>{meta.label}</Badge><span className="text-xs text-muted-foreground">来自 {sourceTask?.code ?? "任务"}</span></div><h3 className="mt-1.5 font-semibold">{request.title}</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">{request.description}</p></div>
@@ -248,15 +268,17 @@ export function RoleWorkbench({ role }: { role: Exclude<WorkspaceRole, "executiv
   const [feedback, setFeedback] = useState<{ message: string; tone: "error" | "success" } | null>(null);
   const copy = roleCopy[role];
 
-  const tasks = useMemo(() => role === "department_head"
-    ? state.tasks.filter(({ departmentOwnerId }) => departmentOwnerId === actor.id)
-    : role === "employee" ? state.tasks.filter(({ assigneeId }) => assigneeId === actor.id)
-      : state.tasks.filter(({ assigneeId }) => assigneeId === actor.id), [actor.id, role, state.tasks]);
+  const tasks = useMemo(() => {
+    const visibleTasks = role === "department_head"
+      ? state.tasks.filter(({ departmentOwnerId }) => departmentOwnerId === actor.id)
+      : state.tasks.filter(({ assigneeId }) => assigneeId === actor.id);
+    return [...visibleTasks].sort((left, right) => taskStatusOrder[left.status] - taskStatusOrder[right.status]);
+  }, [actor.id, role, state.tasks]);
   const supportRequests = useMemo(() => role === "finance"
     ? state.supportRequests.filter(({ type }) => type === "finance")
     : role === "hr" ? state.supportRequests.filter(({ type }) => type === "staffing" || type === "training") : [], [role, state.supportRequests]);
   const done = tasks.filter(({ status }) => status === "done").length;
-  const attention = tasks.filter(({ status }) => status === "blocked" || status === "review").length + supportRequests.filter(({ status }) => status === "pending").length;
+  const attention = tasks.filter(({ status, reviewNote }) => status === "blocked" || status === "review" || (status === "in_progress" && Boolean(reviewNote))).length + supportRequests.filter(({ status }) => status === "pending").length;
 
   function notify(message: string, tone: "error" | "success" = "success") {
     setFeedback({ message, tone });

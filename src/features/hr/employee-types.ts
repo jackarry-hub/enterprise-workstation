@@ -34,6 +34,8 @@ export type EmployeeProfile = {
   phone?: string;
   departmentId?: string;
   jobTitle: string;
+  responsibility?: string;
+  skills?: string[];
   managerEmployeeId?: string;
   employmentType: EmploymentType;
   employmentStatus: EmploymentStatus;

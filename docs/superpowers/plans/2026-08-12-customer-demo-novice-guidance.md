@@ -8,6 +8,8 @@
 
 **Tech Stack:** Next.js 15, React 19, TypeScript, Tailwind CSS, shadcn UI, Vitest, Testing Library.
 
+> **User feedback override (2026-08-12):** The shared six-step guidance card was removed from the final UI. Role responsibilities and tags remain in the identity menu and people directory; contextual task guidance, direct inbox links, progress explanations, reset behavior, and full workflow verification remain in scope.
+
 ---
 
 ### Task 1: Derive a deterministic six-step demo journey

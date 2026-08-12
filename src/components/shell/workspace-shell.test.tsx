@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -148,6 +148,7 @@ describe("WorkspaceShell", () => {
     );
 
     expect(screen.getByText("客户演示会话已启用")).toBeVisible();
+    expect(screen.queryByRole("region", { name: "客户演示导航" })).not.toBeInTheDocument();
   });
 
   it("switches among all ten customer demo identities from the user menu", async () => {
@@ -160,6 +161,11 @@ describe("WorkspaceShell", () => {
 
     await user.click(screen.getByRole("button", { name: "打开用户菜单" }));
 
+    const menu = screen.getByRole("menu", { name: "打开用户菜单" });
+    expect(within(menu).getByText("核心职责")).toBeVisible();
+    expect(within(menu).getByText("战略决策")).toBeVisible();
+    expect(within(menu).getByText("经营治理")).toBeVisible();
+    expect(within(menu).getByText("决策闭环")).toBeVisible();
     expect(screen.getByText("切换演示身份")).toBeVisible();
     expect(screen.getAllByRole("menuitem", { name: /^切换为 / })).toHaveLength(10);
 

@@ -55,7 +55,7 @@ function LeaveCard({ request, onFeedback }: { request: LeaveRequest; onFeedback:
     }
   }
 
-  return <article className="rounded-2xl border border-border/70 bg-white/60 p-4">
+  return <article id={`leave-${request.id}`} className="scroll-mt-24 rounded-2xl border border-border/70 bg-white/60 p-4 transition target:border-primary target:ring-2 target:ring-primary/20">
     <div className="flex flex-wrap items-start gap-3"><Avatar><AvatarFallback className="bg-brand-soft text-primary">{employee.name.slice(0, 1)}</AvatarFallback></Avatar><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{employee.name} · {leaveTypeLabel[request.leaveType]} {request.days} 天</h3><Badge variant={statusMeta[request.status].variant}>{statusMeta[request.status].label}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{request.code} · {request.startDate} 至 {request.endDate}</p></div><span className="rounded-lg bg-muted px-2 py-1 text-xs text-muted-foreground">{employee.department}</span></div>
     <div className="mt-3 grid gap-2 sm:grid-cols-2"><div className="rounded-xl bg-muted/55 p-3"><p className="text-[11px] text-muted-foreground">请假事由</p><p className="mt-1 text-xs leading-5">{request.reason}</p></div><div className="rounded-xl bg-success-soft/55 p-3"><p className="text-[11px] text-success">工作交接</p><p className="mt-1 text-xs leading-5">{request.handover}</p></div></div>
     <LeaveFlow request={request} />

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { AlertTriangle, ArrowRight, CheckCircle2, Clock3, ListTodo } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { getOperationActionItems } from "@/features/operations/operations-data";
 import type { WorkspaceActor } from "@/features/auth/workspace-session-types";
@@ -29,11 +28,17 @@ export function OperationActionInbox({ state, actor, limit = 6 }: { state: Opera
         {items.map((item) => {
           const meta = priorityMeta[item.priority];
           const Icon = meta.icon;
-          return <article key={item.id} className="flex min-w-0 flex-col rounded-2xl border border-border/70 bg-white/55 p-3.5">
-            <div className="flex items-center justify-between gap-2"><span className="grid size-8 place-items-center rounded-xl bg-brand-soft text-primary"><Icon className="size-4" /></span><Badge variant={meta.variant}>{meta.label}</Badge></div>
-            <h3 className="mt-3 truncate text-sm font-semibold">{item.title}</h3>
-            <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{item.description}</p>
-            <div className="mt-auto flex items-end justify-between gap-2 pt-3">{item.dueAt ? <span className="text-[11px] text-muted-foreground">时限 {item.dueAt.slice(0, 16).replace("T", " ")}</span> : <span />}<Button asChild size="sm" variant="ghost"><Link href={item.href}>处理<ArrowRight /></Link></Button></div>
+          return <article key={item.id} className="min-w-0">
+            <Link
+              href={item.href}
+              aria-label={`处理：${item.title}`}
+              className="group flex h-full min-w-0 flex-col rounded-2xl border border-border/70 bg-white/55 p-3.5 outline-none transition hover:border-primary/35 hover:bg-brand-soft/25 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/25"
+            >
+              <div className="flex items-center justify-between gap-2"><span className="grid size-8 place-items-center rounded-xl bg-brand-soft text-primary"><Icon className="size-4" /></span><Badge variant={meta.variant}>{meta.label}</Badge></div>
+              <h3 className="mt-3 truncate text-sm font-semibold">{item.title}</h3>
+              <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{item.description}</p>
+              <div className="mt-auto flex items-end justify-between gap-2 pt-3">{item.dueAt ? <span className="text-[11px] text-muted-foreground">时限 {item.dueAt.slice(0, 16).replace("T", " ")}</span> : <span />}<span className="inline-flex items-center gap-1 text-xs font-medium text-foreground">处理<ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" /></span></div>
+            </Link>
           </article>;
         })}
       </div> : <div className="mt-4 flex items-center gap-3 rounded-2xl bg-success-soft/60 p-4 text-success"><CheckCircle2 className="size-5" /><div><p className="text-sm font-semibold">没有超时或待处理事项</p><p className="mt-0.5 text-xs">系统会在任务解锁、进入验收或发生阻塞时自动加入这里。</p></div></div>}

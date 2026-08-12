@@ -45,6 +45,18 @@ describe("PeoplePage", () => {
     expect(screen.getByText("当前显示 1 名员工")).toBeVisible();
   });
 
+  it("shows each demo employee responsibility and readable personal tags", async () => {
+    const user = userEvent.setup();
+    render(<PeoplePage result={employeeDirectoryMockResult} />);
+
+    await user.type(screen.getByRole("searchbox", { name: "搜索员工" }), "QXY-1003");
+    const directory = screen.getByRole("region", { name: "员工目录" });
+    expect(within(directory).getAllByText("执行研发任务、更新进度、上传成果并提交负责人验收。").length).toBeGreaterThan(0);
+    expect(within(directory).getAllByText("前端开发").length).toBeGreaterThan(0);
+    expect(within(directory).getAllByText("系统联调").length).toBeGreaterThan(0);
+    expect(within(directory).getAllByText("自动化").length).toBeGreaterThan(0);
+  });
+
   it("combines department and employment status filters", async () => {
     const user = userEvent.setup();
     render(<PeoplePage result={employeeDirectoryMockResult} />);

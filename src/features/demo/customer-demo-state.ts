@@ -1,4 +1,5 @@
 export const CUSTOMER_DEMO_STORAGE_NAMESPACE = "customer-demo-shared";
+export const CUSTOMER_DEMO_RESET_EVENT = "enterprise-workspace:customer-demo-reset";
 
 const customerDemoBusinessKeys = [
   `enterprise-workspace.operations.v1:${CUSTOMER_DEMO_STORAGE_NAMESPACE}`,
@@ -17,6 +18,7 @@ export function resetCustomerDemoState(
   customerDemoBusinessKeys.forEach((key) => target.removeItem(key));
 
   if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(CUSTOMER_DEMO_RESET_EVENT));
     window.dispatchEvent(new CustomEvent("enterprise-workspace:operations-changed"));
     window.dispatchEvent(new CustomEvent("enterprise-workspace:projects-changed"));
     window.dispatchEvent(new CustomEvent("enterprise-workspace:customers-changed"));

@@ -1,6 +1,7 @@
 import {
   CUSTOMER_DEMO_ORGANIZATION_ID,
   customerDemoPeople,
+  getCustomerDemoSkillLabel,
 } from "@/features/demo/customer-demo-data";
 import type {
   Department,
@@ -37,6 +38,8 @@ const profiles: EmployeeProfile[] = customerDemoPeople.map((person) => ({
   phone: person.phone,
   departmentId: departmentIdByCode.get(person.departmentCode),
   jobTitle: person.jobTitle,
+  responsibility: person.responsibility,
+  skills: person.skills.map(getCustomerDemoSkillLabel),
   managerEmployeeId: person.managerId
     ? personById.get(person.managerId)?.employeeProfileId
     : undefined,

@@ -155,6 +155,7 @@ function createSeedStateForContext(context: OperationFixtureContext): Operations
     ...seed,
     tasks: seed.tasks.map((task) => task.id === "flow-task-02" ? task : {
       ...task,
+      dependencyIds: task.id === "flow-task-03" ? [] : task.dependencyIds,
       status: "done",
       progress: 100,
       blocker: undefined,
@@ -513,58 +514,46 @@ export function getOperationActionItems(
   const add = (item: OperationActionItem) => items.push(item);
 
   state.tasks.forEach((task) => {
-    const dependencies = (task.dependencyIds ?? []).map((dependencyId) => state.tasks.find(({ id }) => id === dependencyId));
-    const dependenciesReady = dependencies.every((dependency) => dependency?.status === "done");
     const isOverdue = task.status !== "done" && task.dueDate < today;
     const slaDueAt = task.status === "review" ? task.reviewDueAt : task.status === "blocked" ? task.blockerDueAt : undefined;
     const slaOverdue = Boolean(slaDueAt && new Date(slaDueAt).valueOf() <= nowValue);
-    const dependencyViolation = task.status === "in_progress" && !dependenciesReady;
-    const dependencyNames = dependencies.filter((dependency) => !dependency || dependency.status !== "done").map((dependency) => dependency?.title ?? "缺失任务").join("、");
-
-    if (dependencyViolation && actor.role === "executive") {
-      add({ id: `dependency-decision-${task.id}`, kind: "executive_decision", entityId: task.id, title: `依赖异常：${task.title}`, description: `任务已开始，但前置任务“${dependencyNames}”尚未完成，需要确认是否暂停或调整计划。`, priority: "critical", dueAt: task.dueDate, href: "/dashboard" });
-      return;
-    }
-    if (dependencyViolation && (task.assigneeId === actor.id || task.departmentOwnerId === actor.id)) {
-      add({ id: `dependency-${task.id}`, kind: "task_blocked", entityId: task.id, title: `依赖异常：${task.title}`, description: `前置任务“${dependencyNames}”尚未完成，请暂停推进并协调处理。`, priority: "critical", dueAt: task.dueDate, href: actor.landingPath });
-      return;
-    }
-
-    if (actor.role === "executive" && (task.escalationLevel === "executive" || isOverdue)) {
-      add({ id: `decision-${task.id}`, kind: "executive_decision", entityId: task.id, title: task.title, description: task.status === "blocked" ? `阻塞处理已超时：${task.blocker ?? "等待协调"}` : task.status === "review" ? "负责人验收已超时，需要领导介入。" : `任务已超过截止日期 ${task.dueDate}。`, priority: "critical", dueAt: slaDueAt ?? task.dueDate, href: "/dashboard" });
-      return;
-    }
+    const taskHref = `${actor.landingPath}#task-${task.id}`;
 
     if (task.status === "review" && getTaskReviewerId(task) === actor.id) {
-      add({ id: `review-${task.id}`, kind: "task_review", entityId: task.id, title: `验收：${task.title}`, description: `执行人 ${getActor(task.assigneeId).name} 已提交成果，等待验收。`, priority: slaOverdue ? "critical" : "warning", dueAt: task.reviewDueAt, href: actor.landingPath });
+      add({ id: `review-${task.id}`, kind: "task_review", entityId: task.id, title: `验收：${task.title}`, description: `执行人 ${getActor(task.assigneeId).name} 已提交成果，等待验收。`, priority: slaOverdue ? "critical" : "warning", dueAt: task.reviewDueAt, href: taskHref });
       return;
     }
 
     if (task.status === "blocked" && task.departmentOwnerId === actor.id) {
-      add({ id: `blocked-${task.id}`, kind: "task_blocked", entityId: task.id, title: `解除阻塞：${task.title}`, description: task.blocker ?? "执行人已上报阻塞。", priority: slaOverdue ? "critical" : "warning", dueAt: task.blockerDueAt, href: actor.landingPath });
+      add({ id: `blocked-${task.id}`, kind: "task_blocked", entityId: task.id, title: `解除阻塞：${task.title}`, description: task.blocker ?? "执行人已上报阻塞。", priority: slaOverdue ? "critical" : "warning", dueAt: task.blockerDueAt, href: taskHref });
       return;
     }
 
-    if (task.assigneeId === actor.id && task.status === "todo" && dependenciesReady) {
-      add({ id: `ready-${task.id}`, kind: "task_ready", entityId: task.id, title: `可开始：${task.title}`, description: dependencies.length ? "所有前置任务已完成，可以开始执行。" : "任务已分配，请按计划开始执行。", priority: isOverdue ? "critical" : "normal", dueAt: task.dueDate, href: actor.landingPath });
+    if (task.assigneeId === actor.id && task.status === "in_progress" && task.reviewNote) {
+      add({ id: `return-${task.id}`, kind: "task_return", entityId: task.id, title: `返工：${task.title}`, description: `负责人已退回修改：${task.reviewNote}`, priority: "warning", dueAt: task.dueDate, href: taskHref });
+      return;
+    }
+
+    if (task.assigneeId === actor.id && task.status === "todo") {
+      add({ id: `ready-${task.id}`, kind: "task_ready", entityId: task.id, title: `可开始：${task.title}`, description: "这是你的独立任务，可直接开始并在完成后提交验收。", priority: isOverdue ? "critical" : "normal", dueAt: task.dueDate, href: taskHref });
     } else if (task.assigneeId === actor.id && isOverdue) {
-      add({ id: `overdue-${task.id}`, kind: "task_overdue", entityId: task.id, title: `已逾期：${task.title}`, description: `截止日期为 ${task.dueDate}，请立即更新进度或上报阻塞。`, priority: "critical", dueAt: task.dueDate, href: actor.landingPath });
+      add({ id: `overdue-${task.id}`, kind: "task_overdue", entityId: task.id, title: `已逾期：${task.title}`, description: `截止日期为 ${task.dueDate}，请立即更新进度或上报阻塞。`, priority: "critical", dueAt: task.dueDate, href: taskHref });
     }
   });
 
   state.supportRequests.forEach((request) => {
     if (request.handlerId !== actor.id || ["completed", "rejected"].includes(request.status)) return;
-    add({ id: `support-${request.id}`, kind: "support", entityId: request.id, title: request.title, description: request.description, priority: request.status === "pending" ? "warning" : "normal", href: actor.landingPath });
+    add({ id: `support-${request.id}`, kind: "support", entityId: request.id, title: request.title, description: request.description, priority: request.status === "pending" ? "warning" : "normal", href: `${actor.landingPath}#support-${request.id}` });
   });
 
   state.leaveRequests.forEach((request) => {
     const canReview = request.status === "pending_manager" ? request.managerId === actor.id : request.status === "pending_hr" && actor.role === "hr";
-    if (canReview) add({ id: `leave-${request.id}`, kind: "approval", entityId: request.id, title: `请假审批：${getActor(request.employeeId).name}`, description: `${request.days} 天 · ${request.startDate} 至 ${request.endDate}`, priority: "warning", href: "/leave" });
+    if (canReview) add({ id: `leave-${request.id}`, kind: "approval", entityId: request.id, title: `请假审批：${getActor(request.employeeId).name}`, description: `${request.days} 天 · ${request.startDate} 至 ${request.endDate}`, priority: "warning", href: `/leave#leave-${request.id}` });
   });
 
   [...state.attendance.corrections, ...state.attendance.overtimeRequests].forEach((request) => {
     const canReview = request.status === "pending_manager" ? request.managerId === actor.id : request.status === "pending_hr" && actor.role === "hr";
-    if (canReview) add({ id: `attendance-${request.id}`, kind: "approval", entityId: request.id, title: `考勤审批：${getActor(request.employeeId).name}`, description: `${request.code} · ${request.date}`, priority: "warning", href: "/attendance" });
+    if (canReview) add({ id: `attendance-${request.id}`, kind: "approval", entityId: request.id, title: `考勤审批：${getActor(request.employeeId).name}`, description: `${request.code} · ${request.date}`, priority: "warning", href: `/attendance#attendance-${request.id}` });
   });
 
   const priorityOrder = { critical: 0, warning: 1, normal: 2 } as const;
@@ -624,6 +613,19 @@ export function getOperationNotifications(
     createdAt: actionCreatedAt(state, item),
     read: reads.has(`action:${item.id}`),
   }));
+  const escalationNotifications = actor.role === "executive"
+    ? state.tasks.filter(({ escalationLevel }) => escalationLevel === "executive").map<OperationNotification>((task) => ({
+      id: `escalation:${task.id}`,
+      actorId,
+      title: `升级提醒：${task.title}`,
+      description: "该事项已超过处理时限，请关注责任人协调结果。",
+      severity: "critical",
+      category: "task",
+      href: "/dashboard#customer-demo-closure",
+      createdAt: task.escalatedAt ?? task.updatedAt,
+      read: reads.has(`escalation:${task.id}`),
+    }))
+    : [];
   const eventNotifications = state.events
     .filter((item) => isEventRelevant(state, actor, item))
     .slice(0, 12)
@@ -639,7 +641,7 @@ export function getOperationNotifications(
       read: reads.has(`event:${item.id}`),
     }));
   const severityOrder = { critical: 0, warning: 1, info: 2 } as const;
-  return [...actionNotifications, ...eventNotifications].sort((left, right) => Number(left.read) - Number(right.read) || severityOrder[left.severity] - severityOrder[right.severity] || right.createdAt.localeCompare(left.createdAt));
+  return [...actionNotifications, ...escalationNotifications, ...eventNotifications].sort((left, right) => Number(left.read) - Number(right.read) || severityOrder[left.severity] - severityOrder[right.severity] || right.createdAt.localeCompare(left.createdAt));
 }
 
 export function markOperationNotificationRead(context: OperationFixtureContext, notificationId: string, actorId: string) {
@@ -673,11 +675,14 @@ export function getOperationWeeklySummary(
   const tasks = state.tasks.filter((task) => actor.role === "executive" || (actor.role === "department_head" ? task.departmentOwnerId === actor.id : task.assigneeId === actor.id));
   const taskIds = new Set(tasks.map(({ id }) => id));
   const completed = tasks.filter(({ status }) => status === "done").length;
-  const dependencyRisks = tasks.filter((task) => task.status === "in_progress" && task.dependencyIds.some((dependencyId) => state.tasks.find(({ id }) => id === dependencyId)?.status !== "done")).length;
+  const dependencyRisks = 0;
   const overdue = tasks.filter(({ dueDate, status }) => status !== "done" && dueDate < today).length;
   const openSupport = state.supportRequests.filter((request) => taskIds.has(request.sourceTaskId) && !["completed", "rejected"].includes(request.status)).length;
   const actions = getOperationActionItems(state, actorId, now);
-  const decisions = actions.filter(({ priority }) => priority === "critical").slice(0, 3).map(({ title }) => title);
+  const escalatedDecisions = actor.role === "executive"
+    ? tasks.filter(({ escalationLevel }) => escalationLevel === "executive").map(({ title }) => `需协调：${title}`)
+    : [];
+  const decisions = [...escalatedDecisions, ...actions.filter(({ priority }) => priority === "critical").map(({ title }) => title)].slice(0, 3);
   const nextFocus = actions.filter(({ priority }) => priority !== "critical").slice(0, 3).map(({ title }) => title);
   const highlights = tasks.filter((task) => task.status === "done" && new Date(task.updatedAt) >= weekStart).slice(0, 3).map(({ title }) => title);
   const scopeLabel = actor.role === "executive" ? "公司专项" : actor.role === "department_head" ? actor.department : `${actor.name}个人任务`;
@@ -735,16 +740,6 @@ function assertTaskMutationAllowed(
   const transition = `${before.status}->${patch.status}`;
   const assigneeTransitions = new Set(["todo->in_progress", "in_progress->blocked", "in_progress->review"]);
   const reviewerTransitions = new Set(["blocked->in_progress", "review->in_progress", "review->done"]);
-
-  if (transition === "todo->in_progress") {
-    const incompleteDependencies = (before.dependencyIds ?? [])
-      .map((dependencyId) => state.tasks.find(({ id }) => id === dependencyId))
-      .filter((dependency) => !dependency || dependency.status !== "done");
-    if (incompleteDependencies.length) {
-      const names = incompleteDependencies.map((dependency) => dependency?.title ?? "未找到的前置任务").join("、");
-      throw new Error(`前置任务尚未完成：${names}`);
-    }
-  }
 
   if (assigneeTransitions.has(transition) && !isAssignee) throw new Error("只有任务执行人可以执行或提交成果");
   if (reviewerTransitions.has(transition) && !isReviewer) throw new Error("只有指定验收人可以处理该节点");
@@ -815,6 +810,8 @@ export function updateOperationTask(
     task.escalatedAt = undefined;
   }
   const labels: Record<OperationTaskStatus, string> = { todo: "退回待执行", in_progress: "开始执行", blocked: "标记阻塞", review: "提交验收", done: "通过验收" };
+  const transition = `${before.status}->${task.status}`;
+  const actionLabel = transition === "review->in_progress" ? "退回修改" : labels[task.status];
   const nextKnowledge = task.status === "done"
     ? upsertKnowledgeForTask(state.knowledge, task, actorId).map((entry) => entry.sourceTaskId === task.id ? { ...entry, fileIds: state.files.filter((file) => file.entityType === "task" && file.entityId === task.id).map(({ id }) => id) } : entry)
     : state.knowledge;
@@ -823,7 +820,7 @@ export function updateOperationTask(
     command: { ...state.command, updatedAt: task.updatedAt },
     tasks: state.tasks.map((item) => item.id === taskId ? task : item),
     knowledge: nextKnowledge,
-    events: [event(actorId, labels[task.status], `${actor.name}将“${task.title}”${labels[task.status]}。`), ...state.events],
+    events: [event(actorId, actionLabel, `${actor.name}将“${task.title}”${actionLabel}。`), ...state.events],
   });
   saveOperationTaskToProject(context, saved, task, auditActor);
   return saved;

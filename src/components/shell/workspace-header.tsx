@@ -8,6 +8,7 @@ import { Bell, Check, ChevronDown, CircleHelp, LogOut, Mail, Menu, RotateCcw, Se
 import { WorkspaceSearchDialog } from "@/components/shell/workspace-search-dialog";
 import { WorkspaceSidebar } from "@/components/shell/workspace-sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -16,6 +17,7 @@ import { navigationItems } from "@/config/navigation";
 import { signOut } from "@/features/auth/actions";
 import { useCustomerDemoSession, useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { resetCustomerDemoState } from "@/features/demo/customer-demo-state";
+import { getCustomerDemoPerson, getCustomerDemoSkillLabel } from "@/features/demo/customer-demo-data";
 import { getOperationNotifications, markOperationNotificationRead } from "@/features/operations/operations-data";
 import { useOperations } from "@/features/operations/use-operations";
 
@@ -31,6 +33,7 @@ export function WorkspaceHeader() {
   const notifications = getOperationNotifications(state, operationActor.id);
   const unreadCount = notifications.filter(({ read }) => !read).length;
   const helpLinks = navigationItems.filter(({ available, roles }) => available && (!roles || roles.includes(workspaceActor.role))).slice(0, 3);
+  const currentDemoPerson = demo.currentPersonId ? getCustomerDemoPerson(demo.currentPersonId) : undefined;
 
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
@@ -97,6 +100,7 @@ export function WorkspaceHeader() {
               <DropdownMenuLabel className="min-w-0">
                 <span className="block truncate text-sm font-medium">{profile.displayName}</span>
                 <span className="block truncate text-[11px] font-normal text-muted-foreground">{profile.departmentName} · {profile.jobTitle}</span>
+                {currentDemoPerson ? <span className="mt-2 block border-t border-border/70 pt-2 font-normal"><span className="block text-[10px] font-semibold text-foreground">核心职责</span><span className="mt-1 block text-[11px] leading-4 text-muted-foreground">{currentDemoPerson.responsibility}</span><span className="mt-1.5 flex flex-wrap gap-1">{currentDemoPerson.skills.map((skill) => <Badge key={skill} variant="neutral">{getCustomerDemoSkillLabel(skill)}</Badge>)}</span></span> : null}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               {demo.enabled ? (
