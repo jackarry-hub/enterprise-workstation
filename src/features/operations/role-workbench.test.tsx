@@ -51,6 +51,7 @@ describe("RoleWorkbench customer demo", () => {
     );
 
     expect(screen.queryByRole("button", { name: "重置本地试用数据" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "最近流转" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "开始执行：实现目标拆解与责任映射" }));
     expect(screen.getByText("演示快捷操作：自动添加一份可验收的示例成果，也可以使用左侧真实上传入口。")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "使用演示成果" }));

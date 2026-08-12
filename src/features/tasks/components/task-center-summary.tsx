@@ -1,4 +1,5 @@
 import { AlertCircle, ArrowRight, CheckCircle2, CircleDot } from "lucide-react";
+import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,7 @@ type TaskCenterSummaryProps = {
   items: readonly TaskCenterItem[];
   summary: Summary;
   onShowPending: () => void;
+  getTaskHref: (item: TaskCenterItem) => string;
 };
 
 const priorityLabels = {
@@ -26,7 +28,7 @@ const priorityVariants = {
   urgent: "destructive",
 } as const;
 
-export function TaskCenterSummary({ items, summary, onShowPending }: TaskCenterSummaryProps) {
+export function TaskCenterSummary({ items, summary, onShowPending, getTaskHref }: TaskCenterSummaryProps) {
   const pending = items
     .filter(({ task }) => !["done", "cancelled"].includes(task.status))
     .sort((left, right) => (left.task.dueDate ?? "9999-12-31").localeCompare(right.task.dueDate ?? "9999-12-31"))
@@ -43,7 +45,12 @@ export function TaskCenterSummary({ items, summary, onShowPending }: TaskCenterS
       <ProgressBar value={summary.completionRate} className="mt-3 h-1.5" />
       <div className="mt-4 divide-y divide-border/70">
         {pending.map((item) => (
-          <div key={item.task.id} className="flex items-center gap-2 py-2.5 text-sm">
+          <Link
+            key={item.task.id}
+            aria-label={`立即办理：${item.task.title}`}
+            href={getTaskHref(item)}
+            className="group flex w-full items-center gap-2 py-2.5 text-left text-sm outline-none transition-colors hover:text-primary focus-visible:text-primary"
+          >
             {item.task.priority === "urgent" || item.task.priority === "high" ? (
               <AlertCircle aria-hidden="true" className="size-4 shrink-0 text-warning" />
             ) : item.task.status === "in_progress" || item.task.status === "blocked" || item.task.status === "in_review" ? (
@@ -54,7 +61,8 @@ export function TaskCenterSummary({ items, summary, onShowPending }: TaskCenterS
             <span className="min-w-0 flex-1 truncate font-medium">{item.task.title}</span>
             <Badge variant={priorityVariants[item.task.priority]}>{priorityLabels[item.task.priority]}</Badge>
             <span className="hidden whitespace-nowrap text-xs text-muted-foreground sm:block">{item.task.dueDate?.slice(5) ?? "待定"}</span>
-          </div>
+            <ArrowRight aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+          </Link>
         ))}
       </div>
       <Button type="button" variant="link" className="mt-auto self-center" onClick={onShowPending}>

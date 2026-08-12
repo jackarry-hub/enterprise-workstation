@@ -1,4 +1,5 @@
 import { CalendarDays, ChevronRight, ListTodo, Sparkles } from "lucide-react";
+import Link from "next/link";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -15,7 +16,7 @@ type TaskCenterListProps = {
   summary: TaskCenterSummary;
   tab: TaskCenterTab;
   onTabChange: (tab: TaskCenterTab) => void;
-  onOpenTask: (item: TaskCenterItem) => void;
+  getTaskHref: (item: TaskCenterItem) => string;
   onReset: () => void;
 };
 
@@ -35,7 +36,7 @@ const statusTones = {
 
 const priorityLabels = { low: "低", medium: "中", high: "高", urgent: "紧急" } as const;
 
-export function TaskCenterList({ items, summary, tab, onTabChange, onOpenTask, onReset }: TaskCenterListProps) {
+export function TaskCenterList({ items, summary, tab, onTabChange, getTaskHref, onReset }: TaskCenterListProps) {
   const tabs: Array<{ id: TaskCenterTab; label: string; count: number }> = [
     { id: "all", label: "全部任务", count: summary.total },
     { id: "pending", label: "待开始", count: summary.pending },
@@ -79,12 +80,11 @@ export function TaskCenterList({ items, summary, tab, onTabChange, onOpenTask, o
             const status = toTaskCenterStatus(item.task.status);
             const isAiDispatched = item.task.description.startsWith("AI 决策下发");
             return (
-              <button
+              <Link
                 key={item.task.id}
-                type="button"
-                aria-label={`查看任务详情：${item.task.title}`}
-                onClick={() => onOpenTask(item)}
-                className="group grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3 text-left sm:grid-cols-[minmax(0,1fr)_7rem_7rem_auto]"
+                aria-label={`直接办理：${item.task.title}`}
+                href={getTaskHref(item)}
+                className="group grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3 text-left outline-none transition-colors hover:text-primary focus-visible:text-primary sm:grid-cols-[minmax(0,1fr)_7rem_7rem_auto]"
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <Avatar className="size-9 bg-linear-to-br from-primary/18 to-chart-3/12">
@@ -115,7 +115,7 @@ export function TaskCenterList({ items, summary, tab, onTabChange, onOpenTask, o
                   </span>
                   <ChevronRight aria-hidden="true" className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                 </div>
-              </button>
+              </Link>
             );
           })}
         </div>

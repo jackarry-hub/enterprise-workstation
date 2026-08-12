@@ -94,6 +94,21 @@ describe("payroll pages", () => {
     expect(within(list).getAllByText("张伟").length).toBeGreaterThan(0);
     expect(within(list).queryByText("林远")).not.toBeInTheDocument();
     expect(screen.getByText(/仅展示 张伟 本人的工资记录/)).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "本月发放准备" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the internal payroll preparation workflow off an employee's payslip page", () => {
+    const employeeSession = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-engineer")!;
+    renderWithSpecificWorkspaceSession(
+      <WorkspaceSessionProvider session={employeeSession} demoSessions={customerDemoSessions}>
+        <PayrollPage result={salaryMockResult} />
+      </WorkspaceSessionProvider>,
+      employeeSession,
+    );
+
+    expect(screen.getByText(/仅展示 陈晨 本人的工资记录/)).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "本月发放准备" })).not.toBeInTheDocument();
+    expect(screen.queryByText("0 个节点待处理")).not.toBeInTheDocument();
   });
 
   it("keeps the progress summary informational and exposes only the current handling entry", () => {

@@ -6,6 +6,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { TaskCenterPage } from "@/features/tasks/task-center-page";
 import { customerDemoSessions } from "@/features/demo/customer-demo-data";
 import { renderWithSpecificWorkspaceSession } from "@/test/workspace-session-test-utils";
+import { createDecisionPlan, createDefaultDecisionInput, dispatchDecisionPlan } from "@/features/decision-workbench/decision-workbench-data";
+import { createOperationFixtureContext } from "@/features/operations/operation-actor-compat";
 
 describe("TaskCenterPage", () => {
   beforeEach(() => {
@@ -46,19 +48,34 @@ describe("TaskCenterPage", () => {
     expect(screen.queryByText("没有找到匹配的任务")).not.toBeInTheDocument();
   });
 
-  it("opens task detail and routes status work to the authorized workspace", async () => {
-    const user = userEvent.setup();
+  it("routes ordinary project work directly to its task editor", () => {
     const engineerSession = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-engineer")!;
     renderWithSpecificWorkspaceSession(<TaskCenterPage />, engineerSession);
 
-    await user.click(screen.getAllByRole("button", { name: /查看任务详情/ })[0]);
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText("负责人")).toBeVisible();
-    expect(within(dialog).getByText("所属项目")).toBeVisible();
-
-    expect(within(dialog).queryByRole("button", { name: "标记为已完成" })).not.toBeInTheDocument();
-    expect(within(dialog).getByRole("link", { name: "前往我的执行工作台" })).toHaveAttribute("href", "/execution");
+    expect(screen.getByRole("link", { name: "直接办理：实现首页响应式模块" })).toHaveAttribute(
+      "href",
+      "/projects/40000000-0000-4000-8000-000000000001?tab=tasks&task=70000000-0000-4000-8000-000000000002",
+    );
     expect(window.localStorage.getItem("enterprise-workspace.projects.v1")).toBeNull();
+  });
+
+  it("opens the selected task's operation card from both task lists", () => {
+    const qaSession = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-qa")!;
+    const executiveSession = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-executive")!;
+    const input = createDefaultDecisionInput();
+    const project = dispatchDecisionPlan(createOperationFixtureContext(executiveSession), input, createDecisionPlan(input));
+    renderWithSpecificWorkspaceSession(<TaskCenterPage />, qaSession);
+
+    const taskTitle = "完成关键流程回归测试";
+    const taskId = project.tasks.find(({ title }) => title === taskTitle)!.id;
+    expect(screen.getByRole("link", { name: `立即办理：${taskTitle}` })).toHaveAttribute(
+      "href",
+      `/execution#task-${taskId}`,
+    );
+    expect(screen.getByRole("link", { name: `直接办理：${taskTitle}` })).toHaveAttribute(
+      "href",
+      `/execution#task-${taskId}`,
+    );
   });
 
   it("shows only tasks uniquely assigned to the signed-in person", () => {

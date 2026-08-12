@@ -13,6 +13,11 @@ const actionByRole: Record<WorkspaceRole, TaskCenterAction> = {
   hr: { href: "/hr", label: "前往人事协同中心" },
 };
 
-export function getTaskCenterAction(role: WorkspaceRole) {
-  return actionByRole[role];
+export function getTaskCenterAction(role: WorkspaceRole, taskId?: string) {
+  const action = actionByRole[role];
+  if (!taskId || role === "executive") return action;
+  return {
+    href: `${action.href}#task-${taskId}`,
+    label: "直接办理当前任务",
+  };
 }

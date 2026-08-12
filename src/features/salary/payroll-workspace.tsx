@@ -18,6 +18,7 @@ import { useWorkspaceSession } from "@/features/auth/workspace-session-provider"
 import { PayrollControlPanel } from "@/features/operations/payroll-control-panel";
 import { useOperations } from "@/features/operations/use-operations";
 import type { SalaryStatus } from "@/features/salary/salary-types";
+import { cn } from "@/lib/utils";
 
 const defaultFilters: SalaryFilters = { query: "", departmentId: "all", month: "2026-08", status: "all" };
 
@@ -40,14 +41,14 @@ export function PayrollWorkspace({ result }: { result: SalaryResult }) {
       </section>
       {!isFixtureBound ? <RealDataNotice message="当前账号没有可显示的真实薪资数据。" /> : canManagePayroll ? <PayrollControlPanel /> : <GlassCard className="p-4 text-sm text-muted-foreground"><strong className="text-foreground">个人工资单模式：</strong>仅展示 {actor.name} 本人的工资记录，其他员工数据已按权限隐藏。</GlassCard>}
       <PayrollStats stats={visibleStats} />
-      <section className="grid min-w-0 gap-4 xl:grid-cols-12">
-        <GlassCard className="min-w-0 overflow-hidden p-3 sm:p-4 xl:col-span-9">
+      <section className={cn("grid min-w-0 gap-4", canManagePayroll && "xl:grid-cols-12")}>
+        <GlassCard className={cn("min-w-0 overflow-hidden p-3 sm:p-4", canManagePayroll && "xl:col-span-9")}>
           <div className="flex flex-col gap-1 px-1 pb-3 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="text-lg font-semibold text-foreground">工资发放记录</h2><p className="mt-0.5 text-xs text-muted-foreground">按员工、月份和状态核对工资单</p></div><span className="text-xs text-muted-foreground">共 128 名员工</span></div>
           {isFixtureBound && canManagePayroll ? <PayrollFilters departments={result.data.departments} filters={filters} onChange={setFilters} onReset={() => setFilters(defaultFilters)} /> : null}
           <section aria-label="工资列表" className="mt-3 border-t border-border/60 pt-1"><PayrollList records={records} /></section>
           <footer className="flex items-center justify-between border-t border-border/60 px-2 pt-3 text-xs text-muted-foreground"><span>当前显示 {records.length} 条工资记录</span><span className="flex items-center gap-1"><Database aria-hidden="true" className="size-3.5" />本地业务记录</span></footer>
         </GlassCard>
-        <GlassCard className="min-w-0 p-4 sm:p-5 xl:col-span-3"><PayrollAside /></GlassCard>
+        {canManagePayroll ? <GlassCard className="min-w-0 p-4 sm:p-5 xl:col-span-3"><PayrollAside /></GlassCard> : null}
       </section>
       <MobileWorkspaceNav active="work" />
     </main>

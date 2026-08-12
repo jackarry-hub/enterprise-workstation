@@ -12,4 +12,11 @@ describe("task center role action", () => {
   ] as const)("matches the %s role to its own workbench", (role, href, label) => {
     expect(getTaskCenterAction(role)).toEqual({ href, label });
   });
+
+  it("links a selected employee task directly to its operation card", () => {
+    expect(getTaskCenterAction("employee", "flow-task-10")).toEqual({
+      href: "/execution#task-flow-task-10",
+      label: "直接办理当前任务",
+    });
+  });
 });
