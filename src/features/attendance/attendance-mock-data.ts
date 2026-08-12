@@ -1,10 +1,9 @@
 import type { AttendanceRecord, AttendanceResult } from "@/features/attendance/attendance-types";
+import { CUSTOMER_DEMO_ORGANIZATION_ID, getCustomerDemoPerson } from "@/features/demo/customer-demo-data";
 import { mockDepartments, mockEmployees } from "@/features/hr/employee-mock-data";
 
-const organizationId = "10000000-0000-4000-8000-000000000001";
-
 type RecordSeed = {
-  employeeIndex: number;
+  personId: string;
   checkIn?: string;
   checkOut?: string;
   status: AttendanceRecord["status"];
@@ -14,22 +13,25 @@ type RecordSeed = {
 };
 
 const seeds: RecordSeed[] = [
-  { employeeIndex: 0, checkIn: "08:52", checkOut: "18:06", status: "normal" },
-  { employeeIndex: 1, checkIn: "09:14", checkOut: "18:03", status: "late", lateMinutes: 14, note: "早高峰交通延误" },
-  { employeeIndex: 2, checkIn: "08:47", checkOut: "18:18", status: "normal" },
-  { employeeIndex: 3, checkIn: "08:58", checkOut: "17:22", status: "early_leave", earlyLeaveMinutes: 38, note: "外出客户沟通" },
-  { employeeIndex: 4, checkIn: "08:55", checkOut: "18:01", status: "normal" },
-  { employeeIndex: 5, checkIn: "09:09", checkOut: "18:20", status: "late", lateMinutes: 9 },
-  { employeeIndex: 6, checkIn: "08:51", checkOut: "17:58", status: "normal" },
-  { employeeIndex: 7, status: "leave", note: "年假 · 已审批" },
-  { employeeIndex: 8, checkIn: "08:59", checkOut: "18:08", status: "normal" },
+  { personId: "demo-executive", checkIn: "08:52", checkOut: "18:06", status: "normal" },
+  { personId: "demo-product-head", checkIn: "08:47", checkOut: "18:18", status: "normal" },
+  { personId: "demo-engineer", checkIn: "09:09", checkOut: "18:20", status: "late", lateMinutes: 9 },
+  { personId: "demo-qa", checkIn: "08:55", checkOut: "18:01", status: "normal" },
+  { personId: "demo-market-head", checkIn: "09:14", checkOut: "18:03", status: "late", lateMinutes: 14, note: "客户现场返程遇早高峰" },
+  { personId: "demo-design-head", checkIn: "08:58", checkOut: "17:22", status: "early_leave", earlyLeaveMinutes: 38, note: "外出客户沟通" },
+  { personId: "demo-customer-head", checkIn: "08:51", checkOut: "17:58", status: "normal" },
+  { personId: "demo-operations", status: "leave", note: "年假 · 已审批" },
+  { personId: "demo-finance", checkIn: "08:59", checkOut: "18:08", status: "normal" },
+  { personId: "demo-hr", checkIn: "08:54", checkOut: "18:12", status: "normal" },
 ];
 
 const records: AttendanceRecord[] = seeds.map((seed, index) => {
-  const employeeItem = mockEmployees[seed.employeeIndex];
+  const person = getCustomerDemoPerson(seed.personId);
+  const employeeItem = mockEmployees.find(({ profile }) => profile.id === person?.employeeProfileId);
+  if (!employeeItem) throw new Error(`考勤演示人员未配置：${seed.personId}`);
   return {
     id: `71000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
-    organizationId,
+    organizationId: CUSTOMER_DEMO_ORGANIZATION_ID,
     employee: {
       id: employeeItem.profile.id,
       employeeNo: employeeItem.profile.employeeNo,
@@ -59,10 +61,10 @@ export const attendanceMockResult: AttendanceResult = {
     records,
     departments: mockDepartments.map(({ id, name }) => ({ id, name })),
     stats: {
-      presentToday: 119,
-      lateToday: 6,
-      leaveToday: 3,
-      monthlyAttendanceRate: 92.6,
+      presentToday: records.filter(({ status }) => status !== "leave").length,
+      lateToday: records.filter(({ status }) => status === "late").length,
+      leaveToday: records.filter(({ status }) => status === "leave").length,
+      monthlyAttendanceRate: 96.4,
     },
     trend: [
       { date: "2026-07-24", label: "07/24", attendanceRate: 93.2, late: 4, leave: 2 },

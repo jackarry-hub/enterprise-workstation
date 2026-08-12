@@ -6,9 +6,9 @@ import { filterSalaryRecords, getSalaryDetail } from "@/features/salary/salary-s
 describe("salary selectors", () => {
   it("provides the approved payroll summary", () => {
     expect(salaryMockResult.data.stats).toEqual({
-      totalSalary: 2568420,
-      employeeCount: 128,
-      averageSalary: 20065.78,
+      totalSalary: 202700,
+      employeeCount: 10,
+      averageSalary: 20270,
     });
   });
 

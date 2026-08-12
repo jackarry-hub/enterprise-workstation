@@ -39,7 +39,7 @@ describe("payroll pages", () => {
     expect(within(stats).getByText("员工数量")).toBeVisible();
     expect(within(stats).getByText("平均工资")).toBeVisible();
 
-    await user.type(screen.getByRole("searchbox", { name: "搜索工资员工" }), "QXY-1002");
+    await user.type(screen.getByRole("searchbox", { name: "搜索工资员工" }), "QXY-1005");
     const list = screen.getByRole("region", { name: "工资列表" });
     expect(within(list).getAllByText("王芳").length).toBeGreaterThanOrEqual(1);
     expect(within(list).queryByText("张伟")).not.toBeInTheDocument();

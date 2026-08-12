@@ -1109,9 +1109,21 @@ export function updatePayrollRun(context: OperationFixtureContext, status: Payro
 }
 
 export function setCommandStatus(context: OperationFixtureContext, status: CommandStatus, actorId: string) {
-  requireFixtureActor(context, actorId);
+  const actor = requireFixtureActor(context, actorId);
+  if (actor.role !== "executive") throw new Error("只有决策人可以推进总验收与归档");
   const state = readOperationsState(context);
-  if ((status === "accepted" || status === "archived") && state.tasks.some(({ status: taskStatus }) => taskStatus !== "done")) {
+  const allowedNext: Partial<Record<CommandStatus, CommandStatus>> = {
+    executing: "review",
+    review: "accepted",
+    accepted: "archived",
+  };
+  if (allowedNext[state.command.status] !== status) {
+    throw new Error("总验收状态必须按提交、通过、归档顺序推进");
+  }
+  if (status === "review" && state.supportRequests.some(({ status: requestStatus }) => !["completed", "rejected"].includes(requestStatus))) {
+    throw new Error("仍有协同事项未办结，不能提交总验收");
+  }
+  if (state.tasks.some(({ status: taskStatus }) => taskStatus !== "done")) {
     throw new Error("仍有任务未验收，不能完成总验收");
   }
   const labels: Record<CommandStatus, string> = { executing: "恢复执行", review: "提交总验收", accepted: "完成总验收", archived: "归档闭环" };

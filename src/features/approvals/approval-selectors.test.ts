@@ -5,7 +5,7 @@ import { filterApprovals, getApprovalDetail } from "@/features/approvals/approva
 
 describe("approval selectors", () => {
   it("provides the approved queue summary", () => {
-    expect(approvalMockResult.data.stats).toEqual({ pending: 18, initiated: 12, approved: 86, rejected: 7 });
+    expect(approvalMockResult.data.stats).toEqual({ pending: 3, initiated: 1, approved: 2, rejected: 1 });
   });
 
   it("combines queue, type, and search filters", () => {

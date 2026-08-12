@@ -9,17 +9,17 @@ import {
 describe("attendance selectors", () => {
   it("provides the approved V0.9 summary and monthly trend", () => {
     expect(attendanceMockResult.data.stats).toEqual({
-      presentToday: 119,
-      lateToday: 6,
-      leaveToday: 3,
-      monthlyAttendanceRate: 92.6,
+      presentToday: 9,
+      lateToday: 2,
+      leaveToday: 1,
+      monthlyAttendanceRate: 96.4,
     });
     expect(attendanceMockResult.data.trend).toHaveLength(8);
   });
 
   it("filters by employee keyword, department, date, and status", () => {
     const records = filterAttendanceRecords(attendanceMockResult.data.records, {
-      query: "QXY-1002",
+      query: "QXY-1005",
       departmentId: "all",
       date: "2026-08-04",
       status: "late",

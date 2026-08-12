@@ -20,6 +20,7 @@ import {
   readOperationsState as readOperationsStateWithContext,
   resetOperationsState as resetOperationsStateWithContext,
   saveOperationsState as saveOperationsStateWithContext,
+  setCommandStatus as setCommandStatusWithContext,
   reviewAttendanceCorrection as reviewAttendanceCorrectionWithContext,
   reviewOvertimeRequest as reviewOvertimeRequestWithContext,
   reviewLeaveRequest as reviewLeaveRequestWithContext,
@@ -234,6 +235,52 @@ describe("operations business closure", () => {
     const state = readOperationsState();
     expect(state.tasks.find(({ id }) => id === task.id)?.status).toBe("done");
     expect(state.knowledge.find(({ sourceTaskId }) => sourceTaskId === task.id)?.fileIds).toContain("file-test");
+  });
+
+  it("closes the customer demo through return, resubmission, acceptance, and executive archive", () => {
+    const sessionFor = (personId: string) => customerDemoSessions.find(
+      ({ identity }) => identity.providerSubject === `customer-demo:${personId}`,
+    )!;
+    const executiveSession = sessionFor("demo-executive");
+    const managerSession = sessionFor("demo-product-head");
+    const employeeSession = sessionFor("demo-engineer");
+    const executiveContext = createOperationFixtureContext(executiveSession);
+    const managerContext = createOperationFixtureContext(managerSession);
+    const employeeContext = createOperationFixtureContext(employeeSession);
+    const task = resetOperationsStateWithContext(executiveContext).tasks.find(
+      ({ id }) => id === "flow-task-02",
+    )!;
+
+    addOperationFileWithContext(employeeContext, {
+      id: "customer-demo-deliverable",
+      commandId: task.commandId,
+      entityType: "task",
+      entityId: task.id,
+      name: "星云智造-AI工作站试点验收记录.txt",
+      mimeType: "text/plain",
+      sizeBytes: 1024,
+      version: 1,
+      uploadedById: "actor-employee",
+      provider: "indexeddb",
+      objectPath: "customer-demo-deliverable",
+      createdAt: "2026-08-12T09:00:00.000Z",
+    });
+    updateOperationTaskWithContext(employeeContext, task.id, { status: "review" }, "actor-employee", employeeSession.actor);
+    updateOperationTaskWithContext(managerContext, task.id, { status: "in_progress", reviewNote: "补充浏览器回归记录", progress: 70 }, "actor-manager", managerSession.actor);
+    updateOperationTaskWithContext(employeeContext, task.id, { status: "review" }, "actor-employee", employeeSession.actor);
+    updateOperationTaskWithContext(managerContext, task.id, { status: "done", reviewNote: "关键流程回归通过" }, "actor-manager", managerSession.actor);
+
+    expect(() => setCommandStatusWithContext(employeeContext, "review", "actor-employee")).toThrow("只有决策人");
+    setCommandStatusWithContext(executiveContext, "review", "actor-executive");
+    setCommandStatusWithContext(executiveContext, "accepted", "actor-executive");
+    const archived = setCommandStatusWithContext(executiveContext, "archived", "actor-executive");
+
+    expect(archived.command.status).toBe("archived");
+    expect(archived.tasks.every(({ status }) => status === "done")).toBe(true);
+    expect(archived.knowledge.find(({ sourceTaskId }) => sourceTaskId === task.id)).toMatchObject({
+      status: "published",
+      fileIds: ["customer-demo-deliverable"],
+    });
   });
 
   it("enforces assignee submission and designated reviewer approval", () => {

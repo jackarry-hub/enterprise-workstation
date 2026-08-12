@@ -1,8 +1,11 @@
 import type { Approval, ApprovalPerson, ApprovalResult } from "@/features/approvals/approval-types";
+import { getCustomerDemoPerson } from "@/features/demo/customer-demo-data";
 import { mockEmployees } from "@/features/hr/employee-mock-data";
 
-function person(index: number): ApprovalPerson {
-  const employee = mockEmployees[index];
+function person(personId: string): ApprovalPerson {
+  const demoPerson = getCustomerDemoPerson(personId);
+  const employee = mockEmployees.find(({ profile }) => profile.id === demoPerson?.employeeProfileId);
+  if (!employee) throw new Error(`审批演示人员未配置：${personId}`);
   return {
     id: employee.profile.id,
     displayName: employee.profile.displayName,
@@ -12,14 +15,14 @@ function person(index: number): ApprovalPerson {
   };
 }
 
-const viewer = person(0);
-const wangFang = person(1);
-const zhangWei = person(2);
-const liuYang = person(3);
-const zhouNing = person(4);
-const chenChen = person(5);
-const liQi = person(6);
-const zhaoMin = person(7);
+const viewer = person("demo-executive");
+const wangFang = person("demo-market-head");
+const zhangWei = person("demo-product-head");
+const liuYang = person("demo-design-head");
+const zhouQian = person("demo-finance");
+const chenChen = person("demo-engineer");
+const liQi = person("demo-hr");
+const zhaoMin = person("demo-customer-head");
 
 function buildFlow(applicant: ApprovalPerson, owner: ApprovalPerson, status: Approval["status"] = "pending") {
   const completed = status === "approved";
@@ -57,7 +60,7 @@ const seeds: Array<Omit<Approval, "steps" | "actions">> = [
     fields: [{ label: "合同类型", value: "软件服务" }, { label: "合同金额", value: "¥120,000.00" }, { label: "合作方", value: "星云数字科技有限公司" }, { label: "合同期限", value: "12 个月" }],
   },
   {
-    id: "81000000-0000-4000-8000-000000000005", code: "LEAVE-20260802-005", type: "leave", title: "请假申请", summary: "事假 1 天", applicant: zhouNing, owner: liuYang, submittedAt: "2026-08-02 16:40", status: "approved", currentStep: "流程完成", priority: "low", initiatedByViewer: false,
+    id: "81000000-0000-4000-8000-000000000005", code: "LEAVE-20260802-005", type: "leave", title: "请假申请", summary: "事假 1 天", applicant: zhouQian, owner: viewer, submittedAt: "2026-08-02 16:40", status: "approved", currentStep: "流程完成", priority: "low", initiatedByViewer: false,
     fields: [{ label: "请假类型", value: "事假" }, { label: "请假时长", value: "1 天" }],
   },
   {
@@ -72,6 +75,11 @@ export const approvalMockResult: ApprovalResult = {
   source: "mock",
   data: {
     approvals,
-    stats: { pending: 18, initiated: 12, approved: 86, rejected: 7 },
+    stats: {
+      pending: approvals.filter(({ status }) => status === "pending").length,
+      initiated: approvals.filter(({ initiatedByViewer }) => initiatedByViewer).length,
+      approved: approvals.filter(({ status }) => status === "approved").length,
+      rejected: approvals.filter(({ status }) => status === "rejected").length,
+    },
   },
 };

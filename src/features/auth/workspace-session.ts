@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 
 import { parseWorkspaceAccess } from "@/features/auth/workspace-access";
+import { customerDemoSessions } from "@/features/demo/customer-demo-data";
+import { isCustomerDemoMode } from "@/features/demo/customer-demo-mode";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 type SupabaseServerClient = Awaited<
@@ -29,6 +31,7 @@ export const getWorkspaceSession = cache(async () => {
 });
 
 export async function requireWorkspaceSession() {
+  if (isCustomerDemoMode()) return customerDemoSessions[0];
   const supabase = await getSupabaseServerClient();
   const subject = await getAuthenticatedSubject(supabase);
   if (!subject) redirect("/login");

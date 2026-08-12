@@ -22,6 +22,7 @@ import {
   getWorkspaceSession,
   requireWorkspaceSession,
 } from "@/features/auth/workspace-session";
+import { customerDemoSessions } from "@/features/demo/customer-demo-data";
 
 const base = {
   tenantId: "10000000-0000-4000-8000-000000000000",
@@ -361,8 +362,16 @@ describe("getSafeReturnPath", () => {
 
 describe("workspace session server helpers", () => {
   beforeEach(() => {
+    delete process.env.CUSTOMER_DEMO_MODE;
     dependencies.getSupabaseServerClient.mockReset();
     dependencies.redirect.mockClear();
+  });
+
+  it("returns the default customer demo session without contacting Supabase", async () => {
+    process.env.CUSTOMER_DEMO_MODE = "true";
+
+    await expect(requireWorkspaceSession()).resolves.toEqual(customerDemoSessions[0]);
+    expect(dependencies.getSupabaseServerClient).not.toHaveBeenCalled();
   });
 
   function client({
