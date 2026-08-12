@@ -24,7 +24,7 @@ describe("employee directory data", () => {
     ).toBe(true);
   });
 
-  it.each(["林远", "QXY-1002", "wang.fang@quantxy.cn"])(
+  it.each(["林远", "QXY-1002", "wang.fang@demo.quantxy.cn"])(
     "finds employees with query %s",
     (query) => {
       const matches = filterEmployees(employeeDirectoryMockResult.data.employees, {
@@ -44,11 +44,13 @@ describe("employee directory data", () => {
     const matches = filterEmployees(employeeDirectoryMockResult.data.employees, {
       query: "",
       departmentId: productDepartment?.id ?? "missing",
-      status: "probation",
+      status: "active",
     });
 
-    expect(matches).toHaveLength(1);
-    expect(matches[0].profile.displayName).toBe("周宁");
+    expect(matches).toHaveLength(3);
+    expect(matches.map(({ profile }) => profile.displayName).sort()).toEqual(
+      ["张伟", "郭敏", "陈晨"].sort(),
+    );
   });
 
   it("resolves detail by public id and returns nothing for an unknown employee", () => {

@@ -37,7 +37,7 @@ describe("PeoplePage", () => {
     const user = userEvent.setup();
     render(<PeoplePage result={employeeDirectoryMockResult} />);
 
-    await user.type(screen.getByRole("searchbox", { name: "搜索员工" }), "QXY-1002");
+    await user.type(screen.getByRole("searchbox", { name: "搜索员工" }), "QXY-1005");
     const directory = screen.getByRole("region", { name: "员工目录" });
 
     expect(within(directory).getAllByText("王芳").length).toBeGreaterThanOrEqual(1);
@@ -50,12 +50,12 @@ describe("PeoplePage", () => {
     render(<PeoplePage result={employeeDirectoryMockResult} />);
 
     await user.click(screen.getByRole("combobox", { name: "筛选部门" }));
-    await user.click(screen.getByRole("option", { name: "产品研发部" }));
+    await user.click(screen.getByRole("option", { name: "产品研发中心" }));
     await user.click(screen.getByRole("combobox", { name: "筛选员工状态" }));
-    await user.click(screen.getByRole("option", { name: "试用期" }));
+    await user.click(screen.getByRole("option", { name: "在职" }));
 
     const directory = screen.getByRole("region", { name: "员工目录" });
-    expect(within(directory).getAllByText("周宁").length).toBeGreaterThanOrEqual(1);
+    expect(within(directory).getAllByText("郭敏").length).toBeGreaterThanOrEqual(1);
     expect(
       within(directory).queryByRole("link", { name: "查看刘洋的员工档案" }),
     ).not.toBeInTheDocument();

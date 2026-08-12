@@ -18,47 +18,31 @@ import type {
   ProjectTask,
   TaskComment,
 } from "@/features/projects/types";
+import {
+  CUSTOMER_DEMO_ORGANIZATION_ID,
+  customerDemoPeople,
+  customerDemoProjectMembers,
+} from "@/features/demo/customer-demo-data";
 
-const organizationId = "10000000-0000-4000-8000-000000000001";
+const organizationId = CUSTOMER_DEMO_ORGANIZATION_ID;
 
-export const mockMembers = [
-  {
-    id: "20000000-0000-4000-8000-000000000001",
-    displayName: "张伟",
-    department: "产品研发中心",
-    title: "产品总监",
-  },
-  {
-    id: "20000000-0000-4000-8000-000000000002",
-    displayName: "王芳",
-    department: "市场中心",
-    title: "市场总监",
-  },
-  {
-    id: "20000000-0000-4000-8000-000000000003",
-    displayName: "刘洋",
-    department: "设计中心",
-    title: "高级设计师",
-  },
-  {
-    id: "20000000-0000-4000-8000-000000000004",
-    displayName: "陈晨",
-    department: "产品研发中心",
-    title: "前端工程师",
-  },
-  {
-    id: "20000000-0000-4000-8000-000000000005",
-    displayName: "赵敏",
-    department: "销售中心",
-    title: "客户成功经理",
-  },
-  {
-    id: "20000000-0000-4000-8000-000000000006",
-    displayName: "李琪",
-    department: "人力资源中心",
-    title: "HRBP",
-  },
-] satisfies readonly MemberSummary[];
+const memberOrder = [
+  "demo-product-head",
+  "demo-market-head",
+  "demo-design-head",
+  "demo-engineer",
+  "demo-customer-head",
+  "demo-hr",
+  "demo-executive",
+  "demo-qa",
+  "demo-operations",
+  "demo-finance",
+] as const;
+
+export const mockMembers = memberOrder.map((personId) => {
+  const person = customerDemoPeople.find(({ id }) => id === personId)!;
+  return customerDemoProjectMembers.find(({ id }) => id === person.memberId)!;
+}) satisfies readonly MemberSummary[];
 
 export const mockObjectives = [
   {

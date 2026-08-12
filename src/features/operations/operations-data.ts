@@ -1,4 +1,5 @@
 import type { DecisionInput, DecisionPlan } from "@/features/decision-workbench/decision-workbench-types";
+import { customerDemoActors } from "@/features/demo/customer-demo-data";
 import type {
   WorkspaceActor,
   WorkspaceRole,
@@ -38,16 +39,7 @@ import type {
 export const OPERATIONS_STORAGE_KEY = "enterprise-workspace.operations.v1";
 export const OPERATIONS_CHANGED_EVENT = "enterprise-workspace:operations-changed";
 
-export const operationFixtureActors: readonly WorkspaceActor[] = [
-  { id: "actor-executive", memberId: "20000000-0000-4000-8000-000000000010", name: "李总", role: "executive", roleLabel: "决策人", department: "总经办", title: "董事长", landingPath: "/dashboard" },
-  { id: "actor-manager", memberId: "20000000-0000-4000-8000-000000000001", name: "张伟", role: "department_head", roleLabel: "部门负责人", department: "产品研发中心", title: "产品总监", landingPath: "/department" },
-  { id: "actor-market", memberId: "20000000-0000-4000-8000-000000000002", name: "王芳", role: "department_head", roleLabel: "部门负责人", department: "市场中心", title: "市场总监", landingPath: "/department" },
-  { id: "actor-employee", memberId: "20000000-0000-4000-8000-000000000004", name: "陈晨", role: "employee", roleLabel: "员工", department: "产品研发中心", title: "前端工程师", landingPath: "/execution" },
-  { id: "actor-designer", memberId: "20000000-0000-4000-8000-000000000003", name: "刘洋", role: "department_head", roleLabel: "部门负责人", department: "设计中心", title: "高级设计师", landingPath: "/department" },
-  { id: "actor-sales", memberId: "20000000-0000-4000-8000-000000000005", name: "赵敏", role: "department_head", roleLabel: "部门负责人", department: "销售中心", title: "客户成功经理", landingPath: "/department" },
-  { id: "actor-finance", memberId: "20000000-0000-4000-8000-000000000007", name: "周倩", role: "finance", roleLabel: "财务", department: "财务中心", title: "财务经理", landingPath: "/finance" },
-  { id: "actor-hr", memberId: "20000000-0000-4000-8000-000000000006", name: "李琪", role: "hr", roleLabel: "人事", department: "人力资源中心", title: "HRBP", landingPath: "/hr" },
-] as const;
+export const operationFixtureActors: readonly WorkspaceActor[] = customerDemoActors;
 
 const BASE_DATE = "2026-08-08T09:00:00.000Z";
 const COMMAND_ID = "command-ai-pilot";
