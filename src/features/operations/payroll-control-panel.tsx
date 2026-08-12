@@ -29,10 +29,10 @@ export function PayrollControlPanel() {
   const [feedback, setFeedback] = useState<{ message: string; error?: boolean } | null>(null);
   const run = state.payrollRun;
   const statusIndex = steps.findIndex(({ status }) => status === run.status);
-  const next = run.status === "draft" && actor.role === "finance" && run.attendanceLocked ? { status: "calculated" as const, label: "完成薪资核算", icon: Calculator }
-    : run.status === "calculated" && actor.role === "hr" ? { status: "verified" as const, label: `核销 ${run.exceptionCount} 项异常并复核`, icon: ShieldCheck }
-      : run.status === "verified" && actor.role === "executive" ? { status: "approved" as const, label: "批准本月发放", icon: Check }
-        : run.status === "approved" && actor.role === "finance" ? { status: "paid" as const, label: "确认银行发放", icon: Send } : null;
+  const next = run.status === "draft" && actor.role === "finance" && run.attendanceLocked ? { status: "calculated" as const, label: "完成薪资核算并生成工资单", icon: Calculator }
+    : run.status === "calculated" && actor.role === "hr" ? { status: "verified" as const, label: "完成人员、考勤与工资单复核", icon: ShieldCheck }
+      : run.status === "verified" && actor.role === "executive" ? { status: "approved" as const, label: "批准本月薪资发放", icon: Check }
+        : run.status === "approved" && actor.role === "finance" ? { status: "paid" as const, label: "确认银行发放并归档凭证", icon: Send } : null;
 
   function advance() {
     if (!next) return;
@@ -40,7 +40,7 @@ export function PayrollControlPanel() {
     catch (error) { setFeedback({ message: error instanceof Error ? error.message : "薪资周期更新失败", error: true }); }
   }
 
-  return <GlassCard className="overflow-hidden border-primary/20">
+  return <GlassCard id="payroll-control" className="scroll-mt-24 overflow-hidden border-primary/20">
     <div className="flex flex-col gap-3 border-b border-border/70 bg-brand-soft/55 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5"><div><div className="flex flex-wrap items-center gap-2"><WalletCards className="size-5 text-primary" /><h2 className="text-lg font-semibold">2026 年 08 月薪资周期</h2><Badge variant={run.status === "paid" ? "success" : run.attendanceLocked ? "info" : "warning"}>{statusLabel[run.status]}</Badge></div><p className="mt-1 text-sm text-muted-foreground">考勤封账后由财务核算、人事复核、领导批准，最后由财务发放。</p></div>{next ? <Button onClick={advance}><next.icon />{next.label}</Button> : run.status === "draft" && !run.attendanceLocked ? <Button asChild variant="outline"><Link href="/attendance"><LockKeyhole />等待人事封账</Link></Button> : <Badge variant="outline">当前节点责任人：{run.status === "calculated" ? "人事" : run.status === "verified" ? "决策人" : run.status === "approved" ? "财务" : "已完成"}</Badge>}</div>
     {feedback ? <p role="status" className={cn("mx-4 mt-3 rounded-xl px-3 py-2 text-xs font-medium sm:mx-5", feedback.error ? "bg-danger-soft text-destructive" : "bg-success-soft text-success")}>{feedback.message}</p> : null}
     <div className="grid gap-4 p-4 sm:p-5 xl:grid-cols-[1.15fr_1fr]">

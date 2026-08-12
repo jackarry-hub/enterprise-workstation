@@ -28,11 +28,14 @@ export function ExecutiveClosurePanel() {
   const reviewing = state.tasks.filter(({ status }) => status === "review").length;
   const openSupport = state.supportRequests.filter(({ status }) => status !== "completed" && status !== "rejected").length;
   const completion = state.tasks.length ? Math.round((done / state.tasks.length) * 100) : 0;
-  const allDone = done === state.tasks.length && openSupport === 0;
+  const dispatched = Boolean(state.command.projectId);
+  const allDone = dispatched && done === state.tasks.length && openSupport === 0;
   const executiveReviews = state.tasks.filter((task) => task.status === "review" && getTaskReviewerId(task) === actor.id);
   const incompleteTasks = state.tasks.filter(({ status }) => status !== "done");
   const firstIncompleteTask = incompleteTasks[0];
-  const unmetReason = firstIncompleteTask
+  const unmetReason = !dispatched
+    ? `请先在上方确认方案并下发 ${state.tasks.length} 项任务。`
+    : firstIncompleteTask
     ? `还不能提交：${getActor(firstIncompleteTask.assigneeId).name}需先完成“${firstIncompleteTask.title}”并由${getActor(getTaskReviewerId(firstIncompleteTask)).name}验收。`
     : openSupport ? `还不能提交：仍有 ${openSupport} 项协同事项未办结。` : "所有任务和协同事项已完成，可以提交总验收。";
 
@@ -69,7 +72,7 @@ export function ExecutiveClosurePanel() {
     <section id="customer-demo-closure" className="mx-auto grid w-full max-w-420 scroll-mt-24 gap-3 px-3 pb-26 sm:px-4 lg:px-5 lg:pb-8" aria-label="真实业务闭环">
       <GlassCard className="overflow-hidden border-primary/20">
         <div className="flex flex-col gap-3 border-b border-border/70 bg-brand-soft/55 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
-          <div><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-semibold">跨角色执行闭环</h2><Badge variant={state.command.status === "archived" ? "success" : "info"}>{commandStatusLabel[state.command.status]}</Badge></div><p className="mt-1 text-sm text-muted-foreground">负责人、员工、财务和人事共用这一条命令数据；领导只看结果、风险和待决策事项。</p></div>
+          <div><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-semibold">跨角色执行闭环</h2><Badge variant={state.command.status === "archived" ? "success" : "info"}>{dispatched ? commandStatusLabel[state.command.status] : "待方案下发"}</Badge></div><p className="mt-1 text-sm text-muted-foreground">负责人、员工、财务和人事共用这一条命令数据；领导只看结果、风险和待决策事项。</p></div>
           <div className="flex flex-wrap gap-2">
             {state.command.status !== "archived" ? <Button type="button" onClick={advance} disabled={state.command.status === "executing" && !allDone}>{state.command.status === "executing" ? <ShieldCheck /> : state.command.status === "review" ? <CheckCircle2 /> : <Archive />}{state.command.status === "executing" ? "提交总验收" : state.command.status === "review" ? "通过总验收" : "完成归档"}</Button> : <Button asChild><Link href="/projects">查看项目成果<ArrowRight /></Link></Button>}
             {state.command.status === "executing" ? <p className={allDone ? "basis-full text-xs font-medium text-success" : "basis-full text-xs font-medium text-warning"}>{unmetReason}</p> : null}

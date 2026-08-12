@@ -20,6 +20,7 @@ describe("RoleWorkbench customer demo", () => {
     const employeeSession = sessionFor("demo-engineer");
     const employeeContext = createOperationFixtureContext(employeeSession);
     const task = resetOperationsState(createOperationFixtureContext(executiveSession)).tasks.find(({ id }) => id === "flow-task-02")!;
+    updateOperationTask(employeeContext, task.id, { status: "in_progress" }, "actor-employee", employeeSession.actor);
     addOperationFile(employeeContext, {
       id: "role-workbench-review-file",
       commandId: task.commandId,
@@ -50,6 +51,7 @@ describe("RoleWorkbench customer demo", () => {
     );
 
     expect(screen.queryByRole("button", { name: "重置本地试用数据" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "开始执行：实现目标拆解与责任映射" }));
     expect(screen.getByText("演示快捷操作：自动添加一份可验收的示例成果，也可以使用左侧真实上传入口。")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "使用演示成果" }));
 
@@ -160,5 +162,44 @@ describe("RoleWorkbench customer demo", () => {
     await user.click(within(nextTask).getByRole("button", { name: "开始执行：完成关键流程回归测试" }));
     expect(await within(nextTask).findByText("进行中")).toBeVisible();
     expect(screen.getByRole("status")).toHaveTextContent("任务已开始执行");
+  });
+
+  it("keeps a department head's own execution tasks separate from employee review work", () => {
+    const managerSession = sessionFor("demo-product-head");
+    const managerContext = createOperationFixtureContext(managerSession);
+    const state = resetOperationsState(managerContext);
+    saveOperationsState(managerContext, {
+      ...state,
+      tasks: state.tasks.map((task) => task.id === "flow-task-02"
+        ? { ...task, status: "review" as const, progress: 90 }
+        : task),
+      files: [{
+        id: "employee-review-proof",
+        commandId: state.command.id,
+        entityType: "task",
+        entityId: "flow-task-02",
+        name: "员工成果.txt",
+        mimeType: "text/plain",
+        sizeBytes: 256,
+        version: 1,
+        uploadedById: "actor-employee",
+        provider: "indexeddb",
+        objectPath: "employee-review-proof",
+        createdAt: "2026-08-12T09:00:00.000Z",
+      }],
+    });
+
+    render(
+      <WorkspaceSessionProvider session={managerSession} demoSessions={customerDemoSessions}>
+        <RoleWorkbench role="department_head" />
+      </WorkspaceSessionProvider>,
+    );
+
+    const execution = screen.getByRole("region", { name: "我的执行任务" });
+    expect(within(execution).getByRole("heading", { name: "确认试点范围与成功标准" })).toBeVisible();
+    expect(within(execution).queryByRole("heading", { name: "实现目标拆解与责任映射" })).not.toBeInTheDocument();
+
+    const reviews = screen.getByRole("region", { name: "我负责验收" });
+    expect(within(reviews).getByRole("heading", { name: "实现目标拆解与责任映射" })).toBeVisible();
   });
 });

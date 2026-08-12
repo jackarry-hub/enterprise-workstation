@@ -373,6 +373,16 @@ export function createDraftDecision(): StoredDecision {
   return { version: 1, stage: "draft", input: createDefaultDecisionInput() };
 }
 
+export function createCustomerDemoDecision(): StoredDecision {
+  const input = createDefaultDecisionInput();
+  return {
+    version: 1,
+    stage: "review",
+    input,
+    plan: createDecisionPlan(input),
+  };
+}
+
 export function createDecisionPlan(
   input: DecisionInput,
   now = new Date("2026-08-08T08:00:00.000Z"),

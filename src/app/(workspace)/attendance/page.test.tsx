@@ -1,18 +1,16 @@
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-const navigation = vi.hoisted(() => ({
-  redirect: vi.fn((href: string) => {
-    throw new Error(`NEXT_REDIRECT:${href}`);
-  }),
+vi.mock("@/features/attendance/attendance-page", () => ({
+  AttendancePage: () => <main>考勤审批、复核与封账</main>,
 }));
-
-vi.mock("next/navigation", () => ({ redirect: navigation.redirect }));
 
 import AttendanceRoute from "@/app/(workspace)/attendance/page";
 
-describe("legacy attendance route", () => {
-  it("redirects old bookmarks to task delivery", async () => {
-    await expect(Promise.resolve().then(() => AttendanceRoute())).rejects.toThrow("NEXT_REDIRECT:/tasks");
-    expect(navigation.redirect).toHaveBeenCalledWith("/tasks");
+describe("attendance route", () => {
+  it("opens the operating workspace so attendance approvals can enter payroll", () => {
+    render(<AttendanceRoute />);
+
+    expect(screen.getByText("考勤审批、复核与封账")).toBeInTheDocument();
   });
 });

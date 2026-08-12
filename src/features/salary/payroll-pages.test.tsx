@@ -7,6 +7,10 @@ import { describe, expect, it } from "vitest";
 import { PayrollDetailPage } from "@/features/salary/payroll-detail-page";
 import { PayrollPage } from "@/features/salary/payroll-page";
 import { salaryMockResult } from "@/features/salary/salary-mock-data";
+import { WorkspaceSessionProvider } from "@/features/auth/workspace-session-provider";
+import { customerDemoSessions } from "@/features/demo/customer-demo-data";
+import { createOperationFixtureContext } from "@/features/operations/operation-actor-compat";
+import { resetOperationsState, saveOperationsState } from "@/features/operations/operations-data";
 
 describe("payroll pages", () => {
   it("does not expose fixture payroll to an unbound real identity", () => {
@@ -52,5 +56,50 @@ describe("payroll pages", () => {
     expect(screen.getByRole("heading", { name: `${record.employee.displayName}的工资单` })).toBeVisible();
     expect(screen.getByRole("region", { name: "工资组成" })).toBeVisible();
     expect(screen.getByRole("region", { name: "历史记录" })).toBeVisible();
+  });
+
+  it("turns pending payroll nodes into direct handling links", () => {
+    const financeSession = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-finance")!;
+    renderWithSpecificWorkspaceSession(
+      <WorkspaceSessionProvider session={financeSession} demoSessions={customerDemoSessions}>
+        <PayrollPage result={salaryMockResult} />
+      </WorkspaceSessionProvider>,
+      financeSession,
+    );
+
+    expect(screen.getByRole("link", { name: "处理考勤封账" })).toHaveAttribute("href", "/attendance#monthly-close");
+    expect(screen.getByRole("link", { name: "处理薪资核算" })).toHaveAttribute("href", "#payroll-control");
+  });
+
+  it("lets finance complete the pending bank payment from payroll and payslip pages", async () => {
+    const user = userEvent.setup();
+    const financeSession = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-finance")!;
+    const context = createOperationFixtureContext(financeSession);
+    const initial = resetOperationsState(context);
+    saveOperationsState(context, {
+      ...initial,
+      payrollRun: { ...initial.payrollRun, status: "approved", attendanceLocked: true, exceptionCount: 0 },
+    });
+
+    const page = (
+      <WorkspaceSessionProvider session={financeSession} demoSessions={customerDemoSessions}>
+        <PayrollPage result={salaryMockResult} />
+      </WorkspaceSessionProvider>
+    );
+    renderWithSpecificWorkspaceSession(page, financeSession);
+    await user.click(screen.getByRole("button", { name: "确认银行发放并归档凭证" }));
+    expect((await screen.findAllByText("已发放")).length).toBeGreaterThan(0);
+
+    saveOperationsState(context, {
+      ...initial,
+      payrollRun: { ...initial.payrollRun, status: "approved", attendanceLocked: true, exceptionCount: 0 },
+    });
+    renderWithSpecificWorkspaceSession(
+      <WorkspaceSessionProvider session={financeSession} demoSessions={customerDemoSessions}>
+        <PayrollDetailPage record={salaryMockResult.data.records[0]} />
+      </WorkspaceSessionProvider>,
+      financeSession,
+    );
+    expect(screen.getAllByRole("button", { name: "确认银行发放并归档凭证" }).length).toBeGreaterThan(0);
   });
 });

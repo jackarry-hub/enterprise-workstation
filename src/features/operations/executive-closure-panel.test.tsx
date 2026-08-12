@@ -16,7 +16,7 @@ const executiveSession = customerDemoSessions.find(
 describe("ExecutiveClosurePanel customer demo", () => {
   beforeEach(() => window.localStorage.clear());
 
-  it("explains exactly who must act before total acceptance is enabled", () => {
+  it("shows the undispatched ten-task plan at zero and points to the next action", () => {
     render(
       <WorkspaceSessionProvider session={executiveSession} demoSessions={customerDemoSessions}>
         <ExecutiveClosurePanel />
@@ -24,7 +24,10 @@ describe("ExecutiveClosurePanel customer demo", () => {
     );
 
     expect(screen.getByRole("button", { name: "提交总验收" })).toBeDisabled();
-    expect(screen.getByText("还不能提交：陈晨需先完成“实现目标拆解与责任映射”并由张伟验收。")).toBeVisible();
+    expect(screen.getByText("待方案下发")).toBeVisible();
+    expect(screen.getAllByText("0%").length).toBeGreaterThan(0);
+    expect(screen.getByText("0/10 项任务完成")).toBeVisible();
+    expect(screen.getByText("请先在上方确认方案并下发 10 项任务。")).toBeVisible();
     expect(screen.getByRole("region", { name: "真实业务闭环" })).toHaveAttribute("id", "customer-demo-closure");
   });
 

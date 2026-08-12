@@ -20,7 +20,7 @@ const executiveSession = customerDemoSessions.find(
 describe("DecisionWorkbench customer demo progress", () => {
   beforeEach(() => window.localStorage.clear());
 
-  it("highlights collaborative execution when the shared command is executing", () => {
+  it("opens the customer demo on a ten-task zero-percent plan ready to dispatch", () => {
     render(
       <WorkspaceSessionProvider session={executiveSession} demoSessions={customerDemoSessions}>
         <DecisionWorkbench />
@@ -28,7 +28,10 @@ describe("DecisionWorkbench customer demo progress", () => {
     );
 
     const current = screen.getByRole("list", { name: "决策推进流程" }).querySelector('[aria-current="step"]');
-    expect(current).toHaveTextContent("协同执行");
+    expect(current).toHaveTextContent("AI 拆解");
+    expect(screen.getByRole("heading", { name: "责任分工图" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "确认方案并下发 10 项任务" })).toBeEnabled();
+    expect(screen.getAllByText("0%").length).toBeGreaterThan(0);
   });
 
   it("highlights summary and review after the shared command is archived", async () => {
@@ -73,8 +76,8 @@ describe("DecisionWorkbench customer demo progress", () => {
       window.dispatchEvent(new CustomEvent(CUSTOMER_DEMO_RESET_EVENT));
     });
 
-    expect(await screen.findByRole("button", { name: "让 AI 拆解并分工" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "责任分工图" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "发起新决策" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "确认方案并下发 10 项任务" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "责任分工图" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "发起新决策" })).toBeInTheDocument();
   });
 });

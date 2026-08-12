@@ -38,7 +38,7 @@ describe("role access policy", () => {
     }
   });
 
-  it("lets every role deliver tasks and follow old attendance bookmarks to that work", () => {
+  it("lets every role deliver tasks and open the attendance operating workspace", () => {
     for (const role of workspaceRoles) {
       expect(canRoleAccessPath(role, "/tasks")).toBe(true);
       expect(canRoleAccessPath(role, "/attendance")).toBe(true);

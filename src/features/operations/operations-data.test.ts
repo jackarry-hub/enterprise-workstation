@@ -80,7 +80,7 @@ describe("operations business closure", () => {
     resetOperationsState();
   });
 
-  it("seeds useful work for every non-executive customer demo identity", () => {
+  it("seeds all ten customer demo tasks at zero before the plan is dispatched", () => {
     const demoContext = createOperationFixtureContext(customerDemoSessions[0]);
     const state = resetOperationsStateWithContext(demoContext);
     const expectedActorIds = customerDemoPeople
@@ -91,16 +91,10 @@ describe("operations business closure", () => {
     expect(new Set(state.tasks.map(({ assigneeId }) => assigneeId))).toEqual(
       new Set(expectedActorIds),
     );
-    expect(state.tasks.filter(({ status }) => status !== "done")).toEqual([
-      expect.objectContaining({
-        id: "flow-task-02",
-        assigneeId: "actor-employee",
-        status: "in_progress",
-      }),
-    ]);
-    for (const task of state.tasks.filter(({ status }) => status === "done")) {
-      expect(task.dependencyIds.every((dependencyId) => state.tasks.find(({ id }) => id === dependencyId)?.status === "done")).toBe(true);
-    }
+    expect(state.tasks).toHaveLength(10);
+    expect(state.tasks.every(({ status, progress }) => status === "todo" && progress === 0)).toBe(true);
+    expect(state.command.projectId).toBeUndefined();
+    expect(getOperationWeeklySummary(state, "actor-executive").completionRate).toBe(0);
   });
 
   it("maps every project member to an explicit workspace actor", () => {
@@ -244,6 +238,7 @@ describe("operations business closure", () => {
 
   it("requires a deliverable and archives an accepted task as knowledge", () => {
     const task = readOperationsState().tasks.find(({ id }) => id === "flow-task-02")!;
+    updateOperationTask(task.id, { status: "in_progress" }, "actor-employee");
     addOperationFile({ id: "file-test", commandId: task.commandId, entityType: "task", entityId: task.id, name: "验收成果.pdf", mimeType: "application/pdf", sizeBytes: 1024, version: 1, uploadedById: "actor-employee", provider: "indexeddb", objectPath: "file-test", createdAt: "2026-08-08T12:00:00.000Z" });
     updateOperationTask(task.id, { status: "review" }, "actor-employee");
     updateOperationTask(task.id, { status: "done", reviewNote: "符合验收标准" }, "actor-manager");
@@ -252,50 +247,68 @@ describe("operations business closure", () => {
     expect(state.knowledge.find(({ sourceTaskId }) => sourceTaskId === task.id)?.fileIds).toContain("file-test");
   });
 
-  it("closes the customer demo through return, resubmission, acceptance, and executive archive", () => {
-    const sessionFor = (personId: string) => customerDemoSessions.find(
-      ({ identity }) => identity.providerSubject === `customer-demo:${personId}`,
-    )!;
-    const executiveSession = sessionFor("demo-executive");
-    const managerSession = sessionFor("demo-product-head");
-    const employeeSession = sessionFor("demo-engineer");
+  it("closes all ten independent customer demo tasks from zero to archived one hundred percent", () => {
+    const sessionForActor = (actorId: string) => {
+      const person = customerDemoPeople.find(({ actorId: candidateId }) => candidateId === actorId)!;
+      return customerDemoSessions.find(({ identity }) => identity.providerSubject === `customer-demo:${person.id}`)!;
+    };
+    const executiveSession = sessionForActor("actor-executive");
     const executiveContext = createOperationFixtureContext(executiveSession);
-    const managerContext = createOperationFixtureContext(managerSession);
-    const employeeContext = createOperationFixtureContext(employeeSession);
-    const task = resetOperationsStateWithContext(executiveContext).tasks.find(
-      ({ id }) => id === "flow-task-02",
-    )!;
+    const input = createDefaultDecisionInput();
+    const plan = createDecisionPlan(input);
+    resetOperationsStateWithContext(executiveContext);
+    dispatchDecisionPlanWithContext(executiveContext, input, plan);
 
-    addOperationFileWithContext(employeeContext, {
-      id: "customer-demo-deliverable",
-      commandId: task.commandId,
-      entityType: "task",
-      entityId: task.id,
-      name: "星云智造-AI工作站试点验收记录.txt",
-      mimeType: "text/plain",
-      sizeBytes: 1024,
-      version: 1,
-      uploadedById: "actor-employee",
-      provider: "indexeddb",
-      objectPath: "customer-demo-deliverable",
-      createdAt: "2026-08-12T09:00:00.000Z",
+    const dispatched = readOperationsStateWithContext(executiveContext);
+    expect(dispatched.tasks).toHaveLength(10);
+    expect(dispatched.tasks.every(({ status, progress }) => status === "todo" && progress === 0)).toBe(true);
+
+    const reverseOrder = [...dispatched.tasks].reverse();
+    reverseOrder.forEach((task, index) => {
+      const assigneeSession = sessionForActor(task.assigneeId);
+      const reviewerId = getTaskReviewerId(task);
+      const reviewerSession = sessionForActor(reviewerId);
+      const assigneeContext = createOperationFixtureContext(assigneeSession);
+      const reviewerContext = createOperationFixtureContext(reviewerSession);
+      const fileId = `customer-demo-deliverable-${task.code}`;
+
+      updateOperationTaskWithContext(assigneeContext, task.id, { status: "in_progress" }, task.assigneeId, assigneeSession.actor);
+      addOperationFileWithContext(assigneeContext, {
+        id: fileId,
+        commandId: task.commandId,
+        entityType: "task",
+        entityId: task.id,
+        name: `${task.code}-${task.title}-成果.txt`,
+        mimeType: "text/plain",
+        sizeBytes: 1024 + index,
+        version: 1,
+        uploadedById: task.assigneeId,
+        provider: "indexeddb",
+        objectPath: fileId,
+        createdAt: "2026-08-12T09:00:00.000Z",
+      });
+      updateOperationTaskWithContext(assigneeContext, task.id, { status: "review" }, task.assigneeId, assigneeSession.actor);
+
+      if (index === 0) {
+        updateOperationTaskWithContext(reviewerContext, task.id, { status: "in_progress", reviewNote: "请补充全流程说明", progress: 70 }, reviewerId, reviewerSession.actor);
+        updateOperationTaskWithContext(assigneeContext, task.id, { status: "review" }, task.assigneeId, assigneeSession.actor);
+      }
+
+      const accepted = updateOperationTaskWithContext(reviewerContext, task.id, { status: "done", reviewNote: "成果符合验收标准" }, reviewerId, reviewerSession.actor);
+      expect(getOperationWeeklySummary(accepted, "actor-executive").completionRate).toBe((index + 1) * 10);
     });
-    updateOperationTaskWithContext(employeeContext, task.id, { status: "review" }, "actor-employee", employeeSession.actor);
-    updateOperationTaskWithContext(managerContext, task.id, { status: "in_progress", reviewNote: "补充浏览器回归记录", progress: 70 }, "actor-manager", managerSession.actor);
-    updateOperationTaskWithContext(employeeContext, task.id, { status: "review" }, "actor-employee", employeeSession.actor);
-    updateOperationTaskWithContext(managerContext, task.id, { status: "done", reviewNote: "关键流程回归通过" }, "actor-manager", managerSession.actor);
 
-    expect(() => setCommandStatusWithContext(employeeContext, "review", "actor-employee")).toThrow("只有决策人");
+    const employeeSession = sessionForActor("actor-employee");
+    expect(() => setCommandStatusWithContext(createOperationFixtureContext(employeeSession), "review", "actor-employee")).toThrow("只有决策人");
     setCommandStatusWithContext(executiveContext, "review", "actor-executive");
     setCommandStatusWithContext(executiveContext, "accepted", "actor-executive");
     const archived = setCommandStatusWithContext(executiveContext, "archived", "actor-executive");
 
     expect(archived.command.status).toBe("archived");
+    expect(getOperationWeeklySummary(archived, "actor-executive").completionRate).toBe(100);
     expect(archived.tasks.every(({ status }) => status === "done")).toBe(true);
-    expect(archived.knowledge.find(({ sourceTaskId }) => sourceTaskId === task.id)).toMatchObject({
-      status: "published",
-      fileIds: ["customer-demo-deliverable"],
-    });
+    expect(archived.knowledge).toHaveLength(10);
+    expect(archived.knowledge.every(({ status, fileIds }) => status === "published" && fileIds.length === 1)).toBe(true);
   });
 
   it("turns a manager return into an employee action with a direct task link and accurate timeline label", () => {
@@ -307,6 +320,7 @@ describe("operations business closure", () => {
     const employeeContext = createOperationFixtureContext(sessionFor("demo-engineer"));
     const task = resetOperationsStateWithContext(executiveContext).tasks.find(({ id }) => id === "flow-task-02")!;
 
+    updateOperationTaskWithContext(employeeContext, task.id, { status: "in_progress" }, "actor-employee", sessionFor("demo-engineer").actor);
     addOperationFileWithContext(employeeContext, {
       id: "return-action-file",
       commandId: task.commandId,
@@ -385,5 +399,36 @@ describe("operations business closure", () => {
     expect(run.verifiedAt).toBeTruthy();
     expect(run.approvedAt).toBeTruthy();
     expect(run.paidAt).toBeTruthy();
+  });
+
+  it("adds each payroll stage to the current owner's actionable inbox", () => {
+    const initial = readOperationsState();
+    const attendanceReady = {
+      ...initial,
+      attendance: {
+        ...initial.attendance,
+        corrections: initial.attendance.corrections.map((item) => ({ ...item, status: "approved" as const })),
+        overtimeRequests: initial.attendance.overtimeRequests.map((item) => ({ ...item, status: "approved" as const })),
+      },
+      payrollRun: { ...initial.payrollRun, attendanceLocked: false, exceptionCount: 0 },
+    };
+
+    expect(getOperationActionItems(attendanceReady, "actor-hr")).toContainEqual(expect.objectContaining({
+      title: "完成考勤封账并生成薪资输入",
+      href: "/attendance#monthly-close",
+    }));
+    expect(getOperationActionItems({ ...attendanceReady, payrollRun: { ...attendanceReady.payrollRun, attendanceLocked: true } }, "actor-finance")).toContainEqual(expect.objectContaining({
+      title: "完成 2026-08 薪资核算",
+      href: "/payroll#payroll-control",
+    }));
+    expect(getOperationActionItems({ ...attendanceReady, payrollRun: { ...attendanceReady.payrollRun, attendanceLocked: true, status: "calculated" } }, "actor-hr")).toContainEqual(expect.objectContaining({
+      title: "复核 2026-08 工资单",
+    }));
+    expect(getOperationActionItems({ ...attendanceReady, payrollRun: { ...attendanceReady.payrollRun, attendanceLocked: true, status: "verified" } }, "actor-executive")).toContainEqual(expect.objectContaining({
+      title: "批准 2026-08 薪资发放",
+    }));
+    expect(getOperationActionItems({ ...attendanceReady, payrollRun: { ...attendanceReady.payrollRun, attendanceLocked: true, status: "approved" } }, "actor-finance")).toContainEqual(expect.objectContaining({
+      title: "发放 2026-08 工资并归档凭证",
+    }));
   });
 });

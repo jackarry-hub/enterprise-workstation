@@ -14,11 +14,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatSalaryCurrency, salaryStatusMeta } from "@/features/salary/salary-meta";
 import type { SalaryRecord, SalaryStatus } from "@/features/salary/salary-types";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { PayrollControlPanel } from "@/features/operations/payroll-control-panel";
 import { useOperations } from "@/features/operations/use-operations";
 
 export function PayrollDetailPage({ record: sourceRecord }: { record: SalaryRecord }) {
   const session = useWorkspaceSession();
-  const { state, isFixtureBound } = useOperations(session);
+  const { state, actor, isFixtureBound } = useOperations(session);
   if (!isFixtureBound) {
     return <RealDataUnavailable title="薪资数据暂不可用" description="当前账号不会显示演示工资单。真实薪资数据接入后，只会展示你有权查看的记录。" backHref="/payroll" backLabel="返回薪资管理" />;
   }
@@ -39,6 +40,8 @@ export function PayrollDetailPage({ record: sourceRecord }: { record: SalaryReco
           </div>
         </div>
       </GlassCard>
+
+      {actor.role !== "employee" && sourceRecord.month === state.payrollRun.month && state.payrollRun.status !== "paid" ? <PayrollControlPanel /> : null}
 
       <section className="grid min-w-0 gap-4 xl:grid-cols-12">
         <GlassCard className="p-4 sm:p-5 xl:col-span-8">

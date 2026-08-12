@@ -153,22 +153,30 @@ function createSeedStateForContext(context: OperationFixtureContext): Operations
 
   return {
     ...seed,
-    tasks: seed.tasks.map((task) => task.id === "flow-task-02" ? task : {
+    command: {
+      ...seed.command,
+      projectId: undefined,
+      status: "executing",
+    },
+    tasks: seed.tasks.map((task) => ({
       ...task,
-      dependencyIds: task.id === "flow-task-03" ? [] : task.dependencyIds,
-      status: "done",
-      progress: 100,
+      status: "todo",
+      progress: 0,
       blocker: undefined,
+      reviewNote: undefined,
       reviewDueAt: undefined,
       blockerDueAt: undefined,
       escalationLevel: "none",
       escalatedAt: undefined,
-    }),
+    })),
     supportRequests: seed.supportRequests.map((request) => ({
       ...request,
       status: "completed",
       result: request.result ?? "演示准备已完成，相关凭证与记录已归档。",
     })),
+    files: [],
+    knowledge: [],
+    events: seed.events.filter(({ action }) => action === "下达命令"),
   };
 }
 
@@ -555,6 +563,19 @@ export function getOperationActionItems(
     const canReview = request.status === "pending_manager" ? request.managerId === actor.id : request.status === "pending_hr" && actor.role === "hr";
     if (canReview) add({ id: `attendance-${request.id}`, kind: "approval", entityId: request.id, title: `考勤审批：${getActor(request.employeeId).name}`, description: `${request.code} · ${request.date}`, priority: "warning", href: `/attendance#attendance-${request.id}` });
   });
+
+  const payroll = state.payrollRun;
+  if (!payroll.attendanceLocked && payroll.exceptionCount === 0 && actor.role === "hr") {
+    add({ id: `payroll-close-${payroll.id}`, kind: "approval", entityId: payroll.id, title: "完成考勤封账并生成薪资输入", description: `${payroll.month} 考勤异常已清零，可封账后交给财务核算。`, priority: "warning", href: "/attendance#monthly-close" });
+  } else if (payroll.attendanceLocked && payroll.status === "draft" && actor.role === "finance") {
+    add({ id: `payroll-calculate-${payroll.id}`, kind: "approval", entityId: payroll.id, title: `完成 ${payroll.month} 薪资核算`, description: `${payroll.headcount} 人考勤输入已就绪，请生成工资单并交人事复核。`, priority: "warning", href: "/payroll#payroll-control" });
+  } else if (payroll.status === "calculated" && actor.role === "hr") {
+    add({ id: `payroll-verify-${payroll.id}`, kind: "approval", entityId: payroll.id, title: `复核 ${payroll.month} 工资单`, description: "核对人员、考勤、社保与工资结果，复核后提交决策人批准。", priority: "warning", href: "/payroll#payroll-control" });
+  } else if (payroll.status === "verified" && actor.role === "executive") {
+    add({ id: `payroll-approve-${payroll.id}`, kind: "executive_decision", entityId: payroll.id, title: `批准 ${payroll.month} 薪资发放`, description: `实发合计 ${payroll.netAmount.toLocaleString("zh-CN")} 元，批准后交财务银行发放。`, priority: "warning", href: "/payroll#payroll-control" });
+  } else if (payroll.status === "approved" && actor.role === "finance") {
+    add({ id: `payroll-pay-${payroll.id}`, kind: "approval", entityId: payroll.id, title: `发放 ${payroll.month} 工资并归档凭证`, description: "领导已批准，请确认银行发放结果并完成付款凭证归档。", priority: "critical", href: "/payroll#payroll-control" });
+  }
 
   const priorityOrder = { critical: 0, warning: 1, normal: 2 } as const;
   return items.sort((left, right) => priorityOrder[left.priority] - priorityOrder[right.priority] || (left.dueAt ?? "9999").localeCompare(right.dueAt ?? "9999"));

@@ -269,16 +269,19 @@ export function RoleWorkbench({ role }: { role: Exclude<WorkspaceRole, "executiv
   const copy = roleCopy[role];
 
   const tasks = useMemo(() => {
-    const visibleTasks = role === "department_head"
-      ? state.tasks.filter(({ departmentOwnerId }) => departmentOwnerId === actor.id)
-      : state.tasks.filter(({ assigneeId }) => assigneeId === actor.id);
+    const visibleTasks = state.tasks.filter(({ assigneeId }) => assigneeId === actor.id);
     return [...visibleTasks].sort((left, right) => taskStatusOrder[left.status] - taskStatusOrder[right.status]);
-  }, [actor.id, role, state.tasks]);
+  }, [actor.id, state.tasks]);
+  const reviewTasks = useMemo(() => state.tasks.filter((task) =>
+    task.assigneeId !== actor.id
+    && getTaskReviewerId(task) === actor.id
+    && ["review", "blocked"].includes(task.status),
+  ), [actor.id, state.tasks]);
   const supportRequests = useMemo(() => role === "finance"
     ? state.supportRequests.filter(({ type }) => type === "finance")
     : role === "hr" ? state.supportRequests.filter(({ type }) => type === "staffing" || type === "training") : [], [role, state.supportRequests]);
   const done = tasks.filter(({ status }) => status === "done").length;
-  const attention = tasks.filter(({ status, reviewNote }) => status === "blocked" || status === "review" || (status === "in_progress" && Boolean(reviewNote))).length + supportRequests.filter(({ status }) => status === "pending").length;
+  const attention = tasks.filter(({ status, reviewNote }) => status === "blocked" || status === "review" || (status === "in_progress" && Boolean(reviewNote))).length + reviewTasks.length + supportRequests.filter(({ status }) => status === "pending").length;
 
   function notify(message: string, tone: "error" | "success" = "success") {
     setFeedback({ message, tone });
@@ -303,18 +306,21 @@ export function RoleWorkbench({ role }: { role: Exclude<WorkspaceRole, "executiv
       <OperationActionInbox state={state} actor={actor} />
 
       <section className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_19rem]">
-        <GlassCard className="p-4 sm:p-5">
-          <div className="flex items-center justify-between"><div><h2 className="font-semibold">{role === "finance" || role === "hr" ? "工作任务与协同" : "执行任务"}</h2><p className="mt-1 text-xs text-muted-foreground">所有操作会写入同一条命令时间线，并同步到相关角色。</p></div><Badge variant="info">实时共享</Badge></div>
+        <div className="grid gap-3">
+        <GlassCard className="p-4 sm:p-5" role="region" aria-label="我的执行任务">
+          <div className="flex items-center justify-between"><div><h2 className="font-semibold">我的执行任务</h2><p className="mt-1 text-xs text-muted-foreground">这里只显示唯一执行人为你本人的任务；他人的任务不会混入。</p></div><Badge variant="info">{tasks.length} 项</Badge></div>
           <div className="mt-4 grid gap-3">
             {tasks.map((task) => <TaskCard key={task.id} task={task} onFeedback={notify} />)}
-            {(role === "finance" || role === "hr") ? supportRequests.map((request) => <SupportCard key={request.id} request={request} role={role} onFeedback={notify} />) : null}
-            {!tasks.length && !supportRequests.length ? <div className="rounded-2xl border border-dashed border-border p-10 text-center"><CheckCircle2 className="mx-auto text-success" /><p className="mt-2 font-medium">当前没有待办事项</p><p className="mt-1 text-xs text-muted-foreground">新的任务或协同申请会自动出现在这里。</p></div> : null}
+            {!tasks.length ? <div className="rounded-2xl border border-dashed border-border p-10 text-center"><CheckCircle2 className="mx-auto text-success" /><p className="mt-2 font-medium">当前没有本人执行任务</p><p className="mt-1 text-xs text-muted-foreground">新任务分配给你后会自动出现在这里。</p></div> : null}
           </div>
         </GlassCard>
+        {reviewTasks.length ? <GlassCard className="p-4 sm:p-5" role="region" aria-label="我负责验收"><div className="flex items-center justify-between"><div><h2 className="font-semibold">我负责验收</h2><p className="mt-1 text-xs text-muted-foreground">以下是他人已提交、需要你验收或协调的事项，与本人执行任务分开。</p></div><Badge variant="warning">{reviewTasks.length} 项</Badge></div><div className="mt-4 grid gap-3">{reviewTasks.map((task) => <TaskCard key={task.id} task={task} onFeedback={notify} />)}</div></GlassCard> : null}
+        {(role === "finance" || role === "hr") && supportRequests.length ? <GlassCard className="p-4 sm:p-5" role="region" aria-label="岗位协同事项"><div className="flex items-center justify-between"><div><h2 className="font-semibold">岗位协同事项</h2><p className="mt-1 text-xs text-muted-foreground">预算、付款、人员与培训申请按岗位独立办理。</p></div><Badge variant="info">{supportRequests.length} 项</Badge></div><div className="mt-4 grid gap-3">{supportRequests.map((request) => <SupportCard key={request.id} request={request} role={role} onFeedback={notify} />)}</div></GlassCard> : null}
+        </div>
 
         <aside className="grid h-fit gap-3 xl:sticky xl:top-22">
           <GlassCard className="p-4"><div className="flex items-center gap-2"><Clock3 className="size-4 text-primary" /><h2 className="font-semibold">最近流转</h2></div><div className="mt-3 grid gap-3">{state.events.slice(0, 6).map((item) => <div key={item.id} className="border-l-2 border-brand-soft pl-3"><p className="text-xs font-medium">{item.action} · {item.actorName ?? getActor(item.actorId).name}</p><p className="mt-1 text-[11px] leading-4 text-muted-foreground">{item.detail}</p></div>)}</div></GlassCard>
-          <GlassCard className="p-4"><h2 className="font-semibold">常用入口</h2><div className="mt-3 grid gap-2">{role === "department_head" || role === "employee" ? <Button asChild variant="outline" className="justify-between"><Link href="/tasks">查看我的任务<ArrowRight /></Link></Button> : null}{role === "finance" ? <Button asChild variant="outline" className="justify-between"><Link href="/payroll">薪资办理<ArrowRight /></Link></Button> : null}{role === "hr" ? <Button asChild variant="outline" className="justify-between"><Link href="/people">人员管理<ArrowRight /></Link></Button> : null}<Button asChild variant="outline" className="justify-between"><Link href="/approvals">我的审批待办<ArrowRight /></Link></Button>{isFixtureBound && !demo.enabled ? <Button type="button" variant="ghost" onClick={() => { resetOperationsState(context); notify("本地业务数据已恢复到初始状态"); }}><RotateCcw />重置本地试用数据</Button> : null}</div></GlassCard>
+          <GlassCard className="p-4"><h2 className="font-semibold">常用入口</h2><div className="mt-3 grid gap-2">{role === "department_head" || role === "employee" ? <Button asChild variant="outline" className="justify-between"><Link href="/tasks">查看我的任务<ArrowRight /></Link></Button> : null}{role === "finance" ? <Button asChild variant="outline" className="justify-between"><Link href="/payroll#payroll-control">薪资核算与发放<ArrowRight /></Link></Button> : null}{role === "hr" ? <><Button asChild variant="outline" className="justify-between"><Link href="/attendance#monthly-close">考勤复核与封账<ArrowRight /></Link></Button><Button asChild variant="outline" className="justify-between"><Link href="/payroll#payroll-control">工资单复核<ArrowRight /></Link></Button><Button asChild variant="outline" className="justify-between"><Link href="/people">人员管理<ArrowRight /></Link></Button></> : null}<Button asChild variant="outline" className="justify-between"><Link href="/approvals">我的审批待办<ArrowRight /></Link></Button>{isFixtureBound && !demo.enabled ? <Button type="button" variant="ghost" onClick={() => { resetOperationsState(context); notify("本地业务数据已恢复到初始状态"); }}><RotateCcw />重置本地试用数据</Button> : null}</div></GlassCard>
         </aside>
       </section>
     </main>

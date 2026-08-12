@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { AttendancePage } from "@/features/attendance/attendance-page";
 
 export default function AttendanceRoute() {
-  redirect("/tasks");
+  return <AttendancePage />;
 }

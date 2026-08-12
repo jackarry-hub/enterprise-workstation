@@ -33,6 +33,7 @@ import { ProgressBar } from "@/components/ui/progress-bar";
 import { Textarea } from "@/components/ui/textarea";
 import {
   clearStoredDecision,
+  createCustomerDemoDecision,
   createDecisionPlan,
   createDraftDecision,
   dispatchDecisionPlan,
@@ -470,7 +471,7 @@ export function DecisionWorkbench() {
   const session = useWorkspaceSession();
   const demo = useCustomerDemoSession();
   const { context: operationContext, state: operationState } = useOperations(session);
-  const [decision, setDecision] = useState<StoredDecision>(() => createDraftDecision());
+  const [decision, setDecision] = useState<StoredDecision>(() => demo.enabled ? createCustomerDemoDecision() : createDraftDecision());
   const [project, setProject] = useState<ProjectDetailData>();
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -482,9 +483,11 @@ export function DecisionWorkbench() {
     if (stored) {
       setDecision(stored);
       setProject(findDecisionProject(operationContext, stored.projectId));
+    } else if (demo.enabled) {
+      setDecision(createCustomerDemoDecision());
     }
     setReady(true);
-  }, [operationContext]);
+  }, [demo.enabled, operationContext]);
 
   useEffect(() => {
     if (ready && operationContext.actor) saveStoredDecision(operationContext, decision);
@@ -498,7 +501,7 @@ export function DecisionWorkbench() {
 
   useEffect(() => {
     const reset = () => {
-      setDecision(createDraftDecision());
+      setDecision(demo.enabled ? createCustomerDemoDecision() : createDraftDecision());
       setProject(undefined);
       setSelectedTask(null);
       setBusy(false);
@@ -506,7 +509,7 @@ export function DecisionWorkbench() {
     };
     window.addEventListener(CUSTOMER_DEMO_RESET_EVENT, reset);
     return () => window.removeEventListener(CUSTOMER_DEMO_RESET_EVENT, reset);
-  }, []);
+  }, [demo.enabled]);
 
   const plan = useMemo(
     () => decision.plan ? hydrateDecisionPlan(decision.plan, project) : undefined,
@@ -514,7 +517,11 @@ export function DecisionWorkbench() {
   );
   const progress = getDecisionProgress(plan);
   const decisionStep = decision.stage === "draft" ? 0 : decision.stage === "review" ? 1 : progress.completionRate === 100 ? 3 : 2;
-  const currentStep = demo.enabled ? (operationState.command.status === "executing" ? 2 : 3) : decisionStep;
+  const currentStep = demo.enabled
+    ? operationState.command.status !== "executing"
+      ? 3
+      : decision.stage === "issued" ? 2 : decisionStep
+    : decisionStep;
   const selectedDepartment = plan?.departments.find(({ id }) => id === selectedTask?.departmentId);
 
   function updateInput(input: DecisionInput) {

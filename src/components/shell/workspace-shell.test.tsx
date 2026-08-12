@@ -195,7 +195,10 @@ describe("WorkspaceShell", () => {
     expect(window.localStorage.getItem(operationsKey)).not.toBe("changed");
     expect(JSON.parse(window.localStorage.getItem(operationsKey) ?? "null").tasks.filter(
       ({ status }: { status: string }) => status !== "done",
-    )).toEqual([expect.objectContaining({ id: "flow-task-02", status: "in_progress" })]);
+    )).toHaveLength(10);
+    expect(JSON.parse(window.localStorage.getItem(operationsKey) ?? "null").tasks.every(
+      ({ status, progress }: { status: string; progress: number }) => status === "todo" && progress === 0,
+    )).toBe(true);
     expect(window.localStorage.getItem(CUSTOMER_DEMO_ACTOR_KEY)).toBe("demo-executive");
     expect(navigation.push).toHaveBeenCalledWith("/dashboard");
     expect(navigation.refresh).toHaveBeenCalled();

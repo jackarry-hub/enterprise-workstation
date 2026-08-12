@@ -1,7 +1,7 @@
 import type { WorkspaceRole } from "@/features/auth/workspace-session-types";
 
 const roleRoutePrefixes: Record<WorkspaceRole, readonly string[]> = {
-  // Keep /attendance accessible only so legacy bookmarks can reach its server redirect to /tasks.
+  // Attendance stays directly accessible because HR and payroll closure actions link to its operating panels.
   executive: [
     "/help",
     "/notifications",
