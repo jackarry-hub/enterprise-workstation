@@ -8,8 +8,13 @@ import {
   type WorkspaceIdentityContext,
 } from "@/features/operations/operation-actor-compat";
 import { PayrollDetailPage } from "@/features/salary/payroll-detail-page";
+import { salaryMockResult } from "@/features/salary/salary-mock-data";
 
 export const metadata: Metadata = { title: "工资详情 | 企业工作站" };
+
+export function generateStaticParams() {
+  return salaryMockResult.data.records.map(({ id }) => ({ id }));
+}
 
 export default async function PayrollDetailRoute({ params }: { params: Promise<{ id: string }> }) {
   const session = await requireWorkspaceSession();

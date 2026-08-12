@@ -7,8 +7,6 @@ export const metadata: Metadata = {
   title: "项目管理中心 | 企业工作站",
 };
 
-export const dynamic = "force-dynamic";
-
 export default async function ProjectsRoute() {
   const result = await loadProjectList();
 

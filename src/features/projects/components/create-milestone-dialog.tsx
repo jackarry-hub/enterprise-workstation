@@ -12,10 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  createProjectMilestone,
-  type CreateMilestoneInput,
-} from "@/features/projects/actions/create-project-milestone";
+import type { CreateMilestoneInput, CreateMilestoneResult } from "@/features/projects/actions/create-project-milestone";
 import type { Milestone, ProjectDetailData } from "@/features/projects/types";
 import { formatDateInputInTimeZone } from "@/lib/date";
 
@@ -71,7 +68,9 @@ export function CreateMilestoneDialog({
       progress,
     };
 
-    const result = await createProjectMilestone(input);
+    const result: CreateMilestoneResult = allowLocalFallback
+      ? { ok: false, reason: "unavailable" as const, message: "演示数据保存在当前浏览器。" }
+      : await import("@/features/projects/actions/create-project-milestone").then(({ createProjectMilestone }) => createProjectMilestone(input));
 
     if (!result.ok && !(result.reason === "unavailable" && allowLocalFallback)) {
       setMessage(result.message);

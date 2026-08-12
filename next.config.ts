@@ -1,7 +1,13 @@
 import type { NextConfig } from "next";
 
+const githubPages = process.env.GITHUB_PAGES === "true";
+
 const nextConfig: NextConfig = {
-  /* config options here */
+  ...(githubPages ? {
+    output: "export" as const,
+    trailingSlash: true,
+    images: { unoptimized: true },
+  } : {}),
 };
 
 export default nextConfig;

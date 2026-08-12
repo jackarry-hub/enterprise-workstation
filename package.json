@@ -7,6 +7,7 @@
     "dev:demo": "set CUSTOMER_DEMO_MODE=true&& next dev",
     "build": "next build",
     "build:demo": "set CUSTOMER_DEMO_MODE=true&& next build",
+    "build:github-pages": "node scripts/build-github-pages.mjs",
     "start": "next start",
     "start:demo": "set CUSTOMER_DEMO_MODE=true&& next start",
     "lint": "eslint .",

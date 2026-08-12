@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { RealDataUnavailable } from "@/components/ui/real-data-boundary";
 import { ApprovalDetailPage } from "@/features/approvals/approval-detail-page";
+import { approvalMockResult } from "@/features/approvals/approval-mock-data";
 import { requireWorkspaceSession } from "@/features/auth/workspace-session";
 import {
   createOperationFixtureContext,
@@ -10,6 +11,10 @@ import {
 } from "@/features/operations/operation-actor-compat";
 
 export const metadata: Metadata = { title: "审批详情 | 企业工作站" };
+
+export function generateStaticParams() {
+  return approvalMockResult.data.approvals.map(({ id }) => ({ id }));
+}
 
 export default async function ApprovalDetailRoute({ params }: { params: Promise<{ id: string }> }) {
   const session = await requireWorkspaceSession();

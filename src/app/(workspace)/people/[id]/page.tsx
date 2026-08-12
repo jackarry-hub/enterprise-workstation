@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { RealDataUnavailable } from "@/components/ui/real-data-boundary";
 import { requireWorkspaceSession } from "@/features/auth/workspace-session";
 import { EmployeeDetailPage } from "@/features/hr/employee-detail-page";
+import { mockEmployees } from "@/features/hr/employee-mock-data";
 import {
   createOperationFixtureContext,
   type WorkspaceIdentityContext,
@@ -12,6 +13,10 @@ import {
 export const metadata: Metadata = {
   title: "员工档案 | 企业工作站",
 };
+
+export function generateStaticParams() {
+  return mockEmployees.map(({ profile }) => ({ id: profile.id }));
+}
 
 export default async function EmployeeDetailRoute({
   params,
