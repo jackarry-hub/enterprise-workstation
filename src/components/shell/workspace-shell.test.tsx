@@ -1,14 +1,27 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { WorkspaceHeader } from "@/components/shell/workspace-header";
 import { WorkspaceShell } from "@/components/shell/workspace-shell";
 import { WorkspaceSessionProvider } from "@/features/auth/workspace-session-provider";
-import { useCustomerDemoSession } from "@/features/auth/workspace-session-provider";
+import { CUSTOMER_DEMO_ACTOR_KEY, useCustomerDemoSession } from "@/features/auth/workspace-session-provider";
 import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
 import { customerDemoSessions } from "@/features/demo/customer-demo-data";
+import { CUSTOMER_DEMO_STORAGE_NAMESPACE } from "@/features/demo/customer-demo-state";
+
+const navigation = vi.hoisted(() => ({
+  push: vi.fn(),
+  replace: vi.fn(),
+  refresh: vi.fn(),
+}));
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/dashboard",
+  useRouter: () => navigation,
+  useSearchParams: () => new URLSearchParams(),
+}));
 
 const executiveSession: WorkspaceSession = {
   tenantId: "10000000-0000-4000-8000-000000000000",
@@ -102,7 +115,12 @@ function DemoProbe() {
 }
 
 describe("WorkspaceShell", () => {
-  beforeEach(() => window.localStorage.clear());
+  beforeEach(() => {
+    window.localStorage.clear();
+    navigation.push.mockClear();
+    navigation.replace.mockClear();
+    navigation.refresh.mockClear();
+  });
 
   it("renders the reviewed server session identity without demo switching controls", async () => {
     const user = userEvent.setup();
@@ -130,6 +148,51 @@ describe("WorkspaceShell", () => {
     );
 
     expect(screen.getByText("客户演示会话已启用")).toBeVisible();
+  });
+
+  it("switches among all ten customer demo identities from the user menu", async () => {
+    const user = userEvent.setup();
+    render(
+      <WorkspaceShell session={customerDemoSessions[0]} demoSessions={customerDemoSessions}>
+        <p>演示内容</p>
+      </WorkspaceShell>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "打开用户菜单" }));
+
+    expect(screen.getByText("切换演示身份")).toBeVisible();
+    expect(screen.getAllByRole("menuitem", { name: /^切换为 / })).toHaveLength(10);
+
+    await user.click(screen.getByRole("menuitem", { name: "切换为 陈晨 · 前端工程师" }));
+
+    expect(window.localStorage.getItem(CUSTOMER_DEMO_ACTOR_KEY)).toBe("demo-engineer");
+    expect(navigation.push).toHaveBeenCalledWith("/execution");
+  });
+
+  it("confirms and resets shared customer demo business data without losing the selected identity", async () => {
+    const user = userEvent.setup();
+    const operationsKey = `enterprise-workspace.operations.v1:${CUSTOMER_DEMO_STORAGE_NAMESPACE}`;
+    window.localStorage.setItem(operationsKey, "changed");
+    window.localStorage.setItem(CUSTOMER_DEMO_ACTOR_KEY, "demo-executive");
+    render(
+      <WorkspaceShell session={customerDemoSessions[0]} demoSessions={customerDemoSessions}>
+        <p>演示内容</p>
+      </WorkspaceShell>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "打开用户菜单" }));
+    await user.click(screen.getByRole("menuitem", { name: "重置演示数据" }));
+    expect(screen.getByRole("heading", { name: "确认重置客户演示数据？" })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "确认重置" }));
+
+    expect(window.localStorage.getItem(operationsKey)).not.toBe("changed");
+    expect(JSON.parse(window.localStorage.getItem(operationsKey) ?? "null").tasks.filter(
+      ({ status }: { status: string }) => status !== "done",
+    )).toEqual([expect.objectContaining({ id: "flow-task-02", status: "in_progress" })]);
+    expect(window.localStorage.getItem(CUSTOMER_DEMO_ACTOR_KEY)).toBe("demo-executive");
+    expect(navigation.push).toHaveBeenCalledWith("/dashboard");
+    expect(navigation.refresh).toHaveBeenCalled();
   });
 
   it("exposes the enterprise navigation and workspace controls", () => {

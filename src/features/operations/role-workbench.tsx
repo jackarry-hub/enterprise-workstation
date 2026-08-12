@@ -17,6 +17,7 @@ import {
   LoaderCircle,
   RotateCcw,
   ShieldCheck,
+  Sparkles,
   UserRoundCheck,
   UsersRound,
 } from "lucide-react";
@@ -27,8 +28,9 @@ import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { Textarea } from "@/components/ui/textarea";
-import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { useCustomerDemoSession, useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import type { WorkspaceRole } from "@/features/auth/workspace-session-types";
+import { createCustomerDemoDeliverableFile } from "@/features/demo/customer-demo-deliverable";
 import { downloadOperationFile, storeOperationFile } from "@/features/operations/file-storage";
 import { OperationActionInbox } from "@/features/operations/operation-action-inbox";
 import {
@@ -76,13 +78,11 @@ function formatBytes(value: number) {
 
 function OperationUpload({ entityType, entityId, label = "上传成果", onFeedback }: { entityType: OperationFile["entityType"]; entityId: string; label?: string; onFeedback: (message: string, tone?: "error" | "success") => void }) {
   const session = useWorkspaceSession();
+  const demo = useCustomerDemoSession();
   const { state, context, actor } = useOperations(session);
   const [busy, setBusy] = useState(false);
 
-  async function upload(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
+  async function saveFile(file: File) {
     setBusy(true);
     try {
       const version = state.files.filter((item) => item.entityType === entityType && item.entityId === entityId && item.name === file.name).length + 1;
@@ -96,10 +96,23 @@ function OperationUpload({ entityType, entityId, label = "上传成果", onFeedb
     }
   }
 
+  async function upload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) await saveFile(file);
+  }
+
   return (
-    <Button asChild type="button" variant="outline" size="sm" className="cursor-pointer">
-      <label>{busy ? <LoaderCircle className="animate-spin" /> : <FileUp />}{busy ? "上传中…" : label}<input className="sr-only" type="file" onChange={upload} disabled={busy} /></label>
-    </Button>
+    <>
+      <Button asChild type="button" variant="outline" size="sm" className="cursor-pointer">
+        <label>{busy ? <LoaderCircle className="animate-spin" /> : <FileUp />}{busy ? "上传中…" : label}<input className="sr-only" type="file" onChange={upload} disabled={busy} /></label>
+      </Button>
+      {demo.enabled && entityType === "task" ? (
+        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => saveFile(createCustomerDemoDeliverableFile())}>
+          <Sparkles aria-hidden="true" />使用演示成果
+        </Button>
+      ) : null}
+    </>
   );
 }
 
@@ -230,6 +243,7 @@ function SupportCard({ request, role, onFeedback }: { request: SupportRequest; r
 
 export function RoleWorkbench({ role }: { role: Exclude<WorkspaceRole, "executive"> }) {
   const session = useWorkspaceSession();
+  const demo = useCustomerDemoSession();
   const { state, context, actor, isFixtureBound } = useOperations(session);
   const [feedback, setFeedback] = useState<{ message: string; tone: "error" | "success" } | null>(null);
   const copy = roleCopy[role];
@@ -278,7 +292,7 @@ export function RoleWorkbench({ role }: { role: Exclude<WorkspaceRole, "executiv
 
         <aside className="grid h-fit gap-3 xl:sticky xl:top-22">
           <GlassCard className="p-4"><div className="flex items-center gap-2"><Clock3 className="size-4 text-primary" /><h2 className="font-semibold">最近流转</h2></div><div className="mt-3 grid gap-3">{state.events.slice(0, 6).map((item) => <div key={item.id} className="border-l-2 border-brand-soft pl-3"><p className="text-xs font-medium">{item.action} · {item.actorName ?? getActor(item.actorId).name}</p><p className="mt-1 text-[11px] leading-4 text-muted-foreground">{item.detail}</p></div>)}</div></GlassCard>
-          <GlassCard className="p-4"><h2 className="font-semibold">常用入口</h2><div className="mt-3 grid gap-2">{role === "department_head" || role === "employee" ? <Button asChild variant="outline" className="justify-between"><Link href="/tasks">查看我的任务<ArrowRight /></Link></Button> : null}{role === "finance" ? <Button asChild variant="outline" className="justify-between"><Link href="/payroll">薪资办理<ArrowRight /></Link></Button> : null}{role === "hr" ? <Button asChild variant="outline" className="justify-between"><Link href="/people">人员管理<ArrowRight /></Link></Button> : null}<Button asChild variant="outline" className="justify-between"><Link href="/approvals">我的审批待办<ArrowRight /></Link></Button>{isFixtureBound ? <Button type="button" variant="ghost" onClick={() => { resetOperationsState(context); notify("本地业务数据已恢复到初始状态"); }}><RotateCcw />重置本地试用数据</Button> : null}</div></GlassCard>
+          <GlassCard className="p-4"><h2 className="font-semibold">常用入口</h2><div className="mt-3 grid gap-2">{role === "department_head" || role === "employee" ? <Button asChild variant="outline" className="justify-between"><Link href="/tasks">查看我的任务<ArrowRight /></Link></Button> : null}{role === "finance" ? <Button asChild variant="outline" className="justify-between"><Link href="/payroll">薪资办理<ArrowRight /></Link></Button> : null}{role === "hr" ? <Button asChild variant="outline" className="justify-between"><Link href="/people">人员管理<ArrowRight /></Link></Button> : null}<Button asChild variant="outline" className="justify-between"><Link href="/approvals">我的审批待办<ArrowRight /></Link></Button>{isFixtureBound && !demo.enabled ? <Button type="button" variant="ghost" onClick={() => { resetOperationsState(context); notify("本地业务数据已恢复到初始状态"); }}><RotateCcw />重置本地试用数据</Button> : null}</div></GlassCard>
         </aside>
       </section>
     </main>

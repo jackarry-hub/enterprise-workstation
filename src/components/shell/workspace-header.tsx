@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Bell, ChevronDown, CircleHelp, LogOut, Mail, Menu, Search, Settings, UserRound, UsersRound } from "lucide-react";
+import { Bell, Check, ChevronDown, CircleHelp, LogOut, Mail, Menu, RotateCcw, Search, Settings, UserRound, UsersRound } from "lucide-react";
 
 import { WorkspaceSearchDialog } from "@/components/shell/workspace-search-dialog";
 import { WorkspaceSidebar } from "@/components/shell/workspace-sidebar";
@@ -13,16 +14,20 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { navigationItems } from "@/config/navigation";
 import { signOut } from "@/features/auth/actions";
-import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { useCustomerDemoSession, useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { resetCustomerDemoState } from "@/features/demo/customer-demo-state";
 import { getOperationNotifications, markOperationNotificationRead } from "@/features/operations/operations-data";
 import { useOperations } from "@/features/operations/use-operations";
 
 export function WorkspaceHeader() {
+  const router = useRouter();
   const session = useWorkspaceSession();
+  const demo = useCustomerDemoSession();
   const { actor: workspaceActor, profile } = session;
   const { state, context, actor: operationActor } = useOperations(session);
   const [searchOpen, setSearchOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
   const notifications = getOperationNotifications(state, operationActor.id);
   const unreadCount = notifications.filter(({ read }) => !read).length;
   const helpLinks = navigationItems.filter(({ available, roles }) => available && (!roles || roles.includes(workspaceActor.role))).slice(0, 3);
@@ -88,12 +93,44 @@ export function WorkspaceHeader() {
                 <ChevronDown data-icon="inline-end" aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuContent align="end" className={demo.enabled ? "w-80" : "w-52"}>
               <DropdownMenuLabel className="min-w-0">
                 <span className="block truncate text-sm font-medium">{profile.displayName}</span>
                 <span className="block truncate text-[11px] font-normal text-muted-foreground">{profile.departmentName} · {profile.jobTitle}</span>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
+              {demo.enabled ? (
+                <>
+                  <DropdownMenuLabel className="text-xs text-muted-foreground">切换演示身份</DropdownMenuLabel>
+                  <DropdownMenuGroup>
+                    {demo.sessions.map((candidate) => {
+                      const personId = candidate.identity.providerSubject.replace("customer-demo:", "");
+                      const selected = demo.currentPersonId === personId;
+                      return (
+                        <DropdownMenuItem
+                          key={candidate.authUserId}
+                          aria-label={`切换为 ${candidate.profile.displayName} · ${candidate.profile.jobTitle}`}
+                          onSelect={() => {
+                            const next = demo.switchIdentity(personId);
+                            if (next) router.push(next.landingPath);
+                          }}
+                          className="items-start py-2"
+                        >
+                          <span className="grid size-5 shrink-0 place-items-center">{selected ? <Check aria-hidden="true" /> : null}</span>
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium">{candidate.profile.displayName} · {candidate.profile.jobTitle}</span>
+                            <span className="block truncate text-[11px] text-muted-foreground">{candidate.profile.departmentName}</span>
+                          </span>
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem variant="destructive" onSelect={() => setResetOpen(true)}>
+                    <RotateCcw aria-hidden="true" />重置演示数据
+                  </DropdownMenuItem>
+                </>
+              ) : null}
               <DropdownMenuGroup>
                 {workspaceActor.role === "executive" ? <><DropdownMenuItem asChild><Link href="/settings?tab=personal"><UserRound aria-hidden="true" />个人资料</Link></DropdownMenuItem><DropdownMenuItem asChild><Link href="/settings?tab=notifications"><Settings aria-hidden="true" />偏好设置</Link></DropdownMenuItem></> : null}
                 {workspaceActor.role === "department_head" ? <><DropdownMenuItem asChild><Link href="/people"><UsersRound aria-hidden="true" />我的团队</Link></DropdownMenuItem><DropdownMenuItem asChild><Link href="/leave"><UserRound aria-hidden="true" />请假与审批</Link></DropdownMenuItem></> : null}
@@ -101,12 +138,7 @@ export function WorkspaceHeader() {
                 {workspaceActor.role === "finance" ? <><DropdownMenuItem asChild><Link href="/payroll"><UserRound aria-hidden="true" />薪资办理</Link></DropdownMenuItem><DropdownMenuItem asChild><Link href="/leave"><Settings aria-hidden="true" />我的请假</Link></DropdownMenuItem></> : null}
                 {workspaceActor.role === "hr" ? <><DropdownMenuItem asChild><Link href="/people"><UsersRound aria-hidden="true" />人员管理</Link></DropdownMenuItem><DropdownMenuItem asChild><Link href="/payroll"><Settings aria-hidden="true" />薪资复核</Link></DropdownMenuItem></> : null}
               </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              <form action={signOut}>
-                <DropdownMenuItem asChild variant="destructive">
-                  <button type="submit" className="w-full"><LogOut aria-hidden="true" />退出登录</button>
-                </DropdownMenuItem>
-              </form>
+              {!demo.enabled ? <><DropdownMenuSeparator /><form action={signOut}><DropdownMenuItem asChild variant="destructive"><button type="submit" className="w-full"><LogOut aria-hidden="true" />退出登录</button></DropdownMenuItem></form></> : null}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -115,6 +147,23 @@ export function WorkspaceHeader() {
       <WorkspaceSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
       <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
         <DialogContent><DialogHeader><DialogTitle>{workspaceActor.roleLabel}工作台帮助</DialogTitle><DialogDescription>这里只提供当前岗位需要的业务入口；其他岗位数据不会出现在菜单和搜索中。</DialogDescription></DialogHeader><div className="grid gap-2 sm:grid-cols-3">{helpLinks.map((item) => <Button key={item.href} asChild variant="outline"><Link href={item.href} onClick={() => setHelpOpen(false)}>{item.label}</Link></Button>)}</div><Button asChild><Link href="/help" onClick={() => setHelpOpen(false)}>打开完整使用指南</Link></Button></DialogContent>
+      </Dialog>
+      <Dialog open={resetOpen} onOpenChange={setResetOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认重置客户演示数据？</DialogTitle>
+            <DialogDescription>任务、项目、客户和设置会恢复为演示初始状态，当前选择的演示身份会保留。</DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setResetOpen(false)}>取消</Button>
+            <Button type="button" variant="destructive" onClick={() => {
+              resetCustomerDemoState();
+              setResetOpen(false);
+              router.push("/dashboard");
+              router.refresh();
+            }}>确认重置</Button>
+          </div>
+        </DialogContent>
       </Dialog>
     </>
   );
