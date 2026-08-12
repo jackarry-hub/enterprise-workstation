@@ -176,6 +176,16 @@ function createSeedStateForContext(context: OperationFixtureContext): Operations
     })),
     files: [],
     knowledge: [],
+    attendance: {
+      ...seed.attendance,
+      corrections: seed.attendance.corrections.map((request) => ({ ...request, status: "approved" as const })),
+      overtimeRequests: seed.attendance.overtimeRequests.map((request) => ({ ...request, status: "approved" as const })),
+    },
+    payrollRun: {
+      ...seed.payrollRun,
+      attendanceLocked: false,
+      exceptionCount: 0,
+    },
     events: seed.events.filter(({ action }) => action === "下达命令"),
   };
 }

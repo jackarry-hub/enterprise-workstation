@@ -1,4 +1,5 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { WorkspaceSessionProvider } from "@/features/auth/workspace-session-provider";
@@ -52,6 +53,19 @@ describe("DecisionWorkbench customer demo progress", () => {
       const current = screen.getByRole("list", { name: "决策推进流程" }).querySelector('[aria-current="step"]');
       expect(current).toHaveTextContent("汇总复盘");
     });
+  });
+
+  it("keeps the CEO dispatch result focused on the shared project instead of personal tasks", async () => {
+    const user = userEvent.setup();
+    render(
+      <WorkspaceSessionProvider session={executiveSession} demoSessions={customerDemoSessions}>
+        <DecisionWorkbench />
+      </WorkspaceSessionProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "确认方案并下发 10 项任务" }));
+    expect(await screen.findByRole("link", { name: "查看专项项目" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: "查看个人任务" })).not.toBeInTheDocument();
   });
 
   it("clears a stale issued plan immediately when the customer demo is reset", async () => {

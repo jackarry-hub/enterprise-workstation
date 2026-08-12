@@ -336,7 +336,7 @@ function PlanWorkspace({
         <GlassCard className="flex flex-col gap-3 border-success/25 bg-success-soft/80 p-4 sm:flex-row sm:items-center">
           <span className="grid size-10 shrink-0 place-items-center rounded-full bg-success text-white"><Check aria-hidden="true" className="size-5" /></span>
           <div className="min-w-0 flex-1"><p className="font-semibold text-foreground">任务已下发到部门和个人工作台</p><p className="mt-1 text-xs text-muted-foreground">任务状态变化会自动回流到本页，供李总统一把关。</p></div>
-          <div className="flex gap-2"><Button asChild variant="outline"><Link href={projectId ? `/projects/${projectId}` : "/projects"}>查看专项项目</Link></Button><Button asChild><Link href="/tasks">查看个人任务<ArrowRight data-icon="inline-end" aria-hidden="true" /></Link></Button></div>
+          <Button asChild variant="outline"><Link href={projectId ? `/projects/${projectId}` : "/projects"}>查看专项项目</Link></Button>
         </GlassCard>
       ) : null}
 

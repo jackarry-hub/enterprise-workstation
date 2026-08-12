@@ -95,6 +95,8 @@ describe("operations business closure", () => {
     expect(state.tasks.every(({ status, progress }) => status === "todo" && progress === 0)).toBe(true);
     expect(state.command.projectId).toBeUndefined();
     expect(getOperationWeeklySummary(state, "actor-executive").completionRate).toBe(0);
+    expect(state.payrollRun).toMatchObject({ status: "draft", attendanceLocked: false, exceptionCount: 0 });
+    expect([...state.attendance.corrections, ...state.attendance.overtimeRequests].every(({ status }) => status === "approved")).toBe(true);
   });
 
   it("maps every project member to an explicit workspace actor", () => {

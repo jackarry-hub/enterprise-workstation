@@ -305,6 +305,11 @@ export function RoleWorkbench({ role }: { role: Exclude<WorkspaceRole, "executiv
 
       <OperationActionInbox state={state} actor={actor} />
 
+      <GlassCard className="border-primary/20 bg-brand-soft/35 p-4">
+        <div className="flex items-center justify-between gap-3"><div><h2 className="font-semibold">常用入口</h2><p className="mt-1 text-xs text-muted-foreground">当前岗位高频操作，点击直接进入办理位置。</p></div><Badge variant="info">快捷办理</Badge></div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{role === "department_head" || role === "employee" ? <Button asChild variant="outline" className="justify-between bg-background/80"><Link href="/tasks">查看我的任务<ArrowRight /></Link></Button> : null}{role === "finance" ? <Button asChild variant="outline" className="justify-between bg-background/80"><Link href="/payroll#payroll-control">薪资核算与发放<ArrowRight /></Link></Button> : null}{role === "hr" ? <><Button asChild variant="outline" className="justify-between bg-background/80"><Link href="/attendance#monthly-close">考勤复核与封账<ArrowRight /></Link></Button><Button asChild variant="outline" className="justify-between bg-background/80"><Link href="/payroll#payroll-control">工资单复核<ArrowRight /></Link></Button><Button asChild variant="outline" className="justify-between bg-background/80"><Link href="/people">人员管理<ArrowRight /></Link></Button></> : null}<Button asChild variant="outline" className="justify-between bg-background/80"><Link href="/approvals">我的审批待办<ArrowRight /></Link></Button>{isFixtureBound && !demo.enabled ? <Button type="button" variant="ghost" onClick={() => { resetOperationsState(context); notify("本地业务数据已恢复到初始状态"); }}><RotateCcw />重置本地试用数据</Button> : null}</div>
+      </GlassCard>
+
       <section className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_19rem]">
         <div className="grid gap-3">
         <GlassCard className="p-4 sm:p-5" role="region" aria-label="我的执行任务">
@@ -320,7 +325,6 @@ export function RoleWorkbench({ role }: { role: Exclude<WorkspaceRole, "executiv
 
         <aside className="grid h-fit gap-3 xl:sticky xl:top-22">
           <GlassCard className="p-4"><div className="flex items-center gap-2"><Clock3 className="size-4 text-primary" /><h2 className="font-semibold">最近流转</h2></div><div className="mt-3 grid gap-3">{state.events.slice(0, 6).map((item) => <div key={item.id} className="border-l-2 border-brand-soft pl-3"><p className="text-xs font-medium">{item.action} · {item.actorName ?? getActor(item.actorId).name}</p><p className="mt-1 text-[11px] leading-4 text-muted-foreground">{item.detail}</p></div>)}</div></GlassCard>
-          <GlassCard className="p-4"><h2 className="font-semibold">常用入口</h2><div className="mt-3 grid gap-2">{role === "department_head" || role === "employee" ? <Button asChild variant="outline" className="justify-between"><Link href="/tasks">查看我的任务<ArrowRight /></Link></Button> : null}{role === "finance" ? <Button asChild variant="outline" className="justify-between"><Link href="/payroll#payroll-control">薪资核算与发放<ArrowRight /></Link></Button> : null}{role === "hr" ? <><Button asChild variant="outline" className="justify-between"><Link href="/attendance#monthly-close">考勤复核与封账<ArrowRight /></Link></Button><Button asChild variant="outline" className="justify-between"><Link href="/payroll#payroll-control">工资单复核<ArrowRight /></Link></Button><Button asChild variant="outline" className="justify-between"><Link href="/people">人员管理<ArrowRight /></Link></Button></> : null}<Button asChild variant="outline" className="justify-between"><Link href="/approvals">我的审批待办<ArrowRight /></Link></Button>{isFixtureBound && !demo.enabled ? <Button type="button" variant="ghost" onClick={() => { resetOperationsState(context); notify("本地业务数据已恢复到初始状态"); }}><RotateCcw />重置本地试用数据</Button> : null}</div></GlassCard>
         </aside>
       </section>
     </main>

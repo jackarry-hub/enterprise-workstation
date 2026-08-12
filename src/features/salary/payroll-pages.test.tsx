@@ -15,8 +15,6 @@ import {
   lockAttendancePeriod,
   readOperationsState,
   resetOperationsState,
-  reviewAttendanceCorrection,
-  reviewOvertimeRequest,
   saveOperationsState,
 } from "@/features/operations/operations-data";
 
@@ -114,7 +112,7 @@ describe("payroll pages", () => {
     expect(within(screen.getByRole("complementary")).getAllByText("待处理")).toHaveLength(5);
   });
 
-  it("sends HR to the unresolved attendance queue before allowing payroll calculation", () => {
+  it("lets HR start the customer payroll demo at zero by completing attendance close", () => {
     const hrSession = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-hr")!;
     renderWithSpecificWorkspaceSession(
       <WorkspaceSessionProvider session={hrSession} demoSessions={customerDemoSessions}>
@@ -123,7 +121,7 @@ describe("payroll pages", () => {
       hrSession,
     );
 
-    expect(screen.getByRole("link", { name: "先处理 2 项考勤异常" })).toHaveAttribute("href", "/attendance#attendance-approvals");
+    expect(screen.getByRole("link", { name: "去完成考勤封账" })).toHaveAttribute("href", "/attendance#monthly-close");
   });
 
   it("lets finance complete the pending bank payment from payroll and payslip pages", async () => {
@@ -164,14 +162,9 @@ describe("payroll pages", () => {
     const financeSession = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-finance")!;
     const hrSession = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-hr")!;
     const executiveSession = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-executive")!;
-    const managerSession = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-product-head")!;
     const context = createOperationFixtureContext(financeSession);
     const hrContext = createOperationFixtureContext(hrSession);
-    const managerContext = createOperationFixtureContext(managerSession);
     resetOperationsState(context);
-    reviewAttendanceCorrection(hrContext, "correction-20260804-01", "approve", "actor-hr", "门禁记录核验通过");
-    reviewOvertimeRequest(managerContext, "overtime-20260808-01", "approve", "actor-manager", "业务需要明确");
-    reviewOvertimeRequest(hrContext, "overtime-20260808-01", "approve", "actor-hr", "工时记录校验通过");
     lockAttendancePeriod(hrContext, "actor-hr");
 
     let view = renderWithSpecificWorkspaceSession(

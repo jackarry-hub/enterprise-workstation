@@ -136,6 +136,22 @@ describe("RoleWorkbench customer demo", () => {
     expect(within(financeTask).queryByText(/等待前置任务|前置任务/)).not.toBeInTheDocument();
   });
 
+  it("places common shortcuts before recent activity in the role sidebar", () => {
+    const financeSession = sessionFor("demo-finance");
+    render(
+      <WorkspaceSessionProvider session={financeSession} demoSessions={customerDemoSessions}>
+        <RoleWorkbench role="finance" />
+      </WorkspaceSessionProvider>,
+    );
+
+    const shortcuts = screen.getByRole("heading", { name: "常用入口" }).closest("div[data-slot='glass-card']") as HTMLElement;
+    const recent = screen.getByRole("heading", { name: "最近流转" }).closest("div[data-slot='glass-card']") as HTMLElement;
+    const taskRegion = screen.getByRole("region", { name: "我的执行任务" });
+    expect(shortcuts.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(shortcuts.compareDocumentPosition(taskRegion) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(within(shortcuts).getByRole("link", { name: "薪资核算与发放" })).toHaveAttribute("href", "/payroll#payroll-control");
+  });
+
   it("puts the next unfinished task first and exposes its start action in the card header", async () => {
     const user = userEvent.setup();
     const managerSession = sessionFor("demo-product-head");
