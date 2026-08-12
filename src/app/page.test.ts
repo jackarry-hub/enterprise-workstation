@@ -1,10 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const dependencies = vi.hoisted(() => ({
+  customerDemoMode: false,
   getWorkspaceSession: vi.fn(),
   redirect: vi.fn((href: string) => {
     throw new Error(`NEXT_REDIRECT:${href}`);
   }),
+}));
+
+vi.mock("@/features/demo/customer-demo-mode", () => ({
+  isCustomerDemoMode: () => dependencies.customerDemoMode,
 }));
 
 vi.mock("@/features/auth/workspace-session", () => ({
@@ -17,8 +22,16 @@ import Home from "@/app/page";
 
 describe("Home", () => {
   beforeEach(() => {
+    dependencies.customerDemoMode = false;
     dependencies.getWorkspaceSession.mockReset();
     dependencies.redirect.mockClear();
+  });
+
+  it("enters the customer demo without looking up a real session", async () => {
+    dependencies.customerDemoMode = true;
+
+    await expect(Home()).rejects.toThrow("NEXT_REDIRECT:/dashboard");
+    expect(dependencies.getWorkspaceSession).not.toHaveBeenCalled();
   });
 
   it("redirects session lookup failures to a safe configuration status", async () => {

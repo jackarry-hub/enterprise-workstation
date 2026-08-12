@@ -2,10 +2,15 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const dependencies = vi.hoisted(() => ({
+  customerDemoMode: false,
   getWorkspaceSession: vi.fn(),
   redirect: vi.fn((href: string) => {
     throw new Error(`NEXT_REDIRECT:${href}`);
   }),
+}));
+
+vi.mock("@/features/demo/customer-demo-mode", () => ({
+  isCustomerDemoMode: () => dependencies.customerDemoMode,
 }));
 
 vi.mock("@/features/auth/workspace-session", () => ({
@@ -18,8 +23,18 @@ import LoginPage from "@/app/login/page";
 
 describe("LoginPage", () => {
   beforeEach(() => {
+    dependencies.customerDemoMode = false;
     dependencies.getWorkspaceSession.mockReset();
     dependencies.redirect.mockClear();
+  });
+
+  it("redirects the isolated customer demo to its dashboard", async () => {
+    dependencies.customerDemoMode = true;
+
+    await expect(
+      LoginPage({ searchParams: Promise.resolve({}) }),
+    ).rejects.toThrow("NEXT_REDIRECT:/dashboard");
+    expect(dependencies.getWorkspaceSession).not.toHaveBeenCalled();
   });
 
   it("renders a safe login error when session lookup fails", async () => {

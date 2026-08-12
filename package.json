@@ -4,8 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:demo": "set CUSTOMER_DEMO_MODE=true&& next dev",
     "build": "next build",
+    "build:demo": "set CUSTOMER_DEMO_MODE=true&& next build",
     "start": "next start",
+    "start:demo": "set CUSTOMER_DEMO_MODE=true&& next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --exclude \"scripts/phase1/**/*.test.mjs\" --exclude \"scripts/phase2/**/*.test.mjs\" --exclude \".worktrees/**\"",

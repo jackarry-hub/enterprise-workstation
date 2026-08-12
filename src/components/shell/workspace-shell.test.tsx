@@ -6,6 +6,7 @@ import { AppSidebar } from "@/components/shell/app-sidebar";
 import { WorkspaceHeader } from "@/components/shell/workspace-header";
 import { WorkspaceShell } from "@/components/shell/workspace-shell";
 import { WorkspaceSessionProvider } from "@/features/auth/workspace-session-provider";
+import { useCustomerDemoSession } from "@/features/auth/workspace-session-provider";
 import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
 
 const executiveSession: WorkspaceSession = {
@@ -94,6 +95,11 @@ function withSession(session: WorkspaceSession, children: React.ReactNode) {
   );
 }
 
+function DemoProbe() {
+  const demo = useCustomerDemoSession();
+  return <p>{demo.enabled ? "客户演示会话已启用" : "普通会话"}</p>;
+}
+
 describe("WorkspaceShell", () => {
   beforeEach(() => window.localStorage.clear());
 
@@ -113,6 +119,16 @@ describe("WorkspaceShell", () => {
 
     expect(screen.queryByText(["切换", "演示身份"].join(""))).not.toBeInTheDocument();
     expect(screen.getAllByRole("menuitem", { name: "退出登录" })).toHaveLength(1);
+  });
+
+  it("passes customer demo session controls through the workspace shell", () => {
+    render(
+      <WorkspaceShell session={executiveSession} demoSessions={[executiveSession]}>
+        <DemoProbe />
+      </WorkspaceShell>,
+    );
+
+    expect(screen.getByText("客户演示会话已启用")).toBeVisible();
   });
 
   it("exposes the enterprise navigation and workspace controls", () => {

@@ -7,6 +7,7 @@ import {
   parseWorkspaceAccess,
 } from "@/features/auth/workspace-access";
 import { canRoleAccessPath } from "@/features/operations/role-access";
+import { isCustomerDemoMode } from "@/features/demo/customer-demo-mode";
 import { updateSupabaseSession } from "@/lib/supabase/middleware";
 
 function redirectWithRefreshedCookies(
@@ -30,6 +31,8 @@ function loginDestination(request: NextRequest) {
 }
 
 export async function middleware(request: NextRequest) {
+  if (isCustomerDemoMode()) return NextResponse.next();
+
   const pathname = request.nextUrl.pathname;
   const { response, supabase, subject } = await updateSupabaseSession(request);
 

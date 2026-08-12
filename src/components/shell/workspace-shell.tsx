@@ -10,11 +10,12 @@ import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
 type WorkspaceShellProps = {
   children: ReactNode;
   session: WorkspaceSession;
+  demoSessions?: readonly WorkspaceSession[];
 };
 
-export function WorkspaceShell({ children, session }: WorkspaceShellProps) {
+export function WorkspaceShell({ children, session, demoSessions }: WorkspaceShellProps) {
   return (
-    <WorkspaceSessionProvider session={session}>
+    <WorkspaceSessionProvider session={session} demoSessions={demoSessions}>
       <RoleAccessGuard>
         <div className="workspace-mesh min-h-screen">
           <div className="fixed inset-y-0 left-0 z-50 hidden lg:block">

@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const dependencies = vi.hoisted(() => ({
+  customerDemoMode: false,
   updateSupabaseSession: vi.fn(),
+}));
+
+vi.mock("@/features/demo/customer-demo-mode", () => ({
+  isCustomerDemoMode: () => dependencies.customerDemoMode,
 }));
 
 vi.mock("@/lib/supabase/middleware", () => ({
@@ -167,7 +172,19 @@ describe("workspace access failure policy", () => {
 
 describe("workspace middleware", () => {
   beforeEach(() => {
+    dependencies.customerDemoMode = false;
     dependencies.updateSupabaseSession.mockReset();
+  });
+
+  it("lets the isolated customer demo enter without querying Supabase", async () => {
+    dependencies.customerDemoMode = true;
+
+    const response = await middleware(
+      new NextRequest("https://brain.example/dashboard"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(dependencies.updateSupabaseSession).not.toHaveBeenCalled();
   });
 
   it.each(["/login", "/auth/callback", "/access-pending", "/api/auth/feishu/userinfo"])(
