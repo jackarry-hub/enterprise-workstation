@@ -24,6 +24,7 @@ import type {
 } from "@/features/decision-workbench/decision-workbench-types";
 import { syncDecisionToOperations } from "@/features/operations/operations-data";
 import type { OperationFixtureContext } from "@/features/operations/operation-actor-compat";
+import { customerDemoPeople } from "@/features/demo/customer-demo-data";
 
 export const DECISION_STORAGE_KEY = "enterprise-workspace.decision-workbench.v1";
 
@@ -41,42 +42,52 @@ function requireDecisionFixtureContext(context: OperationFixtureContext) {
   return storageKey;
 }
 
+function demoMemberId(personId: string) {
+  return customerDemoPeople.find(({ id }) => id === personId)!.memberId;
+}
+
 const departmentDefinitions = [
   {
     id: "pmo",
     name: "决策推进办公室",
     objective: "把决策目标转成可度量、可验收的推进章程",
-    ownerId: mockMembers[0].id,
+    ownerId: demoMemberId("demo-product-head"),
   },
   {
     id: "product",
     name: "产品研发中心",
     objective: "完成 AI 拆解、任务分发与结果回流能力",
-    ownerId: mockMembers[0].id,
+    ownerId: demoMemberId("demo-product-head"),
   },
   {
     id: "design",
-    name: "设计中心",
+    name: "设计体验中心",
     objective: "让决策人、部门负责人和执行者都能快速上手",
-    ownerId: mockMembers[2].id,
+    ownerId: demoMemberId("demo-design-head"),
   },
   {
     id: "market",
-    name: "市场中心",
+    name: "市场增长中心",
     objective: "组织试点沟通并沉淀可复用的推广材料",
-    ownerId: mockMembers[1].id,
+    ownerId: demoMemberId("demo-market-head"),
   },
   {
-    id: "sales",
-    name: "销售中心",
-    objective: "收集一线场景并验证试点业务价值",
-    ownerId: mockMembers[4].id,
+    id: "delivery",
+    name: "运营交付中心",
+    objective: "完成客户试点、培训、反馈回收和上线验收",
+    ownerId: demoMemberId("demo-customer-head"),
+  },
+  {
+    id: "finance",
+    name: "财务中心",
+    objective: "控制试点预算并保证采购和付款凭证可追溯",
+    ownerId: demoMemberId("demo-finance"),
   },
   {
     id: "hr",
     name: "人力资源中心",
     objective: "明确角色边界、协作规则和培训机制",
-    ownerId: mockMembers[5].id,
+    ownerId: demoMemberId("demo-hr"),
   },
 ] as const;
 
@@ -92,22 +103,20 @@ type TaskDefinition = {
   dueOffset: number;
   acceptance: string;
   dependencies: readonly string[];
+  assigneeId: string;
 };
 
 const taskDefinitions: readonly TaskDefinition[] = [
-  { id: "T01", phase: "目标澄清", departmentId: "pmo", title: "确认试点范围与成功标准", description: "将决策目标转成范围、指标与验收口径。", requiredSkills: ["目标拆解", "产品策略", "项目治理"], priority: "urgent", startOffset: 0, dueOffset: 2, acceptance: "形成一页式试点章程，并由决策人确认范围、目标值和不做事项。", dependencies: [] },
-  { id: "T02", phase: "目标澄清", departmentId: "pmo", title: "建立周度推进与升级机制", description: "明确周报节奏、阻塞升级和需要决策的事项格式。", requiredSkills: ["项目治理", "目标拆解", "跨部门协同"], priority: "high", startOffset: 2, dueOffset: 4, acceptance: "发布周度推进模板，包含进度、风险、阻塞、需决策项四个字段。", dependencies: ["T01"] },
-  { id: "T03", phase: "场景调研", departmentId: "sales", title: "访谈首批试点部门", description: "收集高频决策场景、现有流程与关键痛点。", requiredSkills: ["客户访谈", "需求洞察", "客户沟通"], priority: "high", startOffset: 0, dueOffset: 4, acceptance: "完成不少于 5 位业务负责人的访谈，沉淀前 10 个高频场景。", dependencies: ["T01"] },
-  { id: "T04", phase: "方案设计", departmentId: "design", title: "设计三角色工作流原型", description: "覆盖决策人、部门负责人和个人执行者三个视角。", requiredSkills: ["流程设计", "原型设计", "用户研究"], priority: "high", startOffset: 3, dueOffset: 7, acceptance: "原型完整覆盖输入、拆解、认领、执行、回流五个关键状态。", dependencies: ["T01"] },
-  { id: "T05", phase: "方案设计", departmentId: "design", title: "定义任务详情与反馈规范", description: "统一责任、截止、依赖、验收和反馈字段。", requiredSkills: ["规范沉淀", "流程设计", "原型设计"], priority: "medium", startOffset: 7, dueOffset: 10, acceptance: "每项任务均能展示唯一负责人、截止时间、前置依赖和验收标准。", dependencies: ["T04"] },
-  { id: "T06", phase: "能力构建", departmentId: "product", title: "实现目标拆解与责任映射", description: "把决策输入转换为部门目标和个人任务清单。", requiredSkills: ["AI 工作流", "任务自动化", "系统集成"], priority: "urgent", startOffset: 5, dueOffset: 13, acceptance: "一次输入可稳定生成 5 个以上部门目标和 10 项以上可执行任务。", dependencies: ["T03", "T04"] },
-  { id: "T07", phase: "能力构建", departmentId: "product", title: "打通项目与任务中心", description: "将确认后的 AI 方案写入现有项目和任务数据。", requiredSkills: ["系统集成", "前端开发", "任务自动化"], priority: "urgent", startOffset: 13, dueOffset: 19, acceptance: "下发后，所有任务在任务中心可按负责人筛选并可更新执行状态。", dependencies: ["T05", "T06"] },
-  { id: "T08", phase: "能力构建", departmentId: "product", title: "建立结果回流摘要", description: "自动汇总完成率、阻塞项和待决策事项。", requiredSkills: ["数据复盘", "产品策略", "项目治理"], priority: "high", startOffset: 16, dueOffset: 23, acceptance: "决策人首页可看到实时完成率、阻塞数量和下一检查点。", dependencies: ["T07"] },
-  { id: "T09", phase: "试点运营", departmentId: "market", title: "制定试点沟通与共创计划", description: "让参与部门理解试点目标、规则与反馈入口。", requiredSkills: ["活动策划", "跨部门协同", "内容传播"], priority: "medium", startOffset: 4, dueOffset: 9, acceptance: "完成试点启动会，参与人员确认角色分工和首周任务。", dependencies: ["T01"] },
-  { id: "T10", phase: "试点运营", departmentId: "market", title: "沉淀试点案例与发布材料", description: "记录试点前后效率变化和典型协作案例。", requiredSkills: ["内容传播", "数据复盘", "活动策划"], priority: "medium", startOffset: 20, dueOffset: 27, acceptance: "形成一份可对内发布的试点案例，包含量化结果和使用故事。", dependencies: ["T08", "T09"] },
-  { id: "T11", phase: "组织保障", departmentId: "hr", title: "确认角色权限与 RACI", description: "明确决策人、部门负责人、执行人和协同人的责任边界。", requiredSkills: ["RACI", "权限治理", "组织协同"], priority: "high", startOffset: 2, dueOffset: 7, acceptance: "发布 RACI 表，所有核心任务均只有一位最终负责人。", dependencies: ["T01"] },
-  { id: "T12", phase: "组织保障", departmentId: "hr", title: "完成使用培训与运行规则", description: "提供角色化培训和日常操作规范。", requiredSkills: ["培训运营", "组织协同", "权限治理"], priority: "medium", startOffset: 14, dueOffset: 20, acceptance: "核心团队完成培训并通过一次完整的演练流程。", dependencies: ["T07", "T11"] },
-  { id: "T13", phase: "验收复盘", departmentId: "sales", title: "评估试点价值并提出下一步建议", description: "汇总业务反馈、效率变化和推广条件。", requiredSkills: ["价值评估", "需求洞察", "客户沟通"], priority: "high", startOffset: 24, dueOffset: 30, acceptance: "提交试点评估报告，明确继续推广、调整或停止的建议及依据。", dependencies: ["T08", "T10", "T12"] },
+  { id: "T01", phase: "目标澄清", departmentId: "pmo", title: "确认试点范围与成功标准", description: "把客户目标转成范围、指标和验收口径。", requiredSkills: ["目标拆解", "产品策略", "项目治理"], priority: "urgent", startOffset: 0, dueOffset: 2, acceptance: "形成一页式试点章程，并由决策人确认目标值和不做事项。", dependencies: [], assigneeId: demoMemberId("demo-product-head") },
+  { id: "T02", phase: "客户调研", departmentId: "market", title: "完成客户场景调研与启动沟通", description: "访谈客户关键岗位并建立试点沟通节奏。", requiredSkills: ["活动策划", "跨部门协同", "内容传播"], priority: "high", startOffset: 1, dueOffset: 5, acceptance: "提交客户场景清单和启动会纪要，客户确认参与人和沟通节奏。", dependencies: ["T01"], assigneeId: demoMemberId("demo-market-head") },
+  { id: "T03", phase: "方案设计", departmentId: "design", title: "设计三角色工作流原型", description: "覆盖决策人、部门负责人和员工执行三个视角。", requiredSkills: ["流程设计", "原型设计", "用户研究"], priority: "high", startOffset: 2, dueOffset: 7, acceptance: "原型覆盖下发、执行、成果提交、退回、验收和归档。", dependencies: ["T01"], assigneeId: demoMemberId("demo-design-head") },
+  { id: "T04", phase: "能力构建", departmentId: "product", title: "实现人员切换与任务执行链路", description: "实现演示身份切换、任务状态和结果回流。", requiredSkills: ["前端开发", "系统集成", "AI 工作流"], priority: "urgent", startOffset: 5, dueOffset: 15, acceptance: "10 个身份可切换且共享同一任务状态，核心页面无控制台错误。", dependencies: ["T03"], assigneeId: demoMemberId("demo-engineer") },
+  { id: "T05", phase: "质量验证", departmentId: "product", title: "完成关键流程回归测试", description: "验证切换、下发、执行、退回、验收和重置。", requiredSkills: ["回归测试", "质量保障", "验收记录"], priority: "urgent", startOffset: 14, dueOffset: 21, acceptance: "提交覆盖 10 个身份和完整闭环的测试报告，阻断级问题为零。", dependencies: ["T04"], assigneeId: demoMemberId("demo-qa") },
+  { id: "T06", phase: "客户交付", departmentId: "delivery", title: "制定客户试点与上线计划", description: "确定客户环境、里程碑、联系人和上线检查点。", requiredSkills: ["客户访谈", "价值评估", "客户沟通"], priority: "high", startOffset: 3, dueOffset: 10, acceptance: "客户确认试点计划、上线窗口和业务验收负责人。", dependencies: ["T01"], assigneeId: demoMemberId("demo-customer-head") },
+  { id: "T07", phase: "客户交付", departmentId: "delivery", title: "完成角色培训与反馈回收", description: "组织客户关键用户完成一次全流程演练。", requiredSkills: ["培训运营", "交付运营", "客户反馈"], priority: "high", startOffset: 18, dueOffset: 25, acceptance: "完成三类角色培训，回收反馈并形成问题关闭清单。", dependencies: ["T04", "T06"], assigneeId: demoMemberId("demo-operations") },
+  { id: "T08", phase: "经营保障", departmentId: "finance", title: "完成试点预算审核与凭证归档", description: "审核云资源和实施费用，归集付款凭证。", requiredSkills: ["预算审核", "采购协同", "凭证归档"], priority: "high", startOffset: 1, dueOffset: 8, acceptance: "费用不超过 30 万元，审批记录和付款凭证完整可追溯。", dependencies: ["T01"], assigneeId: demoMemberId("demo-finance") },
+  { id: "T09", phase: "组织保障", departmentId: "hr", title: "确认角色权限与 RACI", description: "明确决策人、负责人、执行人和协同人的责任边界。", requiredSkills: ["RACI", "权限治理", "组织协同"], priority: "high", startOffset: 1, dueOffset: 7, acceptance: "发布 RACI 表，所有核心任务只有一位最终负责人。", dependencies: ["T01"], assigneeId: demoMemberId("demo-hr") },
+  { id: "T10", phase: "验收复盘", departmentId: "pmo", title: "汇总试点结果与推广建议", description: "汇总完成率、客户反馈、风险和下一阶段建议。", requiredSkills: ["数据复盘", "项目治理", "跨部门协同"], priority: "high", startOffset: 25, dueOffset: 30, acceptance: "提交试点复盘，明确继续推广、调整或停止的建议及依据。", dependencies: ["T02", "T05", "T07", "T08", "T09"], assigneeId: demoMemberId("demo-product-head") },
 ];
 
 export const decisionTalentProfiles = [
@@ -201,6 +210,66 @@ export const decisionTalentProfiles = [
       { label: "负荷可控", tone: "capacity", evidence: "当前 3 项进行中，综合负荷 62%" },
     ],
   },
+  {
+    memberId: mockMembers[6].id,
+    skills: ["战略决策", "经营判断", "总体验收"],
+    onTimeRate: 99,
+    activeTasks: 1,
+    workload: 45,
+    averageResponseHours: 1,
+    recentDelayCount: 0,
+    updatedAt: "2026-08-12",
+    tags: [
+      { label: "决策及时", tone: "strength", evidence: "关键升级事项平均 1 小时内给出明确结论" },
+      { label: "边界清晰", tone: "strength", evidence: "试点目标、预算和不做事项均完成确认" },
+      { label: "决策负荷可控", tone: "capacity", evidence: "当前仅保留总验收与升级决策事项" },
+    ],
+  },
+  {
+    memberId: mockMembers[7].id,
+    skills: ["回归测试", "质量保障", "验收记录"],
+    onTimeRate: 97,
+    activeTasks: 2,
+    workload: 61,
+    averageResponseHours: 2,
+    recentDelayCount: 0,
+    updatedAt: "2026-08-12",
+    tags: [
+      { label: "缺陷定位快", tone: "strength", evidence: "最近 3 次回归均在当天完成阻断问题定位" },
+      { label: "证据完整", tone: "strength", evidence: "验收记录包含步骤、结果和截图证据" },
+      { label: "测试负荷可控", tone: "capacity", evidence: "当前 2 项进行中，综合负荷 61%" },
+    ],
+  },
+  {
+    memberId: mockMembers[8].id,
+    skills: ["培训运营", "交付运营", "客户反馈"],
+    onTimeRate: 94,
+    activeTasks: 2,
+    workload: 56,
+    averageResponseHours: 3,
+    recentDelayCount: 0,
+    updatedAt: "2026-08-12",
+    tags: [
+      { label: "培训组织稳", tone: "strength", evidence: "最近 4 场客户培训均按计划完成" },
+      { label: "反馈闭环快", tone: "strength", evidence: "客户问题平均 1 个工作日内进入责任清单" },
+      { label: "交付有余量", tone: "capacity", evidence: "当前 2 项进行中，综合负荷 56%" },
+    ],
+  },
+  {
+    memberId: mockMembers[9].id,
+    skills: ["预算审核", "采购协同", "凭证归档"],
+    onTimeRate: 98,
+    activeTasks: 2,
+    workload: 59,
+    averageResponseHours: 2,
+    recentDelayCount: 0,
+    updatedAt: "2026-08-12",
+    tags: [
+      { label: "预算控制稳", tone: "strength", evidence: "最近 6 个项目均未突破审批预算" },
+      { label: "凭证完整", tone: "strength", evidence: "采购与付款记录均可追溯到原申请" },
+      { label: "财务负荷可控", tone: "capacity", evidence: "当前 2 项进行中，综合负荷 59%" },
+    ],
+  },
 ] satisfies readonly DecisionTalentProfile[];
 
 function toIsoDate(date: Date) {
@@ -228,12 +297,13 @@ function memberById(memberId: string) {
 }
 
 const departmentCandidateIds: Record<string, readonly string[]> = {
-  pmo: [mockMembers[0].id],
-  product: [mockMembers[0].id, mockMembers[3].id],
-  design: [mockMembers[2].id],
-  market: [mockMembers[1].id],
-  sales: [mockMembers[4].id],
-  hr: [mockMembers[5].id],
+  pmo: [demoMemberId("demo-product-head")],
+  product: [demoMemberId("demo-product-head"), demoMemberId("demo-engineer"), demoMemberId("demo-qa")],
+  design: [demoMemberId("demo-design-head")],
+  market: [demoMemberId("demo-market-head")],
+  delivery: [demoMemberId("demo-customer-head"), demoMemberId("demo-operations")],
+  finance: [demoMemberId("demo-finance")],
+  hr: [demoMemberId("demo-hr")],
 };
 
 export function getDecisionTalentProfile(memberId: string) {
@@ -292,10 +362,10 @@ export function getDecisionCandidateRanking(
 
 export function createDefaultDecisionInput(now = new Date("2026-08-08T00:00:00.000Z")): DecisionInput {
   return {
-    goal: "在 30 天内完成企业 AI 工作站试点上线，让决策目标自动分发到部门与个人，并形成周度结果回流",
+    goal: "30 天完成星云智造 AI 企业工作站试点上线",
     deadline: toIsoDate(addDays(now, 30)),
     budget: "30",
-    constraints: "核心团队不超过 8 人；每项任务必须有唯一负责人和可判定验收标准",
+    constraints: "10 人核心团队协同；每项任务必须有唯一负责人、明确依赖和可判定验收标准",
   };
 }
 
@@ -325,7 +395,9 @@ export function createDecisionPlan(
       dependencies: definition.dependencies,
       status: "pending" as const,
     };
-    const recommendation = getDecisionCandidateRanking(task)[0];
+    const recommendation = getDecisionCandidateRanking(task).find(
+      ({ member }) => member.id === definition.assigneeId,
+    ) ?? getDecisionCandidateRanking(task)[0];
     return { ...task, assignee: recommendation.member };
   });
   const departments = departmentDefinitions.map<DepartmentPlan>((department) => ({

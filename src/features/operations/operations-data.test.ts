@@ -38,6 +38,7 @@ import { updateMockTaskStatus } from "@/features/projects/data/project-task-oper
 import { mockMembers } from "@/features/projects/mock-data";
 import { executiveWorkspaceSession } from "@/test/workspace-session-test-utils";
 import type { OperationFixtureContext } from "@/features/operations/operation-actor-compat";
+import { customerDemoPeople, customerDemoSessions } from "@/features/demo/customer-demo-data";
 
 type Tail<T extends readonly unknown[]> = T extends readonly [unknown, ...infer Rest] ? Rest : never;
 
@@ -76,6 +77,26 @@ describe("operations business closure", () => {
     clearLocalProjects(boundContext);
     window.localStorage.removeItem(OPERATIONS_STORAGE_KEY);
     resetOperationsState();
+  });
+
+  it("seeds useful work for every non-executive customer demo identity", () => {
+    const demoContext = createOperationFixtureContext(customerDemoSessions[0]);
+    const state = resetOperationsStateWithContext(demoContext);
+    const expectedActorIds = customerDemoPeople
+      .filter(({ role }) => role !== "executive")
+      .map(({ actorId }) => actorId);
+
+    expect(state.command.title).toBe("30 天完成星云智造 AI 企业工作站试点上线");
+    expect(new Set(state.tasks.map(({ assigneeId }) => assigneeId))).toEqual(
+      new Set(expectedActorIds),
+    );
+    expect(state.tasks.filter(({ status }) => status !== "done")).toEqual([
+      expect.objectContaining({
+        id: "flow-task-02",
+        assigneeId: "actor-employee",
+        status: "in_progress",
+      }),
+    ]);
   });
 
   it("maps every project member to an explicit workspace actor", () => {

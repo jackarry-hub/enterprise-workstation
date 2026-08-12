@@ -1,5 +1,6 @@
 import type { DecisionInput, DecisionPlan } from "@/features/decision-workbench/decision-workbench-types";
 import { customerDemoActors } from "@/features/demo/customer-demo-data";
+import { CUSTOMER_DEMO_STORAGE_NAMESPACE } from "@/features/demo/customer-demo-state";
 import type {
   WorkspaceActor,
   WorkspaceRole,
@@ -96,6 +97,9 @@ function createSeedState(): OperationsState {
     "flow-task-03": ["flow-task-02"],
     "flow-task-05": ["flow-task-01"],
     "flow-task-06": ["flow-task-01"],
+    "flow-task-08": ["flow-task-01"],
+    "flow-task-09": ["flow-task-08"],
+    "flow-task-10": ["flow-task-03"],
   };
   const tasks = ([
     { id: "flow-task-01", code: "T01", commandId: COMMAND_ID, department: "产品研发中心", departmentOwnerId: "actor-manager", assigneeId: "actor-manager", title: "确认试点范围与成功标准", summary: "将领导目标转成范围、指标和可验收口径。", acceptance: "形成一页式试点章程，并由决策人确认。", dueDate: "2026-08-10", priority: "urgent", status: "done", progress: 100, deliverableRequired: false, updatedAt: BASE_DATE },
@@ -104,6 +108,10 @@ function createSeedState(): OperationsState {
     { id: "flow-task-04", code: "T04", commandId: COMMAND_ID, department: "设计中心", departmentOwnerId: "actor-manager", assigneeId: "actor-designer", title: "设计三角色工作流原型", summary: "覆盖决策人、负责人和员工执行视角。", acceptance: "原型覆盖输入、拆解、执行、验收和归档。", dueDate: "2026-08-15", priority: "high", status: "review", progress: 90, deliverableRequired: true, updatedAt: BASE_DATE },
     { id: "flow-task-05", code: "T11", commandId: COMMAND_ID, department: "人力资源中心", departmentOwnerId: "actor-hr", assigneeId: "actor-hr", title: "确认角色权限与 RACI", summary: "明确决策人、负责人、执行人和协同人的边界。", acceptance: "核心任务均只有一位最终责任人。", dueDate: "2026-08-15", priority: "high", status: "in_progress", progress: 40, deliverableRequired: true, updatedAt: BASE_DATE },
     { id: "flow-task-06", code: "T14", commandId: COMMAND_ID, department: "财务中心", departmentOwnerId: "actor-finance", assigneeId: "actor-finance", title: "完成试点预算审核与付款", summary: "核验云服务和实施费用，完成审批与付款凭证归集。", acceptance: "预算不超过 30 万元，付款凭证完整可追溯。", dueDate: "2026-08-18", priority: "high", status: "in_progress", progress: 35, deliverableRequired: true, updatedAt: BASE_DATE },
+    { id: "flow-task-07", code: "T02", commandId: COMMAND_ID, department: "市场增长中心", departmentOwnerId: "actor-market", assigneeId: "actor-market", title: "完成客户场景调研与启动沟通", summary: "访谈客户关键岗位并建立试点沟通节奏。", acceptance: "客户确认场景清单、参与人和沟通节奏。", dueDate: "2026-08-17", priority: "high", status: "in_progress", progress: 45, deliverableRequired: true, updatedAt: BASE_DATE },
+    { id: "flow-task-08", code: "T06", commandId: COMMAND_ID, department: "运营交付中心", departmentOwnerId: "actor-sales", assigneeId: "actor-sales", title: "制定客户试点与上线计划", summary: "确定客户环境、里程碑、联系人和上线检查点。", acceptance: "客户确认试点计划、上线窗口和业务验收负责人。", dueDate: "2026-08-20", priority: "high", status: "todo", progress: 0, deliverableRequired: true, updatedAt: BASE_DATE },
+    { id: "flow-task-09", code: "T07", commandId: COMMAND_ID, department: "运营交付中心", departmentOwnerId: "actor-sales", assigneeId: "actor-operations", title: "完成角色培训与反馈回收", summary: "组织客户关键用户完成一次全流程演练。", acceptance: "完成三类角色培训并形成问题关闭清单。", dueDate: "2026-08-28", priority: "high", status: "todo", progress: 0, deliverableRequired: true, updatedAt: BASE_DATE },
+    { id: "flow-task-10", code: "T05", commandId: COMMAND_ID, department: "产品研发中心", departmentOwnerId: "actor-manager", assigneeId: "actor-qa", title: "完成关键流程回归测试", summary: "验证切换、下发、执行、退回、验收和重置。", acceptance: "测试报告覆盖 10 个身份和完整闭环，阻断级问题为零。", dueDate: "2026-08-25", priority: "urgent", status: "todo", progress: 0, deliverableRequired: true, updatedAt: BASE_DATE },
   ] as const).map((task): OperationTask => ({
     ...task,
     dependencyIds: dependencyIdsByTask[task.id] ?? [],
@@ -113,7 +121,7 @@ function createSeedState(): OperationsState {
 
   return {
     version: 1,
-    command: { id: COMMAND_ID, title: "30 天完成企业 AI 工作站试点", summary: "让领导目标自动分发到部门和个人，并形成可验收、可归档的执行闭环。", ownerId: "actor-executive", status: "executing", deadline: "2026-09-07", budgetWan: 30, createdAt: BASE_DATE, updatedAt: BASE_DATE },
+    command: { id: COMMAND_ID, title: "30 天完成星云智造 AI 企业工作站试点上线", summary: "让领导目标自动分发到部门和个人，并形成可验收、可归档的执行闭环。", ownerId: "actor-executive", status: "executing", deadline: "2026-09-07", budgetWan: 30, createdAt: BASE_DATE, updatedAt: BASE_DATE },
     tasks,
     supportRequests: [
       { id: "support-finance-01", commandId: COMMAND_ID, sourceTaskId: "flow-task-06", type: "finance", title: "试点云资源采购预算", description: "用于模型调用、对象存储和试点环境，预算 8 万元。", requesterId: "actor-manager", handlerId: "actor-finance", amountWan: 8, status: "pending", updatedAt: BASE_DATE },
@@ -132,10 +140,34 @@ function createSeedState(): OperationsState {
     payrollRun: { id: "payroll-2026-08", month: "2026-08", status: "draft", headcount: 128, grossAmount: 1864200, deductionAmount: 214860, netAmount: 1649340, attendanceLocked: false, exceptionCount: 2, updatedAt: "2026-08-08T08:30:00.000Z" },
     events: [
       { id: "event-seed-03", commandId: COMMAND_ID, actorId: "actor-manager", action: "分配任务", detail: "将“目标拆解与责任映射”分配给陈晨。", createdAt: "2026-08-08T10:30:00.000Z" },
-      { id: "event-seed-02", commandId: COMMAND_ID, actorId: "actor-executive", action: "确认下发", detail: "确认 AI 拆解方案并下发到 5 个部门。", createdAt: "2026-08-08T09:20:00.000Z" },
+      { id: "event-seed-02", commandId: COMMAND_ID, actorId: "actor-executive", action: "确认下发", detail: "确认 AI 拆解方案并下发到 7 个部门。", createdAt: "2026-08-08T09:20:00.000Z" },
       { id: "event-seed-01", commandId: COMMAND_ID, actorId: "actor-executive", action: "下达命令", detail: "要求 30 天内完成企业 AI 工作站试点。", createdAt: BASE_DATE },
     ],
     notificationReads: {},
+  };
+}
+
+function createSeedStateForContext(context: OperationFixtureContext): OperationsState {
+  const seed = createSeedState();
+  if (context.storageNamespace !== CUSTOMER_DEMO_STORAGE_NAMESPACE) return seed;
+
+  return {
+    ...seed,
+    tasks: seed.tasks.map((task) => task.id === "flow-task-02" ? task : {
+      ...task,
+      status: "done",
+      progress: 100,
+      blocker: undefined,
+      reviewDueAt: undefined,
+      blockerDueAt: undefined,
+      escalationLevel: "none",
+      escalatedAt: undefined,
+    }),
+    supportRequests: seed.supportRequests.map((request) => ({
+      ...request,
+      status: "completed",
+      result: request.result ?? "演示准备已完成，相关凭证与记录已归档。",
+    })),
   };
 }
 
@@ -214,7 +246,7 @@ function createSanitizedOperationsState(): OperationsState {
 }
 
 export function createInitialOperationsState(context: OperationFixtureContext) {
-  return context.actor ? createSeedState() : createSanitizedOperationsState();
+  return context.actor ? createSeedStateForContext(context) : createSanitizedOperationsState();
 }
 
 function operationStatusFromProject(status: TaskStatus): OperationTaskStatus {
@@ -398,11 +430,11 @@ export function readOperationsState(
   if (!context.actor) return createSanitizedOperationsState();
   const storageKey = getOperationsStorageKey(context)!;
   const resolved = storage ?? (typeof window === "undefined" ? undefined : window.localStorage);
-  if (!resolved) return createSeedState();
+  if (!resolved) return createSeedStateForContext(context);
   try {
     const parsed = JSON.parse(resolved.getItem(storageKey) ?? "null") as OperationsState | null;
     if (parsed?.version === 1 && parsed.command && Array.isArray(parsed.tasks)) {
-      const seed = createSeedState();
+      const seed = createSeedStateForContext(context);
       const normalized: OperationsState = { ...parsed, tasks: parsed.tasks.map((task) => ({ ...task, dependencyIds: task.dependencyIds ?? [], escalationLevel: task.escalationLevel ?? "none" })), leaveRequests: parsed.leaveRequests ?? seed.leaveRequests, attendance: parsed.attendance ?? seed.attendance, payrollRun: parsed.payrollRun ?? seed.payrollRun, notificationReads: parsed.notificationReads ?? {} };
       if (!parsed.leaveRequests || !parsed.attendance || !parsed.payrollRun || !parsed.notificationReads) resolved.setItem(storageKey, JSON.stringify(normalized));
       return applyTaskEscalations(hydrateOperationsFromProject(context, normalized));
@@ -410,7 +442,7 @@ export function readOperationsState(
   } catch {
     // Corrupt demo data is replaced with a deterministic seed below.
   }
-  const seed = createSeedState();
+  const seed = createSeedStateForContext(context);
   resolved.setItem(storageKey, JSON.stringify(seed));
   return applyTaskEscalations(hydrateOperationsFromProject(context, seed));
 }
@@ -436,7 +468,7 @@ export function resetOperationsState(
   const storageKey = getOperationsStorageKey(context)!;
   const resolved = storage ?? (typeof window === "undefined" ? undefined : window.localStorage);
   resolved?.removeItem(storageKey);
-  return saveOperationsState(context, createSeedState(), resolved);
+  return saveOperationsState(context, createSeedStateForContext(context), resolved);
 }
 
 export function getActor(actorId: string) {

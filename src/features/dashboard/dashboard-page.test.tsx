@@ -35,8 +35,8 @@ describe("DashboardPage", () => {
     expect(await screen.findByRole("heading", { name: "责任分工图" })).toBeVisible();
     expect(screen.getByText("决策推进办公室")).toBeVisible();
     expect(screen.getByText("产品研发中心")).toBeVisible();
-    expect(screen.getByText("市场中心")).toBeVisible();
-    expect(screen.getByRole("button", { name: "确认方案并下发 13 项任务" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "查看任务详情：实现目标拆解与责任映射" })).toBeVisible();
+    expect(screen.getByText("市场增长中心")).toBeVisible();
+    expect(screen.getByRole("button", { name: "确认方案并下发 10 项任务" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "查看任务详情：实现人员切换与任务执行链路" })).toBeVisible();
   });
 });
