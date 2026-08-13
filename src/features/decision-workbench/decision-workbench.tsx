@@ -43,6 +43,7 @@ import {
   getDecisionTalentProfile,
   hydrateDecisionPlan,
   readStoredDecision,
+  reassignDispatchedDecisionTask,
   saveStoredDecision,
 } from "@/features/decision-workbench/decision-workbench-data";
 import { useCustomerDemoSession, useWorkspaceSession } from "@/features/auth/workspace-session-provider";
@@ -102,17 +103,17 @@ function WorkTagChip({ tag }: { tag: WorkTag }) {
 
 function WorkflowStepper({ currentStep }: { currentStep: number }) {
   return (
-    <GlassCard className="overflow-x-auto p-1.5 sm:p-2">
-      <ol aria-label="决策推进流程" className="flex min-w-172 items-center">
+    <GlassCard className="p-2">
+      <ol aria-label="决策推进流程" className="grid grid-cols-4 gap-1">
         {workflowSteps.map((step, index) => {
           const completed = index < currentStep;
           const active = index === currentStep;
           return (
-            <li key={step.label} className="flex min-w-0 flex-1 items-center">
+            <li key={step.label} className="min-w-0">
               <div
                 aria-current={active ? "step" : undefined}
                 className={cn(
-                  "flex min-w-0 items-center gap-2 rounded-xl px-2 py-1.5",
+                  "flex min-w-0 flex-col items-center gap-1 rounded-xl px-1 py-2 text-center",
                   active && "bg-brand-soft",
                 )}
               >
@@ -124,12 +125,11 @@ function WorkflowStepper({ currentStep }: { currentStep: number }) {
                 )}>
                   {completed ? <Check aria-hidden="true" className="size-4" /> : index + 1}
                 </span>
-                <span className="min-w-0">
-                  <span className={cn("block truncate text-sm font-semibold", !active && !completed && "text-muted-foreground")}>{step.label}</span>
-                  <span className="block truncate text-[11px] text-muted-foreground">{step.description}</span>
+                <span className="min-w-0 w-full">
+                  <span className={cn("block truncate text-[11px] font-semibold", !active && !completed && "text-muted-foreground")}>{step.label}</span>
+                  <span className="hidden truncate text-[10px] text-muted-foreground sm:block">{step.description}</span>
                 </span>
               </div>
-              {index < workflowSteps.length - 1 ? <ArrowRight aria-hidden="true" className="mx-1 size-4 shrink-0 text-border" /> : null}
             </li>
           );
         })}
@@ -215,17 +215,17 @@ function DraftPreview() {
     { icon: RefreshCw, title: "持续回流结果", text: "进度、阻塞和待决策项自动汇总" },
   ] as const;
   return (
-    <GlassCard className="min-h-108 p-5 sm:p-6">
-      <div className="mx-auto max-w-3xl py-8 text-center sm:py-12">
+    <GlassCard className="p-5 sm:p-6">
+      <div className="mx-auto max-w-3xl py-3 text-center sm:py-8">
         <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-linear-to-br from-primary to-chart-3 text-white shadow-[0_16px_36px_rgba(47,125,246,0.24)]"><Bot aria-hidden="true" className="size-7" /></span>
         <Badge variant="info" className="mt-5">AI 调度中枢</Badge>
         <h2 className="mt-3 text-2xl font-semibold tracking-tight">把一个决策，清楚地落到每个人头上</h2>
         <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">填写左侧目标与约束。AI 会先给出责任方案，确认后再同步到项目和任务中心。</p>
-        <div className="mt-8 grid gap-3 text-left sm:grid-cols-2">
+        <div className="mt-5 grid grid-cols-2 gap-2 text-left">
           {capabilities.map(({ icon: Icon, title, text }) => (
-            <div key={title} className="flex gap-3 rounded-2xl border border-border/70 bg-white/55 p-4">
-              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand-soft text-primary"><Icon aria-hidden="true" className="size-4.5" /></span>
-              <div><p className="text-sm font-semibold">{title}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{text}</p></div>
+            <div key={title} className="min-w-0 rounded-2xl border border-border/70 bg-white/55 p-3">
+              <span className="grid size-8 place-items-center rounded-xl bg-brand-soft text-primary"><Icon aria-hidden="true" className="size-4" /></span>
+              <div className="mt-2 min-w-0"><p className="truncate text-xs font-semibold">{title}</p><p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">{text}</p></div>
             </div>
           ))}
         </div>
@@ -394,14 +394,12 @@ function PlanWorkspace({
 function TaskDetail({
   task,
   department,
-  stage,
   open,
   onOpenChange,
   onAssigneeChange,
 }: {
   task: DecisionTask | null;
   department?: DepartmentPlan;
-  stage: DecisionStage;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAssigneeChange: (memberId: string) => void;
@@ -410,6 +408,7 @@ function TaskDetail({
   const candidates = getDecisionCandidateRanking(task);
   const current = candidates.find(({ member }) => member.id === task.assignee.id) ?? candidates[0];
   const aiFirstChoice = candidates[0].member.id === task.assignee.id;
+  const canReassign = !["in_review", "done"].includes(task.status);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
@@ -442,7 +441,7 @@ function TaskDetail({
           {current.risks.length ? <div className="mt-3 rounded-xl border border-warning/20 bg-warning-soft p-3"><p className="text-xs font-semibold text-warning">风险提示 · {current.risks.join("；")}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">建议：{current.mitigation}</p></div> : <div className="mt-3 rounded-xl bg-success-soft p-3 text-xs font-medium text-success">暂无明显交付风险 · {current.mitigation}</div>}
         </section>
         <section>
-          <div className="flex items-end justify-between gap-3"><div><h3 className="text-sm font-semibold">候选人对比</h3><p className="mt-1 text-xs text-muted-foreground">标签来自近期任务数据；悬停可查看依据，下发后锁定负责人。</p></div><Badge variant={stage === "review" ? "warning" : "neutral"}>{stage === "review" ? "领导可调整" : "已下发锁定"}</Badge></div>
+          <div className="flex items-end justify-between gap-3"><div><h3 className="text-sm font-semibold">候选人对比</h3><p className="mt-1 text-xs text-muted-foreground">标签来自近期任务数据；未提交验收前可改派，结果会同步到个人工作台。</p></div><Badge variant={canReassign ? "warning" : "neutral"}>{canReassign ? "领导可调整" : "已进入验收"}</Badge></div>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {candidates.map((candidate, index) => {
               const selected = candidate.member.id === task.assignee.id;
@@ -455,7 +454,7 @@ function TaskDetail({
                   </div>
                   <div className="mt-2 flex flex-wrap gap-1.5">{candidate.profile.tags.map((tag) => <WorkTagChip key={tag.label} tag={tag} />)}</div>
                   <p className="mt-2 text-[11px] leading-5 text-muted-foreground">{candidate.reasons[0]}；按时率 {candidate.profile.onTimeRate}%；负荷 {candidate.profile.workload}%</p>
-                  <Button type="button" size="sm" variant={selected ? "outline" : "ghost"} disabled={selected || stage !== "review"} onClick={() => onAssigneeChange(candidate.member.id)} className="mt-2 w-full">{selected ? <><Check data-icon="inline-start" aria-hidden="true" />当前负责人</> : "改选此人"}</Button>
+                  {selected ? <div className="mt-2 flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-primary/20 bg-white/70 text-xs font-medium text-primary"><Check aria-hidden="true" className="size-3.5" />当前负责人</div> : canReassign ? <Button type="button" size="sm" variant="ghost" onClick={() => onAssigneeChange(candidate.member.id)} className="mt-2 w-full">改选此人</Button> : <p className="mt-2 rounded-lg bg-muted/60 px-2 py-2 text-center text-xs text-muted-foreground">任务已提交，不能改派</p>}
                 </article>
               );
             })}
@@ -564,7 +563,7 @@ export function DecisionWorkbench() {
   }
 
   function changeAssignee(taskId: string, memberId: string) {
-    if (decision.stage !== "review" || !decision.plan) return;
+    if (!decision.plan) return;
     const sourceTask = decision.plan.departments.flatMap(({ tasks }) => tasks).find(({ id }) => id === taskId);
     if (!sourceTask) return;
     const candidate = getDecisionCandidateRanking(sourceTask).find(({ member }) => member.id === memberId);
@@ -577,8 +576,12 @@ export function DecisionWorkbench() {
         tasks: department.tasks.map((task) => task.id === taskId ? updatedTask : task),
       })),
     };
+    if (decision.stage === "issued" && decision.projectId) {
+      const updatedProject = reassignDispatchedDecisionTask(operationContext, decision.projectId, taskId, memberId);
+      setProject(updatedProject);
+    }
     setDecision((current) => ({ ...current, plan: updatedPlan }));
-    setSelectedTask(updatedTask);
+    setSelectedTask({ ...updatedTask, status: selectedTask?.status ?? updatedTask.status });
   }
 
   function resetDecision() {
@@ -594,7 +597,7 @@ export function DecisionWorkbench() {
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">AI 决策调度台</h1>
+            <h1 className="text-[23px] font-semibold tracking-tight sm:text-3xl">AI 决策调度台</h1>
             <Badge variant="info"><Sparkles aria-hidden="true" />AI 决策调度</Badge>
             {decision.stage === "issued" ? <Badge variant="success">执行结果实时回流</Badge> : null}
           </div>
@@ -605,12 +608,12 @@ export function DecisionWorkbench() {
 
       <WorkflowStepper currentStep={currentStep} />
 
-      <section className="grid min-w-0 gap-3 md:grid-cols-[22rem_minmax(0,1fr)]">
+      <section className="grid min-w-0 gap-3 xl:grid-cols-[22rem_minmax(0,1fr)]">
         <DecisionInputCard stage={decision.stage} input={decision.input} busy={busy} feedback={feedback} onChange={updateInput} onGenerate={generatePlan} onEdit={editGoal} />
         {plan ? <PlanWorkspace stage={decision.stage} plan={plan} projectId={decision.projectId} onDispatch={dispatch} onSelectTask={setSelectedTask} /> : <DraftPreview />}
       </section>
 
-      <TaskDetail task={selectedTask} department={selectedDepartment} stage={decision.stage} open={Boolean(selectedTask)} onOpenChange={(open) => !open && setSelectedTask(null)} onAssigneeChange={(memberId) => selectedTask && changeAssignee(selectedTask.id, memberId)} />
+      <TaskDetail task={selectedTask} department={selectedDepartment} open={Boolean(selectedTask)} onOpenChange={(open) => !open && setSelectedTask(null)} onAssigneeChange={(memberId) => selectedTask && changeAssignee(selectedTask.id, memberId)} />
     </main>
   );
 }

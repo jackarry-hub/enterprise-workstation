@@ -30,6 +30,8 @@ describe("role access policy", () => {
 
   it("keeps every role inside its own workstation", () => {
     expect(canRoleAccessPath("executive", "/dashboard")).toBe(true);
+    expect(canRoleAccessPath("executive", "/decision")).toBe(true);
+    expect(canRoleAccessPath("department_head", "/decision")).toBe(false);
     expect(canRoleAccessPath("executive", "/finance")).toBe(false);
     expect(canRoleAccessPath("department_head", "/department")).toBe(true);
     expect(canRoleAccessPath("department_head", "/projects/demo-project")).toBe(true);

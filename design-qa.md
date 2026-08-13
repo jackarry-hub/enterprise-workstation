@@ -85,3 +85,49 @@
 - [x] 类型、单元测试、Lint 与生产构建验证
 
 final result: passed
+
+## 2026-08-13 全局交互与无关信息复检
+
+- target flow: 首页 / 任务 / 项目 / 审批 / 我的 → 点击主要入口 → 到达对应办理页或产生明确状态变化。
+- decision assignment: 决策下发后的候选人卡不再使用不可点击的“已下发锁定”；未提交验收的任务可由 CEO 改派，改派结果同步到项目、个人任务和执行台；CEO 不进入执行候选人列表。
+- personal workspace: 员工、部门负责人、财务与人事工作台移除“最近流转”泛化动态，只保留当前人员负责的任务和必要办理入口。
+- action semantics: 无数据时不展示“活动日历 / 创建活动”等不可用按钮；已成交客户用状态徽标而不是禁用按钮；通知全部已读后隐藏批量操作；“我的考勤”直达个人考勤视图。
+- route audit: 静态业务入口均对应现有路由；未发现 `href="#"`、`javascript:` 或空 `onClick`。
+- interaction tests: 覆盖候选人改派、员工任务隔离、任务直达、审批详情、考勤个人视图、通知清零、客户完成状态与个人功能入口。
+
+final result: passed
+
+## 2026-08-13 移动端全局版面与流程复检
+
+- reference images:
+  - `C:\Windows\TEMP\codex-clipboard-3bd16fd3-7ea9-4e87-939c-d7607767e896.png`
+  - `C:\Windows\TEMP\codex-clipboard-50409d08-918b-41ba-8261-803babd8b335.png`
+  - `C:\Windows\TEMP\codex-clipboard-9eddb7b5-3cff-4026-93a5-f0af6899ae62.png`
+- rendered verification: Codex 内置浏览器打开 `http://localhost:3010/dashboard`、`/decision`、`/payroll` 与审批详情；生产构建后重新启动本地服务；未使用未经授权的 Playwright。`127.0.0.1` 在内置浏览器出现重定向缓存，改用同源 `localhost` 完成实机检查。
+- native-size checks: 430px 应用框；补充 359px 以下降级规则。
+- comparison points:
+  1. 审批申请人和当前负责人改为并排横向信息卡，不再出现姓名、部门和职位逐字竖排。
+  2. 提交时间与状态独立占据整行，避免三列压缩造成信息堆叠。
+  3. 薪资三项统计统一为单行三等分卡片，金额保留完整值提示，不再形成两上一次的空洞布局。
+  4. CEO 首页恢复高优先级 AI 决策调度入口，其他角色不显示；入口与落地页主题一致。
+  5. 首页考勤入口直达个人考勤视图，避免进入管理概览后文不对题。
+  6. 任务页原“发起任务”图标实际跳转项目页，已改为“查看项目”，消除按钮语义与落地页不一致。
+  7. 全局导航与帮助页的“AI 决策调度台”统一指向 `/decision`，不再错误落回普通首页。
+- copy diff: 首页新增“CEO 专属 / AI 决策调度台 / 输入目标，AI 拆解部门与个人任务”；其余文案保持业务含义不变。
+- deviations: AI 决策台保留现有完整数据与交互，只将步骤、能力卡与主工作区重新压缩为移动端结构，没有删除总线能力。
+- mismatches fixed: 审批信息挤压、薪资卡片错位、CEO 决策入口缺失、考勤入口落地不匹配、任务页入口文不对题、全局 AI 决策入口地址错误。
+- core flow verification: 十人任务从 0% 独立执行、上传、提交、验收至 100%；CEO 总验收与归档；薪资五节点；考勤、人事与通知回写均由自动化用例验证。
+
+final result: passed
+
+## 2026-08-13 单网址与演示身份复检
+
+- deployment model: 电脑端与手机端继续使用同一套 Next.js 路由和业务数据；手机宽度自动使用移动端信息层级，不建立第二个网站。
+- demo roster: 保留 10 位演示人员；四种岗位仅作为四类工作台与权限模板，不缩减人员。
+- identity switcher: 移除浏览器原生下拉，改为移动端底部人员面板；显示姓名、岗位、部门和当前身份状态，选择后进入该人员正确的岗位落地页。
+- role workspace: 岗位头部在手机端压缩为身份卡、上下游摘要和四项横向状态条；行动区改为单列整行点击，按红/橙/蓝优先级展示，最多四项。
+- isolation: 每个人只显示自己的执行任务与工资；负责人额外显示职责范围内的验收事项，执行区和验收区不混合。
+- automated verification: 83 个测试文件、565 项测试全部通过；TypeScript、ESLint 与 CUSTOMER_DEMO_MODE 生产构建通过。
+- supported routes: 构建生成 10 条工资单详情与 10 条人员详情静态路径。
+
+final result: passed

@@ -28,7 +28,7 @@ export type NavigationItem = {
 };
 
 export const navigationItems: NavigationItem[] = [
-  { label: "AI 决策调度台", href: "/dashboard", icon: Gauge, available: true, roles: ["executive"] },
+  { label: "AI 决策调度台", href: "/decision", icon: Gauge, available: true, roles: ["executive"] },
   { label: "负责人推进台", href: "/department", icon: Workflow, available: true, roles: ["department_head"] },
   { label: "我的执行台", href: "/execution", icon: Grid3X3, available: true, roles: ["employee"] },
   { label: "财务执行中心", href: "/finance", icon: Landmark, available: true, roles: ["finance"] },

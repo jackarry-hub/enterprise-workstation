@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { ActivitiesPage } from "@/features/activities/activities-page";
 
 describe("ActivitiesPage", () => {
-  it("shows a disabled empty state to an unbound real identity", () => {
+  it("hides unavailable actions from an unbound real identity", () => {
     renderWithSpecificWorkspaceSession(
       <ActivitiesPage />,
       unboundExecutiveWorkspaceSession,
@@ -15,8 +15,8 @@ describe("ActivitiesPage", () => {
 
     expect(screen.getByRole("heading", { name: "活动推进中心" })).toBeVisible();
     expect(screen.getByText("当前账号没有可显示的真实活动数据。" )).toBeVisible();
-    expect(screen.getByRole("button", { name: "活动日历" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "创建活动" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "活动日历" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "创建活动" })).not.toBeInTheDocument();
   });
 
   it("renders the activity list and selected project detail", () => {

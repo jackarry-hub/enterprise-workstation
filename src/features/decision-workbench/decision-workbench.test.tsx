@@ -12,7 +12,7 @@ import {
 import { customerDemoSessions } from "@/features/demo/customer-demo-data";
 import { CUSTOMER_DEMO_RESET_EVENT } from "@/features/demo/customer-demo-state";
 import { createOperationFixtureContext } from "@/features/operations/operation-actor-compat";
-import { resetOperationsState, saveOperationsState } from "@/features/operations/operations-data";
+import { readOperationsState, resetOperationsState, saveOperationsState } from "@/features/operations/operations-data";
 
 const executiveSession = customerDemoSessions.find(
   ({ identity }) => identity.providerSubject === "customer-demo:demo-executive",
@@ -66,6 +66,26 @@ describe("DecisionWorkbench customer demo progress", () => {
     await user.click(screen.getByRole("button", { name: "确认方案并下发 10 项任务" }));
     expect(await screen.findByRole("link", { name: "查看专项项目" })).toBeVisible();
     expect(screen.queryByRole("link", { name: "查看个人任务" })).not.toBeInTheDocument();
+  });
+
+  it("lets the CEO reassign an issued task and syncs the new owner to the personal workbench", async () => {
+    const user = userEvent.setup();
+    const context = createOperationFixtureContext(executiveSession);
+    render(
+      <WorkspaceSessionProvider session={executiveSession} demoSessions={customerDemoSessions}>
+        <DecisionWorkbench />
+      </WorkspaceSessionProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "确认方案并下发 10 项任务" }));
+    await user.click(screen.getByRole("button", { name: "查看任务详情：设计三角色工作流原型" }));
+    const reassign = screen.getAllByRole("button", { name: "改选此人" })[0];
+    expect(reassign).toBeEnabled();
+    await user.click(reassign);
+
+    expect(readOperationsState(context).tasks.find(({ code }) => code === "T03")?.assigneeId).not.toBe("actor-designer");
+    expect(screen.getByText("当前负责人")).toBeVisible();
+    expect(screen.queryByText("已下发锁定")).not.toBeInTheDocument();
   });
 
   it("clears a stale issued plan immediately when the customer demo is reset", async () => {

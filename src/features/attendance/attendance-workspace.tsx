@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, Plane } from "lucide-react";
 
@@ -115,15 +116,18 @@ function mergeOperationalAttendance(result: AttendanceResult, state: ReturnType<
 }
 
 export function AttendanceWorkspace({ result }: { result: AttendanceResult }) {
+  const searchParams = useSearchParams();
   const session = useWorkspaceSession();
   const { state, actor, isFixtureBound } = useOperations(session);
   const [filters, setFilters] = useState(defaultFilters);
-  const [view, setView] = useState<View>(defaultView[actor.role]);
+  const requestedView = searchParams.get("view") as View | null;
+  const initialView = requestedView && roleViews[actor.role].some(({ id }) => id === requestedView) ? requestedView : defaultView[actor.role];
+  const [view, setView] = useState<View>(initialView);
 
   useEffect(() => {
-    setView(defaultView[actor.role]);
+    setView(requestedView && roleViews[actor.role].some(({ id }) => id === requestedView) ? requestedView : defaultView[actor.role]);
     setFilters(defaultFilters);
-  }, [actor.role]);
+  }, [actor.role, requestedView]);
 
   const sourceRecords = useMemo(
     () => isFixtureBound ? mergeOperationalAttendance(result, state) : [],
@@ -154,7 +158,7 @@ export function AttendanceWorkspace({ result }: { result: AttendanceResult }) {
       <GlassCard className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-muted-foreground"><strong className="text-foreground">当前身份：</strong>{actor.name} · {actor.roleLabel}。{actor.role === "employee" || actor.role === "finance" ? "仅显示本人数据。" : actor.role === "department_head" ? "仅显示本人及所负责团队。" : "按管理职责显示公司汇总。"}</p><AttendanceResetNotice /></GlassCard>
       <AttendanceWorkflowStrip />
 
-      <nav aria-label="考勤工作区" className="flex w-full gap-1 overflow-x-auto rounded-xl border border-border/70 bg-white/60 p-1 sm:w-fit">{roleViews[actor.role].map((item) => <button key={item.id} type="button" onClick={() => setView(item.id)} className={cn("h-9 shrink-0 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors", view === item.id && "bg-primary text-primary-foreground shadow-sm")}>{item.label}</button>)}</nav>
+      <nav aria-label="考勤工作区" className="flex w-full gap-1 overflow-x-auto rounded-xl border border-border/70 bg-white/60 p-1 sm:w-fit">{roleViews[actor.role].map((item) => <button key={item.id} type="button" role="tab" aria-selected={view === item.id} onClick={() => setView(item.id)} className={cn("h-9 shrink-0 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors", view === item.id && "bg-primary text-primary-foreground shadow-sm")}>{item.label}</button>)}</nav>
 
       {view === "self" ? <><TodayClockPanel /><AttendanceSelfService /></> : null}
       {view === "approvals" ? <AttendanceApprovalQueue /> : null}

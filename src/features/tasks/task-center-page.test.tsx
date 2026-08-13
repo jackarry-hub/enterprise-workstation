@@ -19,6 +19,8 @@ describe("TaskCenterPage", () => {
     expect(screen.getAllByTestId("mobile-task-row").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByTestId("mobile-priority")[0]).toHaveTextContent(/逾期|紧急|高/);
     expect(screen.queryByText("设计三角色工作流原型")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "查看项目" })).toHaveAttribute("href", "/projects");
+    expect(screen.queryByRole("link", { name: "发起任务" })).not.toBeInTheDocument();
   });
 
   it("switches to tasks initiated by the viewer", async () => {

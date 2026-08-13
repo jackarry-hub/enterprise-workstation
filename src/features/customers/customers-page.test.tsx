@@ -51,4 +51,15 @@ describe("CustomersPage", () => {
 
     expect(within(dialog).getByRole("alert")).toHaveTextContent("请填写客户名称和联系人");
   });
+
+  it("renders a completed deal as status instead of an unusable action", async () => {
+    const user = userEvent.setup();
+    render(<CustomersPage />);
+
+    await user.click(screen.getAllByRole("button", { name: "查看客户详情：博远软件股份有限公司" })[0]);
+    const dialog = screen.getByRole("dialog");
+
+    expect(within(dialog).getByText("已成交")).toBeVisible();
+    expect(within(dialog).queryByRole("button", { name: "已成交" })).not.toBeInTheDocument();
+  });
 });

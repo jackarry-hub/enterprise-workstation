@@ -50,7 +50,6 @@ export function ActivitiesPage() {
         <PageHeader
           title="活动推进中心"
           description="活动以项目和任务交付为基础，不要求固定工作时间或地点。"
-          actions={<div className="flex items-center gap-2"><Button type="button" variant="outline" disabled><CalendarDays aria-hidden="true" />活动日历</Button><Button type="button" disabled><Plus aria-hidden="true" />创建活动</Button></div>}
         />
         <RealDataNotice message="当前账号没有可显示的真实活动数据。" />
         <GlassCard className="p-8 text-center text-sm text-muted-foreground">真实项目数据接入后，相关活动会自动显示在这里。</GlassCard>

@@ -36,7 +36,7 @@ export function NotificationCenter() {
       <GlassCard className="p-5 sm:p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div><div className="flex items-center gap-2"><BellRing className="size-5 text-primary" /><h1 className="text-2xl font-semibold tracking-tight">通知中心</h1></div><p className="mt-1.5 text-sm text-muted-foreground">只显示与{actor.name}当前职责相关的任务、审批、协同和执行动态。</p></div>
-          <Button type="button" variant="outline" disabled={!unread.length} onClick={() => markAllOperationNotificationsRead(context, actor.id)}><CheckCheck />全部标为已读</Button>
+          {unread.length ? <Button type="button" variant="outline" onClick={() => markAllOperationNotificationsRead(context, actor.id)}><CheckCheck />全部标为已读</Button> : null}
         </div>
         <div className="mt-5 flex items-center gap-2" role="tablist" aria-label="通知筛选"><Button type="button" size="sm" variant={filter === "unread" ? "default" : "outline"} role="tab" aria-selected={filter === "unread"} onClick={() => setFilter("unread")}>未读 {unread.length}</Button><Button type="button" size="sm" variant={filter === "all" ? "default" : "outline"} role="tab" aria-selected={filter === "all"} onClick={() => setFilter("all")}>全部 {notifications.length}</Button></div>
       </GlassCard>

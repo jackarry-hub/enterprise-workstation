@@ -1,15 +1,28 @@
 import { Banknote, Calculator, UsersRound } from "lucide-react";
 
-import { DataCard } from "@/components/ui/data-card";
 import { formatSalaryCurrency } from "@/features/salary/salary-meta";
 import type { SalaryStats } from "@/features/salary/salary-types";
 
+const statsMeta = [
+  { key: "totalSalary", icon: Banknote, label: "本月工资总额", tone: "blue" },
+  { key: "employeeCount", icon: UsersRound, label: "员工数量", tone: "purple" },
+  { key: "averageSalary", icon: Calculator, label: "平均工资", tone: "green" },
+] as const;
+
 export function PayrollStats({ stats }: { stats: SalaryStats }) {
   return (
-    <section aria-label="薪资统计" className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-      <DataCard compact icon={Banknote} label="本月工资总额" value={formatSalaryCurrency(stats.totalSalary)} trend="+8.6%" trendLabel="较上月" tone="blue" />
-      <DataCard compact icon={UsersRound} label="员工数量" value={String(stats.employeeCount)} trend="全员覆盖" trendLabel="工资单" tone="purple" />
-      <DataCard compact icon={Calculator} label="平均工资" value={formatSalaryCurrency(stats.averageSalary)} trend="+5.3%" trendLabel="较上月" tone="green" />
+    <section aria-label="薪资统计" data-mobile-layout="three-column" className="payroll-summary-grid">
+      {statsMeta.map(({ key, icon: Icon, label, tone }) => {
+        const rawValue = stats[key];
+        const value = key === "employeeCount" ? String(rawValue) : formatSalaryCurrency(rawValue);
+        const accessibleValue = key === "employeeCount" ? `${rawValue}人` : `${rawValue}元`;
+        return (
+          <article key={key} aria-label={`${label} ${accessibleValue}`} className={`payroll-summary-card is-${tone}`}>
+            <span className="payroll-summary-card__icon"><Icon aria-hidden="true" className="size-4.5" /></span>
+            <span className="min-w-0"><span className="block text-[11px] text-muted-foreground">{label}</span><strong title={value} className="mt-1 block truncate text-[15px] text-foreground">{value}</strong></span>
+          </article>
+        );
+      })}
     </section>
   );
 }

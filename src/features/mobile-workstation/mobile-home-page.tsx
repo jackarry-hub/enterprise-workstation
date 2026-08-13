@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, BriefcaseBusiness, CheckCircle2, ClipboardCheck, ListChecks } from "lucide-react";
+import { ArrowRight, Bell, BriefcaseBusiness, Bot, CheckCircle2, ClipboardCheck, ListChecks, Sparkles } from "lucide-react";
 import { useMemo } from "react";
 
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
@@ -16,7 +16,7 @@ const metrics = [
   { label: "待办任务", href: "/tasks", icon: ListChecks },
   { label: "进行中项目", href: "/projects", icon: BriefcaseBusiness },
   { label: "待审批", href: "/approvals?queue=pending", icon: ClipboardCheck },
-  { label: "今日考勤", href: "/attendance", icon: CheckCircle2 },
+  { label: "今日考勤", href: "/attendance?view=self", icon: CheckCircle2 },
 ] as const;
 
 export function MobileHomePage() {
@@ -49,6 +49,18 @@ export function MobileHomePage() {
       <section aria-label="工作概览" className="mobile-metric-grid">
         {metrics.map(({ label, href, icon: Icon }, index) => <Link key={label} href={href} prefetch={false} aria-label={`${label} ${values[index]}`} className="mobile-metric-card"><span className="mobile-metric-card__icon"><Icon aria-hidden="true" className="size-5" /></span><span><span className="block text-[13px] text-[#65758d]">{label}</span><strong className={index === 3 ? "text-[19px] text-success" : "text-[25px] text-primary"}>{values[index]}</strong></span></Link>)}
       </section>
+
+      {actor.role === "executive" ? (
+        <Link href="/decision" prefetch={false} aria-label="进入 AI 决策调度台" className="mobile-decision-entry">
+          <span className="mobile-decision-entry__icon"><Bot aria-hidden="true" className="size-6" /></span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-1.5 text-[11px] font-semibold text-primary"><Sparkles aria-hidden="true" className="size-3.5" />CEO 专属</span>
+            <strong className="mt-0.5 block text-[17px] text-[#14213a]">AI 决策调度台</strong>
+            <span className="mt-0.5 block text-xs text-[#718099]">输入目标，AI 拆解部门与个人任务</span>
+          </span>
+          <ArrowRight aria-hidden="true" className="size-5 shrink-0 text-primary" />
+        </Link>
+      ) : null}
 
       <section className="mt-5">
         <h2 className="mb-3 text-[20px] font-bold text-[#17243d]">今日重点</h2>

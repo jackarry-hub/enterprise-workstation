@@ -49,6 +49,7 @@ describe("decision workbench data", () => {
     const marketingProfile = getDecisionTalentProfile(candidates[0].member.id);
 
     expect(candidates[0].member.displayName).toBe("王芳");
+    expect(candidates.some(({ member }) => member.displayName === "林远")).toBe(false);
     expect(candidates[0].matchedSkills).toEqual(["活动策划", "跨部门协同", "内容传播"]);
     expect(candidates[0].risks).toContain("近 30 天有 2 项延期");
     expect(marketingProfile.tags.find(({ label }) => label === "近期延期偏多")?.evidence).toContain("2 项任务");

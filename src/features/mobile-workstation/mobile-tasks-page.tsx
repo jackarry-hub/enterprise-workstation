@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { FolderKanban } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
@@ -22,7 +22,7 @@ export function MobileTasksPage() {
   const items = tab === "mine" ? allItems.filter(({ initiatedByViewer }) => !initiatedByViewer) : allItems.filter(({ initiatedByViewer }) => initiatedByViewer);
   return (
     <main className="mobile-page">
-      <header className="mobile-page-header"><div><h1>任务</h1><p>按优先级处理今天的工作</p></div><Link href="/projects" prefetch={false} aria-label="发起任务" className="mobile-icon-button"><Plus aria-hidden="true" className="size-5" /></Link></header>
+      <header className="mobile-page-header"><div><h1>任务</h1><p>按优先级处理今天的工作</p></div><Link href="/projects" prefetch={false} aria-label="查看项目" className="mobile-icon-button"><FolderKanban aria-hidden="true" className="size-5" /></Link></header>
       <div role="tablist" aria-label="任务分类" className="mobile-segmented-tabs">
         <button role="tab" aria-selected={tab === "mine"} onClick={() => setTab("mine")}>我的待办</button>
         <button role="tab" aria-selected={tab === "initiated"} onClick={() => setTab("initiated")}>我发起的</button>

@@ -8,9 +8,9 @@ vi.mock("@/features/attendance/attendance-page", () => ({
 import AttendanceRoute from "@/app/(workspace)/attendance/page";
 
 describe("attendance route", () => {
-  it("opens the operating workspace so attendance approvals can enter payroll", () => {
+  it("opens the operating workspace so attendance approvals can enter payroll", async () => {
     render(<AttendanceRoute />);
 
-    expect(screen.getByText("考勤审批、复核与封账")).toBeInTheDocument();
+    expect(await screen.findByText("考勤审批、复核与封账")).toBeInTheDocument();
   });
 });

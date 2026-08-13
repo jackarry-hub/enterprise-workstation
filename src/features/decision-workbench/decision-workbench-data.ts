@@ -316,8 +316,11 @@ export function getDecisionCandidateRanking(
 ): readonly AssigneeRecommendation[] {
   const departmentIds = departmentCandidateIds[task.departmentId] ?? [];
   const requiredSkills = task.requiredSkills ?? [];
+  const executableMemberIds = new Set(
+    customerDemoPeople.filter(({ role }) => role !== "executive").map(({ memberId }) => memberId),
+  );
 
-  return mockMembers.map((member) => {
+  return mockMembers.filter(({ id }) => executableMemberIds.has(id)).map((member) => {
     const profile = getDecisionTalentProfile(member.id);
     const matchedSkills = requiredSkills.filter((skill) => profile.skills.includes(skill));
     const isDepartmentMatch = departmentIds.includes(member.id);
@@ -550,6 +553,50 @@ export function dispatchDecisionPlan(
 
 export function findDecisionProject(context: OperationFixtureContext, projectId?: string) {
   return context.actor && projectId ? findLocalProject(context, projectId) : undefined;
+}
+
+export function reassignDispatchedDecisionTask(
+  context: OperationFixtureContext,
+  projectId: string,
+  taskCode: string,
+  memberId: string,
+  now = new Date(),
+) {
+  requireDecisionFixtureContext(context);
+  if (context.actor?.role !== "executive") throw new Error("只有决策人可以调整已下发任务负责人");
+  const detail = findLocalProject(context, projectId);
+  if (!detail) throw new Error("未找到已下发的专项项目");
+  const member = detail.members.find(({ member: candidate, leftAt }) => candidate.id === memberId && !leftAt)?.member;
+  if (!member) throw new Error("候选人不在当前项目成员中");
+  const projectTaskId = `${projectId}-${taskCode}`;
+  const currentTask = detail.tasks.find(({ id }) => id === projectTaskId);
+  if (!currentTask) throw new Error("未找到需要调整的任务");
+  if (["review", "done", "cancelled"].includes(currentTask.status)) {
+    throw new Error("任务已提交验收，不能再调整负责人");
+  }
+  const timestamp = now.toISOString();
+  const tasks = detail.tasks.map((task) => task.id === projectTaskId ? {
+    ...task,
+    assigneeId: member.id,
+    updatedAt: timestamp,
+  } : task);
+  const activity: ProjectActivity = {
+    id: `${projectId}-reassign-${taskCode}-${Date.now()}`,
+    organizationId: detail.project.organizationId,
+    projectId,
+    userId: context.authenticatedActor.id,
+    actionType: "task_updated",
+    content: `${context.authenticatedActor.name}将任务“${currentTask.title}”的负责人调整为${member.displayName}，个人工作台已同步。`,
+    createdAt: timestamp,
+  };
+  const updated = {
+    ...detail,
+    project: { ...detail.project, updatedAt: timestamp },
+    tasks,
+    activities: [activity, ...detail.activities],
+  };
+  saveLocalProject(context, updated);
+  return updated;
 }
 
 export function readStoredDecision(

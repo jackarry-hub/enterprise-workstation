@@ -15,7 +15,7 @@ const priorityMeta = {
   normal: { label: "可推进", variant: "info" as const, icon: ListTodo },
 };
 
-export function OperationActionInbox({ state, actor, limit = 6 }: { state: OperationsState; actor: WorkspaceActor; limit?: number }) {
+export function OperationActionInbox({ state, actor, limit = 4 }: { state: OperationsState; actor: WorkspaceActor; limit?: number }) {
   const items = getOperationActionItems(state, actor.id).slice(0, limit);
 
   return (
@@ -24,20 +24,22 @@ export function OperationActionInbox({ state, actor, limit = 6 }: { state: Opera
         <div><h2 className="font-semibold">今日必须处理</h2><p className="mt-1 text-xs text-muted-foreground">系统已按逾期、阻塞、验收与审批时限自动排序。</p></div>
         <Badge variant={items.some(({ priority }) => priority === "critical") ? "destructive" : items.length ? "warning" : "success"}>{items.length ? `${items.length} 项行动` : "当前已清零"}</Badge>
       </div>
-      {items.length ? <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+      {items.length ? <div className="mt-3 overflow-hidden rounded-2xl border border-border/70 bg-white/65" role="list" aria-label="岗位行动列表">
         {items.map((item) => {
           const meta = priorityMeta[item.priority];
           const Icon = meta.icon;
-          return <article key={item.id} className="min-w-0">
+          return <article key={item.id} role="listitem" data-testid="operation-action-item" className={`operation-action-item operation-action-item--${item.priority}`}>
             <Link
               href={item.href}
               aria-label={`处理：${item.title}`}
-              className="group flex h-full min-w-0 flex-col rounded-2xl border border-border/70 bg-white/55 p-3.5 outline-none transition hover:border-primary/35 hover:bg-brand-soft/25 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/25"
+              className="group grid min-h-18 min-w-0 grid-cols-[auto_1fr_auto] items-center gap-3 px-3.5 py-3 outline-none transition hover:bg-brand-soft/25 focus-visible:bg-brand-soft/30 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/25"
             >
-              <div className="flex items-center justify-between gap-2"><span className="grid size-8 place-items-center rounded-xl bg-brand-soft text-primary"><Icon className="size-4" /></span><Badge variant={meta.variant}>{meta.label}</Badge></div>
-              <h3 className="mt-3 truncate text-sm font-semibold">{item.title}</h3>
-              <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{item.description}</p>
-              <div className="mt-auto flex items-end justify-between gap-2 pt-3">{item.dueAt ? <span className="text-[11px] text-muted-foreground">时限 {item.dueAt.slice(0, 16).replace("T", " ")}</span> : <span />}<span className="inline-flex items-center gap-1 text-xs font-medium text-foreground">处理<ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" /></span></div>
+              <span className="grid size-9 place-items-center rounded-xl bg-brand-soft text-primary"><Icon className="size-4" /></span>
+              <span className="min-w-0">
+                <span className="flex min-w-0 items-center gap-2"><Badge variant={meta.variant}>{meta.label}</Badge><h3 className="truncate text-sm font-semibold">{item.title}</h3></span>
+                <span className="mt-1 flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground"><span className="truncate">{item.description}</span>{item.dueAt ? <span className="shrink-0">{item.dueAt.slice(5, 10)}</span> : null}</span>
+              </span>
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-primary"><span className="hidden sm:inline">处理</span><ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" /></span>
             </Link>
           </article>;
         })}

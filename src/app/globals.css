@@ -301,6 +301,8 @@
   .mobile-metric-card { display: flex; min-height: 84px; align-items: center; gap: 10px; border: 1px solid #dfe8f6; border-radius: 22px; background: rgba(255,255,255,.94); padding: 14px; box-shadow: 0 10px 26px rgba(44,84,142,.05); }
   .mobile-metric-card__icon { display:grid; width:42px; height:42px; flex:none; place-items:center; border-radius:50%; background:#edf4ff; color:#2f7df6; }
   .mobile-metric-card:last-child .mobile-metric-card__icon { background:#e9f8f3; color:#12ad83; }
+  .mobile-decision-entry { display:flex; min-height:86px; align-items:center; gap:12px; margin-top:12px; border:1px solid #cfe0ff; border-radius:22px; background:linear-gradient(135deg,#f7fbff 0%,#eaf3ff 100%); padding:14px 15px; box-shadow:0 14px 30px rgba(47,125,246,.10); }
+  .mobile-decision-entry__icon { display:grid; width:46px; height:46px; flex:none; place-items:center; border-radius:16px; background:#2f7df6; color:white; box-shadow:0 8px 18px rgba(47,125,246,.22); }
   .mobile-list-surface { overflow:hidden; border:1px solid #dfe8f6; border-radius:24px; background:rgba(255,255,255,.96); box-shadow:0 14px 32px rgba(44,84,142,.06); }
   .mobile-task-row { display:flex; min-height:76px; align-items:center; gap:9px; padding:12px 14px; border-bottom:1px solid #e7eef8; }
   .mobile-task-row:last-child { border-bottom:0; }
@@ -331,7 +333,58 @@
   .mobile-profile-card { display:flex; align-items:center; gap:14px; margin-top:12px; border:1px solid #dfe8f6; border-radius:24px; background:white; padding:18px; box-shadow:0 12px 28px rgba(44,84,142,.06); }
   .mobile-profile-avatar { display:grid; width:60px; height:60px; place-items:center; border-radius:50%; background:#2f7df6; color:white; font-size:22px; font-weight:700; }
   .mobile-profile-entry__icon { display:grid; width:36px; height:36px; place-items:center; border-radius:12px; background:#edf4ff; color:#2f7df6; }
-  .mobile-identity-switcher { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:14px; border:1px solid #dfe8f6; border-radius:16px; background:white; padding:11px 14px; color:#586982; font-size:13px; font-weight:600; }
-  .mobile-identity-switcher select { min-width:0; max-width:210px; border:0; outline:0; background:transparent; color:#2f7df6; font-size:13px; font-weight:650; text-align:right; }
+  .mobile-identity-trigger { display:flex; width:100%; min-height:68px; align-items:center; gap:10px; margin-top:14px; border:1px solid #dfe8f6; border-radius:18px; background:white; padding:12px 14px; box-shadow:0 8px 24px rgba(44,84,142,.05); }
+  .mobile-identity-trigger__icon { display:grid; width:38px; height:38px; flex:none; place-items:center; border-radius:13px; background:#edf4ff; color:#2f7df6; }
+  .mobile-identity-sheet { max-height:min(82dvh,720px); overflow:hidden; border-radius:26px 26px 0 0; border-color:#dce7f7; background:#f7faff; padding:0 0 max(14px,env(safe-area-inset-bottom)); }
+  .mobile-identity-sheet__header { border-bottom:1px solid #e2ebf7; padding:20px 20px 14px; }
+  .mobile-identity-list { display:flex; flex-direction:column; gap:8px; overflow-y:auto; padding:12px 14px 4px; overscroll-behavior:contain; }
+  .mobile-identity-option { display:flex; width:100%; min-height:64px; align-items:center; gap:11px; border:1px solid #e0e9f6; border-radius:18px; background:white; padding:10px 12px; box-shadow:0 5px 16px rgba(44,84,142,.04); }
+  .mobile-identity-option[aria-pressed="true"] { border-color:#9fc4ff; background:#edf5ff; }
+  .mobile-identity-option__avatar { display:grid; width:40px; height:40px; flex:none; place-items:center; border-radius:50%; background:#eaf2ff; color:#2f7df6; font-weight:700; }
+  .mobile-identity-option[aria-pressed="true"] .mobile-identity-option__avatar { background:#2f7df6; color:white; }
+  .mobile-identity-option__check { display:grid; width:28px; height:28px; flex:none; place-items:center; border-radius:50%; background:#2f7df6; color:white; }
+  .operation-action-item { position:relative; border-bottom:1px solid #e5edf8; }
+  .operation-action-item:last-child { border-bottom:0; }
+  .operation-action-item::before { position:absolute; inset-block:10px; left:0; width:3px; border-radius:0 4px 4px 0; content:""; }
+  .operation-action-item--critical::before { background:#f04452; }
+  .operation-action-item--warning::before { background:#f59e0b; }
+  .operation-action-item--normal::before { background:#2f7df6; }
+  @media (max-width: 639px) {
+    .role-workbench { gap:10px; padding-top:12px; }
+    .role-workbench__header { display:grid; grid-template-columns:1fr auto; align-items:center; gap:10px; border:1px solid #dfe8f6; border-radius:22px; background:rgba(255,255,255,.88); padding:14px; box-shadow:0 10px 28px rgba(44,84,142,.06); }
+    .role-workbench__eyebrow,.role-workbench__description { display:none; }
+    .role-workbench__header h1 { margin:0; font-size:20px; line-height:1.2; }
+    .role-workbench__identity { max-width:154px; border:0; background:transparent; padding:0; }
+    .role-workbench__identity [data-slot="avatar"] { width:34px; height:34px; }
+    .role-workbench__identity p { max-width:106px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .role-workbench__flow { grid-template-columns:1fr 1fr; gap:0; padding:12px 14px; }
+    .role-workbench__flow > div { min-width:0; }
+    .role-workbench__flow > div + div { border-left:1px solid #e3ebf6; padding-left:12px; text-align:left; }
+    .role-workbench__flow p:last-child { display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:2; font-size:12px; line-height:1.45; }
+    .role-workbench__stats { grid-template-columns:repeat(4,minmax(0,1fr)); gap:0; overflow:hidden; border:1px solid #dfe8f6; border-radius:20px; background:white; box-shadow:0 8px 24px rgba(44,84,142,.05); }
+    .role-workbench__stat { min-width:0; flex-direction:column; gap:4px; border:0!important; border-right:1px solid #e7eef8!important; border-radius:0!important; background:transparent!important; padding:10px 4px!important; box-shadow:none!important; text-align:center; backdrop-filter:none!important; }
+    .role-workbench__stat:last-child { border-right:0!important; }
+    .role-workbench__stat-icon { width:28px!important; height:28px!important; border-radius:10px!important; }
+    .role-workbench__stat-icon svg { width:15px; height:15px; }
+    .role-workbench__stat p:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10px; }
+    .role-workbench__stat p:last-child { margin-top:0; font-size:13px; }
+  }
   .mobile-logout-button { display:flex; width:100%; min-height:48px; align-items:center; justify-content:center; gap:8px; margin-top:16px; border:1px solid #e6edf7; border-radius:16px; background:white; color:#6c7890; font-size:14px; font-weight:600; }
+  .approval-people-summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; border:1px solid rgba(255,255,255,.75); border-radius:20px; background:rgba(255,255,255,.68); padding:12px; }
+  .approval-person-card { min-width:0; border:1px solid #e1eaf7; border-radius:16px; background:rgba(255,255,255,.78); padding:11px; }
+  .approval-submission-meta { grid-column:1/-1; display:flex; min-width:0; align-items:center; justify-content:space-between; gap:16px; border-top:1px solid #e1eaf7; padding:11px 2px 0; }
+  .payroll-summary-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+  .payroll-summary-card { display:flex; min-width:0; min-height:74px; align-items:center; gap:8px; border:1px solid #dfe8f6; border-radius:18px; background:rgba(255,255,255,.94); padding:10px 9px; box-shadow:0 10px 24px rgba(44,84,142,.05); }
+  .payroll-summary-card__icon { display:grid; width:32px; height:32px; flex:none; place-items:center; border-radius:11px; background:#edf4ff; color:#2f7df6; }
+  .payroll-summary-card.is-purple .payroll-summary-card__icon { background:#f0edff; color:#7f73f6; }
+  .payroll-summary-card.is-green .payroll-summary-card__icon { background:#e9f8f3; color:#12ad83; }
+
+  @media (max-width: 359px) {
+    .mobile-home-page,.mobile-page { padding-inline:12px; }
+    .mobile-metric-card { padding:11px; }
+    .mobile-metric-card__icon { width:36px; height:36px; }
+    .approval-people-summary { grid-template-columns:1fr; }
+    .approval-submission-meta { grid-column:auto; }
+    .payroll-summary-grid { grid-template-columns:1fr; }
+  }
 }

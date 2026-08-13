@@ -4,9 +4,10 @@ import Link from "next/link";
 import { CalendarCheck2, ChevronRight, FileText, LogOut, Settings, WalletCards } from "lucide-react";
 
 import { useCustomerDemoSession, useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { MobileIdentitySheet } from "@/features/mobile-workstation/components/mobile-identity-sheet";
 
 const entries = [
-  { href: "/attendance", label: "我的考勤", icon: CalendarCheck2 },
+  { href: "/attendance?view=self", label: "我的考勤", icon: CalendarCheck2 },
   { href: "/payroll", label: "我的工资", icon: WalletCards },
   { href: "/execution", label: "我的日报", icon: FileText },
   { href: "/settings", label: "设置", icon: Settings },
@@ -22,23 +23,7 @@ export function MobileProfilePage() {
       <nav aria-label="个人功能" className="mobile-list-surface mt-4">
         {entries.map(({ href, label, icon: Icon }) => <Link key={href} href={href} prefetch={false} aria-label={label} className="mobile-profile-entry"><span className="mobile-profile-entry__icon"><Icon aria-hidden="true" className="size-4.5" /></span><span className="flex-1 font-semibold text-[#21304a]">{label}</span><ChevronRight aria-hidden="true" className="size-4 text-[#8290a6]" /></Link>)}
       </nav>
-      {demo.enabled ? (
-        <label className="mobile-identity-switcher">
-          <span>切换演示身份</span>
-          <select
-            aria-label="切换演示身份"
-            value={demo.currentPersonId ?? ""}
-            onChange={(event) => {
-              if (demo.switchIdentity(event.target.value)) window.location.assign("/dashboard");
-            }}
-          >
-            {demo.sessions.map((candidate) => {
-              const personId = candidate.identity.providerSubject.replace("customer-demo:", "");
-              return <option key={candidate.authUserId} value={personId}>{candidate.profile.displayName} · {candidate.profile.jobTitle}</option>;
-            })}
-          </select>
-        </label>
-      ) : null}
+      <MobileIdentitySheet />
       {demo.enabled ? (
         <button type="button" aria-label="重置演示身份" onClick={() => {
           window.localStorage.removeItem("enterprise-workstation.customer-demo.actor.v1");

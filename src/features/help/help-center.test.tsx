@@ -11,7 +11,7 @@ describe("HelpCenter", () => {
     expect(screen.getByRole("heading", { name: "使用帮助" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "企业任务完整闭环" })).toBeVisible();
     expect(screen.getByText("在 AI 决策调度台输入目标、期限、预算和约束")).toBeVisible();
-    expect(screen.getByRole("link", { name: /AI 决策调度台/ })).toHaveAttribute("href", "/dashboard");
+    expect(screen.getByRole("link", { name: /AI 决策调度台/ })).toHaveAttribute("href", "/decision");
     expect(screen.queryByRole("link", { name: /财务执行中心/ })).not.toBeInTheDocument();
   });
 });

@@ -59,6 +59,13 @@ describe("payroll pages", () => {
     expect(within(list).queryByText("张伟")).not.toBeInTheDocument();
   });
 
+  it("renders the three payroll summary cards as one balanced mobile row", () => {
+    render(<PayrollPage result={salaryMockResult} />);
+
+    expect(screen.getByRole("region", { name: "薪资统计" })).toHaveAttribute("data-mobile-layout", "three-column");
+    expect(screen.getByLabelText(/本月工资总额 \d+元/)).toBeVisible();
+  });
+
   it("presents salary composition and monthly history", () => {
     const record = salaryMockResult.data.records[0];
     render(<PayrollDetailPage record={record} />);

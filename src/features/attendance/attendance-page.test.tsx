@@ -1,12 +1,28 @@
 import { screen, within } from "@testing-library/react";
 import { renderWithWorkspaceSession as render } from "@/test/workspace-session-test-utils";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { attendanceMockResult } from "@/features/attendance/attendance-mock-data";
 import { AttendancePage } from "@/features/attendance/attendance-page";
+import { customerDemoSessions } from "@/features/demo/customer-demo-data";
+import { renderWithSpecificWorkspaceSession } from "@/test/workspace-session-test-utils";
+
+const { navigationQuery } = vi.hoisted(() => ({ navigationQuery: { value: "" } }));
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(navigationQuery.value) }));
 
 describe("AttendancePage", () => {
+  beforeEach(() => {
+    navigationQuery.value = "";
+  });
+
+  it("opens the personal attendance panel when the dashboard requests it", () => {
+    navigationQuery.value = "view=self";
+    const managerSession = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-product-head")!;
+    renderWithSpecificWorkspaceSession(<AttendancePage result={attendanceMockResult} />, managerSession);
+    expect(screen.getByRole("tab", { name: "我的考勤" })).toHaveClass("bg-primary");
+  });
+
   it("renders the complete attendance management surface", () => {
     render(<AttendancePage result={attendanceMockResult} />);
 

@@ -35,4 +35,12 @@ describe("approval pages", () => {
     await user.click(screen.getByRole("button", { name: "确认同意" }));
     expect(screen.getByText("审批已通过")).toBeVisible();
   });
+
+  it("keeps approval people and timing readable in the mobile summary", () => {
+    renderWithSpecificWorkspaceSession(<ApprovalDetailPage approval={approvalMockResult.data.approvals[1]} />, executive);
+
+    expect(screen.getByTestId("approval-people-summary")).toHaveAttribute("data-layout", "mobile-readable");
+    expect(screen.getAllByTestId("approval-person-card")).toHaveLength(2);
+    expect(screen.getByTestId("approval-submission-meta")).toBeVisible();
+  });
 });

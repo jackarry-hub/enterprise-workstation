@@ -78,6 +78,9 @@ describe("RoleWorkbench customer demo", () => {
     const reviewAction = screen.getByRole("heading", { name: "验收：实现目标拆解与责任映射" }).closest("article")!;
     const reviewLink = within(reviewAction).getByRole("link", { name: "处理：验收：实现目标拆解与责任映射" });
     expect(reviewLink).toHaveAttribute("href", "/department#task-flow-task-02");
+    const actionList = screen.getByRole("list", { name: "岗位行动列表" });
+    expect(within(actionList).getAllByTestId("operation-action-item").length).toBeLessThanOrEqual(4);
+    expect(within(actionList).getByRole("link", { name: "处理：验收：实现目标拆解与责任映射" })).toBeVisible();
     expect(reviewLink).toContainElement(within(reviewAction).getByRole("heading", { name: "验收：实现目标拆解与责任映射" }));
     expect(screen.getByRole("button", { name: "通过验收" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "退回修改" })).toBeDisabled();
@@ -137,7 +140,7 @@ describe("RoleWorkbench customer demo", () => {
     expect(within(financeTask).queryByText(/等待前置任务|前置任务/)).not.toBeInTheDocument();
   });
 
-  it("places common shortcuts before recent activity in the role sidebar", () => {
+  it("keeps role workbenches focused by hiding the generic recent activity feed", () => {
     const financeSession = sessionFor("demo-finance");
     render(
       <WorkspaceSessionProvider session={financeSession} demoSessions={customerDemoSessions}>
@@ -146,11 +149,10 @@ describe("RoleWorkbench customer demo", () => {
     );
 
     const shortcuts = screen.getByRole("heading", { name: "常用入口" }).closest("div[data-slot='glass-card']") as HTMLElement;
-    const recent = screen.getByRole("heading", { name: "最近流转" }).closest("div[data-slot='glass-card']") as HTMLElement;
     const taskRegion = screen.getByRole("region", { name: "我的执行任务" });
-    expect(shortcuts.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(shortcuts.compareDocumentPosition(taskRegion) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(within(shortcuts).getByRole("link", { name: "薪资核算与发放" })).toHaveAttribute("href", "/payroll#payroll-control");
+    expect(screen.queryByRole("heading", { name: "最近流转" })).not.toBeInTheDocument();
   });
 
   it("puts the next unfinished task first and exposes its start action in the card header", async () => {

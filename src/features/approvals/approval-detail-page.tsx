@@ -22,12 +22,12 @@ type Decision = "approve" | "reject";
 
 function Person({ person }: { person: Approval["applicant"] }) {
   return (
-    <div className="flex items-center gap-3">
-      <Avatar className="size-10">
+    <div className="flex min-w-0 items-center gap-2.5">
+      <Avatar className="size-9 shrink-0">
         {person.avatarUrl ? <AvatarImage src={person.avatarUrl} alt={person.displayName} /> : null}
         <AvatarFallback className="bg-primary/10 text-primary">{person.displayName.slice(-2)}</AvatarFallback>
       </Avatar>
-      <div><p className="font-medium text-foreground">{person.displayName}</p><p className="mt-0.5 text-xs text-muted-foreground">{person.department} · {person.jobTitle}</p></div>
+      <div className="min-w-0"><p className="truncate font-medium text-foreground">{person.displayName}</p><p className="mt-0.5 truncate text-xs text-muted-foreground">{person.department} · {person.jobTitle}</p></div>
     </div>
   );
 }
@@ -74,10 +74,10 @@ export function ApprovalDetailPage({ approval }: { approval: Approval }) {
               </div>
             ) : <StatusBadge status={statusMeta.tone}>{statusMeta.label}</StatusBadge>}
           />
-          <div className="mt-5 grid gap-3 rounded-2xl border border-white/75 bg-background/65 p-4 sm:grid-cols-3">
-            <div><p className="text-xs text-muted-foreground">申请人</p><div className="mt-2"><Person person={approval.applicant} /></div></div>
-            <div className="border-border/60 sm:border-l sm:pl-4"><p className="text-xs text-muted-foreground">当前负责人</p><div className="mt-2"><Person person={approval.owner} /></div></div>
-            <div className="border-border/60 sm:border-l sm:pl-4"><p className="text-xs text-muted-foreground">提交时间 / 当前状态</p><p className="mt-2 font-medium text-foreground">{approval.submittedAt}</p><div className="mt-2"><StatusBadge status={statusMeta.tone}>{statusMeta.label}</StatusBadge></div></div>
+          <div data-testid="approval-people-summary" data-layout="mobile-readable" className="approval-people-summary mt-5">
+            <div data-testid="approval-person-card" className="approval-person-card"><p className="text-[11px] text-muted-foreground">申请人</p><div className="mt-2"><Person person={approval.applicant} /></div></div>
+            <div data-testid="approval-person-card" className="approval-person-card"><p className="text-[11px] text-muted-foreground">当前负责人</p><div className="mt-2"><Person person={approval.owner} /></div></div>
+            <div data-testid="approval-submission-meta" className="approval-submission-meta"><span className="min-w-0"><span className="block text-[11px] text-muted-foreground">提交时间</span><strong className="mt-1 block truncate text-sm font-medium text-foreground">{approval.submittedAt}</strong></span><span className="shrink-0 text-right"><span className="block text-[11px] text-muted-foreground">当前状态</span><span className="mt-1 block"><StatusBadge status={statusMeta.tone}>{statusMeta.label}</StatusBadge></span></span></div>
           </div>
         </div>
       </GlassCard>
