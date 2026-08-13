@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { ArrowLeft, Banknote, CalendarCheck2, CircleMinus, CirclePlus, History, ReceiptText, UserRound } from "lucide-react";
 
-import { MobileWorkspaceNav } from "@/components/shell/mobile-workspace-nav";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { GlassCard } from "@/components/ui/glass-card";
 import { PageHeader } from "@/components/ui/page-header";
@@ -66,7 +65,6 @@ export function PayrollDetailPage({ record: sourceRecord }: { record: SalaryReco
       </section>
 
       <GlassCard className="min-w-0 overflow-hidden p-4 sm:p-5"><div className="flex items-center gap-2"><History aria-hidden="true" className="size-4 text-primary" /><div><h2 className="text-lg font-semibold text-foreground">历史记录</h2><p className="text-xs text-muted-foreground">近 6 个月实发工资</p></div></div><section aria-label="历史记录" className="mt-4"><Table><TableHeader><TableRow><TableHead>月份</TableHead><TableHead>员工</TableHead><TableHead>实发工资</TableHead><TableHead>状态</TableHead><TableHead>说明</TableHead></TableRow></TableHeader><TableBody>{record.history.map((item) => <TableRow key={item.month}><TableCell className="font-medium">{item.month}</TableCell><TableCell>{record.employee.displayName}</TableCell><TableCell className="font-semibold text-foreground">{formatSalaryCurrency(item.netSalary)}</TableCell><TableCell><StatusBadge status={salaryStatusMeta[item.status].tone}>{salaryStatusMeta[item.status].label}</StatusBadge></TableCell><TableCell className="text-muted-foreground"><span className="inline-flex items-center gap-1"><CalendarCheck2 aria-hidden="true" className="size-3.5" />按期发放</span></TableCell></TableRow>)}</TableBody></Table></section></GlassCard>
-      <MobileWorkspaceNav active="work" />
     </main>
   );
 }

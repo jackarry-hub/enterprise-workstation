@@ -4,7 +4,7 @@ import {
   mockProjectPortfolioStats,
 } from "@/features/projects/mock-data";
 import type { ProjectListResult } from "@/features/projects/data/project-list-data";
-import { ProjectsWorkspace } from "@/features/projects/projects-workspace";
+import { MobileProjectsPage } from "@/features/mobile-workstation/mobile-projects-page";
 
 const defaultResult: ProjectListResult = {
   projects: getProjectListMock(),
@@ -15,7 +15,7 @@ const defaultResult: ProjectListResult = {
 
 export function ProjectsPage({ result = defaultResult }: { result?: ProjectListResult }) {
   return (
-    <ProjectsWorkspace
+    <MobileProjectsPage
       projects={result.projects}
       stats={result.stats}
       reminders={result.reminders}

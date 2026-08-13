@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { Database, Search, ShieldCheck } from "lucide-react";
 
-import { MobileWorkspaceNav } from "@/components/shell/mobile-workspace-nav";
 import { Badge } from "@/components/ui/badge";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Input } from "@/components/ui/input";
@@ -66,7 +65,6 @@ export function ApprovalsWorkspace({ result }: { result: ApprovalResult }) {
         </GlassCard>
         <GlassCard className="min-w-0 p-4 sm:p-5 xl:col-span-3"><ApprovalAside /></GlassCard>
       </section>
-      <MobileWorkspaceNav active="messages" />
     </main>
   );
 }

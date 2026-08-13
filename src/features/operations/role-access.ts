@@ -3,12 +3,14 @@ import type { WorkspaceRole } from "@/features/auth/workspace-session-types";
 const roleRoutePrefixes: Record<WorkspaceRole, readonly string[]> = {
   // Attendance stays directly accessible because HR and payroll closure actions link to its operating panels.
   executive: [
+    "/me",
     "/help",
     "/notifications",
     "/dashboard",
     "/projects",
     "/activities",
     "/tasks",
+    "/execution",
     "/attendance",
     "/approvals",
     "/people",
@@ -18,6 +20,8 @@ const roleRoutePrefixes: Record<WorkspaceRole, readonly string[]> = {
     "/settings",
   ],
   department_head: [
+    "/me",
+    "/dashboard",
     "/help",
     "/notifications",
     "/department",
@@ -30,8 +34,13 @@ const roleRoutePrefixes: Record<WorkspaceRole, readonly string[]> = {
     "/payroll",
     "/approvals",
     "/analytics",
+    "/execution",
+    "/settings",
   ],
   employee: [
+    "/me",
+    "/dashboard",
+    "/projects",
     "/help",
     "/notifications",
     "/execution",
@@ -40,8 +49,12 @@ const roleRoutePrefixes: Record<WorkspaceRole, readonly string[]> = {
     "/leave",
     "/payroll",
     "/approvals",
+    "/settings",
   ],
   finance: [
+    "/me",
+    "/dashboard",
+    "/projects",
     "/help",
     "/notifications",
     "/finance",
@@ -50,8 +63,13 @@ const roleRoutePrefixes: Record<WorkspaceRole, readonly string[]> = {
     "/payroll",
     "/attendance",
     "/leave",
+    "/execution",
+    "/settings",
   ],
   hr: [
+    "/me",
+    "/dashboard",
+    "/projects",
     "/help",
     "/notifications",
     "/hr",
@@ -61,6 +79,8 @@ const roleRoutePrefixes: Record<WorkspaceRole, readonly string[]> = {
     "/leave",
     "/payroll",
     "/approvals",
+    "/execution",
+    "/settings",
   ],
 };
 

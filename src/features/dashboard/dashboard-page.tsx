@@ -1,6 +1,5 @@
-import { DecisionWorkbench } from "@/features/decision-workbench/decision-workbench";
-import { ExecutiveClosurePanel } from "@/features/operations/executive-closure-panel";
+import { MobileHomePage } from "@/features/mobile-workstation/mobile-home-page";
 
 export function DashboardPage() {
-  return <><DecisionWorkbench /><ExecutiveClosurePanel /></>;
+  return <MobileHomePage />;
 }

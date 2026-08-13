@@ -1,5 +1,5 @@
-import { TaskCenterWorkspace } from "@/features/tasks/task-center-workspace";
+import { MobileTasksPage } from "@/features/mobile-workstation/mobile-tasks-page";
 
 export function TaskCenterPage() {
-  return <TaskCenterWorkspace />;
+  return <MobileTasksPage />;
 }

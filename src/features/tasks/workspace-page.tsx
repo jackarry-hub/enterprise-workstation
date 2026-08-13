@@ -1,4 +1,3 @@
-import { MobileWorkspaceNav } from "@/components/shell/mobile-workspace-nav";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import { WorkspaceActivityList } from "@/features/tasks/components/workspace-activity-list";
@@ -15,7 +14,6 @@ export function WorkspacePage({ result }: { result: WorkspaceResult }) {
       <WorkspaceOverview overview={result.data.overview} />
       <section className="grid min-w-0 gap-4 xl:grid-cols-12"><WorkspaceTaskList tasks={result.data.tasks} /><WorkspaceTodoList todos={result.data.todos} /></section>
       <section className="grid min-w-0 gap-4 xl:grid-cols-12"><WorkspaceDailyReport result={result} /><WorkspaceActivityList activities={result.data.activities} loadError={result.data.loadError} /></section>
-      <MobileWorkspaceNav active="work" />
     </main>
   );
 }

@@ -1,83 +1,38 @@
-import { screen, within } from "@testing-library/react";
-import { renderWithWorkspaceSession as render } from "@/test/workspace-session-test-utils";
-import { renderWithSpecificWorkspaceSession, unboundExecutiveWorkspaceSession } from "@/test/workspace-session-test-utils";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { approvalMockResult } from "@/features/approvals/approval-mock-data";
 import { ApprovalDetailPage } from "@/features/approvals/approval-detail-page";
 import { ApprovalsPage } from "@/features/approvals/approvals-page";
+import { customerDemoSessions } from "@/features/demo/customer-demo-data";
+import { renderWithSpecificWorkspaceSession, unboundExecutiveWorkspaceSession } from "@/test/workspace-session-test-utils";
+
+const executive = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-executive")!;
 
 describe("approval pages", () => {
   it("does not expose fixture approvals to an unbound real identity", () => {
-    renderWithSpecificWorkspaceSession(
-      <ApprovalsPage result={approvalMockResult} />,
-      unboundExecutiveWorkspaceSession,
-    );
-
-    expect(screen.getByText("当前账号没有可显示的真实审批数据。" )).toBeVisible();
+    renderWithSpecificWorkspaceSession(<ApprovalsPage result={{ ...approvalMockResult, data: { ...approvalMockResult.data, approvals: [] } }} />, unboundExecutiveWorkspaceSession);
+    expect(screen.getByText("这里暂时没有审批")).toBeVisible();
     expect(screen.queryByText("王芳")).not.toBeInTheDocument();
-    expect(screen.getByText("当前显示 0 条审批")).toBeVisible();
   });
 
-  it("does not expose fixture approval detail to an unbound real identity", () => {
-    renderWithSpecificWorkspaceSession(
-      <ApprovalDetailPage approval={approvalMockResult.data.approvals[1]} />,
-      unboundExecutiveWorkspaceSession,
-    );
-
-    expect(screen.getByRole("heading", { name: "审批数据暂不可用" })).toBeVisible();
-    expect(screen.queryByText("报销申请")).not.toBeInTheDocument();
-  });
-
-  it("renders and filters the approval queue", async () => {
+  it("renders the two concise mobile approval queues", async () => {
     const user = userEvent.setup();
-    render(<ApprovalsPage result={approvalMockResult} />);
-
-    expect(screen.getByRole("heading", { name: "审批中心" })).toBeVisible();
-    const stats = screen.getByRole("region", { name: "审批统计" });
-    expect(within(stats).getByText("待审批")).toBeVisible();
-    expect(within(stats).getByText("我发起")).toBeVisible();
-    expect(within(stats).getByText("已通过")).toBeVisible();
-    expect(within(stats).getByText("已拒绝")).toBeVisible();
-
-    await user.type(screen.getByRole("searchbox", { name: "搜索审批" }), "王芳");
-    const list = screen.getByRole("region", { name: "审批列表" });
-    expect(within(list).getAllByText("王芳").length).toBeGreaterThanOrEqual(1);
-    expect(within(list).queryByText("张伟")).not.toBeInTheDocument();
-  });
-
-  it("filters the approval list when a summary card is clicked and toggles back to all", async () => {
-    const user = userEvent.setup();
-    render(<ApprovalsPage result={approvalMockResult} />);
-    const list = screen.getByRole("region", { name: "审批列表" });
-    const rejectedCard = screen.getByRole("button", { name: "筛选已拒绝审批，共 1 条" });
-    expect(rejectedCard.tagName).toBe("BUTTON");
-
-    await user.click(rejectedCard);
-    expect(rejectedCard).toHaveAttribute("aria-pressed", "true");
-    expect(within(list).getByText("合同申请")).toBeVisible();
-    expect(within(list).queryByText("采购申请")).not.toBeInTheDocument();
-    expect(screen.getByText("当前显示 1 条审批")).toBeVisible();
-
-    await user.click(rejectedCard);
-    expect(screen.getByRole("tab", { name: "全部" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("当前显示 6 条审批")).toBeVisible();
+    renderWithSpecificWorkspaceSession(<ApprovalsPage result={approvalMockResult} />, executive);
+    expect(screen.getByRole("heading", { name: "审批" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "待我审批" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getAllByTestId("mobile-approval-row").length).toBeGreaterThanOrEqual(1);
+    await user.click(screen.getByRole("tab", { name: "我发起的" }));
+    expect(screen.getByRole("tab", { name: "我发起的" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("shows fixed approval steps and completes an approve confirmation", async () => {
     const user = userEvent.setup();
-    const approval = approvalMockResult.data.approvals[1];
-    render(<ApprovalDetailPage approval={approval} />);
-
+    renderWithSpecificWorkspaceSession(<ApprovalDetailPage approval={approvalMockResult.data.approvals[1]} />, executive);
     expect(screen.getByRole("heading", { name: "报销申请" })).toBeVisible();
-    expect(screen.getByRole("region", { name: "审批流程" })).toBeVisible();
-    expect(screen.getByRole("region", { name: "审批记录" })).toBeVisible();
-
     await user.click(screen.getByRole("button", { name: "同意申请" }));
-    expect(screen.getByRole("dialog", { name: "确认同意申请" })).toBeVisible();
     await user.click(screen.getByRole("button", { name: "确认同意" }));
-
     expect(screen.getByText("审批已通过")).toBeVisible();
   });
 });

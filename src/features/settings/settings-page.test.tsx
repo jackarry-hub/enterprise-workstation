@@ -1,9 +1,10 @@
 import { screen } from "@testing-library/react";
-import { renderWithWorkspaceSession as render } from "@/test/workspace-session-test-utils";
+import { renderWithSpecificWorkspaceSession, renderWithWorkspaceSession as render } from "@/test/workspace-session-test-utils";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { SettingsPage } from "@/features/settings/settings-page";
+import { customerDemoSessions } from "@/features/demo/customer-demo-data";
 
 describe("SettingsPage", () => {
   beforeEach(() => window.localStorage.clear());
@@ -52,5 +53,22 @@ describe("SettingsPage", () => {
 
     await user.upload(screen.getByLabelText("选择企业 Logo"), new File(["not-image"], "logo.txt", { type: "text/plain" }));
     expect(screen.getByRole("alert")).toHaveTextContent("请选择图片文件");
+  });
+
+  it("shows employees only personal and notification settings", () => {
+    const employee = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-engineer")!;
+    renderWithSpecificWorkspaceSession(<SettingsPage />, employee);
+
+    expect(screen.getByRole("tab", { name: "个人设置" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "通知设置" })).toBeVisible();
+    expect(screen.queryByRole("tab", { name: "企业信息" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "权限矩阵" })).not.toBeInTheDocument();
+    expect(screen.queryByText("企业时区")).not.toBeInTheDocument();
+  });
+
+  it("keeps enterprise and permission controls for executives", () => {
+    render(<SettingsPage />);
+    expect(screen.getByRole("tab", { name: "企业信息" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "权限矩阵" })).toBeVisible();
   });
 });

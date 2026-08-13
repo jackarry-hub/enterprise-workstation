@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, Plane } from "lucide-react";
 
-import { MobileWorkspaceNav } from "@/components/shell/mobile-workspace-nav";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -173,7 +172,6 @@ export function AttendanceWorkspace({ result }: { result: AttendanceResult }) {
           <div className="grid min-w-0 content-start gap-4 xl:col-span-4"><GlassCard className="min-w-0 overflow-hidden p-4 sm:p-5"><AttendanceTrend trend={result.data.trend} /></GlassCard><GlassCard className="min-w-0 overflow-hidden p-4 sm:p-5"><AttendanceAnomalies records={anomalies} /></GlassCard></div>
         </section>
       </> : null}
-      <MobileWorkspaceNav active="work" />
     </main>
   );
 }

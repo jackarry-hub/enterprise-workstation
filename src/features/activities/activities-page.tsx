@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { CalendarDays, Plus } from "lucide-react";
 
-import { MobileWorkspaceNav } from "@/components/shell/mobile-workspace-nav";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -55,7 +54,6 @@ export function ActivitiesPage() {
         />
         <RealDataNotice message="当前账号没有可显示的真实活动数据。" />
         <GlassCard className="p-8 text-center text-sm text-muted-foreground">真实项目数据接入后，相关活动会自动显示在这里。</GlassCard>
-        <MobileWorkspaceNav active="work" />
       </main>
     );
   }
@@ -96,7 +94,6 @@ export function ActivitiesPage() {
         onOpenChange={setCreateOpen}
         onCreate={createActivity}
       />
-      <MobileWorkspaceNav active="work" />
     </main>
   );
 }

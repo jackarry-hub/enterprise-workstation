@@ -12,6 +12,22 @@ const workspaceRoles = [
 ] as const satisfies readonly WorkspaceRole[];
 
 describe("role access policy", () => {
+  it("lets every role use every mobile primary destination", () => {
+    for (const role of workspaceRoles) {
+      for (const path of ["/dashboard", "/tasks", "/projects", "/approvals", "/me"]) {
+        expect(canRoleAccessPath(role, path)).toBe(true);
+      }
+    }
+  });
+
+  it("lets every role reach the personal profile destinations", () => {
+    for (const role of workspaceRoles) {
+      for (const path of ["/attendance", "/payroll", "/execution", "/settings"]) {
+        expect(canRoleAccessPath(role, path)).toBe(true);
+      }
+    }
+  });
+
   it("keeps every role inside its own workstation", () => {
     expect(canRoleAccessPath("executive", "/dashboard")).toBe(true);
     expect(canRoleAccessPath("executive", "/finance")).toBe(false);
