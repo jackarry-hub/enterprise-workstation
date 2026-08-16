@@ -378,6 +378,7 @@ export function RoleWorkbench({ role }: { role: Exclude<WorkspaceRole, "executiv
   const { state, context, actor, isFixtureBound } = useOperations(session);
   const [feedback, setFeedback] = useState<{ message: string; tone: "error" | "success" } | null>(null);
   const [missingTaskAnchor, setMissingTaskAnchor] = useState<string | null>(null);
+  const [taskAnchor, setTaskAnchor] = useState("");
   const handledTaskAnchorRef = useRef<string | null>(null);
   const copy = roleCopy[role];
 
@@ -397,7 +398,17 @@ export function RoleWorkbench({ role }: { role: Exclude<WorkspaceRole, "executiv
   const attention = tasks.filter(({ status, reviewNote }) => status === "blocked" || status === "review" || (status === "in_progress" && Boolean(reviewNote))).length + reviewTasks.length + supportRequests.filter(({ status }) => status === "pending").length;
 
   useEffect(() => {
-    const targetId = decodeURIComponent(window.location.hash.slice(1));
+    const syncTaskAnchor = () => {
+      setTaskAnchor(decodeURIComponent(window.location.hash.slice(1)));
+    };
+
+    syncTaskAnchor();
+    window.addEventListener("hashchange", syncTaskAnchor);
+    return () => window.removeEventListener("hashchange", syncTaskAnchor);
+  }, []);
+
+  useEffect(() => {
+    const targetId = taskAnchor;
     if (!targetId.startsWith("task-") && !targetId.startsWith("review-")) {
       handledTaskAnchorRef.current = null;
       setMissingTaskAnchor(null);
@@ -422,7 +433,7 @@ export function RoleWorkbench({ role }: { role: Exclude<WorkspaceRole, "executiv
     if (targetId.startsWith("review-")) {
       target.querySelector<HTMLElement>("textarea, input")?.focus({ preventScroll: true });
     }
-  }, [state.tasks]);
+  }, [state.tasks, taskAnchor]);
 
   function notify(message: string, tone: "error" | "success" = "success") {
     setFeedback({ message, tone });

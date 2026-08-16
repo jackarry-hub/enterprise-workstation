@@ -116,6 +116,41 @@ describe("RoleWorkbench customer demo", () => {
     expect(window.location.hash).toBe("#task-multi-task-first");
   });
 
+  it("moves to the exact task when the hash changes between two execution cards", async () => {
+    const employeeSession = sessionFor("demo-engineer");
+    const employeeContext = createOperationFixtureContext(employeeSession);
+    const state = resetOperationsState(employeeContext);
+    const sourceTask = state.tasks.find(({ id }) => id === "dept-task-engineer")!;
+    const firstTask = { ...sourceTask, id: "hash-task-first", code: "HASH-01", title: "锚点任务一" };
+    const secondTask = { ...sourceTask, id: "hash-task-second", code: "HASH-02", title: "锚点任务二" };
+
+    saveOperationsState(employeeContext, {
+      ...state,
+      tasks: state.tasks.flatMap((task) => task.id === sourceTask.id ? [firstTask, secondTask] : [task]),
+    });
+    window.history.replaceState(null, "", "/execution#task-hash-task-first");
+
+    render(
+      <WorkspaceSessionProvider session={employeeSession} demoSessions={customerDemoSessions}>
+        <RoleWorkbench role="employee" />
+      </WorkspaceSessionProvider>,
+    );
+
+    const firstTaskCard = screen.getByRole("heading", { name: "锚点任务一" }).closest("article")!;
+    const secondTaskCard = screen.getByRole("heading", { name: "锚点任务二" }).closest("article")!;
+    const firstTaskScroll = vi.fn();
+    const secondTaskScroll = vi.fn();
+    Object.defineProperty(firstTaskCard, "scrollIntoView", { configurable: true, value: firstTaskScroll });
+    Object.defineProperty(secondTaskCard, "scrollIntoView", { configurable: true, value: secondTaskScroll });
+
+    window.history.replaceState(null, "", "/execution#task-hash-task-second");
+    window.dispatchEvent(new Event("hashchange"));
+
+    await waitFor(() => expect(secondTaskScroll).toHaveBeenCalledWith({ block: "center" }));
+    expect(firstTaskScroll).not.toHaveBeenCalled();
+    expect(secondTaskCard).toHaveFocus();
+  });
+
   it("shows the executive assignee and makes the final submission step explicit", async () => {
     const user = userEvent.setup();
     const executiveSession = sessionFor("demo-executive");

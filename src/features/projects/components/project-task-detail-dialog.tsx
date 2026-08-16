@@ -32,7 +32,7 @@ export function ProjectTaskDetailDialog({ actor, task, detail, open, onOpenChang
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="project-task-dialog max-h-[88vh] overflow-x-hidden overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <div className="flex items-center gap-2 pr-10"><StatusBadge status={statusTones[task.status]}>{statusLabels[task.status]}</StatusBadge><Badge variant={task.priority === "urgent" ? "destructive" : "outline"}>{task.priority}</Badge></div>
           <DialogTitle className="pt-1 text-xl">{task.title}</DialogTitle>
@@ -53,7 +53,7 @@ export function ProjectTaskDetailDialog({ actor, task, detail, open, onOpenChang
           </div>
           <form className="mt-4 grid gap-2" onSubmit={submit}>
             <Textarea aria-label="任务评论内容" value={body} onChange={(event) => setBody(event.target.value)} placeholder="补充进展、问题或验收反馈..." />
-            <div className="flex items-center justify-between gap-3">{message ? <p role="status" className="text-xs font-medium text-success">{message}</p> : <span /> }<Button type="submit" size="sm"><Send data-icon="inline-start" />添加评论</Button></div>
+            <div className="flex flex-wrap items-center justify-between gap-3">{message ? <p role="status" className="min-w-0 flex-1 text-xs font-medium text-success">{message}</p> : <span /> }<Button type="submit" size="sm" className="ml-auto"><Send data-icon="inline-start" />添加评论</Button></div>
           </form>
         </section>
       </DialogContent>
