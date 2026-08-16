@@ -12,6 +12,7 @@ const eslintConfig = defineConfig([
     // Default ignores of eslint-config-next:
     ".next/**",
     ".worktrees/**",
+    ".deploy-gh-pages/**",
     "out/**",
     "build/**",
     "next-env.d.ts",

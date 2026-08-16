@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ArrowLeft, Check, CheckCircle2, CircleDot, Clock3, FileText, MessageSquareText, UserRoundCheck, X } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -15,7 +15,8 @@ import { RealDataUnavailable } from "@/components/ui/real-data-boundary";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { useOperations } from "@/features/operations/use-operations";
 import { approvalStatusMeta, approvalTypeMeta } from "@/features/approvals/approval-meta";
-import type { Approval, ApprovalStatus } from "@/features/approvals/approval-types";
+import { applyApprovalDecision, saveDemoApproval, useDemoApprovals } from "@/features/approvals/approval-demo-state";
+import type { Approval } from "@/features/approvals/approval-types";
 import { cn } from "@/lib/utils";
 
 type Decision = "approve" | "reject";
@@ -32,14 +33,19 @@ function Person({ person }: { person: Approval["applicant"] }) {
   );
 }
 
-export function ApprovalDetailPage({ approval }: { approval: Approval }) {
+export function ApprovalDetailPage({ approval: initialApproval }: { approval: Approval }) {
   const session = useWorkspaceSession();
+  const { actor } = session;
   const { isFixtureBound } = useOperations(session);
-  const [status, setStatus] = useState<ApprovalStatus>(approval.status);
+  const approvalSeeds = useMemo(() => [initialApproval], [initialApproval]);
+  const savedApprovals = useDemoApprovals(approvalSeeds, isFixtureBound);
+  const approval = savedApprovals[0] ?? initialApproval;
   const [decision, setDecision] = useState<Decision | null>(null);
   const [feedback, setFeedback] = useState("");
-  const statusMeta = approvalStatusMeta[status];
-  const isPending = status === "pending";
+  const [decisionNotice, setDecisionNotice] = useState("");
+  const statusMeta = approvalStatusMeta[approval.status];
+  const isPending = approval.status === "pending";
+  const canDecide = isPending && approval.owner.displayName === actor.name;
 
   if (!isFixtureBound) {
     return (
@@ -54,7 +60,16 @@ export function ApprovalDetailPage({ approval }: { approval: Approval }) {
 
   function confirmDecision() {
     if (!decision) return;
-    setStatus(decision === "approve" ? "approved" : "rejected");
+    const updated = applyApprovalDecision(approval, { decision, feedback });
+    saveDemoApproval(updated);
+    setDecisionNotice(
+      updated.status === "pending"
+        ? `审批已下发至${updated.owner.displayName}`
+        : updated.status === "approved"
+          ? "审批已通过，结果已同步给申请人"
+          : "审批已拒绝，结果已退回申请人",
+    );
+    setFeedback("");
     setDecision(null);
   }
 
@@ -67,7 +82,7 @@ export function ApprovalDetailPage({ approval }: { approval: Approval }) {
           <PageHeader
             title={approval.title}
             description={`${approvalTypeMeta[approval.type].label} · ${approval.code}`}
-            actions={isPending ? (
+            actions={canDecide ? (
               <div className="flex gap-2">
                 <Button type="button" variant="outline" onClick={() => setDecision("reject")} className="rounded-xl"><X data-icon="inline-start" aria-hidden="true" />拒绝申请</Button>
                 <Button type="button" onClick={() => setDecision("approve")} className="rounded-xl"><Check data-icon="inline-start" aria-hidden="true" />同意申请</Button>
@@ -82,8 +97,7 @@ export function ApprovalDetailPage({ approval }: { approval: Approval }) {
         </div>
       </GlassCard>
 
-      {status === "approved" ? <div role="status" className="flex items-center gap-2 rounded-2xl border border-success/20 bg-success/10 px-4 py-3 text-sm font-medium text-success"><CheckCircle2 aria-hidden="true" className="size-4" />审批已通过</div> : null}
-      {status === "rejected" ? <div role="status" className="flex items-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm font-medium text-destructive"><X aria-hidden="true" className="size-4" />审批已拒绝</div> : null}
+      {decisionNotice ? <div role="status" className={cn("flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-medium", approval.status === "rejected" ? "border-destructive/20 bg-destructive/8 text-destructive" : "border-success/20 bg-success/10 text-success")}>{approval.status === "rejected" ? <X aria-hidden="true" className="size-4" /> : <CheckCircle2 aria-hidden="true" className="size-4" />}{decisionNotice}</div> : null}
 
       <section className="grid min-w-0 gap-4 xl:grid-cols-12">
         <div className="grid min-w-0 content-start gap-4 xl:col-span-8">

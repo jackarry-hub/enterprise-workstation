@@ -4,7 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
 import { createOperationFixtureContextForIdentity } from "@/features/operations/operation-actor-compat";
-import { createInitialOperationsState, OPERATIONS_CHANGED_EVENT, readOperationsState } from "@/features/operations/operations-data";
+import {
+  createInitialOperationsState,
+  getOperationsStorageKey,
+  OPERATIONS_CHANGED_EVENT,
+  readOperationsState,
+} from "@/features/operations/operations-data";
 import { PROJECTS_CHANGED_EVENT } from "@/features/projects/data/mock-project-repository";
 
 export function useOperationFixtureContext(session: WorkspaceSession) {
@@ -51,14 +56,19 @@ export function useOperations(session: WorkspaceSession) {
   );
 
   useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === getOperationsStorageKey(context)) refresh();
+    };
     refresh();
     window.addEventListener(OPERATIONS_CHANGED_EVENT, refresh);
     window.addEventListener(PROJECTS_CHANGED_EVENT, refresh);
+    window.addEventListener("storage", onStorage);
     return () => {
       window.removeEventListener(OPERATIONS_CHANGED_EVENT, refresh);
       window.removeEventListener(PROJECTS_CHANGED_EVENT, refresh);
+      window.removeEventListener("storage", onStorage);
     };
-  }, [refresh]);
+  }, [context, refresh]);
 
   return {
     state,

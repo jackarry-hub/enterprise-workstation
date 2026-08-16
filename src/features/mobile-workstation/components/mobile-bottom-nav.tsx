@@ -1,16 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { CheckSquare2, ClipboardCheck, FolderKanban, House, UserRound } from "lucide-react";
+import { CheckSquare2, FolderKanban, House, UserRound, UsersRound } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 import { cn } from "@/lib/utils";
 
 const items = [
   { href: "/dashboard", label: "首页", icon: House },
-  { href: "/tasks", label: "任务", icon: CheckSquare2 },
   { href: "/projects", label: "项目", icon: FolderKanban },
-  { href: "/approvals", label: "审批", icon: ClipboardCheck },
+  { href: "/tasks", label: "任务", icon: CheckSquare2 },
+  { href: "/people", label: "团队", icon: UsersRound },
   { href: "/me", label: "我的", icon: UserRound },
 ] as const;
 
@@ -30,4 +30,3 @@ export function MobileBottomNav() {
     </nav>
   );
 }
-

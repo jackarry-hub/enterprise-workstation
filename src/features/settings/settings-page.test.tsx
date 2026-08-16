@@ -55,7 +55,8 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("请选择图片文件");
   });
 
-  it("shows employees only personal and notification settings", () => {
+  it("shows employees only personal and notification settings with the current identity", async () => {
+    const user = userEvent.setup();
     const employee = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-engineer")!;
     renderWithSpecificWorkspaceSession(<SettingsPage />, employee);
 
@@ -64,6 +65,10 @@ describe("SettingsPage", () => {
     expect(screen.queryByRole("tab", { name: "企业信息" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "权限矩阵" })).not.toBeInTheDocument();
     expect(screen.queryByText("企业时区")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "个人设置" }));
+    expect(screen.getByDisplayValue("陈晨")).toBeVisible();
+    expect(screen.getByText("前端工程师 · 产品研发中心")).toBeVisible();
   });
 
   it("keeps enterprise and permission controls for executives", () => {

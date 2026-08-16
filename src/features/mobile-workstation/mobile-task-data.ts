@@ -1,6 +1,10 @@
 import type { WorkspaceActor } from "@/features/auth/workspace-session-types";
-import type { OperationTask } from "@/features/operations/operations-types";
 import { getActor } from "@/features/operations/operations-data";
+import {
+  selectAssignedTasks,
+  selectInitiatedTasks,
+} from "@/features/operations/operations-selectors";
+import type { OperationTask, OperationsState } from "@/features/operations/operations-types";
 import type { ProjectDetailData, TaskStatus } from "@/features/projects/types";
 import type { MobileTaskItem, MobileTaskStatus } from "@/features/mobile-workstation/mobile-workstation-types";
 import { getTaskCenterAction } from "@/features/tasks/task-center-action";
@@ -9,33 +13,43 @@ const statusMap: Record<TaskStatus, MobileTaskStatus> = {
   backlog: "pending", todo: "pending", in_progress: "in_progress", blocked: "blocked", in_review: "review", done: "done", cancelled: "cancelled",
 };
 
-export function operationTasksForActor(tasks: readonly OperationTask[], actor: WorkspaceActor): MobileTaskItem[] {
-  return tasks.filter(({ assigneeId, departmentOwnerId }) => assigneeId === actor.id || departmentOwnerId === actor.id).map((task) => ({
-    id: task.id,
-    title: task.title,
-    assigneeName: actor.name,
-    dueDate: task.dueDate,
-    status: task.status === "todo" ? "pending" : task.status,
-    priority: task.priority,
-    progress: task.progress,
-    href: getTaskCenterAction(actor.role, task.id).href,
-    initiatedByViewer: task.departmentOwnerId === actor.id && task.assigneeId !== actor.id,
-  }));
-}
+const operationStatusMap: Record<OperationTask["status"], MobileTaskStatus> = {
+  assigned: "pending",
+  accepted: "pending",
+  todo: "pending",
+  in_progress: "in_progress",
+  blocked: "blocked",
+  review: "review",
+  done: "done",
+};
 
-export function operationTasksForHome(tasks: readonly OperationTask[], actor: WorkspaceActor): MobileTaskItem[] {
-  const scoped = tasks.filter((task) => task.assigneeId === actor.id);
-  return scoped.map((task) => ({
+function toOperationMobileTask(
+  task: OperationTask,
+  actor: WorkspaceActor,
+  initiatedByViewer: boolean,
+): MobileTaskItem {
+  return {
     id: task.id,
     title: task.title,
     assigneeName: getActor(task.assigneeId).name,
     dueDate: task.dueDate,
-    status: task.status === "todo" ? "pending" : task.status,
+    status: operationStatusMap[task.status],
     priority: task.priority,
     progress: task.progress,
     href: getTaskCenterAction(actor.role, task.id).href,
-    initiatedByViewer: task.departmentOwnerId === actor.id && task.assigneeId !== actor.id,
-  }));
+    initiatedByViewer,
+  };
+}
+
+export function operationTasksForActor(state: OperationsState, actor: WorkspaceActor): MobileTaskItem[] {
+  return [
+    ...selectAssignedTasks(state, actor.id).map((task) => toOperationMobileTask(task, actor, false)),
+    ...selectInitiatedTasks(state, actor.id).map((task) => toOperationMobileTask(task, actor, true)),
+  ];
+}
+
+export function operationTasksForHome(state: OperationsState, actor: WorkspaceActor): MobileTaskItem[] {
+  return selectAssignedTasks(state, actor.id).map((task) => toOperationMobileTask(task, actor, false));
 }
 
 export function projectTasksForActor(projects: readonly ProjectDetailData[], actor: WorkspaceActor): MobileTaskItem[] {
@@ -53,47 +67,18 @@ export function projectTasksForActor(projects: readonly ProjectDetailData[], act
 }
 
 export function mergeMobileTasks(...groups: readonly MobileTaskItem[][]) {
-  return [...new Map(groups.flat().map((task) => [task.id, task])).values()];
+  const byId = new Map<string, MobileTaskItem>();
+  for (const task of groups.flat()) {
+    if (!byId.has(task.id)) byId.set(task.id, task);
+  }
+  return [...byId.values()];
 }
 
-export function mobilePersonalActionFallback(actor: WorkspaceActor): MobileTaskItem[] {
-  const byRole = {
-    executive: [
-      ["审批部门提交的关键事项", "/approvals"],
-      ["确认本周项目风险与资源安排", "/projects"],
-      ["完成今日经营事项复盘", "/notifications"],
-    ],
-    department_head: [
-      ["确认部门任务优先级与负责人", "/department"],
-      ["验收成员提交的工作成果", "/tasks"],
-      ["更新本周项目阶段进展", "/projects"],
-    ],
-    employee: [
-      ["更新当前任务执行进度", "/execution"],
-      ["提交今日工作成果", "/execution"],
-      ["确认项目计划与截止时间", "/projects"],
-    ],
-    finance: [
-      ["核对本月薪资计算结果", "/payroll"],
-      ["处理待复核的费用申请", "/approvals"],
-      ["确认银行发放回执", "/finance"],
-    ],
-    hr: [
-      ["核对本月考勤异常", "/attendance"],
-      ["处理待办人事审批", "/approvals"],
-      ["复核薪资人员名单", "/hr"],
-    ],
-  } as const;
-  const priorities = ["urgent", "high", "medium"] as const;
-  return byRole[actor.role].map(([title, href], index) => ({
-    id: `mobile-${actor.role}-${index + 1}`,
-    title,
-    assigneeName: actor.name,
-    dueDate: `2026-08-${13 + index}`,
-    status: "pending",
-    priority: priorities[index],
-    progress: 0,
-    href,
-    initiatedByViewer: false,
-  }));
+export function selectMobileTasksForScope(
+  realTasks: readonly MobileTaskItem[],
+  scope: "assigned" | "initiated",
+) {
+  return realTasks.filter(({ initiatedByViewer }) => (
+    scope === "initiated" ? initiatedByViewer : !initiatedByViewer
+  ));
 }

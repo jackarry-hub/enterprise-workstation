@@ -12,8 +12,17 @@ vi.mock("next/navigation", () => ({
 }));
 
 const departmentHead = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-product-head")!;
+const executive = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-executive")!;
 
 describe("ProjectsPage", () => {
+  it("includes department workstreams as project cards", () => {
+    renderWithSpecificWorkspaceSession(<ProjectsPage />, executive);
+
+    expect(screen.getByText("客户官网升级交付")).toBeVisible();
+    expect(screen.getByText("月度经营与薪资结算")).toBeVisible();
+    expect(screen.getByText("客户成功知识库建设")).toBeVisible();
+  });
+
   it("shows only projects related to the signed-in person", () => {
     renderWithSpecificWorkspaceSession(<ProjectsPage />, departmentHead);
     expect(screen.getByRole("heading", { name: "项目" })).toBeVisible();

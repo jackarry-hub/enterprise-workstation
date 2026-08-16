@@ -86,10 +86,10 @@ function mergeOperationalAttendance(result: AttendanceResult, state: ReturnType<
       const status: AttendanceRecord["status"] = lateMinutes > 0 ? "late" : earlyLeaveMinutes > 0 ? "early_leave" : "normal";
       const existingIndex = merged.findIndex((record) => record.employee.displayName === actor.name && record.attendanceDate === date);
       if (existingIndex >= 0) {
-        merged[existingIndex] = { ...merged[existingIndex], checkIn: checkIn ?? merged[existingIndex].checkIn, checkOut: checkOut ?? merged[existingIndex].checkOut, status, lateMinutes, earlyLeaveMinutes, source: "device", note: "工作站打卡记录" };
+        merged[existingIndex] = { ...merged[existingIndex], checkIn: checkIn ?? merged[existingIndex].checkIn, checkOut: checkOut ?? merged[existingIndex].checkOut, status, lateMinutes, earlyLeaveMinutes, source: "device", note: "量子智枢打卡记录" };
       } else {
         const seed = getRecordSeed(actor.name);
-        merged.push({ id: `operations-${actor.id}-${date}`, organizationId: seed?.organizationId ?? "10000000-0000-4000-8000-000000000001", employee: seed?.employee ?? { id: actor.id, employeeNo: actor.memberId.slice(-6), displayName: actor.name, jobTitle: actor.title }, department: seed?.department ?? { id: `department-${actor.id}`, name: actor.department }, attendanceDate: date, scheduledStart: policy.workStart, scheduledEnd: policy.workEnd, checkIn, checkOut, status, lateMinutes, earlyLeaveMinutes, source: "device", note: "工作站打卡记录" });
+        merged.push({ id: `operations-${actor.id}-${date}`, organizationId: seed?.organizationId ?? "10000000-0000-4000-8000-000000000001", employee: seed?.employee ?? { id: actor.id, employeeNo: actor.memberId.slice(-6), displayName: actor.name, jobTitle: actor.title }, department: seed?.department ?? { id: `department-${actor.id}`, name: actor.department }, attendanceDate: date, scheduledStart: policy.workStart, scheduledEnd: policy.workEnd, checkIn, checkOut, status, lateMinutes, earlyLeaveMinutes, source: "device", note: "量子智枢打卡记录" });
       }
     }
   }

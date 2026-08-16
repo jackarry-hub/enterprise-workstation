@@ -15,12 +15,21 @@ const middlewareFile = path.join(root, "src", "middleware.ts");
 const backupDirectory = path.join(root, ".github-pages-backup");
 
 async function runBuild() {
-  const command = process.platform === "win32" ? "cmd.exe" : "npm";
-  const args = process.platform === "win32" ? ["/d", "/s", "/c", "npm run build"] : ["run", "build"];
+  const command = process.platform === "win32"
+    ? "cmd.exe"
+    : path.join(root, "node_modules", ".bin", "next");
+  const args = process.platform === "win32"
+    ? ["/d", "/s", "/c", "node_modules\\.bin\\next.cmd build"]
+    : ["build"];
   await new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: root,
-      env: { ...process.env, CUSTOMER_DEMO_MODE: "true", GITHUB_PAGES: "true" },
+      env: {
+        ...process.env,
+        CUSTOMER_DEMO_MODE: "true",
+        GITHUB_PAGES: "true",
+        NEXT_PUBLIC_STATIC_AI_DEMO: "true",
+      },
       stdio: "inherit",
     });
     child.on("error", reject);

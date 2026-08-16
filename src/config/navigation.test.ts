@@ -12,6 +12,18 @@ const everyRole: readonly WorkspaceRole[] = [
 ];
 
 describe("workspace navigation", () => {
+  it("uses one unified AI enterprise brain home for every role", () => {
+    const homeItems = navigationItems.filter(({ href }) => href === "/dashboard");
+
+    expect(homeItems).toHaveLength(1);
+    expect(homeItems[0]).toMatchObject({
+      label: "AI企业大脑",
+      available: true,
+      roles: everyRole,
+    });
+    expect(navigationItems.some(({ href }) => ["/decision", "/department", "/execution", "/finance", "/hr"].includes(href))).toBe(false);
+  });
+
   it("uses task delivery instead of clock-in attendance for every role", () => {
     const taskItem = navigationItems.find(({ href }) => href === "/tasks");
 

@@ -10,6 +10,7 @@ import {
   applyTaskEscalations,
   getActorByMemberId,
   getActor,
+  getOperationsStorageKey,
   getOperationActionItems,
   getOperationNotifications,
   getOperationWeeklySummary,
@@ -20,7 +21,6 @@ import {
   readOperationsState as readOperationsStateWithContext,
   resetOperationsState as resetOperationsStateWithContext,
   saveOperationsState as saveOperationsStateWithContext,
-  setCommandStatus as setCommandStatusWithContext,
   reviewAttendanceCorrection as reviewAttendanceCorrectionWithContext,
   reviewOvertimeRequest as reviewOvertimeRequestWithContext,
   reviewLeaveRequest as reviewLeaveRequestWithContext,
@@ -80,23 +80,85 @@ describe("operations business closure", () => {
     resetOperationsState();
   });
 
-  it("seeds all ten customer demo tasks at zero before the plan is dispatched", () => {
+  it("exposes the complete version 2 department seed before AI dispatch", () => {
     const demoContext = createOperationFixtureContext(customerDemoSessions[0]);
     const state = resetOperationsStateWithContext(demoContext);
-    const expectedActorIds = customerDemoPeople
-      .filter(({ role }) => role !== "executive")
-      .map(({ actorId }) => actorId);
+    const expectedActorIds = customerDemoPeople.map(({ actorId }) => actorId);
 
-    expect(state.command.title).toBe("30 天完成星云智造 AI 企业工作站试点上线");
+    expect(state).toMatchObject({
+      version: 2,
+      activeAiWorkstreamId: undefined,
+      command: { id: "command-idle", status: "archived" },
+    });
+    expect(state.workstreams).toHaveLength(3);
+    expect(state.workstreams.every(({ source }) => source === "department_mock")).toBe(true);
     expect(new Set(state.tasks.map(({ assigneeId }) => assigneeId))).toEqual(
       new Set(expectedActorIds),
     );
     expect(state.tasks).toHaveLength(10);
-    expect(state.tasks.every(({ status, progress }) => status === "todo" && progress === 0)).toBe(true);
-    expect(state.command.projectId).toBeUndefined();
+    expect(state.tasks.every(({ status, progress, runtimeSource }) => (
+      status === "assigned" && progress === 0 && runtimeSource === "department_mock"
+    ))).toBe(true);
     expect(getOperationWeeklySummary(state, "actor-executive").completionRate).toBe(0);
-    expect(state.payrollRun).toMatchObject({ status: "draft", attendanceLocked: false, exceptionCount: 0 });
-    expect([...state.attendance.corrections, ...state.attendance.overtimeRequests].every(({ status }) => status === "approved")).toBe(true);
+    expect(state.supportRequests).not.toHaveLength(0);
+    expect(state.knowledge).not.toHaveLength(0);
+    expect(state.leaveRequests).not.toHaveLength(0);
+    expect(state.attendance.corrections).not.toHaveLength(0);
+    expect(state.payrollRun).toMatchObject({ status: "draft", attendanceLocked: false });
+    expect(state.events).not.toHaveLength(0);
+  });
+
+  it("migrates version 1 AI tasks into a deterministic active legacy workstream without misclassifying department tasks", () => {
+    const seed = resetOperationsState();
+    const legacyCommandId = "legacy-ai-command";
+    const legacyProjectId = "legacy-ai-project";
+    const legacyState = JSON.parse(JSON.stringify(seed)) as Record<string, unknown> & {
+      command: Record<string, unknown>;
+      tasks: Array<Record<string, unknown>>;
+    };
+    legacyState.version = 1;
+    delete legacyState.workstreams;
+    delete legacyState.activeAiWorkstreamId;
+    legacyState.command = {
+      ...legacyState.command,
+      id: legacyCommandId,
+      title: "遗留 AI 调度",
+      projectId: legacyProjectId,
+      status: "executing",
+    };
+    legacyState.tasks = [
+      { ...seed.tasks.find(({ id }) => id === "dept-task-engineer")!, id: "legacy-ai-task", commandId: legacyCommandId },
+      { ...seed.tasks.find(({ id }) => id === "dept-task-finance")!, id: "legacy-department-task", commandId: "department-payroll" },
+    ].map((task) => {
+      const legacyTask = { ...task } as Record<string, unknown>;
+      delete legacyTask.workstreamId;
+      delete legacyTask.projectId;
+      delete legacyTask.runtimeSource;
+      return legacyTask;
+    });
+    window.localStorage.setItem(getOperationsStorageKey(boundContext)!, JSON.stringify(legacyState));
+
+    const migrated = readOperationsState();
+    const legacyWorkstreamId = `legacy-ai-workstream-${legacyCommandId}`;
+
+    expect(migrated.version).toBe(2);
+    expect(migrated.activeAiWorkstreamId).toBe(legacyWorkstreamId);
+    expect(migrated.workstreams).toContainEqual(expect.objectContaining({
+      id: legacyWorkstreamId,
+      source: "ai_dispatch",
+      projectId: legacyProjectId,
+      status: "active",
+    }));
+    expect(migrated.tasks.find(({ id }) => id === "legacy-ai-task")).toMatchObject({
+      workstreamId: legacyWorkstreamId,
+      projectId: legacyProjectId,
+      runtimeSource: "ai_dispatch",
+    });
+    expect(migrated.tasks.find(({ id }) => id === "legacy-department-task")).toMatchObject({
+      workstreamId: "dept-payroll-cycle",
+      projectId: "project-dept-payroll-cycle",
+      runtimeSource: "department_mock",
+    });
   });
 
   it("maps every project member to an explicit workspace actor", () => {
@@ -111,7 +173,9 @@ describe("operations business closure", () => {
     const plan = createDecisionPlan(input, now);
     const dispatched = dispatchDecisionPlan(input, plan, now);
     const operationState = readOperationsState();
-    const operationTask = operationState.tasks[0];
+    const operationTask = operationState.tasks.find(({ workstreamId }) => (
+      workstreamId === operationState.activeAiWorkstreamId
+    ))!;
 
     expect(operationState.command.projectId).toBe(dispatched.project.id);
     expect(operationTask.commandId).toBe(operationState.command.id);
@@ -156,7 +220,9 @@ describe("operations business closure", () => {
     const now = new Date("2026-08-09T08:00:00.000Z");
     const input = createDefaultDecisionInput(now);
     dispatchDecisionPlan(input, createDecisionPlan(input, now), now);
-    const ownerTask = readOperationsState().tasks.find(({ assigneeId, departmentOwnerId }) => assigneeId === departmentOwnerId)!;
+    const ownerTask = readOperationsState().tasks.find(({ runtimeSource, assigneeId, departmentOwnerId }) => (
+      runtimeSource === "ai_dispatch" && assigneeId === departmentOwnerId
+    ))!;
 
     expect(getTaskReviewerId(ownerTask)).toBe("actor-executive");
     updateOperationTask(ownerTask.id, { status: "in_progress" }, ownerTask.assigneeId);
@@ -183,13 +249,150 @@ describe("operations business closure", () => {
 
   it("lets every assignee start their own work even when a reference dependency is unfinished", () => {
     const state = readOperationsState();
-    const downstream = state.tasks.find(({ id }) => id === "flow-task-03")!;
+    const downstream = state.tasks.find(({ id }) => id === "dept-task-engineer")!;
 
+    updateOperationTask(downstream.id, { status: "accepted" }, downstream.assigneeId);
     updateOperationTask(downstream.id, { status: "in_progress" }, downstream.assigneeId);
     expect(readOperationsState().tasks.find(({ id }) => id === downstream.id)?.status).toBe("in_progress");
     expect(getOperationActionItems(readOperationsState(), downstream.assigneeId, new Date("2026-08-09T08:00:00.000Z"))).not.toContainEqual(
       expect.objectContaining({ entityId: downstream.id, kind: "task_blocked" }),
     );
+  });
+
+  it("adds an active AI workstream without deleting department tasks or non-AI business data", () => {
+    const initial = readOperationsState();
+    const sentinelFile = {
+      id: "file-preserved-across-dispatch",
+      commandId: initial.command.id,
+      entityType: "knowledge" as const,
+      entityId: initial.knowledge[0].id,
+      name: "既有知识附件.txt",
+      mimeType: "text/plain",
+      sizeBytes: 128,
+      version: 1,
+      uploadedById: "actor-manager",
+      provider: "indexeddb" as const,
+      objectPath: "preserved/file.txt",
+      createdAt: "2026-08-14T09:30:00.000Z",
+    };
+    const before = saveOperationsState({ ...initial, files: [sentinelFile] });
+    const departmentTaskIds = before.tasks
+      .filter(({ runtimeSource }) => runtimeSource === "department_mock")
+      .map(({ id }) => id);
+    const input = createDefaultDecisionInput(new Date("2026-08-14T10:00:00.000Z"));
+    const plan = createDecisionPlan(input, new Date("2026-08-14T10:00:00.000Z"));
+
+    dispatchDecisionPlan(input, plan, new Date("2026-08-14T10:00:00.000Z"));
+    const after = readOperationsState();
+    const activeId = after.activeAiWorkstreamId!;
+
+    expect(activeId).toBe(plan.id);
+    expect(after.workstreams).toContainEqual(expect.objectContaining({
+      id: activeId,
+      source: "ai_dispatch",
+      projectId: after.command.projectId,
+      status: "active",
+    }));
+    expect(after.tasks.filter(({ runtimeSource }) => runtimeSource === "department_mock").map(({ id }) => id)).toEqual(departmentTaskIds);
+    expect(after.tasks.filter(({ workstreamId }) => workstreamId === activeId)).toHaveLength(10);
+    expect(after.supportRequests).toEqual(before.supportRequests);
+    expect(after.files).toEqual(before.files);
+    expect(after.knowledge).toEqual(before.knowledge);
+    expect(after.leaveRequests).toEqual(before.leaveRequests);
+    expect(after.attendance).toEqual(before.attendance);
+    expect(after.payrollRun).toEqual(before.payrollRun);
+    expect(after.dispatchHistory).toEqual(before.dispatchHistory);
+    expect(after.events).toEqual(expect.arrayContaining(before.events));
+  });
+
+  it("updates a retained department task during an active AI dispatch without writing to the AI project", () => {
+    const now = new Date("2026-08-14T10:00:00.000Z");
+    const input = createDefaultDecisionInput(now);
+    const plan = createDecisionPlan(input, now);
+    const dispatched = dispatchDecisionPlan(input, plan, now);
+    const departmentTask = readOperationsState().tasks.find(({ runtimeSource }) => (
+      runtimeSource === "department_mock"
+    ))!;
+    const aiProjectBefore = findLocalProject(boundContext, dispatched.project.id)!;
+
+    const updated = updateOperationTask(
+      departmentTask.id,
+      { status: "accepted" },
+      departmentTask.assigneeId,
+    );
+
+    expect(updated.tasks.find(({ id }) => id === departmentTask.id)?.status).toBe("accepted");
+    expect(readOperationsState().tasks.find(({ id }) => id === departmentTask.id)?.status).toBe("accepted");
+    expect(findLocalProject(boundContext, dispatched.project.id)).toEqual(aiProjectBefore);
+  });
+
+  it("replaces only the previous active AI workstream when a new plan is dispatched", () => {
+    const firstInput = createDefaultDecisionInput(new Date("2026-08-14T10:00:00.000Z"));
+    const firstPlan = createDecisionPlan(firstInput, new Date("2026-08-14T10:00:00.000Z"));
+    dispatchDecisionPlan(firstInput, firstPlan, new Date("2026-08-14T10:00:00.000Z"));
+    const first = readOperationsState();
+    const departmentTaskIds = first.tasks
+      .filter(({ runtimeSource }) => runtimeSource === "department_mock")
+      .map(({ id }) => id);
+
+    const secondInput = {
+      ...createDefaultDecisionInput(new Date("2026-08-15T10:00:00.000Z")),
+      goal: "建立第二轮客户运营改进闭环",
+    };
+    const secondPlan = createDecisionPlan(secondInput, new Date("2026-08-15T10:00:00.000Z"));
+    dispatchDecisionPlan(secondInput, secondPlan, new Date("2026-08-15T10:00:00.000Z"));
+    const second = readOperationsState();
+
+    expect(second.activeAiWorkstreamId).toBe(secondPlan.id);
+    expect(second.activeAiWorkstreamId).not.toBe(first.activeAiWorkstreamId);
+    expect(second.workstreams.some(({ id }) => id === first.activeAiWorkstreamId)).toBe(false);
+    expect(second.tasks.some(({ workstreamId }) => workstreamId === first.activeAiWorkstreamId)).toBe(false);
+    expect(second.tasks.filter(({ runtimeSource }) => runtimeSource === "department_mock").map(({ id }) => id)).toEqual(departmentTaskIds);
+    expect(second.tasks.filter(({ workstreamId }) => workstreamId === second.activeAiWorkstreamId)).toHaveLength(10);
+  });
+
+  it("completes the active AI workstream even while department tasks remain unfinished", () => {
+    const initial = readOperationsState();
+    const sourceTask = initial.tasks.find(({ assigneeId }) => assigneeId === "actor-employee")!;
+    const activeAiWorkstreamId = "ai-workstream-completion-test";
+    const commandId = "ai-command-completion-test";
+    const aiTasks = [
+      { ...sourceTask, id: "ai-complete-1", code: "AI-01", commandId, workstreamId: activeAiWorkstreamId, projectId: "ai-project-completion-test", runtimeSource: "ai_dispatch" as const, status: "done" as const, progress: 100, deliverableRequired: false },
+      { ...sourceTask, id: "ai-complete-2", code: "AI-02", commandId, workstreamId: activeAiWorkstreamId, projectId: "ai-project-completion-test", runtimeSource: "ai_dispatch" as const, status: "review" as const, progress: 90, deliverableRequired: false },
+    ];
+    saveOperationsState({
+      ...initial,
+      activeAiWorkstreamId,
+      workstreams: [...initial.workstreams, {
+        id: activeAiWorkstreamId,
+        source: "ai_dispatch",
+        title: "AI 完成判定测试",
+        ownerId: "actor-executive",
+        projectId: "ai-project-completion-test",
+        status: "active",
+        createdAt: "2026-08-14T10:00:00.000Z",
+        updatedAt: "2026-08-14T10:00:00.000Z",
+      }],
+      command: {
+        ...initial.command,
+        id: commandId,
+        title: "AI 完成判定测试",
+        ownerId: "actor-executive",
+        status: "executing",
+      },
+      tasks: [...initial.tasks, ...aiTasks],
+    });
+
+    const completed = updateOperationTask("ai-complete-2", { status: "done", reviewNote: "AI 成果验收通过" }, "actor-manager");
+    const departmentTasks = completed.tasks.filter(({ runtimeSource }) => runtimeSource === "department_mock");
+
+    expect(departmentTasks.some(({ status }) => status !== "done")).toBe(true);
+    expect(completed.command.status).toBe("accepted");
+    expect(completed.workstreams.find(({ id }) => id === activeAiWorkstreamId)?.status).toBe("completed");
+    expect(completed.events).toContainEqual(expect.objectContaining({
+      action: "AI 调度目标完成",
+      detail: expect.stringContaining("2 项任务"),
+    }));
   });
 
   it("routes every inbox action to the exact item that needs handling", () => {
@@ -205,10 +408,21 @@ describe("operations business closure", () => {
   });
 
   it("keeps another person's overdue task out of the executive action inbox", () => {
-    const escalated = applyTaskEscalations(readOperationsState(), new Date("2026-08-09T08:00:00.000Z"));
-    const reviewTask = escalated.tasks.find(({ id }) => id === "flow-task-04")!;
-    const actions = getOperationActionItems(escalated, "actor-executive", new Date("2026-08-09T08:00:00.000Z"));
-    const summary = getOperationWeeklySummary(escalated, "actor-executive", new Date("2026-08-09T08:00:00.000Z"));
+    const now = new Date("2026-08-15T08:00:00.000Z");
+    const initial = readOperationsState();
+    const target = initial.tasks.find(({ id }) => id === "dept-task-engineer")!;
+    const overdueReview = {
+      ...initial,
+      tasks: initial.tasks.map((task) => task.id === target.id ? {
+        ...task,
+        status: "review" as const,
+        reviewDueAt: "2026-08-14T08:00:00.000Z",
+      } : task),
+    };
+    const escalated = applyTaskEscalations(overdueReview, now);
+    const reviewTask = escalated.tasks.find(({ id }) => id === target.id)!;
+    const actions = getOperationActionItems(escalated, "actor-executive", now);
+    const summary = getOperationWeeklySummary(escalated, "actor-executive", now);
 
     expect(reviewTask.escalationLevel).toBe("executive");
     expect(actions).not.toContainEqual(expect.objectContaining({ entityId: reviewTask.id }));
@@ -216,19 +430,38 @@ describe("operations business closure", () => {
   });
 
   it("generates role notifications from live actions and persists read receipts", () => {
-    const state = readOperationsState();
-    const notifications = getOperationNotifications(state, "actor-executive", new Date("2026-08-09T08:00:00.000Z"));
+    const now = new Date("2026-08-15T08:00:00.000Z");
+    const initial = readOperationsState();
+    const target = initial.tasks.find(({ id }) => id === "dept-task-engineer")!;
+    const state = applyTaskEscalations({
+      ...initial,
+      tasks: initial.tasks.map((task) => task.id === target.id ? {
+        ...task,
+        status: "review" as const,
+        reviewDueAt: "2026-08-14T08:00:00.000Z",
+      } : task),
+    }, now);
+    saveOperationsState(state);
+    const notifications = getOperationNotifications(state, "actor-executive", now);
     const critical = notifications.find(({ severity }) => severity === "critical")!;
 
     expect(critical).toBeTruthy();
     expect(critical.read).toBe(false);
     markOperationNotificationRead(critical.id, "actor-executive");
-    expect(getOperationNotifications(readOperationsState(), "actor-executive", new Date("2026-08-09T08:00:00.000Z")).find(({ id }) => id === critical.id)?.read).toBe(true);
+    expect(getOperationNotifications(readOperationsState(), "actor-executive", now).find(({ id }) => id === critical.id)?.read).toBe(true);
   });
 
   it("builds the leadership weekly brief from the same execution state", () => {
     const initial = readOperationsState();
-    const state = { ...initial, tasks: initial.tasks.map((task) => task.id === "flow-task-03" ? { ...task, status: "in_progress" as const } : task) };
+    const target = initial.tasks.find(({ id }) => id === "dept-task-engineer")!;
+    const state = {
+      ...initial,
+      tasks: initial.tasks.map((task) => task.id === target.id ? {
+        ...task,
+        status: "review" as const,
+        escalationLevel: "executive" as const,
+      } : task),
+    };
     const summary = getOperationWeeklySummary(state, "actor-executive", new Date("2026-08-09T08:00:00.000Z"));
 
     expect(summary.total).toBe(state.tasks.length);
@@ -239,7 +472,8 @@ describe("operations business closure", () => {
   });
 
   it("requires a deliverable and archives an accepted task as knowledge", () => {
-    const task = readOperationsState().tasks.find(({ id }) => id === "flow-task-02")!;
+    const task = readOperationsState().tasks.find(({ id }) => id === "dept-task-engineer")!;
+    updateOperationTask(task.id, { status: "accepted" }, "actor-employee");
     updateOperationTask(task.id, { status: "in_progress" }, "actor-employee");
     addOperationFile({ id: "file-test", commandId: task.commandId, entityType: "task", entityId: task.id, name: "验收成果.pdf", mimeType: "application/pdf", sizeBytes: 1024, version: 1, uploadedById: "actor-employee", provider: "indexeddb", objectPath: "file-test", createdAt: "2026-08-08T12:00:00.000Z" });
     updateOperationTask(task.id, { status: "review" }, "actor-employee");
@@ -249,7 +483,7 @@ describe("operations business closure", () => {
     expect(state.knowledge.find(({ sourceTaskId }) => sourceTaskId === task.id)?.fileIds).toContain("file-test");
   });
 
-  it("closes all ten independent customer demo tasks from zero to archived one hundred percent", () => {
+  it("closes all ten AI tasks while preserving unfinished department tasks", () => {
     const sessionForActor = (actorId: string) => {
       const person = customerDemoPeople.find(({ actorId: candidateId }) => candidateId === actorId)!;
       return customerDemoSessions.find(({ identity }) => identity.providerSubject === `customer-demo:${person.id}`)!;
@@ -262,10 +496,13 @@ describe("operations business closure", () => {
     dispatchDecisionPlanWithContext(executiveContext, input, plan);
 
     const dispatched = readOperationsStateWithContext(executiveContext);
-    expect(dispatched.tasks).toHaveLength(10);
-    expect(dispatched.tasks.every(({ status, progress }) => status === "todo" && progress === 0)).toBe(true);
+    const activeAiWorkstreamId = dispatched.activeAiWorkstreamId!;
+    const dispatchedAiTasks = dispatched.tasks.filter(({ workstreamId }) => workstreamId === activeAiWorkstreamId);
+    expect(dispatchedAiTasks).toHaveLength(10);
+    expect(dispatchedAiTasks.every(({ status, progress }) => status === "todo" && progress === 0)).toBe(true);
+    expect(dispatched.tasks.filter(({ runtimeSource }) => runtimeSource === "department_mock")).toHaveLength(10);
 
-    const reverseOrder = [...dispatched.tasks].reverse();
+    const reverseOrder = [...dispatchedAiTasks].reverse();
     reverseOrder.forEach((task, index) => {
       const assigneeSession = sessionForActor(task.assigneeId);
       const reviewerId = getTaskReviewerId(task);
@@ -297,20 +534,21 @@ describe("operations business closure", () => {
       }
 
       const accepted = updateOperationTaskWithContext(reviewerContext, task.id, { status: "done", reviewNote: "成果符合验收标准" }, reviewerId, reviewerSession.actor);
-      expect(getOperationWeeklySummary(accepted, "actor-executive").completionRate).toBe((index + 1) * 10);
+      expect(accepted.tasks.filter(({ workstreamId, status }) => (
+        workstreamId === activeAiWorkstreamId && status === "done"
+      ))).toHaveLength(index + 1);
     });
 
-    const employeeSession = sessionForActor("actor-employee");
-    expect(() => setCommandStatusWithContext(createOperationFixtureContext(employeeSession), "review", "actor-employee")).toThrow("只有决策人");
-    setCommandStatusWithContext(executiveContext, "review", "actor-executive");
-    setCommandStatusWithContext(executiveContext, "accepted", "actor-executive");
-    const archived = setCommandStatusWithContext(executiveContext, "archived", "actor-executive");
+    const completed = readOperationsStateWithContext(executiveContext);
+    const completedAiTasks = completed.tasks.filter(({ workstreamId }) => workstreamId === activeAiWorkstreamId);
+    const departmentTasks = completed.tasks.filter(({ runtimeSource }) => runtimeSource === "department_mock");
+    const aiTaskIds = new Set(completedAiTasks.map(({ id }) => id));
 
-    expect(archived.command.status).toBe("archived");
-    expect(getOperationWeeklySummary(archived, "actor-executive").completionRate).toBe(100);
-    expect(archived.tasks.every(({ status }) => status === "done")).toBe(true);
-    expect(archived.knowledge).toHaveLength(10);
-    expect(archived.knowledge.every(({ status, fileIds }) => status === "published" && fileIds.length === 1)).toBe(true);
+    expect(completed.command.status).toBe("accepted");
+    expect(completed.workstreams.find(({ id }) => id === activeAiWorkstreamId)?.status).toBe("completed");
+    expect(completedAiTasks.every(({ status }) => status === "done")).toBe(true);
+    expect(departmentTasks.some(({ status }) => status !== "done")).toBe(true);
+    expect(completed.knowledge.filter(({ sourceTaskId }) => sourceTaskId && aiTaskIds.has(sourceTaskId))).toHaveLength(10);
   });
 
   it("turns a manager return into an employee action with a direct task link and accurate timeline label", () => {
@@ -320,8 +558,9 @@ describe("operations business closure", () => {
     const executiveContext = createOperationFixtureContext(sessionFor("demo-executive"));
     const managerContext = createOperationFixtureContext(sessionFor("demo-product-head"));
     const employeeContext = createOperationFixtureContext(sessionFor("demo-engineer"));
-    const task = resetOperationsStateWithContext(executiveContext).tasks.find(({ id }) => id === "flow-task-02")!;
+    const task = resetOperationsStateWithContext(executiveContext).tasks.find(({ id }) => id === "dept-task-engineer")!;
 
+    updateOperationTaskWithContext(employeeContext, task.id, { status: "accepted" }, "actor-employee", sessionFor("demo-engineer").actor);
     updateOperationTaskWithContext(employeeContext, task.id, { status: "in_progress" }, "actor-employee", sessionFor("demo-engineer").actor);
     addOperationFileWithContext(employeeContext, {
       id: "return-action-file",
@@ -347,20 +586,21 @@ describe("operations business closure", () => {
     expect(getOperationActionItems(returned, "actor-employee")).toContainEqual(expect.objectContaining({
       kind: "task_return",
       entityId: task.id,
-      title: "返工：实现目标拆解与责任映射",
-      href: "/execution#task-flow-task-02",
+      title: "返工：实现官网核心页面",
+      href: "/execution#task-dept-task-engineer",
       priority: "warning",
     }));
   });
 
   it("enforces assignee submission and designated reviewer approval", () => {
     const initial = readOperationsState();
-    saveOperationsState({ ...initial, tasks: initial.tasks.map((task) => task.id === "flow-task-03" ? { ...task, dependencyIds: [] } : task) });
-    const task = readOperationsState().tasks.find(({ id }) => id === "flow-task-03")!;
+    saveOperationsState({ ...initial, tasks: initial.tasks.map((task) => task.id === "dept-task-engineer" ? { ...task, dependencyIds: [] } : task) });
+    const task = readOperationsState().tasks.find(({ id }) => id === "dept-task-engineer")!;
 
-    expect(() => updateOperationTask(task.id, { status: "in_progress" }, "actor-manager")).toThrow("只有任务执行人");
+    expect(() => updateOperationTask(task.id, { status: "accepted" }, "actor-manager")).toThrow("只有任务执行人");
     expect(() => updateOperationTask(task.id, { status: "done" }, "actor-employee")).toThrow("不允许");
 
+    updateOperationTask(task.id, { status: "accepted" }, "actor-employee");
     updateOperationTask(task.id, { status: "in_progress", progress: 20 }, "actor-employee");
     expect(() => updateOperationTask(task.id, { status: "review" }, "actor-employee")).toThrow("必须上传至少一个成果文件");
 

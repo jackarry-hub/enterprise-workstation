@@ -25,6 +25,7 @@ import type {
 import { syncDecisionToOperations } from "@/features/operations/operations-data";
 import type { OperationFixtureContext } from "@/features/operations/operation-actor-compat";
 import { customerDemoPeople } from "@/features/demo/customer-demo-data";
+import type { AiDispatchPlan } from "@/features/ai-dispatch/dispatch-contract";
 
 export const DECISION_STORAGE_KEY = "enterprise-workspace.decision-workbench.v1";
 
@@ -365,7 +366,7 @@ export function getDecisionCandidateRanking(
 
 export function createDefaultDecisionInput(now = new Date("2026-08-08T00:00:00.000Z")): DecisionInput {
   return {
-    goal: "30 天完成星云智造 AI 企业工作站试点上线",
+    goal: "30 天完成星云智造量子智枢试点上线",
     deadline: toIsoDate(addDays(now, 30)),
     budget: "30",
     constraints: "10 人核心团队协同；每项任务必须有唯一负责人、明确依赖和可判定验收标准",
@@ -426,6 +427,72 @@ export function createDecisionPlan(
     createdAt: now.toISOString(),
     expectedDays,
     departments,
+  };
+}
+
+export function createDecisionPlanFromDeepSeek(
+  source: AiDispatchPlan,
+  model: string,
+  repaired = false,
+  now = new Date(),
+): DecisionPlan {
+  const createdAt = now.toISOString();
+  const startDate = toIsoDate(now);
+  const taskIdByTitle = new Map(source.tasks.map((task, index) => [task.title, `DS${String(index + 1).padStart(2, "0")}`]));
+  const departmentIdByName = new Map<string, string>(departmentDefinitions.map((department) => [department.name, department.id]));
+  const peopleByName = new Map(customerDemoPeople.map((person) => [person.name, person]));
+  const membersByName = new Map(mockMembers.map((member) => [member.displayName, member]));
+
+  const tasks = source.tasks.map<DecisionTask>((task, index) => {
+    const assignee = membersByName.get(task.assignee) ?? mockMembers[0];
+    const person = peopleByName.get(task.assignee);
+    const departmentId = person?.department === "总经办"
+      ? "pmo"
+      : departmentIdByName.get(person?.department ?? "") ?? "pmo";
+    return {
+      id: taskIdByTitle.get(task.title) ?? `DS${String(index + 1).padStart(2, "0")}`,
+      phase: `任务 ${index + 1}`,
+      departmentId,
+      title: task.title,
+      description: task.description,
+      requiredSkills: getDecisionTalentProfile(assignee.id).skills.slice(0, 3),
+      assignee,
+      priority: task.priority,
+      startDate,
+      dueDate: task.deadline,
+      acceptance: `完成“${task.title}”，提交可核验成果并由${task.owner}验收。`,
+      dependencies: task.dependencies.map((title) => taskIdByTitle.get(title)).filter((id): id is string => Boolean(id)),
+      status: "pending",
+    };
+  });
+
+  const departments = departmentDefinitions.flatMap<DepartmentPlan>((department) => {
+    const departmentTasks = tasks.filter(({ departmentId }) => departmentId === department.id);
+    if (!departmentTasks.length) return [];
+    const sourceTask = source.tasks.find((task) => taskIdByTitle.get(task.title) === departmentTasks[0].id);
+    const owner = sourceTask ? membersByName.get(sourceTask.owner) ?? memberById(department.ownerId) : memberById(department.ownerId);
+    return [{
+      id: department.id,
+      name: department.name,
+      objective: `完成 ${departmentTasks.map(({ title }) => `“${title}”`).join("、")}，并按期提交可验收结果。`,
+      owner,
+      tasks: departmentTasks,
+    }];
+  });
+
+  return {
+    id: `decision-deepseek-${now.valueOf()}`,
+    createdAt,
+    expectedDays: source.estimated_days,
+    departments,
+    ai: {
+      provider: "deepseek",
+      model,
+      summary: source.summary,
+      risks: source.risks,
+      managerDecisions: source.manager_decisions,
+      repaired,
+    },
   };
 }
 

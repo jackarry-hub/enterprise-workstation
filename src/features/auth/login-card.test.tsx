@@ -8,7 +8,7 @@ describe("LoginCard", () => {
     render(<LoginCard action={vi.fn()} errorCode={null} />);
 
     expect(
-      screen.getByRole("heading", { name: "登录 AI企业大脑" }),
+      screen.getByRole("heading", { name: "登录量子智枢" }),
     ).toBeVisible();
     expect(
       screen.getByRole("button", { name: "使用飞书登录" }),

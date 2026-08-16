@@ -9,7 +9,7 @@ const assignees = {
 export const workspaceMockResult: WorkspaceResult = {
   source: "mock",
   data: {
-    viewerName: "李总",
+    viewerName: "林远",
     overview: {
       todayTaskCount: 6,
       pendingApprovalCount: 2,

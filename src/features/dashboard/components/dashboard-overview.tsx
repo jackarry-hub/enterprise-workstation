@@ -20,7 +20,7 @@ export function DashboardOverview() {
         <PageHeader
           title={
             <span className="flex items-center gap-2 [&>svg]:size-7">
-              早上好，李总
+              早上好
               <Sun aria-hidden="true" className="text-warning" />
             </span>
           }

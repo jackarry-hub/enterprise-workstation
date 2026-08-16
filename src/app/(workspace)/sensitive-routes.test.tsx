@@ -13,6 +13,9 @@ const dependencies = vi.hoisted(() => ({
   loadSalaryDetail: vi.fn(),
   loadEmployeeDirectory: vi.fn(),
   getEmployeeDetail: vi.fn(),
+  loadProjectList: vi.fn(),
+  loadProjectDetail: vi.fn(),
+  customerDemoMode: false,
 }));
 
 vi.mock("@/features/auth/workspace-session", () => ({
@@ -34,12 +37,26 @@ vi.mock("@/features/hr/employee-data", () => ({
   getEmployeeDetail: dependencies.getEmployeeDetail,
 }));
 
+vi.mock("@/features/projects/data/project-list-data", () => ({
+  loadProjectList: dependencies.loadProjectList,
+}));
+
+vi.mock("@/features/projects/data/project-detail-data", () => ({
+  loadProjectDetail: dependencies.loadProjectDetail,
+}));
+
+vi.mock("@/features/demo/customer-demo-mode", () => ({
+  isCustomerDemoMode: () => dependencies.customerDemoMode,
+}));
+
 import ApprovalDetailRoute from "@/app/(workspace)/approvals/[id]/page";
 import ApprovalsRoute from "@/app/(workspace)/approvals/page";
 import PayrollDetailRoute from "@/app/(workspace)/payroll/[id]/page";
 import PayrollRoute from "@/app/(workspace)/payroll/page";
 import EmployeeDetailRoute from "@/app/(workspace)/people/[id]/page";
 import PeopleRoute from "@/app/(workspace)/people/page";
+import ProjectDetailRoute from "@/app/(workspace)/projects/[id]/page";
+import ProjectsRoute from "@/app/(workspace)/projects/page";
 
 const approvalResult = {
   source: "mock",
@@ -69,6 +86,13 @@ const peopleResult = {
 const employeeDetail = {
   profile: { id: "person-sentinel", displayName: "员工详情夹具哨兵" },
 };
+const projectResult = {
+  source: "supabase",
+  data: {
+    projects: [],
+    stats: { total: 0, active: 0, completed: 0, overdue: 0 },
+  },
+};
 
 function serialized(value: unknown) {
   return JSON.stringify(value);
@@ -77,12 +101,15 @@ function serialized(value: unknown) {
 describe("sensitive workspace routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    dependencies.customerDemoMode = false;
     dependencies.loadApprovals.mockResolvedValue(approvalResult);
     dependencies.loadApprovalDetail.mockResolvedValue(approvalDetail);
     dependencies.loadSalary.mockResolvedValue(salaryResult);
     dependencies.loadSalaryDetail.mockResolvedValue(salaryDetail);
     dependencies.loadEmployeeDirectory.mockResolvedValue(peopleResult);
     dependencies.getEmployeeDetail.mockReturnValue(employeeDetail);
+    dependencies.loadProjectList.mockResolvedValue(projectResult);
+    dependencies.loadProjectDetail.mockResolvedValue(undefined);
   });
 
   it("does not call or serialize fixture loaders for an unbound real session", async () => {
@@ -151,4 +178,38 @@ describe("sensitive workspace routes", () => {
     );
     expect(serialized([list, detail])).toContain("员工夹具哨兵");
   });
+
+  it("forces the complete employee demo directory in customer demo mode", async () => {
+    dependencies.customerDemoMode = true;
+    dependencies.requireWorkspaceSession.mockResolvedValue(executiveWorkspaceSession);
+
+    await PeopleRoute();
+
+    expect(dependencies.loadEmployeeDirectory).toHaveBeenCalledWith(
+      undefined,
+      { allowMockFallback: true },
+    );
+  });
+
+  it("uses the same demo project catalog as the dashboard in customer demo mode", async () => {
+    dependencies.customerDemoMode = true;
+
+    const output = await ProjectsRoute();
+
+    expect(dependencies.loadProjectList).not.toHaveBeenCalled();
+    expect(output.props.result).toBeUndefined();
+  });
+
+  it("opens a demo project detail without waiting for Supabase", async () => {
+    dependencies.customerDemoMode = true;
+
+    const output = await ProjectDetailRoute({
+      params: Promise.resolve({ id: "40000000-0000-4000-8000-000000000001" }),
+    });
+
+    expect(dependencies.loadProjectDetail).not.toHaveBeenCalled();
+    expect(output.props.initialResult).toEqual(expect.objectContaining({ source: "mock" }));
+    expect(output.props.initialResult.detail.project.id).toBe("40000000-0000-4000-8000-000000000001");
+  });
+
 });

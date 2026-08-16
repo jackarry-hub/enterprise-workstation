@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { AlertTriangle, ArrowRight, CheckCircle2, Clock3, ListTodo } from "lucide-react";
+import type { MouseEvent } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -14,6 +15,24 @@ const priorityMeta = {
   warning: { label: "待处理", variant: "warning" as const, icon: Clock3 },
   normal: { label: "可推进", variant: "info" as const, icon: ListTodo },
 };
+
+function scrollToLocalTarget(event: MouseEvent<HTMLAnchorElement>, href: string) {
+  const destination = new URL(href, window.location.href);
+  const currentPath = window.location.pathname.replace(/\/$/, "") || "/";
+  const destinationPath = destination.pathname.replace(/\/$/, "") || "/";
+  if (destination.origin !== window.location.origin || destinationPath !== currentPath || !destination.hash) return;
+
+  const target = document.getElementById(decodeURIComponent(destination.hash.slice(1)));
+  if (!target) return;
+
+  event.preventDefault();
+  window.history.pushState(null, "", `${destination.pathname}${destination.search}${destination.hash}`);
+  target.scrollIntoView({ behavior: "smooth", block: "center" });
+  target.focus({ preventScroll: true });
+  if (destination.hash.startsWith("#review-")) {
+    target.querySelector<HTMLElement>("textarea, input")?.focus({ preventScroll: true });
+  }
+}
 
 export function OperationActionInbox({ state, actor, limit = 4 }: { state: OperationsState; actor: WorkspaceActor; limit?: number }) {
   const items = getOperationActionItems(state, actor.id).slice(0, limit);
@@ -32,6 +51,7 @@ export function OperationActionInbox({ state, actor, limit = 4 }: { state: Opera
             <Link
               href={item.href}
               aria-label={`处理：${item.title}`}
+              onClick={(event) => scrollToLocalTarget(event, item.href)}
               className="group grid min-h-18 min-w-0 grid-cols-[auto_1fr_auto] items-center gap-3 px-3.5 py-3 outline-none transition hover:bg-brand-soft/25 focus-visible:bg-brand-soft/30 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/25"
             >
               <span className="grid size-9 place-items-center rounded-xl bg-brand-soft text-primary"><Icon className="size-4" /></span>

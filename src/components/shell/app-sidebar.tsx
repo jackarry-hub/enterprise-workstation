@@ -45,8 +45,9 @@ export function AppSidebar({
         />
         <div className="min-w-0">
           <p className="text-lg font-semibold tracking-tight text-foreground">
-            企业工作站
+            量子智枢
           </p>
+          <p className="text-[10px] font-medium tracking-[0.12em] text-muted-foreground">QuantNexus</p>
         </div>
       </div>
 

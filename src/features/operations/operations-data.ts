@@ -1,6 +1,5 @@
 import type { DecisionInput, DecisionPlan } from "@/features/decision-workbench/decision-workbench-types";
 import { customerDemoActors } from "@/features/demo/customer-demo-data";
-import { CUSTOMER_DEMO_STORAGE_NAMESPACE } from "@/features/demo/customer-demo-state";
 import type {
   WorkspaceActor,
   WorkspaceRole,
@@ -9,8 +8,18 @@ import {
   requireAuthenticatedActor,
   type OperationFixtureContext,
 } from "@/features/operations/operation-actor-compat";
+import {
+  createDemoIdleCommand,
+  createDepartmentDemoTasks,
+  createDepartmentDemoWorkstreams,
+} from "@/features/operations/department-demo-seed";
+import { normalizeOperationsState } from "@/features/operations/operations-state-v2";
 import { calculateProjectProgress } from "@/features/projects/data/project-task-operations";
-import { findLocalProject, saveLocalProject } from "@/features/projects/data/mock-project-repository";
+import {
+  findLocalProject,
+  PROJECTS_CHANGED_EVENT,
+  saveLocalProject,
+} from "@/features/projects/data/mock-project-repository";
 import type { ProjectActivity, ProjectDetailData, ProjectTask, TaskStatus } from "@/features/projects/types";
 import type {
   AttendanceCorrectionRequest,
@@ -28,6 +37,7 @@ import type {
   OperationActionItem,
   OperationFile,
   OperationNotification,
+  OperationWorkstream,
   OperationWeeklySummary,
   OperationsState,
   OperationTask,
@@ -93,36 +103,15 @@ function createAttendanceSeed(): AttendanceOperations {
 }
 
 function createSeedState(): OperationsState {
-  const dependencyIdsByTask: Record<string, string[]> = {
-    "flow-task-03": ["flow-task-02"],
-    "flow-task-05": ["flow-task-01"],
-    "flow-task-06": ["flow-task-01"],
-    "flow-task-08": ["flow-task-01"],
-    "flow-task-09": ["flow-task-08"],
-    "flow-task-10": ["flow-task-03"],
-  };
-  const tasks = ([
-    { id: "flow-task-01", code: "T01", commandId: COMMAND_ID, department: "产品研发中心", departmentOwnerId: "actor-manager", assigneeId: "actor-manager", title: "确认试点范围与成功标准", summary: "将领导目标转成范围、指标和可验收口径。", acceptance: "形成一页式试点章程，并由决策人确认。", dueDate: "2026-08-10", priority: "urgent", status: "done", progress: 100, deliverableRequired: false, updatedAt: BASE_DATE },
-    { id: "flow-task-02", code: "T06", commandId: COMMAND_ID, department: "产品研发中心", departmentOwnerId: "actor-manager", assigneeId: "actor-employee", title: "实现目标拆解与责任映射", summary: "把决策输入转换为部门目标和个人任务。", acceptance: "一次输入稳定生成部门目标和个人任务，并保留人工确认。", dueDate: "2026-08-21", priority: "urgent", status: "in_progress", progress: 55, deliverableRequired: true, updatedAt: BASE_DATE },
-    { id: "flow-task-03", code: "T07", commandId: COMMAND_ID, department: "产品研发中心", departmentOwnerId: "actor-manager", assigneeId: "actor-employee", title: "打通任务执行与结果回流", summary: "让个人执行状态、成果和阻塞实时回到负责人。", acceptance: "负责人可驳回或通过，领导端同步看到结果。", dueDate: "2026-08-27", priority: "urgent", status: "todo", progress: 0, deliverableRequired: true, updatedAt: BASE_DATE },
-    { id: "flow-task-04", code: "T04", commandId: COMMAND_ID, department: "设计中心", departmentOwnerId: "actor-manager", assigneeId: "actor-designer", title: "设计三角色工作流原型", summary: "覆盖决策人、负责人和员工执行视角。", acceptance: "原型覆盖输入、拆解、执行、验收和归档。", dueDate: "2026-08-15", priority: "high", status: "review", progress: 90, deliverableRequired: true, updatedAt: BASE_DATE },
-    { id: "flow-task-05", code: "T11", commandId: COMMAND_ID, department: "人力资源中心", departmentOwnerId: "actor-hr", assigneeId: "actor-hr", title: "确认角色权限与 RACI", summary: "明确决策人、负责人、执行人和协同人的边界。", acceptance: "核心任务均只有一位最终责任人。", dueDate: "2026-08-15", priority: "high", status: "in_progress", progress: 40, deliverableRequired: true, updatedAt: BASE_DATE },
-    { id: "flow-task-06", code: "T14", commandId: COMMAND_ID, department: "财务中心", departmentOwnerId: "actor-finance", assigneeId: "actor-finance", title: "完成试点预算审核与付款", summary: "核验云服务和实施费用，完成审批与付款凭证归集。", acceptance: "预算不超过 30 万元，付款凭证完整可追溯。", dueDate: "2026-08-18", priority: "high", status: "in_progress", progress: 35, deliverableRequired: true, updatedAt: BASE_DATE },
-    { id: "flow-task-07", code: "T02", commandId: COMMAND_ID, department: "市场增长中心", departmentOwnerId: "actor-market", assigneeId: "actor-market", title: "完成客户场景调研与启动沟通", summary: "访谈客户关键岗位并建立试点沟通节奏。", acceptance: "客户确认场景清单、参与人和沟通节奏。", dueDate: "2026-08-17", priority: "high", status: "in_progress", progress: 45, deliverableRequired: true, updatedAt: BASE_DATE },
-    { id: "flow-task-08", code: "T06", commandId: COMMAND_ID, department: "运营交付中心", departmentOwnerId: "actor-sales", assigneeId: "actor-sales", title: "制定客户试点与上线计划", summary: "确定客户环境、里程碑、联系人和上线检查点。", acceptance: "客户确认试点计划、上线窗口和业务验收负责人。", dueDate: "2026-08-20", priority: "high", status: "todo", progress: 0, deliverableRequired: true, updatedAt: BASE_DATE },
-    { id: "flow-task-09", code: "T07", commandId: COMMAND_ID, department: "运营交付中心", departmentOwnerId: "actor-sales", assigneeId: "actor-operations", title: "完成角色培训与反馈回收", summary: "组织客户关键用户完成一次全流程演练。", acceptance: "完成三类角色培训并形成问题关闭清单。", dueDate: "2026-08-28", priority: "high", status: "todo", progress: 0, deliverableRequired: true, updatedAt: BASE_DATE },
-    { id: "flow-task-10", code: "T05", commandId: COMMAND_ID, department: "产品研发中心", departmentOwnerId: "actor-manager", assigneeId: "actor-qa", title: "完成关键流程回归测试", summary: "验证切换、下发、执行、退回、验收和重置。", acceptance: "测试报告覆盖 10 个身份和完整闭环，阻断级问题为零。", dueDate: "2026-08-25", priority: "urgent", status: "todo", progress: 0, deliverableRequired: true, updatedAt: BASE_DATE },
-  ] as const).map((task): OperationTask => ({
-    ...task,
-    dependencyIds: dependencyIdsByTask[task.id] ?? [],
-    reviewDueAt: task.id === "flow-task-04" ? "2026-08-08T12:00:00.000Z" : undefined,
-    escalationLevel: "none",
-  }));
+  const departmentWorkstreams = createDepartmentDemoWorkstreams();
+  const departmentTasks = createDepartmentDemoTasks();
 
   return {
-    version: 1,
-    command: { id: COMMAND_ID, title: "30 天完成星云智造 AI 企业工作站试点上线", summary: "让领导目标自动分发到部门和个人，并形成可验收、可归档的执行闭环。", ownerId: "actor-executive", status: "executing", deadline: "2026-09-07", budgetWan: 30, createdAt: BASE_DATE, updatedAt: BASE_DATE },
-    tasks,
+    version: 2,
+    workstreams: departmentWorkstreams,
+    activeAiWorkstreamId: undefined,
+    command: createDemoIdleCommand(),
+    tasks: departmentTasks,
     supportRequests: [
       { id: "support-finance-01", commandId: COMMAND_ID, sourceTaskId: "flow-task-06", type: "finance", title: "试点云资源采购预算", description: "用于模型调用、对象存储和试点环境，预算 8 万元。", requesterId: "actor-manager", handlerId: "actor-finance", amountWan: 8, status: "pending", updatedAt: BASE_DATE },
       { id: "support-hr-01", commandId: COMMAND_ID, sourceTaskId: "flow-task-03", type: "staffing", title: "调配一名测试工程师参与试点", description: "预计投入两周，负责关键流程回归与验收记录。", requesterId: "actor-manager", handlerId: "actor-hr", status: "approved", result: "已锁定质量中心郭敏，等待确认到岗时间。", updatedAt: BASE_DATE },
@@ -130,70 +119,34 @@ function createSeedState(): OperationsState {
     ],
     files: [],
     knowledge: [
-      { id: "knowledge-seed-01", commandId: COMMAND_ID, sourceTaskId: "flow-task-01", title: "企业 AI 工作站试点章程", summary: "记录试点范围、成功指标、角色边界和不做事项。", category: "流程制度", tags: ["AI试点", "决策章程"], fileIds: [], status: "published", createdById: "actor-manager", updatedAt: BASE_DATE },
+      { id: "knowledge-seed-01", commandId: COMMAND_ID, sourceTaskId: "flow-task-01", title: "量子智枢试点章程", summary: "记录试点范围、成功指标、角色边界和不做事项。", category: "流程制度", tags: ["AI试点", "决策章程"], fileIds: [], status: "published", createdById: "actor-manager", updatedAt: BASE_DATE },
     ],
     leaveRequests: [
       { id: "leave-202608-01", code: "LEAVE-20260808-001", employeeId: "actor-employee", managerId: "actor-manager", leaveType: "annual", startDate: "2026-08-17", endDate: "2026-08-17", days: 1, reason: "家庭事务安排", handover: "T07 任务由刘洋临时跟进，相关文档已同步。", status: "pending_manager", submittedAt: "2026-08-08T11:00:00.000Z", updatedAt: "2026-08-08T11:00:00.000Z" },
-      { id: "leave-202608-02", code: "LEAVE-20260804-002", employeeId: "actor-manager", managerId: "actor-executive", leaveType: "annual", startDate: "2026-08-06", endDate: "2026-08-08", days: 2.5, reason: "家庭事务安排", handover: "试点例会由王芳主持，紧急决策通过工作站提交。", status: "approved", managerComment: "工作已完成交接，同意。", hrComment: "年假余额充足，已同步考勤。", submittedAt: "2026-08-04T09:18:00.000Z", updatedAt: "2026-08-04T11:20:00.000Z" },
+      { id: "leave-202608-02", code: "LEAVE-20260804-002", employeeId: "actor-manager", managerId: "actor-executive", leaveType: "annual", startDate: "2026-08-06", endDate: "2026-08-08", days: 2.5, reason: "家庭事务安排", handover: "试点例会由王芳主持，紧急决策通过量子智枢提交。", status: "approved", managerComment: "工作已完成交接，同意。", hrComment: "年假余额充足，已同步考勤。", submittedAt: "2026-08-04T09:18:00.000Z", updatedAt: "2026-08-04T11:20:00.000Z" },
     ],
     attendance: createAttendanceSeed(),
     payrollRun: { id: "payroll-2026-08", month: "2026-08", status: "draft", headcount: 128, grossAmount: 1864200, deductionAmount: 214860, netAmount: 1649340, attendanceLocked: false, exceptionCount: 2, updatedAt: "2026-08-08T08:30:00.000Z" },
     events: [
       { id: "event-seed-03", commandId: COMMAND_ID, actorId: "actor-manager", action: "分配任务", detail: "将“目标拆解与责任映射”分配给陈晨。", createdAt: "2026-08-08T10:30:00.000Z" },
       { id: "event-seed-02", commandId: COMMAND_ID, actorId: "actor-executive", action: "确认下发", detail: "确认 AI 拆解方案并下发到 7 个部门。", createdAt: "2026-08-08T09:20:00.000Z" },
-      { id: "event-seed-01", commandId: COMMAND_ID, actorId: "actor-executive", action: "下达命令", detail: "要求 30 天内完成企业 AI 工作站试点。", createdAt: BASE_DATE },
+      { id: "event-seed-01", commandId: COMMAND_ID, actorId: "actor-executive", action: "下达命令", detail: "要求 30 天内完成量子智枢试点。", createdAt: BASE_DATE },
     ],
     notificationReads: {},
+    dispatchHistory: [],
   };
 }
 
-function createSeedStateForContext(context: OperationFixtureContext): OperationsState {
-  const seed = createSeedState();
-  if (context.storageNamespace !== CUSTOMER_DEMO_STORAGE_NAMESPACE) return seed;
-
-  return {
-    ...seed,
-    command: {
-      ...seed.command,
-      projectId: undefined,
-      status: "executing",
-    },
-    tasks: seed.tasks.map((task) => ({
-      ...task,
-      status: "todo",
-      progress: 0,
-      blocker: undefined,
-      reviewNote: undefined,
-      reviewDueAt: undefined,
-      blockerDueAt: undefined,
-      escalationLevel: "none",
-      escalatedAt: undefined,
-    })),
-    supportRequests: seed.supportRequests.map((request) => ({
-      ...request,
-      status: "completed",
-      result: request.result ?? "演示准备已完成，相关凭证与记录已归档。",
-    })),
-    files: [],
-    knowledge: [],
-    attendance: {
-      ...seed.attendance,
-      corrections: seed.attendance.corrections.map((request) => ({ ...request, status: "approved" as const })),
-      overtimeRequests: seed.attendance.overtimeRequests.map((request) => ({ ...request, status: "approved" as const })),
-    },
-    payrollRun: {
-      ...seed.payrollRun,
-      attendanceLocked: false,
-      exceptionCount: 0,
-    },
-    events: seed.events.filter(({ action }) => action === "下达命令"),
-  };
+function createSeedStateForContext(): OperationsState {
+  return createSeedState();
 }
 
 function createSanitizedOperationsState(): OperationsState {
   const emptyTimestamp = "1970-01-01T00:00:00.000Z";
   return {
-    version: 1,
+    version: 2,
+    workstreams: [],
+    activeAiWorkstreamId: undefined,
     command: {
       id: "",
       title: "",
@@ -261,11 +214,12 @@ function createSanitizedOperationsState(): OperationsState {
     },
     events: [],
     notificationReads: {},
+    dispatchHistory: [],
   };
 }
 
 export function createInitialOperationsState(context: OperationFixtureContext) {
-  return context.actor ? createSeedStateForContext(context) : createSanitizedOperationsState();
+  return context.actor ? createSeedStateForContext() : createSanitizedOperationsState();
 }
 
 function operationStatusFromProject(status: TaskStatus): OperationTaskStatus {
@@ -286,7 +240,7 @@ function projectStatusFromOperation(status: OperationTaskStatus): TaskStatus {
 
 function requireActorByMemberId(memberId: string, context: string) {
   const actor = operationFixtureActors.find((candidate) => candidate.memberId === memberId);
-  if (!actor) throw new Error(`${context}未配置工作站账号：${memberId}`);
+  if (!actor) throw new Error(`${context}未配置量子智枢账号：${memberId}`);
   return actor;
 }
 
@@ -314,6 +268,7 @@ function operationTaskFromProject(
   detail: ProjectDetailData,
   commandId: string,
   previous?: OperationTask,
+  workstream?: OperationWorkstream,
 ): OperationTask {
   if (!task.assigneeId) throw new Error(`任务“${task.title}”尚未指定唯一负责人`);
   const assignee = requireActorByMemberId(task.assigneeId, `任务“${task.title}”`);
@@ -324,6 +279,9 @@ function operationTaskFromProject(
     id: task.id,
     code: previous?.code ?? task.id.replace(`${detail.project.id}-`, ""),
     commandId,
+    workstreamId: previous?.workstreamId ?? workstream?.id ?? commandId,
+    projectId: previous?.projectId ?? detail.project.id,
+    runtimeSource: previous?.runtimeSource ?? workstream?.source ?? "ai_dispatch",
     department,
     departmentOwnerId: departmentOwner.id,
     assigneeId: assignee.id,
@@ -351,10 +309,14 @@ function hydrateOperationsFromProject(context: OperationFixtureContext, state: O
   if (!projectId) return state;
   const detail = findLocalProject(context, projectId);
   if (!detail) return state;
+  const activeWorkstream = state.workstreams.find(({ id }) => id === state.activeAiWorkstreamId);
   const previousById = new Map(state.tasks.map((task) => [task.id, task]));
-  const tasks = detail.tasks
+  const hydratedTasks = detail.tasks
     .filter(({ status }) => status !== "cancelled")
-    .map((task) => operationTaskFromProject(task, detail, state.command.id, previousById.get(task.id)));
+    .map((task) => operationTaskFromProject(task, detail, state.command.id, previousById.get(task.id), activeWorkstream));
+  const retainedTasks = state.tasks.filter((task) => state.activeAiWorkstreamId
+    ? task.workstreamId !== state.activeAiWorkstreamId
+    : task.projectId !== projectId);
   return {
     ...state,
     command: {
@@ -363,7 +325,7 @@ function hydrateOperationsFromProject(context: OperationFixtureContext, state: O
       deadline: detail.project.dueDate,
       updatedAt: detail.project.updatedAt,
     },
-    tasks,
+    tasks: [...retainedTasks, ...hydratedTasks],
   };
 }
 
@@ -449,19 +411,18 @@ export function readOperationsState(
   if (!context.actor) return createSanitizedOperationsState();
   const storageKey = getOperationsStorageKey(context)!;
   const resolved = storage ?? (typeof window === "undefined" ? undefined : window.localStorage);
-  if (!resolved) return createSeedStateForContext(context);
+  if (!resolved) return createSeedStateForContext();
   try {
-    const parsed = JSON.parse(resolved.getItem(storageKey) ?? "null") as OperationsState | null;
-    if (parsed?.version === 1 && parsed.command && Array.isArray(parsed.tasks)) {
-      const seed = createSeedStateForContext(context);
-      const normalized: OperationsState = { ...parsed, tasks: parsed.tasks.map((task) => ({ ...task, dependencyIds: task.dependencyIds ?? [], escalationLevel: task.escalationLevel ?? "none" })), leaveRequests: parsed.leaveRequests ?? seed.leaveRequests, attendance: parsed.attendance ?? seed.attendance, payrollRun: parsed.payrollRun ?? seed.payrollRun, notificationReads: parsed.notificationReads ?? {} };
-      if (!parsed.leaveRequests || !parsed.attendance || !parsed.payrollRun || !parsed.notificationReads) resolved.setItem(storageKey, JSON.stringify(normalized));
-      return applyTaskEscalations(hydrateOperationsFromProject(context, normalized));
+    const raw = JSON.parse(resolved.getItem(storageKey) ?? "null") as unknown;
+    const normalized = normalizeOperationsState(raw, createSeedStateForContext());
+    if (!(typeof raw === "object" && raw !== null && "version" in raw && raw.version === 2)) {
+      resolved.setItem(storageKey, JSON.stringify(normalized));
     }
+    return applyTaskEscalations(hydrateOperationsFromProject(context, normalized));
   } catch {
     // Corrupt demo data is replaced with a deterministic seed below.
   }
-  const seed = createSeedStateForContext(context);
+  const seed = createSeedStateForContext();
   resolved.setItem(storageKey, JSON.stringify(seed));
   return applyTaskEscalations(hydrateOperationsFromProject(context, seed));
 }
@@ -469,13 +430,31 @@ export function readOperationsState(
 export function saveOperationsState(
   context: OperationFixtureContext,
   state: OperationsState,
-  storage?: Pick<Storage, "setItem">,
+  storage?: Pick<Storage, "setItem"> & Partial<Pick<Storage, "getItem">>,
 ) {
   requireFixtureActor(context);
   const storageKey = getOperationsStorageKey(context)!;
   const resolved = storage ?? (typeof window === "undefined" ? undefined : window.localStorage);
+  let projectStateChanged = true;
+  if (resolved?.getItem) {
+    try {
+      const previous = JSON.parse(resolved.getItem(storageKey) ?? "null") as Partial<OperationsState> | null;
+      projectStateChanged = JSON.stringify({
+        workstreams: previous?.workstreams ?? [],
+        tasks: previous?.tasks ?? [],
+      }) !== JSON.stringify({
+        workstreams: state.workstreams,
+        tasks: state.tasks,
+      });
+    } catch {
+      projectStateChanged = true;
+    }
+  }
   resolved?.setItem(storageKey, JSON.stringify(state));
-  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(OPERATIONS_CHANGED_EVENT));
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(OPERATIONS_CHANGED_EVENT));
+    if (projectStateChanged) window.dispatchEvent(new CustomEvent(PROJECTS_CHANGED_EVENT));
+  }
   return state;
 }
 
@@ -487,7 +466,7 @@ export function resetOperationsState(
   const storageKey = getOperationsStorageKey(context)!;
   const resolved = storage ?? (typeof window === "undefined" ? undefined : window.localStorage);
   resolved?.removeItem(storageKey);
-  return saveOperationsState(context, createSeedStateForContext(context), resolved);
+  return saveOperationsState(context, createSeedStateForContext(), resolved);
 }
 
 export function getActor(actorId: string) {
@@ -512,7 +491,7 @@ function afterHours(timestamp: string, hours: number) {
 
 function requireActorById(actorId: string) {
   const actor = operationFixtureActors.find((candidate) => candidate.id === actorId);
-  if (!actor) throw new Error("当前账号未配置工作站身份");
+  if (!actor) throw new Error("当前账号未配置量子智枢身份");
   return actor;
 }
 
@@ -536,9 +515,10 @@ export function getOperationActionItems(
     const slaDueAt = task.status === "review" ? task.reviewDueAt : task.status === "blocked" ? task.blockerDueAt : undefined;
     const slaOverdue = Boolean(slaDueAt && new Date(slaDueAt).valueOf() <= nowValue);
     const taskHref = `${actor.landingPath}#task-${task.id}`;
+    const reviewHref = `${actor.landingPath}#review-${task.id}`;
 
     if (task.status === "review" && getTaskReviewerId(task) === actor.id) {
-      add({ id: `review-${task.id}`, kind: "task_review", entityId: task.id, title: `验收：${task.title}`, description: `执行人 ${getActor(task.assigneeId).name} 已提交成果，等待验收。`, priority: slaOverdue ? "critical" : "warning", dueAt: task.reviewDueAt, href: taskHref });
+      add({ id: `review-${task.id}`, kind: "task_review", entityId: task.id, title: `验收：${task.title}`, description: `执行人 ${getActor(task.assigneeId).name} 已提交成果，等待验收。`, priority: slaOverdue ? "critical" : "warning", dueAt: task.reviewDueAt, href: reviewHref });
       return;
     }
 
@@ -552,7 +532,11 @@ export function getOperationActionItems(
       return;
     }
 
-    if (task.assigneeId === actor.id && task.status === "todo") {
+    if (task.assigneeId === actor.id && task.status === "assigned") {
+      add({ id: `ready-${task.id}`, kind: "task_ready", entityId: task.id, title: `接受新任务：${task.title}`, description: `AI 企业大脑已分配任务，发起人是 ${getActor(task.creatorId ?? state.command.ownerId).name}。`, priority: isOverdue ? "critical" : "warning", dueAt: task.dueDate, href: taskHref });
+    } else if (task.assigneeId === actor.id && task.status === "accepted") {
+      add({ id: `start-${task.id}`, kind: "task_ready", entityId: task.id, title: `开始执行：${task.title}`, description: "任务已经接受，请开始执行并持续更新进度。", priority: isOverdue ? "critical" : "normal", dueAt: task.dueDate, href: taskHref });
+    } else if (task.assigneeId === actor.id && task.status === "todo") {
       add({ id: `ready-${task.id}`, kind: "task_ready", entityId: task.id, title: `可开始：${task.title}`, description: "这是你的独立任务，可直接开始并在完成后提交验收。", priority: isOverdue ? "critical" : "normal", dueAt: task.dueDate, href: taskHref });
     } else if (task.assigneeId === actor.id && isOverdue) {
       add({ id: `overdue-${task.id}`, kind: "task_overdue", entityId: task.id, title: `已逾期：${task.title}`, description: `截止日期为 ${task.dueDate}，请立即更新进度或上报阻塞。`, priority: "critical", dueAt: task.dueDate, href: taskHref });
@@ -687,8 +671,23 @@ export function getOperationNotifications(
       createdAt: item.createdAt,
       read: reads.has(`event:${item.id}`),
     }));
+  const runtimeCompletionNotification: OperationNotification[] = (
+    state.command.id.startsWith("ai-command-")
+    && state.command.ownerId === actorId
+    && ["accepted", "archived"].includes(state.command.status)
+  ) ? [{
+    id: `dispatch-completed:${state.command.id}`,
+    actorId,
+    title: "本次目标已经全部完成",
+    description: state.command.title,
+    severity: "info",
+    category: "system",
+    href: "/dashboard#ai-dispatch-progress",
+    createdAt: state.command.updatedAt,
+    read: reads.has(`dispatch-completed:${state.command.id}`),
+  }] : [];
   const severityOrder = { critical: 0, warning: 1, info: 2 } as const;
-  return [...payrollPaidNotification, ...actionNotifications, ...escalationNotifications, ...eventNotifications].sort((left, right) => Number(left.read) - Number(right.read) || severityOrder[left.severity] - severityOrder[right.severity] || right.createdAt.localeCompare(left.createdAt));
+  return [...runtimeCompletionNotification, ...payrollPaidNotification, ...actionNotifications, ...escalationNotifications, ...eventNotifications].sort((left, right) => Number(left.read) - Number(right.read) || severityOrder[left.severity] - severityOrder[right.severity] || right.createdAt.localeCompare(left.createdAt));
 }
 
 export function markOperationNotificationRead(context: OperationFixtureContext, notificationId: string, actorId: string) {
@@ -757,7 +756,21 @@ export function getOperationWeeklySummary(
   };
 }
 
-type OperationTaskPatch = Partial<Pick<OperationTask, "assigneeId" | "status" | "progress" | "blocker" | "reviewNote">>;
+type OperationTaskPatch = Partial<Pick<OperationTask,
+  | "assigneeId"
+  | "status"
+  | "progress"
+  | "blocker"
+  | "reviewNote"
+  | "acceptedAt"
+  | "startedAt"
+  | "submission"
+  | "reviewStatus"
+  | "reviewComment"
+  | "reviewedById"
+  | "reviewedAt"
+  | "rejectionCount"
+>>;
 
 function assertTaskMutationAllowed(
   state: OperationsState,
@@ -785,7 +798,7 @@ function assertTaskMutationAllowed(
   const isAssignee = actor.id === before.assigneeId;
   const isReviewer = actor.id === getTaskReviewerId(before);
   const transition = `${before.status}->${patch.status}`;
-  const assigneeTransitions = new Set(["todo->in_progress", "in_progress->blocked", "in_progress->review"]);
+  const assigneeTransitions = new Set(["assigned->accepted", "accepted->in_progress", "todo->in_progress", "in_progress->blocked", "in_progress->review"]);
   const reviewerTransitions = new Set(["blocked->in_progress", "review->in_progress", "review->done"]);
 
   if (assigneeTransitions.has(transition) && !isAssignee) throw new Error("只有任务执行人可以执行或提交成果");
@@ -795,14 +808,20 @@ function assertTaskMutationAllowed(
   }
 
   const taskFiles = state.files.filter(({ entityType, entityId }) => entityType === "task" && entityId === before.id);
+  const submission = patch.submission ?? before.submission;
+  const hasStructuredSubmission = Boolean(
+    submission?.description.trim()
+    || submission?.url?.trim()
+    || submission?.attachmentName?.trim(),
+  );
   if (patch.status === "blocked" && !patch.blocker?.trim()) throw new Error("上报阻塞时必须说明原因");
-  if (patch.status === "review" && before.deliverableRequired && taskFiles.length === 0) {
+  if (patch.status === "review" && before.deliverableRequired && taskFiles.length === 0 && !hasStructuredSubmission) {
     throw new Error("提交验收前必须上传至少一个成果文件");
   }
   if (["in_progress", "done"].includes(patch.status) && before.status === "review" && !patch.reviewNote?.trim()) {
     throw new Error("验收通过或退回时必须填写验收意见");
   }
-  if (patch.status === "done" && before.deliverableRequired && taskFiles.length === 0) {
+  if (patch.status === "done" && before.deliverableRequired && taskFiles.length === 0 && !hasStructuredSubmission) {
     throw new Error("没有成果文件的任务不能验收通过");
   }
 }
@@ -856,20 +875,52 @@ export function updateOperationTask(
     task.escalationLevel = "none";
     task.escalatedAt = undefined;
   }
-  const labels: Record<OperationTaskStatus, string> = { todo: "退回待执行", in_progress: "开始执行", blocked: "标记阻塞", review: "提交验收", done: "通过验收" };
+  const labels: Record<OperationTaskStatus, string> = { assigned: "接受任务", accepted: "确认接单", todo: "退回待执行", in_progress: "开始执行", blocked: "标记阻塞", review: "提交验收", done: "通过验收" };
   const transition = `${before.status}->${task.status}`;
   const actionLabel = transition === "review->in_progress" ? "退回修改" : labels[task.status];
   const nextKnowledge = task.status === "done"
     ? upsertKnowledgeForTask(state.knowledge, task, actorId).map((entry) => entry.sourceTaskId === task.id ? { ...entry, fileIds: state.files.filter((file) => file.entityType === "task" && file.entityId === task.id).map(({ id }) => id) } : entry)
     : state.knowledge;
+  const nextTasks = state.tasks.map((item) => item.id === taskId ? task : item);
+  const activeAiTasks = state.activeAiWorkstreamId
+    ? nextTasks.filter((item) => (
+      item.workstreamId === state.activeAiWorkstreamId
+      && item.runtimeSource === "ai_dispatch"
+    ))
+    : [];
+  const completesRuntimeDispatch = task.workstreamId === state.activeAiWorkstreamId
+    && task.runtimeSource === "ai_dispatch"
+    && activeAiTasks.length > 0
+    && activeAiTasks.every(({ status }) => status === "done");
+  const nextCommand = {
+    ...state.command,
+    status: completesRuntimeDispatch ? "accepted" as const : state.command.status,
+    updatedAt: task.updatedAt,
+  };
+  const taskEvent = event(actorId, actionLabel, `${actor.name}将“${task.title}”${actionLabel}。`, task.commandId);
+  const completionEvents = completesRuntimeDispatch
+    ? [event(
+      actorId,
+      "AI 调度目标完成",
+      `“${state.command.title}”下的 ${activeAiTasks.length} 项任务已经全部验收完成。`,
+      state.command.id,
+    )]
+    : [];
   const saved = saveOperationsState(context, {
     ...state,
-    command: { ...state.command, updatedAt: task.updatedAt },
-    tasks: state.tasks.map((item) => item.id === taskId ? task : item),
+    command: nextCommand,
+    workstreams: completesRuntimeDispatch
+      ? state.workstreams.map((workstream) => workstream.id === state.activeAiWorkstreamId
+        ? { ...workstream, status: "completed" as const, updatedAt: task.updatedAt }
+        : workstream)
+      : state.workstreams,
+    tasks: nextTasks,
     knowledge: nextKnowledge,
-    events: [event(actorId, actionLabel, `${actor.name}将“${task.title}”${actionLabel}。`), ...state.events],
+    events: [...completionEvents, taskEvent, ...state.events],
   });
-  saveOperationTaskToProject(context, saved, task, auditActor);
+  if (task.runtimeSource === "ai_dispatch") {
+    saveOperationTaskToProject(context, saved, task, auditActor);
+  }
   return saved;
 }
 
@@ -1154,8 +1205,10 @@ export function updatePayrollRun(context: OperationFixtureContext, status: Payro
 
 export function setCommandStatus(context: OperationFixtureContext, status: CommandStatus, actorId: string) {
   const actor = requireFixtureActor(context, actorId);
-  if (actor.role !== "executive") throw new Error("只有决策人可以推进总验收与归档");
   const state = readOperationsState(context);
+  if (actor.role !== "executive" && state.command.ownerId !== actor.id) {
+    throw new Error("只有决策人或命令发起人可以推进总验收与归档");
+  }
   const allowedNext: Partial<Record<CommandStatus, CommandStatus>> = {
     executing: "review",
     review: "accepted",
@@ -1164,10 +1217,17 @@ export function setCommandStatus(context: OperationFixtureContext, status: Comma
   if (allowedNext[state.command.status] !== status) {
     throw new Error("总验收状态必须按提交、通过、归档顺序推进");
   }
-  if (status === "review" && state.supportRequests.some(({ status: requestStatus }) => !["completed", "rejected"].includes(requestStatus))) {
+  const scopedTasks = state.activeAiWorkstreamId
+    ? state.tasks.filter(({ workstreamId }) => workstreamId === state.activeAiWorkstreamId)
+    : state.tasks;
+  const scopedTaskIds = new Set(scopedTasks.map(({ id }) => id));
+  const scopedSupportRequests = state.activeAiWorkstreamId
+    ? state.supportRequests.filter(({ sourceTaskId }) => scopedTaskIds.has(sourceTaskId))
+    : state.supportRequests;
+  if (status === "review" && scopedSupportRequests.some(({ status: requestStatus }) => !["completed", "rejected"].includes(requestStatus))) {
     throw new Error("仍有协同事项未办结，不能提交总验收");
   }
-  if (state.tasks.some(({ status: taskStatus }) => taskStatus !== "done")) {
+  if (scopedTasks.some(({ status: taskStatus }) => taskStatus !== "done")) {
     throw new Error("仍有任务未验收，不能完成总验收");
   }
   const labels: Record<CommandStatus, string> = { executing: "恢复执行", review: "提交总验收", accepted: "完成总验收", archived: "归档闭环" };
@@ -1182,13 +1242,16 @@ export function syncDecisionToOperations(context: OperationFixtureContext, input
   const memberActors = new Map(operationFixtureActors.map((actor) => [actor.memberId, actor.id]));
   const ownerByDepartment = new Map(plan.departments.map((department) => {
     const actorId = memberActors.get(department.owner.id);
-    if (!actorId) throw new Error(`${department.name}负责人“${department.owner.displayName}”未配置工作站账号`);
+    if (!actorId) throw new Error(`${department.name}负责人“${department.owner.displayName}”未配置量子智枢账号`);
     return [department.id, actorId] as const;
   }));
   const tasks = plan.departments.flatMap((department) => department.tasks.map<OperationTask>((task) => ({
     id: `${projectId}-${task.id}`,
     code: task.id,
     commandId: plan.id,
+    workstreamId: plan.id,
+    projectId,
+    runtimeSource: "ai_dispatch",
     department: department.name,
     departmentOwnerId: ownerByDepartment.get(department.id)!,
     assigneeId: requireActorByMemberId(task.assignee.id, `任务“${task.title}”`).id,
@@ -1204,6 +1267,26 @@ export function syncDecisionToOperations(context: OperationFixtureContext, input
     escalationLevel: "none",
     updatedAt: nowIso(),
   })));
-  const command = { id: plan.id, title: input.goal, summary: input.constraints || "由 AI 拆解并下发的企业级决策。", ownerId: "actor-executive", status: "executing" as const, deadline: input.deadline, budgetWan: Number(input.budget) || 0, projectId, createdAt: plan.createdAt, updatedAt: nowIso() };
-  return saveOperationsState(context, { ...state, command, tasks, supportRequests: [], files: [], knowledge: [], events: [event(actor.id, "确认下发", `${actor.name}确认 AI 拆解方案，${tasks.length} 项任务已进入角色工作台。`, plan.id), ...state.events] });
+  const updatedAt = nowIso();
+  const workstream: OperationWorkstream = {
+    id: plan.id,
+    source: "ai_dispatch",
+    title: input.goal,
+    ownerId: actor.id,
+    projectId,
+    status: "active",
+    createdAt: plan.createdAt,
+    updatedAt,
+  };
+  const command = { id: plan.id, title: input.goal, summary: input.constraints || "由 AI 拆解并下发的企业级决策。", ownerId: actor.id, status: "executing" as const, deadline: input.deadline, budgetWan: Number(input.budget) || 0, projectId, createdAt: plan.createdAt, updatedAt };
+  const retainedWorkstreams = state.workstreams.filter(({ id }) => id !== state.activeAiWorkstreamId);
+  const retainedTasks = state.tasks.filter(({ workstreamId }) => workstreamId !== state.activeAiWorkstreamId);
+  return saveOperationsState(context, {
+    ...state,
+    activeAiWorkstreamId: workstream.id,
+    workstreams: [...retainedWorkstreams, workstream],
+    command,
+    tasks: [...retainedTasks, ...tasks],
+    events: [event(actor.id, "确认下发", `${actor.name}确认 AI 拆解方案，${tasks.length} 项任务已进入角色工作台。`, plan.id), ...state.events],
+  });
 }

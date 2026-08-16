@@ -10,7 +10,7 @@ import {
 import { PayrollDetailPage } from "@/features/salary/payroll-detail-page";
 import { salaryMockResult } from "@/features/salary/salary-mock-data";
 
-export const metadata: Metadata = { title: "工资详情 | 企业工作站" };
+export const metadata: Metadata = { title: "工资详情 | 量子智枢" };
 
 export function generateStaticParams() {
   return salaryMockResult.data.records.map(({ id }) => ({ id }));

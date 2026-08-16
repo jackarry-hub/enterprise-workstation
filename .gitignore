@@ -20,6 +20,8 @@
 
 # production
 /build
+/dist/
+/.open-next/
 
 # misc
 .DS_Store
@@ -36,6 +38,7 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+!.env.production
 
 # local agent workspaces
 /.worktrees/

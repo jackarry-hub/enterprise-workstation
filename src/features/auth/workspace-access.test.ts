@@ -105,7 +105,7 @@ describe("parseWorkspaceAccess", () => {
         },
         profile: { skills: ["product", "需求分析"] },
         primaryRole: role,
-        landingPath,
+        landingPath: "/dashboard",
         actor: {
           name: "测试员工",
           role,

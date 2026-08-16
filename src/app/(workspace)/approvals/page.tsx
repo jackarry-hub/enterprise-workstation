@@ -8,7 +8,7 @@ import {
   type WorkspaceIdentityContext,
 } from "@/features/operations/operation-actor-compat";
 
-export const metadata: Metadata = { title: "审批中心 | 企业工作站" };
+export const metadata: Metadata = { title: "审批中心 | 量子智枢" };
 
 export default async function ApprovalsRoute() {
   const session = await requireWorkspaceSession();

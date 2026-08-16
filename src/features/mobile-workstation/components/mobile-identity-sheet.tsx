@@ -53,7 +53,7 @@ export function MobileIdentitySheet() {
                   const next = demo.switchIdentity(candidatePersonId);
                   if (!next) return;
                   setOpen(false);
-                  router.push(next.actor.landingPath);
+                  router.push(next.landingPath);
                 }}
               >
                 <span className="mobile-identity-option__avatar">{candidate.profile.displayName.slice(0, 1)}</span>

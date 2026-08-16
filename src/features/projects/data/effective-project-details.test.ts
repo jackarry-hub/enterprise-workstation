@@ -3,8 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   getDefaultProjectDetails,
   getEffectiveProjectDetails,
+  getUnifiedProjectDetails,
   mergeEffectiveProjectDetails,
 } from "@/features/projects/data/effective-project-details";
+import { customerDemoSessions } from "@/features/demo/customer-demo-data";
+import { createOperationFixtureContext } from "@/features/operations/operation-actor-compat";
+import { createInitialOperationsState } from "@/features/operations/operations-data";
 import { getProjectDetailMock, mockProjects } from "@/features/projects/mock-data";
 import type { ProjectDetailData } from "@/features/projects/types";
 
@@ -58,5 +62,19 @@ describe("effective project details", () => {
   it("returns all default details when no local projects exist", () => {
     expect(getEffectiveProjectDetails([])).toEqual(getDefaultProjectDetails());
     expect(getDefaultProjectDetails()).toHaveLength(mockProjects.length);
+  });
+
+  it("merges local and operation projects by project id", () => {
+    const session = customerDemoSessions.find(
+      ({ identity }) => identity.providerSubject === "customer-demo:demo-executive",
+    )!;
+    const state = createInitialOperationsState(createOperationFixtureContext(session));
+    const unified = getUnifiedProjectDetails([], state);
+
+    expect(unified.map(({ project }) => project.id)).toEqual(expect.arrayContaining([
+      ...mockProjects.map(({ id }) => id),
+      ...state.workstreams.map(({ projectId }) => projectId),
+    ]));
+    expect(new Set(unified.map(({ project }) => project.id)).size).toBe(unified.length);
   });
 });

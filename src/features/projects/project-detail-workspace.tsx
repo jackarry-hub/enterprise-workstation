@@ -54,7 +54,9 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
   );
   const canViewProject = isFixtureBound && (actor.role === "executive" || detail.project.ownerId === actor.memberId || detail.members.some(({ member }) => member.id === actor.memberId));
   const canManageProject = isFixtureBound && (actor.role === "executive" || detail.project.ownerId === actor.memberId);
-  const workflowManaged = operationsState.command.projectId === detail.project.id;
+  const workflowManaged = operationsState.workstreams.some(
+    ({ projectId }) => projectId === detail.project.id,
+  );
 
   useEffect(() => {
     if (result.source === "mock") {
@@ -166,7 +168,7 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
       <ProjectDetailHeader detail={detail} onAddTask={openTaskDialog} onEdit={() => setIsEditOpen(true)} canManage={canManageProject} />
 
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as ProjectDetailTab)} className="gap-4">
-        <ProjectDetailTabs />
+        <ProjectDetailTabs activeTab={activeTab} onTabChange={setActiveTab} />
         {activeTab === "overview" ? <ProjectOverviewTab detail={detail} /> : null}
         {activeTab === "milestones" ? (
           <ProjectMilestonesTab detail={detail} milestones={detail.milestones} onCreate={() => setIsMilestoneOpen(true)} />

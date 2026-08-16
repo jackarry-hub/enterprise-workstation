@@ -8,7 +8,7 @@ import {
 import { PayrollPage } from "@/features/salary/payroll-page";
 import type { SalaryResult } from "@/features/salary/salary-types";
 
-export const metadata: Metadata = { title: "薪资管理 | 企业工作站" };
+export const metadata: Metadata = { title: "薪资管理 | 量子智枢" };
 
 export default async function PayrollRoute() {
   const session = await requireWorkspaceSession();

@@ -60,7 +60,7 @@ export function EmployeeAccountInfo({ employee }: { employee: EmployeeDirectoryI
         </div>
       ) : (
         <div className="mt-5 rounded-2xl border border-dashed border-border bg-background/40 p-5 text-sm text-muted-foreground">
-          该员工尚未关联企业工作站账号，员工档案仍可独立维护。
+          该员工尚未关联量子智枢账号，员工档案仍可独立维护。
         </div>
       )}
     </GlassCard>

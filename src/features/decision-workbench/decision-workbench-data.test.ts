@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   createDecisionPlan,
+  createDecisionPlanFromDeepSeek,
   createDefaultDecisionInput,
   dispatchDecisionPlan,
   getDecisionCandidateRanking,
@@ -16,6 +17,7 @@ import { clearLocalProjects } from "@/features/projects/data/mock-project-reposi
 import { createOperationFixtureContext } from "@/features/operations/operation-actor-compat";
 import { executiveWorkspaceSession } from "@/test/workspace-session-test-utils";
 import { customerDemoPeople } from "@/features/demo/customer-demo-data";
+import { validDispatchPlan } from "@/test/ai-dispatch-test-utils";
 
 const operationContext = createOperationFixtureContext(executiveWorkspaceSession);
 
@@ -33,13 +35,29 @@ describe("decision workbench data", () => {
       .filter(({ role }) => role !== "executive")
       .map(({ memberId }) => memberId);
 
-    expect(input.goal).toBe("30 天完成星云智造 AI 企业工作站试点上线");
+    expect(input.goal).toBe("30 天完成星云智造量子智枢试点上线");
     expect(plan.departments).toHaveLength(7);
     expect(tasks).toHaveLength(10);
     expect(new Set(tasks.map(({ assignee }) => assignee.id))).toEqual(new Set(expectedAssignees));
     expect(tasks.every(({ assignee, acceptance, dueDate, requiredSkills }) => assignee.id && acceptance && dueDate && requiredSkills.length === 3)).toBe(true);
     expect(tasks.every((task) => getDecisionCandidateRanking(task)[0].member.id === task.assignee.id)).toBe(true);
     expect(getDecisionProgress(plan)).toEqual({ total: 10, pending: 10, inProgress: 0, inReview: 0, done: 0, completionRate: 0 });
+  });
+
+  it("adapts a DeepSeek response into the decision review workspace", () => {
+    const plan = createDecisionPlanFromDeepSeek(
+      validDispatchPlan,
+      "deepseek-v4-flash",
+      false,
+      new Date("2026-08-13T08:00:00.000Z"),
+    );
+    const tasks = plan.departments.flatMap(({ tasks: departmentTasks }) => departmentTasks);
+
+    expect(plan.ai).toMatchObject({ provider: "deepseek", model: "deepseek-v4-flash", summary: validDispatchPlan.summary });
+    expect(tasks).toHaveLength(3);
+    expect(tasks.map(({ assignee }) => assignee.displayName)).toEqual(["张伟", "陈晨", "郭敏"]);
+    expect(tasks[1].dependencies).toEqual([tasks[0].id]);
+    expect(tasks.every(({ acceptance }) => acceptance.includes("提交可核验成果"))).toBe(true);
   });
 
   it("explains AI staffing choices with evidence-based strengths and risks", () => {

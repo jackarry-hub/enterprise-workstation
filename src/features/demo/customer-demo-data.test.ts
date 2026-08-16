@@ -9,6 +9,8 @@ import {
 import { mockEmployees } from "@/features/hr/employee-mock-data";
 import { operationFixtureActors } from "@/features/operations/operations-data";
 import { mockMembers } from "@/features/projects/mock-data";
+import { approvalMockResult } from "@/features/approvals/approval-mock-data";
+import { salaryMockResult } from "@/features/salary/salary-mock-data";
 
 describe("customer demo organization", () => {
   it("keeps ten usable people with stable identities and all supported roles", () => {
@@ -31,7 +33,13 @@ describe("customer demo organization", () => {
 
     for (const person of customerDemoPeople) {
       expect(customerDemoSessions.find(({ authUserId }) => authUserId === person.authUserId)).toMatchObject({
-        actor: { name: person.name, memberId: String(person.organizationMemberId), role: person.role },
+        landingPath: "/dashboard",
+        actor: {
+          name: person.name,
+          memberId: String(person.organizationMemberId),
+          role: person.role,
+          landingPath: person.landingPath,
+        },
         profile: { departmentName: person.department, jobTitle: person.jobTitle },
       });
       expect(customerDemoProjectMembers.find(({ id }) => id === person.memberId)).toMatchObject({
@@ -53,5 +61,20 @@ describe("customer demo organization", () => {
     expect(mockEmployees.map(({ profile }) => profile.displayName).sort()).toEqual(expectedNames);
     expect(mockMembers.map(({ displayName }) => displayName).sort()).toEqual(expectedNames);
     expect(operationFixtureActors.map(({ name }) => name).sort()).toEqual(expectedNames);
+  });
+
+  it("keeps approval and payroll people inside the ten-person demo roster", () => {
+    const allowedNames = new Set(customerDemoPeople.map(({ name }) => name));
+    const approvalPeople = approvalMockResult.data.approvals.flatMap((approval) => [
+      approval.applicant.displayName,
+      approval.owner.displayName,
+      ...approval.steps.flatMap((step) => step.approver ? [step.approver.displayName] : []),
+      ...approval.actions.map((action) => action.actor.displayName),
+    ]);
+
+    expect(approvalPeople.every((name) => allowedNames.has(name))).toBe(true);
+    expect(salaryMockResult.data.records.map(({ employee }) => employee.displayName).sort()).toEqual(
+      customerDemoPeople.map(({ name }) => name).sort(),
+    );
   });
 });

@@ -15,6 +15,8 @@ import {
   lockAttendancePeriod,
   readOperationsState,
   resetOperationsState,
+  reviewAttendanceCorrection,
+  reviewOvertimeRequest,
   saveOperationsState,
 } from "@/features/operations/operations-data";
 
@@ -64,6 +66,25 @@ describe("payroll pages", () => {
 
     expect(screen.getByRole("region", { name: "薪资统计" })).toHaveAttribute("data-mobile-layout", "three-column");
     expect(screen.getByLabelText(/本月工资总额 \d+元/)).toBeVisible();
+  });
+
+  it("separates the CEO payslip from the company payroll review", () => {
+    const executiveSession = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-executive")!;
+    renderWithSpecificWorkspaceSession(
+      <WorkspaceSessionProvider session={executiveSession} demoSessions={customerDemoSessions}>
+        <PayrollPage result={salaryMockResult} />
+      </WorkspaceSessionProvider>,
+      executiveSession,
+    );
+
+    const personalPayroll = screen.getByRole("region", { name: "我的工资" });
+    const companyReview = screen.getByRole("region", { name: "全公司薪资复核" });
+    expect(within(personalPayroll).getByText("林远 · CEO")).toBeVisible();
+    expect(within(personalPayroll).getByText("¥30,500.00")).toBeVisible();
+    expect(within(personalPayroll).getByRole("link", { name: "查看我的工资单" })).toHaveAttribute("href", "/payroll/91000000-0000-4000-8000-000000000001");
+    expect(within(companyReview).getByText("128 人总盘")).toBeVisible();
+    expect(personalPayroll.compareDocumentPosition(companyReview) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(screen.getByRole("heading", { name: "全员工资单明细" })).toBeVisible();
   });
 
   it("presents salary composition and monthly history", () => {
@@ -166,10 +187,10 @@ describe("payroll pages", () => {
       hrSession,
     );
 
-    expect(screen.getByRole("link", { name: "去完成考勤封账" })).toHaveAttribute("href", "/attendance#monthly-close");
+    expect(screen.getByRole("link", { name: "先处理 2 项考勤异常" })).toHaveAttribute("href", "/attendance#attendance-approvals");
   });
 
-  it("lets finance complete the pending bank payment from payroll and payslip pages", async () => {
+  it("lets finance complete the pending bank payment on payroll and keeps payslip details separate", async () => {
     const user = userEvent.setup();
     const financeSession = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-finance")!;
     const context = createOperationFixtureContext(financeSession);
@@ -184,10 +205,11 @@ describe("payroll pages", () => {
         <PayrollPage result={salaryMockResult} />
       </WorkspaceSessionProvider>
     );
-    renderWithSpecificWorkspaceSession(page, financeSession);
+    const payrollView = renderWithSpecificWorkspaceSession(page, financeSession);
     await user.click(screen.getByRole("button", { name: "确认银行发放并归档凭证" }));
     expect((await screen.findAllByText("已发放")).length).toBeGreaterThan(0);
     expect(screen.getByRole("status")).toHaveTextContent("已通知全员查看工资单");
+    payrollView.unmount();
 
     saveOperationsState(context, {
       ...initial,
@@ -199,17 +221,23 @@ describe("payroll pages", () => {
       </WorkspaceSessionProvider>,
       financeSession,
     );
-    expect(screen.getAllByRole("button", { name: "确认银行发放并归档凭证" }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "确认银行发放并归档凭证" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "返回全公司薪资复核" })).toHaveAttribute("href", "/payroll#company-payroll-review");
   });
 
   it("runs the visible payroll controls from 20% to 100% across the responsible roles", async () => {
     const user = userEvent.setup();
     const financeSession = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-finance")!;
     const hrSession = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-hr")!;
+    const managerSession = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-product-head")!;
     const executiveSession = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-executive")!;
     const context = createOperationFixtureContext(financeSession);
     const hrContext = createOperationFixtureContext(hrSession);
+    const managerContext = createOperationFixtureContext(managerSession);
     resetOperationsState(context);
+    reviewAttendanceCorrection(hrContext, "correction-20260804-01", "approve", "actor-hr", "考勤记录核验通过");
+    reviewOvertimeRequest(managerContext, "overtime-20260808-01", "approve", "actor-manager", "业务需要明确");
+    reviewOvertimeRequest(hrContext, "overtime-20260808-01", "approve", "actor-hr", "工时记录核验通过");
     lockAttendancePeriod(hrContext, "actor-hr");
 
     let view = renderWithSpecificWorkspaceSession(

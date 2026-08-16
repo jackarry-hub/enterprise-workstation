@@ -10,6 +10,7 @@ export const CUSTOMER_DEMO_ACTOR_KEY = "enterprise-workstation.customer-demo.act
 
 type CustomerDemoSessionControls = {
   enabled: boolean;
+  ready: boolean;
   sessions: readonly WorkspaceSession[];
   currentPersonId: string | null;
   switchIdentity: (personId: string) => WorkspaceSession | null;
@@ -17,6 +18,7 @@ type CustomerDemoSessionControls = {
 
 const CustomerDemoSessionContext = createContext<CustomerDemoSessionControls>({
   enabled: false,
+  ready: true,
   sessions: [],
   currentPersonId: null,
   switchIdentity: () => null,
@@ -43,10 +45,12 @@ export function WorkspaceSessionProvider({
     [demoSessions],
   );
   const [currentSession, setCurrentSession] = useState(session);
+  const [demoReady, setDemoReady] = useState(!demoSessions?.length);
 
   useEffect(() => {
     if (!availableSessions.length) {
       setCurrentSession(session);
+      setDemoReady(true);
       return;
     }
     const storedPersonId = window.localStorage.getItem(CUSTOMER_DEMO_ACTOR_KEY);
@@ -57,6 +61,7 @@ export function WorkspaceSessionProvider({
       window.localStorage.removeItem(CUSTOMER_DEMO_ACTOR_KEY);
     }
     setCurrentSession(storedSession ?? session);
+    setDemoReady(true);
   }, [availableSessions, session]);
 
   const switchIdentity = useCallback((personId: string) => {
@@ -71,10 +76,11 @@ export function WorkspaceSessionProvider({
 
   const controls = useMemo<CustomerDemoSessionControls>(() => ({
     enabled: availableSessions.length > 0,
+    ready: demoReady,
     sessions: availableSessions,
     currentPersonId: personIdFromSession(currentSession),
     switchIdentity,
-  }), [availableSessions, currentSession, switchIdentity]);
+  }), [availableSessions, currentSession, demoReady, switchIdentity]);
 
   return (
     <WorkspaceSessionContext.Provider value={currentSession}>

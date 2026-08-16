@@ -1,6 +1,6 @@
-export const CUSTOMER_DEMO_DELIVERABLE_NAME = "星云智造-AI工作站试点验收记录.txt";
+export const CUSTOMER_DEMO_DELIVERABLE_NAME = "星云智造-量子智枢试点验收记录.txt";
 
-const customerDemoDeliverableContent = `星云智造 AI 企业工作站试点验收记录
+const customerDemoDeliverableContent = `星云智造量子智枢试点验收记录
 
 交付范围：人员身份切换、目标拆解、任务下发、员工执行、负责人验收、领导总验收与归档。
 执行岗位：陈晨｜产品研发中心｜前端工程师

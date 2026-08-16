@@ -7,11 +7,12 @@ import { useWorkspaceSession } from "@/features/auth/workspace-session-provider"
 import { cn } from "@/lib/utils";
 
 export function MobileWorkspaceNav({ active = "work" }: { active?: "home" | "work" | "messages" | "profile" }) {
-  const { actor } = useWorkspaceSession();
+  const session = useWorkspaceSession();
+  const { actor } = session;
   const workHref = actor.role === "executive" ? "/projects" : actor.role === "department_head" || actor.role === "employee" ? "/tasks" : actor.landingPath;
   const profileHref = actor.role === "hr" || actor.role === "department_head" || actor.role === "executive" ? "/people" : actor.role === "finance" ? "/payroll" : "/leave";
   const items = [
-    { href: actor.landingPath, label: "首页", icon: House, value: "home" as const },
+    { href: session.landingPath, label: "首页", icon: House, value: "home" as const },
     { href: workHref, label: "工作", icon: BriefcaseBusiness, value: "work" as const },
     { href: "/approvals", label: "待办", icon: MessageCircle, value: "messages" as const },
     { href: profileHref, label: "我的", icon: UserRound, value: "profile" as const },

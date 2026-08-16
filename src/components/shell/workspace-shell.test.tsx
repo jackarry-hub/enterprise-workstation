@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WorkspaceShell } from "@/components/shell/workspace-shell";
@@ -20,15 +20,21 @@ function DemoProbe() {
 describe("WorkspaceShell", () => {
   beforeEach(() => window.localStorage.clear());
 
-  it("renders a mobile-first shell with one five-item navigation", () => {
+  it("renders desktop and mobile navigation around one shared content surface", () => {
     render(<WorkspaceShell session={executiveWorkspaceSession}><p>工作内容</p></WorkspaceShell>);
-    expect(screen.getByRole("region", { name: "移动工作区" })).toBeVisible();
-    const navigation = screen.getByRole("navigation", { name: "移动端主导航" });
-    expect(navigation).toBeVisible();
-    for (const [label, href] of [["首页", "/dashboard"], ["任务", "/tasks"], ["项目", "/projects"], ["审批", "/approvals"], ["我的", "/me"]]) {
-      expect(screen.getByRole("link", { name: label })).toHaveAttribute("href", href);
+
+    expect(screen.getByRole("banner")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "主导航" })).toBeInTheDocument();
+
+    const mobileRegion = screen.getByRole("region", { name: "移动工作区" });
+    const mobileNavigation = within(mobileRegion).getByRole("navigation", { name: "移动端主导航" });
+    for (const [label, href] of [["首页", "/dashboard"], ["项目", "/projects"], ["任务", "/tasks"], ["团队", "/people"], ["我的", "/me"]]) {
+      expect(within(mobileNavigation).getByRole("link", { name: label })).toHaveAttribute("href", href);
     }
-    expect(screen.getAllByRole("navigation")).toHaveLength(1);
+
+    expect(document.querySelectorAll("#main-content")).toHaveLength(1);
+    expect(screen.getAllByText("工作内容")).toHaveLength(1);
+    expect(screen.getAllByRole("navigation")).toHaveLength(2);
   });
 
   it("keeps a normal server session isolated from demo identity controls", () => {
@@ -40,5 +46,7 @@ describe("WorkspaceShell", () => {
     window.localStorage.setItem(CUSTOMER_DEMO_ACTOR_KEY, "demo-product-head");
     render(<WorkspaceShell session={customerDemoSessions[0]} demoSessions={customerDemoSessions}><DemoProbe /></WorkspaceShell>);
     expect(screen.getByText("10 个演示身份")).toBeVisible();
+    expect(screen.getByTestId("dashboard-identity-avatar")).toHaveAttribute("data-avatar-source", "mock");
+    expect(screen.getByRole("img", { name: "张伟的AI演示头像" })).toBeVisible();
   });
 });

@@ -7,7 +7,6 @@ import { Bell, Check, ChevronDown, CircleHelp, LogOut, Mail, Menu, RotateCcw, Se
 
 import { WorkspaceSearchDialog } from "@/components/shell/workspace-search-dialog";
 import { WorkspaceSidebar } from "@/components/shell/workspace-sidebar";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -16,6 +15,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { navigationItems } from "@/config/navigation";
 import { signOut } from "@/features/auth/actions";
 import { useCustomerDemoSession, useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { DashboardAvatar } from "@/features/dashboard/components/dashboard-avatar";
 import { resetCustomerDemoState } from "@/features/demo/customer-demo-state";
 import { getCustomerDemoPerson, getCustomerDemoSkillLabel } from "@/features/demo/customer-demo-data";
 import { getOperationNotifications, markOperationNotificationRead } from "@/features/operations/operations-data";
@@ -50,19 +50,19 @@ export function WorkspaceHeader() {
     <>
       <header className="sticky top-0 z-40 flex h-18 items-center border-b border-glass-border bg-glass px-4 backdrop-blur-xl sm:px-6 lg:px-8">
         <Sheet>
-          <SheetTrigger asChild><Button type="button" variant="outline" size="icon" className="mr-3 lg:hidden" aria-label="打开主导航"><Menu aria-hidden="true" /></Button></SheetTrigger>
+          <SheetTrigger asChild><Button type="button" variant="outline" size="icon" className="mr-3 md:hidden" aria-label="打开主导航"><Menu aria-hidden="true" /></Button></SheetTrigger>
           <SheetContent side="left" className="w-70 p-0">
-            <SheetHeader className="sr-only"><SheetTitle>企业工作站导航</SheetTitle><SheetDescription>选择要进入的工作模块</SheetDescription></SheetHeader>
+            <SheetHeader className="sr-only"><SheetTitle>量子智枢导航</SheetTitle><SheetDescription>选择要进入的工作模块</SheetDescription></SheetHeader>
             <WorkspaceSidebar className="w-full border-r-0" />
           </SheetContent>
         </Sheet>
 
-        <Button type="button" variant="outline" aria-label="全局搜索" onClick={() => setSearchOpen(true)} className="mx-auto hidden h-10 w-full max-w-110 justify-start rounded-xl border-input/80 bg-background/70 text-muted-foreground shadow-none md:flex">
+        <Button type="button" variant="outline" aria-label="全局搜索" onClick={() => setSearchOpen(true)} className="mx-auto hidden h-10 w-full max-w-110 justify-start rounded-xl border-input/80 bg-background/70 text-muted-foreground shadow-none lg:flex">
           <Search data-icon="inline-start" aria-hidden="true" /><span className="truncate">搜索我有权限查看的工作...</span><kbd className="ml-auto rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">⌘ K</kbd>
         </Button>
 
         <div className="ml-auto flex items-center gap-2 md:ml-6">
-          <Button type="button" variant="ghost" size="icon" className="md:hidden" aria-label="打开移动端搜索" onClick={() => setSearchOpen(true)}><Search aria-hidden="true" /></Button>
+          <Button type="button" variant="ghost" size="icon" className="lg:hidden" aria-label="打开移动端搜索" onClick={() => setSearchOpen(true)}><Search aria-hidden="true" /></Button>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -82,17 +82,14 @@ export function WorkspaceHeader() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Button asChild variant="ghost" size="icon" className="hidden sm:inline-flex" aria-label="查看消息"><Link href="/approvals"><Mail aria-hidden="true" /></Link></Button>
-          <Button type="button" variant="ghost" size="icon" aria-label="帮助中心" className="hidden sm:inline-flex" onClick={() => setHelpOpen(true)}><CircleHelp aria-hidden="true" /></Button>
+          <Button asChild variant="ghost" size="icon" className="hidden lg:inline-flex" aria-label="查看消息"><Link href="/approvals"><Mail aria-hidden="true" /></Link></Button>
+          <Button type="button" variant="ghost" size="icon" aria-label="帮助中心" className="hidden lg:inline-flex" onClick={() => setHelpOpen(true)}><CircleHelp aria-hidden="true" /></Button>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button type="button" variant="ghost" className="h-12 gap-2 rounded-xl px-2" aria-label="打开用户菜单">
-                <Avatar size="lg" role="img" aria-label={profile.displayName}>
-                  {profile.avatarUrl ? <AvatarImage src={profile.avatarUrl} alt={profile.displayName} /> : null}
-                  <AvatarFallback className="bg-linear-to-br from-primary to-chart-3 text-primary-foreground">{profile.displayName.slice(0, 1)}</AvatarFallback>
-                </Avatar>
-                <span className="hidden text-left sm:block"><span className="block text-sm font-semibold text-foreground">{profile.displayName}</span><span className="block text-xs text-muted-foreground">{workspaceActor.roleLabel} · {profile.jobTitle}</span></span>
+                <DashboardAvatar session={session} className="!size-10 shadow-none sm:!size-10" />
+                <span className="hidden text-left lg:block"><span className="block text-sm font-semibold text-foreground">{profile.displayName}</span><span className="block text-xs text-muted-foreground">{workspaceActor.roleLabel} · {profile.jobTitle}</span></span>
                 <ChevronDown data-icon="inline-end" aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>

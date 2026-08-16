@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FolderSearch } from "lucide-react";
 import Link from "next/link";
 
@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { findLocalProject } from "@/features/projects/data/mock-project-repository";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
-import { useOperationFixtureContext } from "@/features/operations/use-operations";
+import { useOperations } from "@/features/operations/use-operations";
+import { buildOperationProjectDetails } from "@/features/projects/data/operation-project-details";
 import { ProjectDetailWorkspace } from "@/features/projects/project-detail-workspace";
 import type { ProjectDetailResult } from "@/features/projects/types";
 
@@ -19,10 +20,16 @@ type ProjectDetailPageProps = {
 
 export function ProjectDetailPage({ projectId, initialResult }: ProjectDetailPageProps) {
   const session = useWorkspaceSession();
-  const context = useOperationFixtureContext(session);
-  const isFixtureBound = context.actor !== null;
+  const { context, isFixtureBound, state } = useOperations(session);
   const [result, setResult] = useState<ProjectDetailResult | undefined>(
     isFixtureBound ? initialResult : undefined,
+  );
+  const operationDetail = useMemo(
+    () =>
+      buildOperationProjectDetails(state).find(
+        ({ project }) => project.id === projectId,
+      ),
+    [projectId, state],
   );
 
   useEffect(() => {
@@ -30,9 +37,20 @@ export function ProjectDetailPage({ projectId, initialResult }: ProjectDetailPag
       setResult(undefined);
       return;
     }
+
+    if (initialResult?.source === "supabase") {
+      setResult(initialResult);
+      return;
+    }
+
+    if (operationDetail) {
+      setResult({ detail: operationDetail, source: "mock" });
+      return;
+    }
+
     const localDetail = findLocalProject(context, projectId);
     setResult(localDetail ? { detail: localDetail, source: "mock" } : initialResult);
-  }, [context, initialResult, isFixtureBound, projectId]);
+  }, [context, initialResult, isFixtureBound, operationDetail, projectId]);
 
   if (!result) {
     return (

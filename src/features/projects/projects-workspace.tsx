@@ -23,6 +23,7 @@ import {
   mergePortfolioStats,
   mergeProjectList,
 } from "@/features/projects/data/project-list-operations";
+import { getUnifiedProjectDetails } from "@/features/projects/data/effective-project-details";
 import { filterProjectList } from "@/features/projects/mock-data";
 import type {
   CreateMockProjectInput,
@@ -49,14 +50,16 @@ type ProjectsWorkspaceProps = {
 
 export function ProjectsWorkspace({ projects, stats, reminders }: ProjectsWorkspaceProps) {
   const session = useWorkspaceSession();
-  const { context, actor, isFixtureBound } = useOperations(session);
+  const { context, actor, isFixtureBound, state } = useOperations(session);
   const router = useRouter();
   const [filters, setFilters] = useState<ProjectListFilters>(defaultFilters);
   const [visibleProjects, setVisibleProjects] = useState<ProjectListItem[]>(isFixtureBound ? [...projects] : []);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const refreshLocalProjects = useCallback(() => {
-    setVisibleProjects(isFixtureBound ? mergeProjectList(projects, readLocalProjects(context)) : []);
-  }, [context, isFixtureBound, projects]);
+    setVisibleProjects(isFixtureBound
+      ? mergeProjectList(projects, getUnifiedProjectDetails(readLocalProjects(context), state))
+      : []);
+  }, [context, isFixtureBound, projects, state]);
 
   useEffect(() => {
     refreshLocalProjects();

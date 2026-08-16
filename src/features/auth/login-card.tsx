@@ -39,7 +39,7 @@ export function LoginCard({
       />
       <div className="mt-5 text-center">
         <h1 className="text-2xl font-semibold tracking-tight">
-          登录 AI企业大脑
+          登录量子智枢
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
           仅限量子星河内部员工使用

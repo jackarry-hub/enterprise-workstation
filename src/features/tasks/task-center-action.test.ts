@@ -4,7 +4,7 @@ import { getTaskCenterAction } from "@/features/tasks/task-center-action";
 
 describe("task center role action", () => {
   it.each([
-    ["executive", "/dashboard", "返回领导调度台"],
+    ["executive", "/execution", "前往我的执行工作台"],
     ["department_head", "/department", "前往负责人工作台"],
     ["employee", "/execution", "前往我的执行工作台"],
     ["finance", "/finance", "前往财务执行中心"],
@@ -17,6 +17,20 @@ describe("task center role action", () => {
     expect(getTaskCenterAction("employee", "flow-task-10")).toEqual({
       href: "/execution#task-flow-task-10",
       label: "直接办理当前任务",
+    });
+  });
+
+  it("lets a decision maker directly execute a task assigned to them", () => {
+    expect(getTaskCenterAction("executive", "ai-task-01")).toEqual({
+      href: "/execution#task-ai-task-01",
+      label: "直接办理当前任务",
+    });
+  });
+
+  it("builds review links that target the review section", () => {
+    expect(getTaskCenterAction("executive", "task-1", "review")).toEqual({
+      href: "/execution#review-task-1",
+      label: "直接验收当前任务",
     });
   });
 });

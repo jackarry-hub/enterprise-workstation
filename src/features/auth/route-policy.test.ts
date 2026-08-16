@@ -273,7 +273,7 @@ describe("workspace middleware", () => {
     );
 
     expect(response.headers.get("location")).toBe(
-      "https://brain.example/execution?notice=no_access",
+      "https://brain.example/dashboard?notice=no_access",
     );
   });
 

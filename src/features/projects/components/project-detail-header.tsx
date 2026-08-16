@@ -58,11 +58,11 @@ export function ProjectDetailHeader({ detail, onAddTask, onEdit, canManage = tru
   const hiddenMemberCount = Math.max(detail.members.length - visibleMembers.length, 0);
 
   return (
-    <GlassCard className="relative overflow-hidden p-4 sm:p-5 lg:p-6">
+    <GlassCard className="project-detail-header relative overflow-hidden p-4 sm:p-5 lg:p-6">
       <div aria-hidden="true" className="pointer-events-none absolute -top-24 right-8 size-60 rounded-full bg-primary/8 blur-3xl" />
       <div className="relative flex flex-col gap-5 2xl:flex-row 2xl:items-center">
-        <section className="flex min-w-0 flex-1 items-start gap-4">
-          <div className="grid size-13 shrink-0 place-items-center rounded-2xl bg-linear-to-br from-primary to-chart-5 text-primary-foreground shadow-[0_14px_30px_rgba(47,125,246,0.25)] sm:size-16">
+        <section className="project-detail-header__identity flex min-w-0 flex-1 items-start gap-4">
+          <div className="project-detail-header__icon grid size-13 shrink-0 place-items-center rounded-2xl bg-linear-to-br from-primary to-chart-5 text-primary-foreground shadow-[0_14px_30px_rgba(47,125,246,0.25)] sm:size-16">
             <FolderKanban aria-hidden="true" className="size-6 sm:size-7" />
           </div>
           <div className="min-w-0 flex-1">
@@ -83,7 +83,7 @@ export function ProjectDetailHeader({ detail, onAddTask, onEdit, canManage = tru
           </div>
         </section>
 
-        <section aria-label="项目关键信息" className="grid gap-3 sm:grid-cols-2 2xl:w-146 2xl:grid-cols-[1.1fr_1.35fr_1.2fr]">
+        <section aria-label="项目关键信息" className="project-detail-header__metrics grid gap-3 sm:grid-cols-2 2xl:w-146 2xl:grid-cols-[1.1fr_1.35fr_1.2fr]">
           <div className="rounded-2xl border border-glass-border bg-background/58 px-4 py-3.5">
             <p className="text-xs text-muted-foreground">当前进度</p>
             <div className="mt-2 flex items-center gap-3">
@@ -131,7 +131,7 @@ export function ProjectDetailHeader({ detail, onAddTask, onEdit, canManage = tru
           </div>
         </section>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="project-detail-header__actions flex shrink-0 items-center gap-2">
           {canManage ? <><Button type="button" variant="outline" className="h-9 rounded-xl bg-background/70 px-3" onClick={onEdit}>
             <PencilLine data-icon="inline-start" aria-hidden="true" />
             编辑项目

@@ -16,7 +16,7 @@ const executiveSession = customerDemoSessions.find(
 describe("ExecutiveClosurePanel customer demo", () => {
   beforeEach(() => window.localStorage.clear());
 
-  it("shows the undispatched ten-task plan at zero and points to the next action", () => {
+  it("keeps department work visible while asking for a separate AI dispatch", () => {
     render(
       <WorkspaceSessionProvider session={executiveSession} demoSessions={customerDemoSessions}>
         <ExecutiveClosurePanel />
@@ -26,7 +26,8 @@ describe("ExecutiveClosurePanel customer demo", () => {
     expect(screen.queryByRole("button", { name: "提交总验收" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "CEO 验收与归档" })).toBeVisible();
     expect(screen.getByText("待方案下发")).toBeVisible();
-    expect(screen.getByText("请先在上方确认方案并下发 10 项任务。")).toBeVisible();
+    expect(screen.getByText("请先在上方生成并确认 AI 调度方案；现有部门任务与进度会继续保留。")).toBeVisible();
+    expect(screen.queryByRole("link", { name: "查看项目成果" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "今日必须处理" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "本周执行摘要" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "跨部门动态" })).not.toBeInTheDocument();

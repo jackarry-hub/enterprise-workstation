@@ -2,12 +2,14 @@ import type {
   WorkspaceActor,
   WorkspaceRole,
 } from "@/features/auth/workspace-session-types";
+import type { AiExecutionSummary } from "@/features/ai-dispatch/summary-contract";
 
 export type OperationFixtureActor = WorkspaceActor;
 export type OperationRole = WorkspaceRole;
 
 export type CommandStatus = "executing" | "review" | "accepted" | "archived";
-export type OperationTaskStatus = "todo" | "in_progress" | "blocked" | "review" | "done";
+export type OperationTaskStatus = "assigned" | "accepted" | "todo" | "in_progress" | "blocked" | "review" | "done";
+export type WorkstreamSource = "department_mock" | "ai_dispatch";
 export type TaskEscalationLevel = "none" | "manager" | "executive";
 export type OperationActionPriority = "normal" | "warning" | "critical";
 export type OperationActionKind = "task_ready" | "task_return" | "task_blocked" | "task_review" | "task_overdue" | "support" | "approval" | "executive_decision";
@@ -24,6 +26,17 @@ export type AttendanceIssueType = "late" | "early_leave" | "missing_in" | "missi
 export type AttendanceReviewStatus = "pending_manager" | "pending_hr" | "approved" | "rejected";
 export type AttendancePeriodStatus = "open" | "review" | "locked";
 
+export type OperationWorkstream = {
+  id: string;
+  source: WorkstreamSource;
+  title: string;
+  ownerId: string;
+  projectId: string;
+  status: "active" | "completed" | "archived";
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type OperationCommand = {
   id: string;
   title: string;
@@ -35,12 +48,33 @@ export type OperationCommand = {
   projectId?: string;
   createdAt: string;
   updatedAt: string;
+  aiSummary?: AiExecutionSummary;
+  summaryModel?: string;
+  summaryGeneratedAt?: string;
+  archivedAt?: string;
+};
+
+export type DispatchHistoryEntry = {
+  commandId: string;
+  goal: string;
+  creatorId: string;
+  taskCount: number;
+  participantCount: number;
+  rejectionCount: number;
+  completedAt: string;
+  archivedAt: string;
+  aiSummary: AiExecutionSummary;
+  summaryModel: string;
+  tasks: OperationTask[];
 };
 
 export type OperationTask = {
   id: string;
   code: string;
   commandId: string;
+  workstreamId: string;
+  projectId: string;
+  runtimeSource: WorkstreamSource;
   department: string;
   departmentOwnerId: string;
   assigneeId: string;
@@ -60,6 +94,25 @@ export type OperationTask = {
   escalationLevel: TaskEscalationLevel;
   escalatedAt?: string;
   updatedAt: string;
+  projectName?: string;
+  creatorId?: string;
+  responsiblePersonId?: string;
+  estimatedHours?: number;
+  aiReason?: string;
+  acceptedAt?: string;
+  startedAt?: string;
+  submission?: {
+    description: string;
+    url?: string;
+    attachmentName?: string;
+    note?: string;
+    submittedAt: string;
+  };
+  reviewStatus?: "not_submitted" | "pending" | "approved" | "rejected";
+  reviewComment?: string;
+  reviewedById?: string;
+  reviewedAt?: string;
+  rejectionCount?: number;
 };
 
 export type OperationActionItem = {
@@ -295,7 +348,9 @@ export type PayrollRun = {
 };
 
 export type OperationsState = {
-  version: 1;
+  version: 2;
+  workstreams: OperationWorkstream[];
+  activeAiWorkstreamId?: string;
   command: OperationCommand;
   tasks: OperationTask[];
   supportRequests: SupportRequest[];
@@ -306,4 +361,5 @@ export type OperationsState = {
   payrollRun: PayrollRun;
   events: OperationEvent[];
   notificationReads: Record<string, string[]>;
+  dispatchHistory: DispatchHistoryEntry[];
 };

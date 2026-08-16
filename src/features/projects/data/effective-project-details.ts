@@ -1,4 +1,6 @@
 import { getProjectDetailMock, mockProjects } from "@/features/projects/mock-data";
+import type { OperationsState } from "@/features/operations/operations-types";
+import { buildOperationProjectDetails } from "@/features/projects/data/operation-project-details";
 import type { ProjectDetailData } from "@/features/projects/types";
 
 export function getDefaultProjectDetails(): ProjectDetailData[] {
@@ -30,4 +32,18 @@ export function getEffectiveProjectDetails(
   localProjects: readonly ProjectDetailData[] = [],
 ): ProjectDetailData[] {
   return mergeEffectiveProjectDetails(getDefaultProjectDetails(), localProjects);
+}
+
+export function getUnifiedProjectDetails(
+  localProjects: readonly ProjectDetailData[],
+  state: OperationsState,
+): ProjectDetailData[] {
+  const byId = new Map<string, ProjectDetailData>();
+  for (const detail of [
+    ...getEffectiveProjectDetails(localProjects),
+    ...buildOperationProjectDetails(state),
+  ]) {
+    byId.set(detail.project.id, detail);
+  }
+  return [...byId.values()];
 }

@@ -5,11 +5,19 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { getProjectsStorageKey, saveLocalProject } from "@/features/projects/data/mock-project-repository";
 import { createOperationFixtureContext } from "@/features/operations/operation-actor-compat";
+import { createInitialOperationsState } from "@/features/operations/operations-data";
 import { getProjectDetailMock, mockProjects } from "@/features/projects/mock-data";
 import { ProjectDetailPage } from "@/features/projects/project-detail-page";
 
 const detail = getProjectDetailMock(mockProjects[0].id);
 const context = createOperationFixtureContext(executiveWorkspaceSession);
+const operationState = createInitialOperationsState(context);
+const operationWorkstream = operationState.workstreams.find(
+  ({ projectId }) => projectId === "project-dept-web-delivery",
+)!;
+const operationTask = operationState.tasks.find(
+  ({ workstreamId }) => workstreamId === operationWorkstream.id,
+)!;
 
 if (!detail) {
   throw new Error("Expected the primary project detail fixture.");
@@ -32,6 +40,18 @@ describe("ProjectDetailPage", () => {
     expect(screen.getByRole("heading", { name: "项目健康状态" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "项目成员" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "项目动态" })).toBeVisible();
+    const navigation = screen.getByRole("tablist", { name: "项目详情导航" });
+    expect(navigation).toHaveClass("grid-cols-7", "h-auto", "lg:flex");
+    expect(within(navigation).getAllByRole("tab")).toHaveLength(7);
+  });
+
+  it("opens a department workstream as an interactive project", async () => {
+    const user = userEvent.setup();
+    render(<ProjectDetailPage projectId={operationWorkstream.projectId} />);
+
+    expect(screen.getByRole("heading", { name: operationWorkstream.title })).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "任务" }));
+    expect(screen.getByText(operationTask.title)).toBeVisible();
   });
 
   it("switches between milestones and the project task list", async () => {

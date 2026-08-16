@@ -1,6 +1,6 @@
-import { screen } from "@testing-library/react";
+import { cleanup, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { approvalMockResult } from "@/features/approvals/approval-mock-data";
 import { ApprovalDetailPage } from "@/features/approvals/approval-detail-page";
@@ -9,8 +9,11 @@ import { customerDemoSessions } from "@/features/demo/customer-demo-data";
 import { renderWithSpecificWorkspaceSession, unboundExecutiveWorkspaceSession } from "@/test/workspace-session-test-utils";
 
 const executive = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-executive")!;
+const customerHead = customerDemoSessions.find(({ identity }) => identity.providerSubject === "customer-demo:demo-customer-head")!;
 
 describe("approval pages", () => {
+  beforeEach(() => window.localStorage.clear());
+
   it("does not expose fixture approvals to an unbound real identity", () => {
     renderWithSpecificWorkspaceSession(<ApprovalsPage result={{ ...approvalMockResult, data: { ...approvalMockResult.data, approvals: [] } }} />, unboundExecutiveWorkspaceSession);
     expect(screen.getByText("这里暂时没有审批")).toBeVisible();
@@ -22,18 +25,27 @@ describe("approval pages", () => {
     renderWithSpecificWorkspaceSession(<ApprovalsPage result={approvalMockResult} />, executive);
     expect(screen.getByRole("heading", { name: "审批" })).toBeVisible();
     expect(screen.getByRole("tab", { name: "待我审批" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getAllByTestId("mobile-approval-row").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByTestId("mobile-approval-row")).toHaveLength(2);
+    expect(screen.queryByText(/差旅报销/)).not.toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "我发起的" }));
     expect(screen.getByRole("tab", { name: "我发起的" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("shows fixed approval steps and completes an approve confirmation", async () => {
     const user = userEvent.setup();
-    renderWithSpecificWorkspaceSession(<ApprovalDetailPage approval={approvalMockResult.data.approvals[1]} />, executive);
-    expect(screen.getByRole("heading", { name: "报销申请" })).toBeVisible();
+    renderWithSpecificWorkspaceSession(<ApprovalDetailPage approval={approvalMockResult.data.approvals[0]} />, executive);
+    expect(screen.getByRole("heading", { name: "请假申请" })).toBeVisible();
     await user.click(screen.getByRole("button", { name: "同意申请" }));
     await user.click(screen.getByRole("button", { name: "确认同意" }));
-    expect(screen.getByText("审批已通过")).toBeVisible();
+    expect(screen.getByText("审批已下发至赵敏")).toBeVisible();
+
+    cleanup();
+    renderWithSpecificWorkspaceSession(<ApprovalsPage result={approvalMockResult} />, executive);
+    expect(screen.queryByText(/年假 2.5 天/)).not.toBeInTheDocument();
+
+    cleanup();
+    renderWithSpecificWorkspaceSession(<ApprovalsPage result={approvalMockResult} />, customerHead);
+    expect(screen.getByText(/年假 2.5 天/)).toBeVisible();
   });
 
   it("keeps approval people and timing readable in the mobile summary", () => {

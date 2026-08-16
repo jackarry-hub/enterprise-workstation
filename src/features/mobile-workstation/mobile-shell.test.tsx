@@ -9,10 +9,11 @@ describe("MobileAppFrame", () => {
   it("renders the five destination mobile navigation", () => {
     render(<MobileAppFrame><p>页面内容</p></MobileAppFrame>);
     expect(screen.getByRole("region", { name: "移动工作区" })).toBeVisible();
-    expect(screen.getByRole("navigation", { name: "移动端主导航" })).toBeVisible();
-    for (const [name, href] of [["首页", "/dashboard"], ["任务", "/tasks"], ["项目", "/projects"], ["审批", "/approvals"], ["我的", "/me"]]) {
-      expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
-    }
+    const navigation = screen.getByRole("navigation", { name: "移动端主导航" });
+    expect(navigation).toBeVisible();
+    const links = screen.getAllByRole("link").filter((link) => navigation.contains(link));
+    expect(links.map((link) => link.textContent)).toEqual(["首页", "项目", "任务", "团队", "我的"]);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(["/dashboard", "/projects", "/tasks", "/people", "/me"]);
+    expect(screen.getByRole("link", { name: "首页" })).toHaveAttribute("aria-current", "page");
   });
 });
-

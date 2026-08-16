@@ -174,7 +174,7 @@ def set_page_furniture(section):
     p = header.paragraphs[0]
     p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     p.paragraph_format.space_after = Pt(0)
-    r = p.add_run("企业工作站  ·  业务闭环操作手册")
+    r = p.add_run("量子智枢 QuantNexus  ·  业务闭环操作手册")
     set_run_font(r, size=9, color=MUTED, bold=True)
 
     # LibreOffice may map the default header to one side only even when Word's
@@ -184,7 +184,7 @@ def set_page_furniture(section):
     p = even_header.paragraphs[0]
     p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     p.paragraph_format.space_after = Pt(0)
-    r = p.add_run("企业工作站  ·  业务闭环操作手册")
+    r = p.add_run("量子智枢 QuantNexus  ·  业务闭环操作手册")
     set_run_font(r, size=9, color=MUTED, bold=True)
 
     footer = section.footer
@@ -446,7 +446,7 @@ def add_cover(doc):
     p = doc.add_paragraph()
     p.paragraph_format.space_after = Pt(10)
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = p.add_run("企业工作站")
+    r = p.add_run("量子智枢 QuantNexus")
     set_run_font(r, size=32, color=INK, bold=True)
 
     p = doc.add_paragraph()
@@ -490,10 +490,10 @@ def build_document():
         set_page_furniture(section)
 
     props = doc.core_properties
-    props.title = "企业工作站使用说明"
+    props.title = "量子智枢 QuantNexus 使用说明"
     props.subject = "业务闭环、角色权限和操作验收手册"
-    props.author = "企业工作站项目组"
-    props.keywords = "企业工作站, AI任务拆解, 审批, 考勤, 薪资, 项目管理"
+    props.author = "量子智枢项目组"
+    props.keywords = "量子智枢, QuantNexus, AI任务拆解, 审批, 考勤, 薪资, 项目管理"
 
     add_cover(doc)
 

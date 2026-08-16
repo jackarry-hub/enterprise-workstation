@@ -5,9 +5,9 @@ import AccessPendingPage from "@/app/access-pending/page";
 
 describe("AccessPendingPage", () => {
   it.each([
-    ["not_provisioned", "你的飞书账号尚未开通企业工作站，请联系管理员。"],
-    ["suspended", "你的工作站账号已暂停，请联系人事或管理员。"],
-    ["departed", "该员工账号已停用，无法进入工作站。"],
+    ["not_provisioned", "你的飞书账号尚未开通量子智枢，请联系管理员。"],
+    ["suspended", "你的量子智枢账号已暂停，请联系人事或管理员。"],
+    ["departed", "该员工账号已停用，无法进入量子智枢。"],
   ])("shows the distinct %s access reason", async (reason, message) => {
     render(
       await AccessPendingPage({
@@ -26,7 +26,7 @@ describe("AccessPendingPage", () => {
     );
 
     expect(
-      screen.getByText("你的工作站访问已撤销，请联系管理员。"),
+      screen.getByText("你的量子智枢访问已撤销，请联系管理员。"),
     ).toBeVisible();
     expect(document.body).not.toHaveTextContent("已暂停或撤销");
   });

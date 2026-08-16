@@ -4,7 +4,7 @@ import { loadWorkspaceData } from "@/features/tasks/workspace-data";
 import { WorkspacePage } from "@/features/tasks/workspace-page";
 
 export const metadata: Metadata = {
-  title: "工作中心 | 企业工作站",
+  title: "工作中心 | 量子智枢",
 };
 
 export default async function WorkspaceRoute() {

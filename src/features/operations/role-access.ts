@@ -23,6 +23,7 @@ const roleRoutePrefixes: Record<WorkspaceRole, readonly string[]> = {
   department_head: [
     "/me",
     "/dashboard",
+    "/decision",
     "/help",
     "/notifications",
     "/department",
@@ -55,6 +56,7 @@ const roleRoutePrefixes: Record<WorkspaceRole, readonly string[]> = {
   finance: [
     "/me",
     "/dashboard",
+    "/decision",
     "/projects",
     "/help",
     "/notifications",
@@ -70,6 +72,7 @@ const roleRoutePrefixes: Record<WorkspaceRole, readonly string[]> = {
   hr: [
     "/me",
     "/dashboard",
+    "/decision",
     "/projects",
     "/help",
     "/notifications",

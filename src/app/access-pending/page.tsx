@@ -3,10 +3,10 @@ import Link from "next/link";
 import { GlassCard } from "@/components/ui/glass-card";
 
 const accessMessages = {
-  not_provisioned: "你的飞书账号尚未开通企业工作站，请联系管理员。",
-  suspended: "你的工作站账号已暂停，请联系人事或管理员。",
-  revoked: "你的工作站访问已撤销，请联系管理员。",
-  departed: "该员工账号已停用，无法进入工作站。",
+  not_provisioned: "你的飞书账号尚未开通量子智枢，请联系管理员。",
+  suspended: "你的量子智枢账号已暂停，请联系人事或管理员。",
+  revoked: "你的量子智枢访问已撤销，请联系管理员。",
+  departed: "该员工账号已停用，无法进入量子智枢。",
   identity_error: "账号身份信息异常，请联系管理员处理。",
   auth_error: "登录没有完成，请返回后重新尝试。",
   configuration_error: "登录服务暂时不可用，请联系管理员。",

@@ -30,7 +30,7 @@ const roleLabels: Record<WorkspaceRole, string> = {
   hr: "人事",
 };
 
-const landingPaths: Record<WorkspaceRole, string> = {
+const roleWorkbenchPaths: Record<WorkspaceRole, string> = {
   executive: "/dashboard",
   department_head: "/department",
   employee: "/execution",
@@ -161,7 +161,7 @@ export function parseWorkspaceAccess(value: unknown): WorkspaceSession | null {
   if (!databaseRole) return null;
 
   const primaryRole = roleMapping[databaseRole];
-  const landingPath = landingPaths[primaryRole];
+  const roleWorkbenchPath = roleWorkbenchPaths[primaryRole];
   const actor: WorkspaceActor = {
     id: raw.authUserId,
     memberId: String(raw.memberId),
@@ -170,7 +170,7 @@ export function parseWorkspaceAccess(value: unknown): WorkspaceSession | null {
     roleLabel: roleLabels[primaryRole],
     department: raw.departmentName,
     title: raw.jobTitle,
-    landingPath,
+    landingPath: roleWorkbenchPath,
   };
 
   return {
@@ -197,7 +197,7 @@ export function parseWorkspaceAccess(value: unknown): WorkspaceSession | null {
     roleCodes,
     permissionCodes,
     primaryRole,
-    landingPath,
+    landingPath: "/dashboard",
     isAdmin: roleCodes.includes("admin"),
     actor,
   };

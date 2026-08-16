@@ -12,6 +12,16 @@ describe("salary selectors", () => {
     });
   });
 
+  it("includes the CEO's own payslip in the company payroll data", () => {
+    expect(salaryMockResult.data.records).toContainEqual(expect.objectContaining({
+      employee: expect.objectContaining({ displayName: "林远", jobTitle: "CEO" }),
+      baseSalary: 25000,
+      bonus: 8000,
+      deductions: 2500,
+      netSalary: 30500,
+    }));
+  });
+
   it("filters salary records by employee, department, month, and status", () => {
     const first = salaryMockResult.data.records[0];
     const rows = filterSalaryRecords(salaryMockResult.data.records, {

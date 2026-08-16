@@ -34,7 +34,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   clearStoredDecision,
   createCustomerDemoDecision,
-  createDecisionPlan,
+  createDecisionPlanFromDeepSeek,
   createDraftDecision,
   dispatchDecisionPlan,
   findDecisionProject,
@@ -46,6 +46,11 @@ import {
   reassignDispatchedDecisionTask,
   saveStoredDecision,
 } from "@/features/decision-workbench/decision-workbench-data";
+import type { AiDispatchPlan } from "@/features/ai-dispatch/dispatch-contract";
+import {
+  createStaticDemoDispatchResult,
+  isStaticAiDemoBuild,
+} from "@/features/ai-dispatch/static-demo-client";
 import { useCustomerDemoSession, useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { CUSTOMER_DEMO_RESET_EVENT } from "@/features/demo/customer-demo-state";
 import { useOperations } from "@/features/operations/use-operations";
@@ -86,12 +91,42 @@ const statusVariants: Record<DecisionTaskStatus, "neutral" | "info" | "warning" 
 
 const priorityLabels = { low: "低", medium: "中", high: "高", urgent: "紧急" } as const;
 
+const mobileQuickPrompts = [
+  "3天内完成移动端V1",
+  "制定一周官网升级计划",
+  "安排本周客户交付",
+  "重新分配团队优先级",
+] as const;
+
 const workTagClasses: Record<WorkTag["tone"], string> = {
   strength: "bg-success-soft text-success",
   watch: "bg-warning-soft text-warning",
   capacity: "bg-brand-soft text-primary",
   skill: "bg-chart-3/10 text-chart-3",
 };
+
+type DecisionDispatchApiSuccess = {
+  plan: AiDispatchPlan;
+  model: string;
+  repaired: boolean;
+  mode: "demo";
+  source: "deepseek" | "demo_fallback";
+};
+
+function DeepSeekConnection({ model }: { model?: string }) {
+  const fallback = model === "demo-fallback";
+  const pending = !model;
+  return (
+    <GlassCard role="status" aria-label="DeepSeek 接入状态" className="decision-ai-status flex items-center gap-2.5 border-primary/20 bg-brand-soft/35 p-2.5 sm:px-3">
+      <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground"><Bot aria-hidden="true" className="size-3.5" /></span>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-semibold">{fallback ? "当前使用本地演示方案" : pending ? "AI 调度已就绪" : "DeepSeek 已生成本次方案"}</p>
+        <p className="mt-0.5 truncate text-[10px] text-muted-foreground">{fallback ? "DeepSeek 暂不可用，系统已自动完成演示任务拆解" : model ? `当前模型：${model}` : "优先使用 DeepSeek；不可用时自动切换本地演示方案"}</p>
+      </div>
+      <Badge variant={fallback ? "warning" : pending ? "neutral" : "success"} className="shrink-0">{fallback ? "演示回退" : pending ? "自动" : "服务端"}</Badge>
+    </GlassCard>
+  );
+}
 
 function WorkTagChip({ tag }: { tag: WorkTag }) {
   return (
@@ -103,7 +138,7 @@ function WorkTagChip({ tag }: { tag: WorkTag }) {
 
 function WorkflowStepper({ currentStep }: { currentStep: number }) {
   return (
-    <GlassCard className="p-2">
+    <GlassCard className="decision-workflow-stepper p-2">
       <ol aria-label="决策推进流程" className="grid grid-cols-4 gap-1">
         {workflowSteps.map((step, index) => {
           const completed = index < currentStep;
@@ -159,7 +194,7 @@ function DecisionInputCard({
   const readonly = stage !== "draft";
 
   return (
-    <GlassCard className="h-fit p-4 sm:p-5 md:sticky md:top-22">
+    <GlassCard data-readonly={readonly ? "true" : "false"} className="decision-input-card h-fit p-4 sm:p-5 md:sticky md:top-22">
       <div className="flex items-start gap-3">
         <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-brand-soft text-primary"><Target aria-hidden="true" className="size-5" /></span>
         <div>
@@ -172,33 +207,47 @@ function DecisionInputCard({
       </div>
 
       {readonly ? (
-        <div className="mt-5 grid gap-3">
+        <div className="decision-goal-summary mt-5 grid gap-3">
           <div className="rounded-2xl border border-border/70 bg-background/65 p-3.5">
             <p className="text-[11px] font-medium text-muted-foreground">战略问题 / 目标</p>
             <p className="mt-1.5 text-sm font-semibold leading-6">{input.goal}</p>
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="decision-goal-meta grid grid-cols-2 gap-2">
             <div className="rounded-xl bg-muted/65 p-3"><p className="text-[11px] text-muted-foreground">硬性截止</p><p className="mt-1 text-sm font-semibold">{input.deadline}</p></div>
             <div className="rounded-xl bg-muted/65 p-3"><p className="text-[11px] text-muted-foreground">预算上限</p><p className="mt-1 text-sm font-semibold">{input.budget} 万元</p></div>
           </div>
-          <div className="rounded-xl bg-muted/65 p-3"><p className="text-[11px] text-muted-foreground">关键约束</p><p className="mt-1 text-xs leading-5">{input.constraints || "暂无额外约束"}</p></div>
+          <div className="decision-goal-constraints rounded-xl bg-muted/65 p-3"><p className="text-[11px] text-muted-foreground">关键约束</p><p className="mt-1 text-xs leading-5">{input.constraints || "暂无额外约束"}</p></div>
           {stage === "review" ? <Button type="button" variant="outline" onClick={onEdit}><RotateCcw data-icon="inline-start" aria-hidden="true" />重新编辑目标</Button> : null}
         </div>
       ) : (
         <div className="mt-4 grid gap-3">
           <label className="grid gap-1.5 text-xs font-medium">
             战略问题 / 目标
-            <Textarea aria-label="战略问题或目标" value={input.goal} onChange={(event) => update("goal", event.target.value)} className="min-h-24 max-h-24 resize-none bg-white/75 text-sm leading-6" placeholder="例如：在 30 天内完成企业 AI 工作站试点上线" />
+            <Textarea aria-label="战略问题或目标" value={input.goal} onChange={(event) => update("goal", event.target.value)} className="min-h-24 max-h-24 resize-none bg-white/75 text-sm leading-6" placeholder="例如：在 30 天内完成量子智枢试点上线" />
           </label>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="grid gap-1.5 text-xs font-medium">硬性截止日期<Input aria-label="硬性截止日期" type="date" value={input.deadline} onChange={(event) => update("deadline", event.target.value)} className="bg-white/75" /></label>
-            <label className="grid gap-1.5 text-xs font-medium">预算上限（万元）<Input aria-label="预算上限" type="number" min="1" value={input.budget} onChange={(event) => update("budget", event.target.value)} className="bg-white/75" /></label>
+          <div className="decision-mobile-prompts flex flex-wrap gap-2">
+            {mobileQuickPrompts.map((prompt) => (
+              <button
+                key={prompt}
+                type="button"
+                onClick={() => update("goal", prompt)}
+                className="rounded-full border border-primary/15 bg-white/80 px-3 py-2 text-left text-xs text-[#40506a] transition hover:border-primary/30 hover:text-primary"
+              >
+                {prompt}
+              </button>
+            ))}
           </div>
-          <label className="grid gap-1.5 text-xs font-medium">关键约束<Input aria-label="关键约束" value={input.constraints} onChange={(event) => update("constraints", event.target.value)} className="bg-white/75" placeholder="人数、合规、稳定性等硬性条件" /></label>
+          <div className="decision-mobile-secondary grid gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="grid gap-1.5 text-xs font-medium">硬性截止日期<Input aria-label="硬性截止日期" type="date" value={input.deadline} onChange={(event) => update("deadline", event.target.value)} className="bg-white/75" /></label>
+              <label className="grid gap-1.5 text-xs font-medium">预算上限（万元）<Input aria-label="预算上限" type="number" min="1" value={input.budget} onChange={(event) => update("budget", event.target.value)} className="bg-white/75" /></label>
+            </div>
+            <label className="grid gap-1.5 text-xs font-medium">关键约束<Input aria-label="关键约束" value={input.constraints} onChange={(event) => update("constraints", event.target.value)} className="bg-white/75" placeholder="人数、合规、稳定性等硬性条件" /></label>
+          </div>
           {feedback ? <p role="alert" className="rounded-xl bg-danger-soft px-3 py-2 text-xs font-medium text-destructive">{feedback}</p> : null}
           <Button type="button" onClick={onGenerate} disabled={busy} className="h-10 rounded-xl shadow-[0_12px_26px_rgba(47,125,246,0.22)]">
             {busy ? <LoaderCircle data-icon="inline-start" aria-hidden="true" className="animate-spin" /> : <Sparkles data-icon="inline-start" aria-hidden="true" />}
-            {busy ? "AI 正在拆解并匹配责任人…" : "让 AI 拆解并分工"}
+            {busy ? "DeepSeek 正在拆解任务…" : "用 DeepSeek 生成任务计划"}
           </Button>
           <p className="hidden items-start gap-1.5 text-[11px] leading-5 text-muted-foreground xl:flex"><CheckCircle2 aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-success" />生成后先由决策人确认，不会直接下发。</p>
         </div>
@@ -215,7 +264,7 @@ function DraftPreview() {
     { icon: RefreshCw, title: "持续回流结果", text: "进度、阻塞和待决策项自动汇总" },
   ] as const;
   return (
-    <GlassCard className="p-5 sm:p-6">
+    <GlassCard className="decision-draft-preview p-5 sm:p-6">
       <div className="mx-auto max-w-3xl py-3 text-center sm:py-8">
         <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-linear-to-br from-primary to-chart-3 text-white shadow-[0_16px_36px_rgba(47,125,246,0.24)]"><Bot aria-hidden="true" className="size-7" /></span>
         <Badge variant="info" className="mt-5">AI 调度中枢</Badge>
@@ -245,17 +294,17 @@ function FlowNode({ icon: Icon, eyebrow, title, tone = "blue" }: { icon: typeof 
   );
 }
 
-function ResponsibilityFlow({ plan }: { plan: DecisionPlan }) {
+function ResponsibilityFlow({ plan, decisionMakerName }: { plan: DecisionPlan; decisionMakerName: string }) {
   const people = new Set(plan.departments.flatMap(({ tasks }) => tasks.map(({ assignee }) => assignee.id))).size;
   const tasks = plan.departments.flatMap(({ tasks: departmentTasks }) => departmentTasks).length;
   return (
-    <GlassCard className="min-w-0 p-4 sm:p-5">
+    <GlassCard className="decision-responsibility-flow min-w-0 p-4 sm:p-5">
       <div className="flex items-center justify-between gap-3">
         <div><h2 className="text-base font-semibold">责任链路</h2><p className="mt-1 text-xs text-muted-foreground">从决策到回流，责任逐层展开但不失去归口。</p></div>
         <Badge variant="success">唯一责任人已匹配</Badge>
       </div>
       <div className="scrollbar-none mt-4 flex items-stretch gap-2 overflow-x-auto pb-1">
-        <FlowNode icon={UserRound} eyebrow="决策人" title="李总 · 最终把关" />
+        <FlowNode icon={UserRound} eyebrow="决策人" title={`${decisionMakerName} · 最终把关`} />
         <ArrowRight aria-hidden="true" className="my-auto size-4 shrink-0 text-border" />
         <FlowNode icon={Bot} eyebrow="AI 调度中枢" title="目标 → WBS" tone="purple" />
         <ArrowRight aria-hidden="true" className="my-auto size-4 shrink-0 text-border" />
@@ -273,7 +322,7 @@ function DepartmentCard({ department, onSelectTask }: { department: DepartmentPl
   const done = department.tasks.filter(({ status }) => status === "done").length;
   const rate = department.tasks.length ? Math.round((done / department.tasks.length) * 100) : 0;
   return (
-    <article className="rounded-2xl border border-border/75 bg-white/66 p-4 shadow-[0_8px_24px_rgba(44,84,142,0.05)]">
+    <article className="decision-department-card rounded-2xl border border-border/75 bg-white/66 p-4 shadow-[0_8px_24px_rgba(44,84,142,0.05)]">
       <div className="flex items-start gap-3">
         <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-brand-soft text-primary"><Building2 aria-hidden="true" className="size-5" /></span>
         <div className="min-w-0 flex-1">
@@ -281,12 +330,12 @@ function DepartmentCard({ department, onSelectTask }: { department: DepartmentPl
           <p className="mt-1 text-xs leading-5 text-muted-foreground">{department.objective}</p>
         </div>
       </div>
-      <div className="mt-3 flex items-center gap-2 rounded-xl bg-muted/55 px-3 py-2.5">
+      <div className="decision-department-owner mt-3 flex items-center gap-2 rounded-xl bg-muted/55 px-3 py-2.5">
         <Avatar size="sm"><AvatarFallback className="bg-white text-primary">{department.owner.displayName.slice(0, 1)}</AvatarFallback></Avatar>
         <div className="min-w-0"><p className="truncate text-xs font-semibold">部门负责人 · {department.owner.displayName}</p><p className="truncate text-[11px] text-muted-foreground">{department.owner.title}</p></div>
         <span className="ml-auto text-xs font-semibold text-primary">{rate}%</span>
       </div>
-      <div className="mt-2 divide-y divide-border/65">
+      <div className="decision-department-tasks mt-2 divide-y divide-border/65">
         {department.tasks.map((task) => (
           <button key={task.id} type="button" onClick={() => onSelectTask(task)} aria-label={`查看任务详情：${task.title}`} className="group flex w-full items-center gap-2.5 py-3 text-left">
             <span className={cn("size-2 shrink-0 rounded-full", task.status === "done" ? "bg-success" : task.status === "in_progress" ? "bg-primary" : task.status === "in_review" ? "bg-warning" : "bg-border")} />
@@ -311,12 +360,14 @@ function PlanWorkspace({
   stage,
   plan,
   projectId,
+  decisionMakerName,
   onDispatch,
   onSelectTask,
 }: {
   stage: DecisionStage;
   plan: DecisionPlan;
   projectId?: string;
+  decisionMakerName: string;
   onDispatch: () => void;
   onSelectTask: (task: DecisionTask) => void;
 }) {
@@ -329,18 +380,27 @@ function PlanWorkspace({
     { label: "个人任务", value: `${tasks.length} 项`, icon: ListChecks, tone: "bg-success-soft text-success" },
     { label: "计划周期", value: `${plan.expectedDays} 天`, icon: Clock3, tone: "bg-warning-soft text-warning" },
   ] as const;
+  const advice = plan.ai ? [
+    ["目标理解", plan.ai.summary],
+    ...(plan.ai.risks.length ? plan.ai.risks.slice(0, 1).map((risk) => ["主要风险", risk]) : []),
+    ...(plan.ai.managerDecisions.length ? plan.ai.managerDecisions.slice(0, 1).map((decision) => ["需要确认", decision]) : []),
+  ] : [
+    ["并行推进", "场景访谈、角色权限和工作流原型可同步启动，减少前期等待。"],
+    ["关键路径", "任务中心打通是试点能否真实运行的关键节点，建议由张伟直接把关。"],
+    ["验收口径", "所有个人任务均配置可判定标准，避免只报进度、不报结果。"],
+  ];
 
   return (
-    <div className="grid min-w-0 gap-3">
+    <div className="decision-plan-workspace grid min-w-0 gap-3">
       {stage === "issued" ? (
         <GlassCard className="flex flex-col gap-3 border-success/25 bg-success-soft/80 p-4 sm:flex-row sm:items-center">
           <span className="grid size-10 shrink-0 place-items-center rounded-full bg-success text-white"><Check aria-hidden="true" className="size-5" /></span>
-          <div className="min-w-0 flex-1"><p className="font-semibold text-foreground">任务已下发到部门和个人工作台</p><p className="mt-1 text-xs text-muted-foreground">任务状态变化会自动回流到本页，供李总统一把关。</p></div>
+          <div className="min-w-0 flex-1"><p className="font-semibold text-foreground">任务已下发到部门和个人工作台</p><p className="mt-1 text-xs text-muted-foreground">任务状态变化会自动回流到本页，供{decisionMakerName}统一把关。</p></div>
           <Button asChild variant="outline"><Link href={projectId ? `/projects/${projectId}` : "/projects"}>查看专项项目</Link></Button>
         </GlassCard>
       ) : null}
 
-      <section aria-label="AI 调度摘要" className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <section aria-label="AI 调度摘要" className="decision-plan-metrics grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map(({ label, value, icon: Icon, tone }) => (
           <GlassCard key={label} className="flex items-center gap-3 p-3.5">
             <span className={cn("grid size-10 shrink-0 place-items-center rounded-2xl", tone)}><Icon aria-hidden="true" className="size-5" /></span>
@@ -349,33 +409,29 @@ function PlanWorkspace({
         ))}
       </section>
 
-      <ResponsibilityFlow plan={plan} />
+      <ResponsibilityFlow plan={plan} decisionMakerName={decisionMakerName} />
 
-      <GlassCard className="p-4 sm:p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <GlassCard className="decision-assignment-card p-4 sm:p-5">
+        <div className="decision-assignment-heading flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div><div className="flex flex-wrap items-center gap-2"><h2 className="text-base font-semibold">责任分工图</h2><Badge variant={stage === "review" ? "warning" : "success"}>{stage === "review" ? "待决策人确认" : "执行中"}</Badge></div><p className="mt-1 text-xs text-muted-foreground">部门目标、负责人和个人任务在同一层级对齐。</p></div>
-          {stage === "review" ? <Button type="button" onClick={onDispatch} className="h-10 rounded-xl"><Send data-icon="inline-start" aria-hidden="true" />确认方案并下发 {tasks.length} 项任务</Button> : null}
+          {stage === "review" ? <Button type="button" onClick={onDispatch} className="decision-dispatch-action h-10 rounded-xl"><Send data-icon="inline-start" aria-hidden="true" />确认方案并下发 {tasks.length} 项任务</Button> : null}
         </div>
         <div className="mt-4 grid gap-3 2xl:grid-cols-2">
           {plan.departments.map((department) => <DepartmentCard key={department.id} department={department} onSelectTask={onSelectTask} />)}
         </div>
       </GlassCard>
 
-      <section className="grid gap-3 xl:grid-cols-2">
-        <GlassCard className="p-4 sm:p-5">
-          <div className="flex items-center gap-2"><Sparkles aria-hidden="true" className="size-4.5 text-chart-3" /><h2 className="text-base font-semibold">AI 调度建议</h2></div>
+      <section className="decision-review-panels grid gap-3 xl:grid-cols-2">
+        <GlassCard className="decision-ai-advice p-4 sm:p-5">
+          <div className="flex items-center gap-2"><Sparkles aria-hidden="true" className="size-4.5 text-chart-3" /><h2 className="text-base font-semibold">{plan.ai?.model === "demo-fallback" ? "本地演示调度建议" : plan.ai ? "DeepSeek 调度建议" : "AI 调度建议"}</h2>{plan.ai ? <Badge variant={plan.ai.model === "demo-fallback" ? "warning" : "info"}>{plan.ai.model === "demo-fallback" ? "离线演示" : plan.ai.model}</Badge> : null}</div>
           <div className="mt-3 grid gap-2">
-            {[
-              ["并行推进", "场景访谈、角色权限和工作流原型可同步启动，减少前期等待。"],
-              ["关键路径", "任务中心打通是试点能否真实运行的关键节点，建议由张伟直接把关。"],
-              ["验收口径", "所有个人任务均配置可判定标准，避免只报进度、不报结果。"],
-            ].map(([title, text], index) => (
+            {advice.map(([title, text], index) => (
               <div key={title} className="flex gap-3 rounded-xl bg-muted/55 p-3"><span className="grid size-6 shrink-0 place-items-center rounded-full bg-white text-[11px] font-semibold text-primary">{index + 1}</span><div><p className="text-sm font-semibold">{title}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{text}</p></div></div>
             ))}
           </div>
         </GlassCard>
 
-        <GlassCard className="p-4 sm:p-5">
+        <GlassCard className="decision-progress-panel p-4 sm:p-5">
           <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><RefreshCw aria-hidden="true" className="size-4.5 text-success" /><h2 className="text-base font-semibold">回流到决策人</h2></div><Badge variant={stage === "issued" ? "success" : "neutral"}>{stage === "issued" ? "实时同步" : "下发后开启"}</Badge></div>
           <div className="mt-4 flex items-end justify-between"><div><p className="text-3xl font-semibold tracking-tight">{progress.completionRate}%</p><p className="mt-1 text-xs text-muted-foreground">整体任务完成率</p></div><p className="text-xs text-muted-foreground">{progress.done}/{progress.total} 项完成</p></div>
           <ProgressBar value={progress.completionRate} className="mt-3 h-2" />
@@ -384,7 +440,7 @@ function PlanWorkspace({
             <div className="rounded-xl bg-brand-soft p-3"><p className="text-[11px] text-primary">推进中</p><p className="mt-1 text-lg font-semibold text-primary">{progress.inProgress}</p></div>
             <div className="rounded-xl bg-warning-soft p-3"><p className="text-[11px] text-warning">待验收</p><p className="mt-1 text-lg font-semibold text-warning">{progress.inReview}</p></div>
           </div>
-          <div className="mt-3 rounded-xl border border-border/70 bg-white/55 p-3"><p className="text-xs font-semibold">下一检查点</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{stage === "issued" ? "首轮任务更新后，AI 将汇总阻塞和需李总决策的事项。" : "确认方案后，系统开始自动采集部门与个人的执行结果。"}</p></div>
+          <div className="mt-3 rounded-xl border border-border/70 bg-white/55 p-3"><p className="text-xs font-semibold">下一检查点</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{stage === "issued" ? `首轮任务更新后，AI 将汇总阻塞和需${decisionMakerName}决策的事项。` : "确认方案后，系统开始自动采集部门与个人的执行结果。"}</p></div>
         </GlassCard>
       </section>
     </div>
@@ -528,7 +584,7 @@ export function DecisionWorkbench() {
     setFeedback("");
   }
 
-  function generatePlan() {
+  async function generatePlan() {
     if (!decision.input.goal.trim()) {
       setFeedback("请先输入需要推进的战略问题或目标。");
       return;
@@ -539,11 +595,37 @@ export function DecisionWorkbench() {
     }
     setBusy(true);
     setFeedback("");
-    window.setTimeout(() => {
-      const nextPlan = createDecisionPlan(decision.input);
+    try {
+      const command = [
+        `目标：${decision.input.goal.trim()}`,
+        `截止日期：${decision.input.deadline}`,
+        `预算上限：${decision.input.budget || "未设置"} 万元`,
+        `关键约束：${decision.input.constraints.trim() || "无"}`,
+      ].join("\n");
+      let payload: DecisionDispatchApiSuccess;
+      if (isStaticAiDemoBuild()) {
+        await new Promise((resolve) => window.setTimeout(resolve, 700));
+        payload = createStaticDemoDispatchResult(command);
+      } else {
+        const response = await fetch("/api/ai/dispatch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ command }),
+        });
+        const responsePayload = await response.json().catch(() => null) as DecisionDispatchApiSuccess | { error?: { message?: string } } | null;
+        if (!response.ok || !responsePayload || !("plan" in responsePayload)) {
+          const message = responsePayload && "error" in responsePayload ? responsePayload.error?.message : undefined;
+          throw new Error(message || "DeepSeek 调度服务暂时不可用，请稍后重试。");
+        }
+        payload = responsePayload;
+      }
+      const nextPlan = createDecisionPlanFromDeepSeek(payload.plan, payload.model, payload.repaired);
       setDecision((current) => ({ ...current, stage: "review", plan: nextPlan, projectId: undefined }));
+    } catch (error) {
+      setFeedback(error instanceof Error && error.message ? error.message : "DeepSeek 调度服务暂时不可用，请稍后重试。");
+    } finally {
       setBusy(false);
-    }, 550);
+    }
   }
 
   function editGoal() {
@@ -593,7 +675,7 @@ export function DecisionWorkbench() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-420 flex-col gap-3 px-3 pb-26 pt-4 sm:px-4 lg:px-5 lg:pb-8 lg:pt-5">
+    <main data-testid="mobile-ai-dispatch-surface" className="decision-mobile-page mx-auto flex w-full max-w-420 flex-col gap-3 px-3 pb-26 pt-4 sm:px-4 lg:px-5 lg:pb-8 lg:pt-5">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -606,11 +688,13 @@ export function DecisionWorkbench() {
         {decision.stage !== "draft" ? <Button type="button" variant="outline" onClick={resetDecision}><RotateCcw data-icon="inline-start" aria-hidden="true" />发起新决策</Button> : null}
       </header>
 
+      <DeepSeekConnection model={decision.plan?.ai?.model ?? (isStaticAiDemoBuild() ? "demo-fallback" : undefined)} />
+
       <WorkflowStepper currentStep={currentStep} />
 
       <section className="grid min-w-0 gap-3 xl:grid-cols-[22rem_minmax(0,1fr)]">
         <DecisionInputCard stage={decision.stage} input={decision.input} busy={busy} feedback={feedback} onChange={updateInput} onGenerate={generatePlan} onEdit={editGoal} />
-        {plan ? <PlanWorkspace stage={decision.stage} plan={plan} projectId={decision.projectId} onDispatch={dispatch} onSelectTask={setSelectedTask} /> : <DraftPreview />}
+        {plan ? <PlanWorkspace stage={decision.stage} plan={plan} projectId={decision.projectId} decisionMakerName={session.actor.name} onDispatch={dispatch} onSelectTask={setSelectedTask} /> : <DraftPreview />}
       </section>
 
       <TaskDetail task={selectedTask} department={selectedDepartment} open={Boolean(selectedTask)} onOpenChange={(open) => !open && setSelectedTask(null)} onAssigneeChange={(memberId) => selectedTask && changeAssignee(selectedTask.id, memberId)} />

@@ -35,7 +35,7 @@ export const defaultSettingsState: SettingsState = {
     workWeekStart: "monday",
   },
   profile: {
-    name: "李总",
+    name: "林远",
     email: "ceo@quantxy.cn",
     avatarUrl: "",
     currentPassword: "",

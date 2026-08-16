@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
-import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { useCustomerDemoSession, useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { canRoleAccessPath } from "@/features/operations/role-access";
 
 function RedirectToLanding({ href }: { href: string }) {
@@ -25,11 +25,21 @@ function RedirectToLanding({ href }: { href: string }) {
 
 export function RoleAccessGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "/dashboard";
-  const { actor } = useWorkspaceSession();
+  const session = useWorkspaceSession();
+  const demo = useCustomerDemoSession();
+  const { actor } = session;
   const allowed = canRoleAccessPath(actor.role, pathname);
 
+  if (demo.enabled && !demo.ready) {
+    return (
+      <main className="grid min-h-screen place-items-center px-6 text-center">
+        <p className="text-sm font-semibold text-primary">正在恢复演示身份…</p>
+      </main>
+    );
+  }
+
   if (!allowed) {
-    return <RedirectToLanding href={actor.landingPath} />;
+    return <RedirectToLanding href={session.landingPath} />;
   }
 
   return children;

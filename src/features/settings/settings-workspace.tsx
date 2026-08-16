@@ -13,6 +13,8 @@ import { NotificationSettings } from "@/features/settings/components/notificatio
 import { PersonalSettings } from "@/features/settings/components/personal-settings";
 import { PermissionMatrix } from "@/features/settings/components/permission-matrix";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import type { WorkspaceActor } from "@/features/auth/workspace-session-types";
+import { customerDemoPeople } from "@/features/demo/customer-demo-data";
 import {
   cloneSettingsState,
   readSettingsSession,
@@ -29,6 +31,18 @@ const tabItems = [
   { value: "permissions", label: "权限矩阵", icon: LockKeyhole },
 ] as const;
 
+function settingsForActor(state: SettingsState, actor: WorkspaceActor): SettingsState {
+  const demoPerson = customerDemoPeople.find(({ actorId }) => actorId === actor.id);
+  return {
+    ...state,
+    profile: {
+      ...state.profile,
+      name: actor.name,
+      email: demoPerson?.email ?? state.profile.email,
+    },
+  };
+}
+
 export function SettingsWorkspace() {
   const { actor } = useWorkspaceSession();
   const canManageEnterprise = actor.role === "executive" || actor.role === "hr";
@@ -38,14 +52,14 @@ export function SettingsWorkspace() {
     && (value !== "permissions" || canViewPermissions)
   ));
   const [activeTab, setActiveTab] = useState<SettingsTab>(canManageEnterprise ? "enterprise" : "personal");
-  const [settings, setSettings] = useState<SettingsState>(() => cloneSettingsState(defaultSettingsState));
-  const [snapshot, setSnapshot] = useState<SettingsState>(() => cloneSettingsState(defaultSettingsState));
+  const [settings, setSettings] = useState<SettingsState>(() => settingsForActor(cloneSettingsState(defaultSettingsState), actor));
+  const [snapshot, setSnapshot] = useState<SettingsState>(() => settingsForActor(cloneSettingsState(defaultSettingsState), actor));
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const objectUrls = useRef(new Set<string>());
 
   useEffect(() => {
-    const stored = readSettingsSession();
+    const stored = settingsForActor(readSettingsSession(), actor);
     setSettings(stored);
     setSnapshot(cloneSettingsState(stored));
     const requestedTab = new URLSearchParams(window.location.search).get("tab");
@@ -57,7 +71,7 @@ export function SettingsWorkspace() {
     ) {
       setActiveTab(requestedTab);
     }
-  }, [canManageEnterprise, canViewPermissions]);
+  }, [actor, canManageEnterprise, canViewPermissions]);
 
   useEffect(() => {
     const urls = objectUrls.current;
@@ -152,6 +166,7 @@ export function SettingsWorkspace() {
               {activeTab === "personal" ? (
                 <PersonalSettings
                   value={settings.profile}
+                  identityLine={`${actor.title} · ${actor.department}`}
                   onChange={(profile) => { setSettings((current) => ({ ...current, profile })); setSaved(false); }}
                   onAvatarSelect={(file) => {
                     const avatarUrl = imageUrl(file);

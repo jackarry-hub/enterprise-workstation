@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Banknote, CalendarCheck2, CircleMinus, CirclePlus, History, ReceiptText, UserRound } from "lucide-react";
+import { ArrowLeft, ArrowRight, Banknote, Building2, CalendarCheck2, CircleMinus, CirclePlus, History, ReceiptText, UserRound } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { ProgressBar } from "@/components/ui/progress-bar";
@@ -13,7 +14,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatSalaryCurrency, salaryStatusMeta } from "@/features/salary/salary-meta";
 import type { SalaryRecord, SalaryStatus } from "@/features/salary/salary-types";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
-import { PayrollControlPanel } from "@/features/operations/payroll-control-panel";
 import { useOperations } from "@/features/operations/use-operations";
 
 export function PayrollDetailPage({ record: sourceRecord }: { record: SalaryRecord }) {
@@ -44,7 +44,7 @@ export function PayrollDetailPage({ record: sourceRecord }: { record: SalaryReco
         </div>
       </GlassCard>
 
-      {actor.role !== "employee" && sourceRecord.month === state.payrollRun.month && state.payrollRun.status !== "paid" ? <PayrollControlPanel /> : null}
+      {canManagePayroll ? <GlassCard className="flex flex-col gap-3 border-primary/15 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-start gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand-soft text-primary"><Building2 aria-hidden="true" className="size-4" /></span><div><p className="text-sm font-semibold">个人工资单模式</p><p className="mt-1 text-xs leading-5 text-muted-foreground">本页只显示 {record.employee.displayName} 的个人工资，不混入全公司薪资复核操作。</p></div></div><Button asChild variant="outline" className="w-full sm:w-auto"><Link href="/payroll#company-payroll-review">返回全公司薪资复核<ArrowRight aria-hidden="true" /></Link></Button></GlassCard> : null}
 
       <section className="grid min-w-0 gap-4 xl:grid-cols-12">
         <GlassCard className="p-4 sm:p-5 xl:col-span-8">

@@ -5,13 +5,14 @@ import { RealDataUnavailable } from "@/components/ui/real-data-boundary";
 import { requireWorkspaceSession } from "@/features/auth/workspace-session";
 import { EmployeeDetailPage } from "@/features/hr/employee-detail-page";
 import { mockEmployees } from "@/features/hr/employee-mock-data";
+import { isCustomerDemoMode } from "@/features/demo/customer-demo-mode";
 import {
   createOperationFixtureContext,
   type WorkspaceIdentityContext,
 } from "@/features/operations/operation-actor-compat";
 
 export const metadata: Metadata = {
-  title: "员工档案 | 企业工作站",
+  title: "员工档案 | 量子智枢",
 };
 
 export function generateStaticParams() {
@@ -32,7 +33,10 @@ export default async function EmployeeDetailRoute({
 
   const { id } = await params;
   const { getEmployeeDetail, loadEmployeeDirectory } = await import("@/features/hr/employee-data");
-  const directory = await loadEmployeeDirectory();
+  const directory = await loadEmployeeDirectory(
+    undefined,
+    { allowMockFallback: isCustomerDemoMode() },
+  );
   const employee = getEmployeeDetail(id, directory);
 
   if (!employee) {

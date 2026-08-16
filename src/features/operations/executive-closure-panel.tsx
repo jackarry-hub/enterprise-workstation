@@ -20,15 +20,18 @@ export function ExecutiveClosurePanel() {
   const { state, context, actor } = useOperations(session);
   const [feedback, setFeedback] = useState("");
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
-  const done = state.tasks.filter(({ status }) => status === "done").length;
-  const openSupport = state.supportRequests.filter(({ status }) => status !== "completed" && status !== "rejected").length;
   const dispatched = Boolean(state.command.projectId);
-  const allDone = dispatched && done === state.tasks.length && openSupport === 0;
+  const activeAiTasks = state.tasks.filter(({ workstreamId }) => workstreamId === state.activeAiWorkstreamId);
+  const activeAiTaskIds = new Set(activeAiTasks.map(({ id }) => id));
+  const openSupport = state.supportRequests.filter(({ sourceTaskId, status }) => (
+    activeAiTaskIds.has(sourceTaskId) && status !== "completed" && status !== "rejected"
+  )).length;
+  const allDone = dispatched && activeAiTasks.length > 0 && activeAiTasks.every(({ status }) => status === "done") && openSupport === 0;
   const executiveReviews = state.tasks.filter((task) => task.status === "review" && getTaskReviewerId(task) === actor.id);
-  const incompleteTasks = state.tasks.filter(({ status }) => status !== "done");
+  const incompleteTasks = activeAiTasks.filter(({ status }) => status !== "done");
   const firstIncompleteTask = incompleteTasks[0];
   const unmetReason = !dispatched
-    ? `请先在上方确认方案并下发 ${state.tasks.length} 项任务。`
+    ? "请先在上方生成并确认 AI 调度方案；现有部门任务与进度会继续保留。"
     : firstIncompleteTask
     ? `还不能提交：${getActor(firstIncompleteTask.assigneeId).name}需先完成“${firstIncompleteTask.title}”并由${getActor(getTaskReviewerId(firstIncompleteTask)).name}验收。`
     : openSupport ? `还不能提交：仍有 ${openSupport} 项协同事项未办结。` : "所有任务和协同事项已完成，可以提交总验收。";
@@ -71,8 +74,8 @@ export function ExecutiveClosurePanel() {
             {state.command.status === "executing" && allDone ? <Button type="button" onClick={advance}><ShieldCheck />提交总验收</Button> : null}
             {state.command.status === "review" ? <Button type="button" onClick={advance}><CheckCircle2 />通过总验收</Button> : null}
             {state.command.status === "accepted" ? <Button type="button" onClick={advance}><Archive />完成归档</Button> : null}
-            {state.command.status === "archived" ? <Button asChild><Link href="/projects">查看项目成果<ArrowRight /></Link></Button> : null}
-            {state.command.status === "executing" && !allDone ? <p className="basis-full text-xs font-medium text-warning">{unmetReason}</p> : null}
+            {dispatched && state.command.status === "archived" ? <Button asChild><Link href="/projects">查看项目成果<ArrowRight /></Link></Button> : null}
+            {(!dispatched || (state.command.status === "executing" && !allDone)) ? <p className="basis-full text-xs font-medium text-warning">{unmetReason}</p> : null}
           </div>
         </div>
         {feedback ? <p role="status" className="m-4 rounded-xl bg-warning-soft px-3 py-2 text-xs font-medium text-warning sm:m-5">{feedback}</p> : null}

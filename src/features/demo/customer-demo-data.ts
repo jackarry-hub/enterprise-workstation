@@ -371,7 +371,7 @@ export const customerDemoSessions = customerDemoPeople.map<WorkspaceSession>((pe
   roleCodes: [person.roleCode],
   permissionCodes: [...permissionsByRole[person.role]],
   primaryRole: person.role,
-  landingPath: person.landingPath,
+  landingPath: "/dashboard",
   isAdmin: false,
   actor: {
     id: person.authUserId,

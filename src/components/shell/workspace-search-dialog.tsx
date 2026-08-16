@@ -31,7 +31,7 @@ const kindIcons = {
 export function buildWorkspaceSearchItems(role: WorkspaceRole = "executive", actor?: WorkspaceActor, includeFixtureData = true): WorkspaceSearchItem[] {
   const modules = navigationItems
     .filter(({ available, roles }) => available && (!roles || roles.includes(role)))
-    .map(({ href, label }) => ({ id: `module-${href}`, label, meta: "企业工作站模块", href, kind: "模块" as const }));
+    .map(({ href, label }) => ({ id: `module-${href}`, label, meta: "量子智枢模块", href, kind: "模块" as const }));
   const projects = includeFixtureData ? getEffectiveProjectDetails() : [];
   const canSearchProjects = role === "executive" || role === "department_head";
   const canSearchTasks = role === "department_head" || role === "employee";

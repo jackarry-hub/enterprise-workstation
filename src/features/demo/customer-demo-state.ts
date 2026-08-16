@@ -5,6 +5,7 @@ const customerDemoBusinessKeys = [
   `enterprise-workspace.operations.v1:${CUSTOMER_DEMO_STORAGE_NAMESPACE}`,
   `enterprise-workspace.decision-workbench.v1:${CUSTOMER_DEMO_STORAGE_NAMESPACE}`,
   `enterprise-workspace.projects.v1:${CUSTOMER_DEMO_STORAGE_NAMESPACE}`,
+  `enterprise-workspace.approvals.v1:${CUSTOMER_DEMO_STORAGE_NAMESPACE}`,
   "enterprise-workspace.customers.v1",
   "enterprise-workspace.settings.v1",
 ] as const;

@@ -10,7 +10,7 @@ import {
   type WorkspaceIdentityContext,
 } from "@/features/operations/operation-actor-compat";
 
-export const metadata: Metadata = { title: "审批详情 | 企业工作站" };
+export const metadata: Metadata = { title: "审批详情 | 量子智枢" };
 
 export function generateStaticParams() {
   return approvalMockResult.data.approvals.map(({ id }) => ({ id }));

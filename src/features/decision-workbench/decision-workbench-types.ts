@@ -69,6 +69,14 @@ export type DecisionPlan = {
   createdAt: string;
   expectedDays: number;
   departments: readonly DepartmentPlan[];
+  ai?: {
+    provider: "deepseek";
+    model: string;
+    summary: string;
+    risks: readonly string[];
+    managerDecisions: readonly string[];
+    repaired: boolean;
+  };
 };
 
 export type StoredDecision = {
