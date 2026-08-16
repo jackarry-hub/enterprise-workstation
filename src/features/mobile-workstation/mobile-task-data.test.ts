@@ -30,4 +30,15 @@ describe("mobile task scope", () => {
 
     expect(mergeMobileTasks([repositoryTask], [projectedTask])).toEqual([repositoryTask]);
   });
+
+  it("keeps an initiated review task visible in both scopes", () => {
+    const reviewTask = {
+      ...task("review", true),
+      status: "review" as const,
+      requiresViewerReview: true,
+    };
+
+    expect(selectMobileTasksForScope([reviewTask], "assigned")).toEqual([reviewTask]);
+    expect(selectMobileTasksForScope([reviewTask], "initiated")).toEqual([reviewTask]);
+  });
 });

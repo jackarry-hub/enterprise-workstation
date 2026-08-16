@@ -12,7 +12,7 @@ export type MobileTaskItem = {
   progress: number;
   href: string;
   initiatedByViewer: boolean;
+  requiresViewerReview?: boolean;
 };
 
 export type MobilePriorityTone = "urgent" | "high" | "normal";
-

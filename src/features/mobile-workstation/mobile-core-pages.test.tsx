@@ -13,6 +13,8 @@ import { MobileProjectsPage } from "@/features/mobile-workstation/mobile-project
 import { MobileTasksPage } from "@/features/mobile-workstation/mobile-tasks-page";
 import { MobileTeamPage } from "@/features/mobile-workstation/mobile-team-page";
 import { employeeDirectoryMockResult } from "@/features/hr/employee-mock-data";
+import { createOperationFixtureContext } from "@/features/operations/operation-actor-compat";
+import { resetOperationsState, saveOperationsState } from "@/features/operations/operations-data";
 import { getProjectListMock, mockProjectMilestoneReminders, mockProjectPortfolioStats } from "@/features/projects/mock-data";
 import { renderWithSpecificWorkspaceSession } from "@/test/workspace-session-test-utils";
 
@@ -85,6 +87,26 @@ describe("mobile core pages", () => {
 
     expect(screen.getAllByRole("tab")[0]).toHaveAttribute("aria-selected", "true");
     expect(screen.getAllByTestId("mobile-task-card").length).toBeGreaterThan(0);
+  });
+
+  it("shows tasks awaiting the current viewer's review in my pending review list", async () => {
+    const user = userEvent.setup();
+    const executiveContext = createOperationFixtureContext(executive);
+    const state = resetOperationsState(executiveContext);
+    saveOperationsState(executiveContext, {
+      ...state,
+      tasks: state.tasks.map((task) => task.id === "dept-task-finance"
+        ? { ...task, status: "review" as const, progress: 90 }
+        : task),
+    });
+
+    renderWithSpecificWorkspaceSession(<MobileTasksPage />, executive);
+    await user.click(screen.getByRole("tab", { name: "待验收" }));
+
+    const reviewCard = screen.getByRole("link", { name: "直接办理：完成月度薪资核算" });
+    expect(reviewCard).toBeVisible();
+    expect(reviewCard).toHaveAttribute("href", "/execution#review-dept-task-finance");
+    expect(reviewCard).toHaveTextContent("待验收");
   });
 
   it("renders the two approval queues and approval detail links", () => {

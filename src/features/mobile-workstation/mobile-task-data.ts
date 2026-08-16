@@ -3,6 +3,7 @@ import { getActor } from "@/features/operations/operations-data";
 import {
   selectAssignedTasks,
   selectInitiatedTasks,
+  selectReviewTasks,
 } from "@/features/operations/operations-selectors";
 import type { OperationTask, OperationsState } from "@/features/operations/operations-types";
 import type { ProjectDetailData, TaskStatus } from "@/features/projects/types";
@@ -27,6 +28,7 @@ function toOperationMobileTask(
   task: OperationTask,
   actor: WorkspaceActor,
   initiatedByViewer: boolean,
+  requiresViewerReview = false,
 ): MobileTaskItem {
   return {
     id: task.id,
@@ -36,15 +38,22 @@ function toOperationMobileTask(
     status: operationStatusMap[task.status],
     priority: task.priority,
     progress: task.progress,
-    href: getTaskCenterAction(actor.role, task.id).href,
+    href: getTaskCenterAction(actor.role, task.id, requiresViewerReview ? "review" : "task").href,
     initiatedByViewer,
+    requiresViewerReview,
   };
 }
 
 export function operationTasksForActor(state: OperationsState, actor: WorkspaceActor): MobileTaskItem[] {
+  const initiatedTasks = selectInitiatedTasks(state, actor.id);
+  const initiatedTaskIds = new Set(initiatedTasks.map(({ id }) => id));
+  const reviewTasks = selectReviewTasks(state, actor.id);
+  const reviewTaskIds = new Set(reviewTasks.map(({ id }) => id));
+
   return [
     ...selectAssignedTasks(state, actor.id).map((task) => toOperationMobileTask(task, actor, false)),
-    ...selectInitiatedTasks(state, actor.id).map((task) => toOperationMobileTask(task, actor, true)),
+    ...reviewTasks.map((task) => toOperationMobileTask(task, actor, initiatedTaskIds.has(task.id), true)),
+    ...initiatedTasks.filter(({ id }) => !reviewTaskIds.has(id)).map((task) => toOperationMobileTask(task, actor, true)),
   ];
 }
 
@@ -78,7 +87,7 @@ export function selectMobileTasksForScope(
   realTasks: readonly MobileTaskItem[],
   scope: "assigned" | "initiated",
 ) {
-  return realTasks.filter(({ initiatedByViewer }) => (
-    scope === "initiated" ? initiatedByViewer : !initiatedByViewer
+  return realTasks.filter(({ initiatedByViewer, requiresViewerReview }) => (
+    scope === "initiated" ? initiatedByViewer : !initiatedByViewer || requiresViewerReview
   ));
 }
