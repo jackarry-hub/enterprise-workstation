@@ -148,14 +148,10 @@
   body {
     @apply bg-background text-foreground;
     min-width: 320px;
-    overflow-x: clip;
   }
   html {
     @apply font-sans;
-    color-scheme: only light;
     scroll-behavior: smooth;
-    -webkit-text-size-adjust: 100%;
-    text-size-adjust: 100%;
   }
   :where(p, li) {
     text-wrap: pretty;
@@ -216,8 +212,7 @@
     min-height: 100dvh;
     width: 100%;
     max-width: 430px;
-    overflow-x: clip;
-    overflow-y: visible;
+    overflow: hidden;
     background: #f8fbff;
     box-shadow: 0 0 56px rgba(33, 76, 135, 0.12);
   }
@@ -229,7 +224,7 @@
 
   .mobile-bottom-nav {
     position: fixed;
-    z-index: 40;
+    z-index: 60;
     bottom: 0;
     left: 50%;
     display: grid;
@@ -277,9 +272,7 @@
 
   .mobile-home-page,
   .mobile-page {
-    min-width: 0;
     min-height: calc(100dvh - 76px);
-    overflow-wrap: anywhere;
     padding: 18px 16px 16px;
   }
 
@@ -461,19 +454,6 @@
   .mobile-identity-option[aria-pressed="true"] .mobile-identity-option__avatar { background:#2f7df6; color:white; }
   .mobile-identity-option__check { display:grid; width:28px; height:28px; flex:none; place-items:center; border-radius:50%; background:#2f7df6; color:white; }
   @media (max-width: 767px) {
-    .role-workbench,
-    .decision-mobile-page,
-    .project-task-dialog {
-      min-width: 0;
-      max-width: 100%;
-      overflow-wrap: anywhere;
-    }
-    .project-task-dialog {
-      max-height: calc(100dvh - 96px);
-      max-width: calc(100% - 24px);
-    }
-    .project-task-dialog [data-slot="dialog-title"] { line-height: 1.35; }
-    .project-task-dialog time { flex: none; white-space: nowrap; }
     .project-detail-header {
       border-radius: 24px;
       padding: 16px;
@@ -599,11 +579,11 @@
     .decision-progress-panel > div:last-child > div { padding: 9px; }
 
     .operation-task-card { border-radius: 22px; background: rgba(255,255,255,.96); padding: 14px; box-shadow: 0 12px 30px rgba(44,84,142,.06); }
-    .operation-task-card__header { display: grid; grid-template-columns: 42px minmax(0,1fr); gap: 10px; }
+    .operation-task-card__header { display: grid; grid-template-columns: 42px minmax(0,1fr) auto; gap: 10px; }
     .operation-task-card__header > span { width: 42px; height: 42px; }
     .operation-task-card__header h3 { font-size: 17px; line-height: 1.35; }
     .operation-task-card__header > div:nth-child(2) > p { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-    .operation-task-card__deadline { grid-column: 1 / -1; width: 100%; min-width: 0; flex-direction: row; align-items: center; justify-content: space-between; margin-left: 0; padding-top: 10px; border-top: 1px solid #e7eef8; text-align: left; }
+    .operation-task-card__deadline { margin-left: 0; }
     .operation-task-card__deadline p:first-child { font-size: 10px; }
     .operation-task-card__deadline p:last-child { font-size: 13px; }
     .operation-task-essentials { grid-template-columns: 1fr; }

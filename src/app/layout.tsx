@@ -1,4 +1,4 @@
-import type { Metadata, Viewport } from "next";
+import type { Metadata } from "next";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -9,13 +9,6 @@ export const metadata: Metadata = {
   description: "把经营目标转成可执行项目、任务与结果的企业内部工作系统。",
   applicationName: "量子智枢 QuantNexus",
   keywords: ["企业工作台", "任务协同", "项目管理", "审批", "考勤", "薪资"],
-};
-
-export const viewport: Viewport = {
-  width: "device-width",
-  initialScale: 1,
-  colorScheme: "light",
-  themeColor: "#f7faff",
 };
 
 export default function RootLayout({
