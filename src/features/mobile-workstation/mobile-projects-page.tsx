@@ -2,6 +2,7 @@
 
 import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import type { ProjectListItem, ProjectMilestoneReminder, ProjectPortfolioStat } from "@/features/projects/types";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
@@ -10,6 +11,7 @@ import { MobileProjectCard } from "@/features/mobile-workstation/components/mobi
 import { getUnifiedProjectDetails } from "@/features/projects/data/effective-project-details";
 import { readLocalProjects } from "@/features/projects/data/mock-project-repository";
 import { mergeProjectList } from "@/features/projects/data/project-list-operations";
+import { ProjectDetailPage } from "@/features/projects/project-detail-page";
 
 type ProjectTab = "all" | "active" | "completed" | "on_hold";
 const projectTabs: Array<{ key: ProjectTab; label: string }> = [
@@ -20,6 +22,7 @@ const projectTabs: Array<{ key: ProjectTab; label: string }> = [
 ];
 
 export function MobileProjectsPage({ projects }: { projects: readonly ProjectListItem[]; stats: readonly ProjectPortfolioStat[]; reminders: readonly ProjectMilestoneReminder[] }) {
+  const searchParams = useSearchParams();
   const session = useWorkspaceSession();
   const { actor, context, isFixtureBound, state } = useOperations(session);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -37,6 +40,10 @@ export function MobileProjectsPage({ projects }: { projects: readonly ProjectLis
     return scoped.filter((project) => (tab === "all" || project.status === tab)
       && `${project.name} ${project.code}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   }, [actor.memberId, actor.role, query, tab, unifiedProjects]);
+  const focusedProjectId = searchParams.get("project");
+
+  if (focusedProjectId) return <ProjectDetailPage projectId={focusedProjectId} />;
+
   return (
     <main className="mobile-page">
       <header className="mobile-page-header"><div><h1>项目</h1><p>清楚掌握正在推进的工作</p></div><button type="button" aria-label="搜索项目" aria-expanded={searchOpen} onClick={() => setSearchOpen((value) => !value)} className="mobile-icon-button"><Search aria-hidden="true" className="size-5" /></button></header>

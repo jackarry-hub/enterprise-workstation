@@ -2,6 +2,7 @@ import Link from "next/link";
 import { CalendarDays, ChevronRight, FolderKanban } from "lucide-react";
 
 import type { ProjectListItem } from "@/features/projects/types";
+import { getProjectHref } from "@/features/projects/project-navigation";
 
 const statusLabels = {
   planning: "规划中",
@@ -15,7 +16,7 @@ export function MobileProjectCard({ project }: { project: ProjectListItem }) {
   return (
     <Link
       data-testid="mobile-project-card"
-      href={`/projects/${project.id}`}
+      href={getProjectHref(project.id)}
       prefetch={false}
       aria-label={`查看${project.name}详情`}
       className="mobile-project-card"

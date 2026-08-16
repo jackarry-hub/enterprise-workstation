@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+
 import {
   getProjectListMock,
   mockProjectMilestoneReminders,
@@ -15,10 +17,12 @@ const defaultResult: ProjectListResult = {
 
 export function ProjectsPage({ result = defaultResult }: { result?: ProjectListResult }) {
   return (
-    <MobileProjectsPage
-      projects={result.projects}
-      stats={result.stats}
-      reminders={result.reminders}
-    />
+    <Suspense fallback={<main className="mobile-page"><p className="mobile-empty-state">正在打开项目…</p></main>}>
+      <MobileProjectsPage
+        projects={result.projects}
+        stats={result.stats}
+        reminders={result.reminders}
+      />
+    </Suspense>
   );
 }

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
@@ -13,6 +13,51 @@ const authActionsFile = path.join(root, "src", "features", "auth", "actions.ts")
 const projectActionsDirectory = path.join(root, "src", "features", "projects", "actions");
 const middlewareFile = path.join(root, "src", "middleware.ts");
 const backupDirectory = path.join(root, ".github-pages-backup");
+const outputDirectory = path.join(root, "out");
+const githubRepositoryName = process.env.GITHUB_REPOSITORY?.split("/")[1] ?? "enterprise-workstation";
+const githubBasePath = `/${githubRepositoryName}`;
+
+async function listHtmlFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = await Promise.all(entries.map((entry) => {
+    const target = path.join(directory, entry.name);
+    return entry.isDirectory() ? listHtmlFiles(target) : entry.name.endsWith(".html") ? [target] : [];
+  }));
+  return files.flat();
+}
+
+function exportedPathExists(pathname) {
+  const relative = decodeURIComponent(pathname.slice(githubBasePath.length))
+    .replace(/^\/+/, "")
+    .replace(/\/$/, "");
+  if (!relative) return existsSync(path.join(outputDirectory, "index.html"));
+  return existsSync(path.join(outputDirectory, relative))
+    || existsSync(path.join(outputDirectory, `${relative}.html`))
+    || existsSync(path.join(outputDirectory, relative, "index.html"));
+}
+
+async function verifyExportedLinks() {
+  const broken = [];
+  for (const file of await listHtmlFiles(outputDirectory)) {
+    const relativeFile = path.relative(outputDirectory, file).split(path.sep).join("/");
+    const documentPath = relativeFile === "index.html"
+      ? `${githubBasePath}/`
+      : `${githubBasePath}/${relativeFile.replace(/index\.html$/, "")}`;
+    const html = await readFile(file, "utf8");
+    for (const match of html.matchAll(/href=["']([^"']+)["']/g)) {
+      const href = match[1];
+      if (!href || href.startsWith("#") || /^(mailto:|tel:|javascript:)/.test(href)) continue;
+      const target = new URL(href, `https://example.test${documentPath}`);
+      if (target.origin !== "https://example.test") continue;
+      if (!target.pathname.startsWith(`${githubBasePath}/`)) {
+        broken.push(`${relativeFile} -> ${href} (outside ${githubBasePath})`);
+        continue;
+      }
+      if (!exportedPathExists(target.pathname)) broken.push(`${relativeFile} -> ${href}`);
+    }
+  }
+  if (broken.length) throw new Error(`GitHub Pages build contains missing internal links:\n${[...new Set(broken)].join("\n")}`);
+}
 
 async function runBuild() {
   const command = process.platform === "win32"
@@ -67,6 +112,21 @@ try {
   ].join("\n"));
   await rm(middlewareFile, { force: true });
   await runBuild();
+  await writeFile(path.join(outputDirectory, "index.html"), [
+    "<!doctype html>",
+    '<html lang="zh-CN">',
+    "<head>",
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    '<meta http-equiv="refresh" content="0; url=./dashboard/">',
+    "<title>量子智枢 QuantNexus</title>",
+    '<script>window.location.replace(new URL("dashboard/", window.location.href).href);</script>',
+    "</head>",
+    '<body><a href="./dashboard/">进入量子智枢首页</a></body>',
+    "</html>",
+    "",
+  ].join("\n"));
+  await verifyExportedLinks();
 } finally {
   if (existsSync(path.join(backupDirectory, "api"))) {
     await mkdir(path.dirname(apiDirectory), { recursive: true });

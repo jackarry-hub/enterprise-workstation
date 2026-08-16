@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { getProjectHref } from "@/features/projects/project-navigation";
 import type { TaskStatus } from "@/features/projects/types";
 import type { WorkspaceTask } from "@/features/tasks/workspace-types";
 import { cn } from "@/lib/utils";
@@ -46,7 +47,7 @@ function WorkspaceTaskRow({ task, index }: { task: WorkspaceTask; index: number 
     <article className="grid gap-3 border-b border-border/70 py-4 last:border-b-0 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
       <div className={cn("project-icon", iconTones[index % iconTones.length])}><FileCheck2 aria-hidden="true" /></div>
       <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2"><h3 className="truncate text-sm font-semibold text-foreground"><Link href={`/projects/${task.projectId}?tab=tasks&task=${task.id}`} className="transition-colors hover:text-primary">{task.title}</Link></h3><StatusBadge status={status.tone}>{status.label}</StatusBadge></div>
+        <div className="flex flex-wrap items-center gap-2"><h3 className="truncate text-sm font-semibold text-foreground"><Link href={getProjectHref(task.projectId, { tab: "tasks", task: task.id })} className="transition-colors hover:text-primary">{task.title}</Link></h3><StatusBadge status={status.tone}>{status.label}</StatusBadge></div>
         <p className="mt-1 truncate text-xs text-muted-foreground">{task.projectName}</p>
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5"><CalendarClock aria-hidden="true" className="size-3.5 text-primary" />截止 {formatDueDate(task.dueDate)}</span>

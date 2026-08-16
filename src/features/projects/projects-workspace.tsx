@@ -25,6 +25,7 @@ import {
 } from "@/features/projects/data/project-list-operations";
 import { getUnifiedProjectDetails } from "@/features/projects/data/effective-project-details";
 import { filterProjectList } from "@/features/projects/mock-data";
+import { getProjectHref } from "@/features/projects/project-navigation";
 import type {
   CreateMockProjectInput,
   ProjectListFilters,
@@ -88,7 +89,7 @@ export function ProjectsWorkspace({ projects, stats, reminders }: ProjectsWorksp
     if (!isFixtureBound) throw new Error("当前真实身份未绑定本地业务夹具");
     const detail = createLocalProject(context, input, session.actor);
     refreshLocalProjects();
-    router.push(`/projects/${detail.project.id}`);
+    router.push(getProjectHref(detail.project.id));
   }
 
   return (

@@ -15,6 +15,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Progress } from "@/components/ui/progress";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { getProjectHref } from "@/features/projects/project-navigation";
 import type { MemberSummary, ProjectListItem } from "@/features/projects/types";
 
 const statusLabels = {
@@ -125,7 +126,7 @@ export function ProjectList({ projects }: ProjectListProps) {
                     </div>
                     <div className="min-w-0">
                       <Link
-                        href={`/projects/${project.id}`}
+                        href={getProjectHref(project.id)}
                         aria-label={`查看${project.name}详情`}
                         className="font-semibold text-foreground transition-colors hover:text-primary"
                       >
@@ -163,7 +164,7 @@ export function ProjectList({ projects }: ProjectListProps) {
                   <StatusBadge status={statusTones[project.status]}>{statusLabels[project.status]}</StatusBadge>
                 </TableCell>
                 <TableCell className="rounded-r-xl">
-                  <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" aria-label={`打开${project.name}操作`}><MoreHorizontal aria-hidden="true" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem asChild><Link href={`/projects/${project.id}`}>查看项目详情</Link></DropdownMenuItem></DropdownMenuContent></DropdownMenu>
+                  <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" aria-label={`打开${project.name}操作`}><MoreHorizontal aria-hidden="true" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem asChild><Link href={getProjectHref(project.id)}>查看项目详情</Link></DropdownMenuItem></DropdownMenuContent></DropdownMenu>
                 </TableCell>
               </TableRow>
             ))}
@@ -186,7 +187,7 @@ export function ProjectList({ projects }: ProjectListProps) {
                   <div>
                     <h3 className="font-semibold leading-6 text-foreground">
                       <Link
-                        href={`/projects/${project.id}`}
+                        href={getProjectHref(project.id)}
                         aria-label={`查看${project.name}详情`}
                         className="transition-colors hover:text-primary"
                       >

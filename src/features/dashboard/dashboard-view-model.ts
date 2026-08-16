@@ -7,6 +7,7 @@ import {
   selectTodayActions,
 } from "@/features/operations/operations-selectors";
 import type { OperationsState, OperationTask, OperationTaskStatus } from "@/features/operations/operations-types";
+import { getProjectHref } from "@/features/projects/project-navigation";
 import type { ProjectDetailData, ProjectHealth, ProjectMemberRole } from "@/features/projects/types";
 
 export type DashboardDataSource = "real" | "mock" | "placeholder";
@@ -241,7 +242,7 @@ function relatedProjects(
       progress: detail.project.progress,
       deadline: detail.project.dueDate,
       health: detail.project.health,
-      href: `/projects/${detail.project.id}`,
+      href: getProjectHref(detail.project.id),
       source,
     }];
   }).sort((left, right) => left.deadline.localeCompare(right.deadline));

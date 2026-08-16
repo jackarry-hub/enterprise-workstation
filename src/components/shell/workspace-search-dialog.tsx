@@ -12,6 +12,7 @@ import { useWorkspaceSession } from "@/features/auth/workspace-session-provider"
 import type { WorkspaceActor, WorkspaceRole } from "@/features/auth/workspace-session-types";
 import { useOperationFixtureContext } from "@/features/operations/use-operations";
 import { getEffectiveProjectDetails } from "@/features/projects/data/effective-project-details";
+import { getProjectHref } from "@/features/projects/project-navigation";
 
 type WorkspaceSearchItem = {
   id: string;
@@ -42,7 +43,7 @@ export function buildWorkspaceSearchItems(role: WorkspaceRole = "executive", act
     id: `project-${project.id}`,
     label: project.name,
     meta: project.code,
-    href: `/projects/${project.id}`,
+    href: getProjectHref(project.id),
     kind: "项目" as const,
   })) : [];
   const taskItems = canSearchTasks ? projects.flatMap(({ project, tasks }) => tasks
@@ -51,7 +52,7 @@ export function buildWorkspaceSearchItems(role: WorkspaceRole = "executive", act
     id: `task-${task.id}`,
     label: task.title,
     meta: project.name,
-    href: role === "department_head" ? `/projects/${project.id}?tab=tasks&task=${task.id}` : "/tasks",
+    href: role === "department_head" ? getProjectHref(project.id, { tab: "tasks", task: task.id }) : "/tasks",
     kind: "任务" as const,
   }))) : [];
   const members = new Map<string, WorkspaceSearchItem>();

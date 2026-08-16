@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Bell, CheckCircle2, ChevronRight, FolderKanban, LogOut, Settings, WalletCards } from "lucide-react";
 
 import { useCustomerDemoSession, useWorkspaceSession } from "@/features/auth/workspace-session-provider";
@@ -16,6 +17,7 @@ const entries = [
 ] as const;
 
 export function MobileProfilePage() {
+  const router = useRouter();
   const session = useWorkspaceSession();
   const { actor } = session;
   const demo = useCustomerDemoSession();
@@ -30,7 +32,7 @@ export function MobileProfilePage() {
       {demo.enabled ? (
         <button type="button" aria-label="重置演示身份" onClick={() => {
           window.localStorage.removeItem("enterprise-workstation.customer-demo.actor.v1");
-          window.location.assign("/dashboard");
+          router.push("/dashboard");
         }} className="mobile-logout-button"><LogOut aria-hidden="true" className="size-4" />重置演示身份</button>
       ) : (
         <button type="button" aria-label="退出登录" onClick={() => window.location.assign("/login")} className="mobile-logout-button"><LogOut aria-hidden="true" className="size-4" />退出登录</button>

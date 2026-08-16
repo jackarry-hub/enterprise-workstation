@@ -9,6 +9,7 @@ import type { OperationTask, OperationsState } from "@/features/operations/opera
 import type { ProjectDetailData, TaskStatus } from "@/features/projects/types";
 import type { MobileTaskItem, MobileTaskStatus } from "@/features/mobile-workstation/mobile-workstation-types";
 import { getTaskCenterAction } from "@/features/tasks/task-center-action";
+import { getProjectHref } from "@/features/projects/project-navigation";
 
 const statusMap: Record<TaskStatus, MobileTaskStatus> = {
   backlog: "pending", todo: "pending", in_progress: "in_progress", blocked: "blocked", in_review: "review", done: "done", cancelled: "cancelled",
@@ -70,7 +71,7 @@ export function projectTasksForActor(projects: readonly ProjectDetailData[], act
     status: statusMap[task.status],
     priority: task.priority,
     progress: task.progress,
-    href: `/projects/${detail.project.id}?tab=tasks&task=${task.id}`,
+    href: getProjectHref(detail.project.id, { tab: "tasks", task: task.id }),
     initiatedByViewer: task.reporterId === actor.memberId && task.assigneeId !== actor.memberId,
   })));
 }

@@ -13,6 +13,7 @@ import { PROJECTS_CHANGED_EVENT, readLocalProjects } from "@/features/projects/d
 import type { ProjectDetailData } from "@/features/projects/types";
 import { createTaskCenterItems, filterTaskCenterItems, getTaskCenterSummary, getUpcomingTaskDeadlines, scopeTaskCenterItems } from "@/features/tasks/task-center-selectors";
 import { getTaskCenterAction } from "@/features/tasks/task-center-action";
+import { getProjectHref } from "@/features/projects/project-navigation";
 import type { TaskCenterFilters, TaskCenterTab } from "@/features/tasks/task-center-types";
 
 const defaultFilters: TaskCenterFilters = {
@@ -70,7 +71,7 @@ export function TaskCenterWorkspace() {
   function getTaskHref(item: (typeof items)[number]) {
     return operationTaskIds.has(item.task.id)
       ? getTaskCenterAction(actor.role, item.task.id).href
-      : `/projects/${item.project.id}?tab=tasks&task=${item.task.id}`;
+      : getProjectHref(item.project.id, { tab: "tasks", task: item.task.id });
   }
 
   return (

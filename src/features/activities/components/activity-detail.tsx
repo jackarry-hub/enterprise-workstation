@@ -15,6 +15,7 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { StatusBadge } from "@/components/ui/status-badge";
 import type { ActivityProjectView } from "@/features/activities/activity-types";
+import { getProjectHref } from "@/features/projects/project-navigation";
 import type { ProjectTask } from "@/features/projects/types";
 import { cn } from "@/lib/utils";
 
@@ -58,7 +59,7 @@ export function ActivityDetail({ activity }: { activity: ActivityProjectView }) 
               </p>
             </div>
           </div>
-          <Link href={`/projects/${activity.project.id}?tab=tasks`} className="hidden text-xs font-medium text-primary hover:underline sm:block">查看全部</Link>
+          <Link href={getProjectHref(activity.project.id, { tab: "tasks" })} className="hidden text-xs font-medium text-primary hover:underline sm:block">查看全部</Link>
         </div>
 
         <div className="mt-4">
