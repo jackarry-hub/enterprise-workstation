@@ -83,6 +83,39 @@ describe("RoleWorkbench customer demo", () => {
     expect(screen.getByRole("link", { name: "返回任务列表" })).toHaveAttribute("href", "/tasks");
   });
 
+  it("does not jump back to the first anchored task while working on a later task", async () => {
+    const user = userEvent.setup();
+    const employeeSession = sessionFor("demo-engineer");
+    const employeeContext = createOperationFixtureContext(employeeSession);
+    const state = resetOperationsState(employeeContext);
+    const sourceTask = state.tasks.find(({ id }) => id === "dept-task-engineer")!;
+    const firstTask = { ...sourceTask, id: "multi-task-first", code: "MULTI-01", title: "第一项执行任务", status: "accepted" as const, progress: 0 };
+    const secondTask = { ...sourceTask, id: "multi-task-second", code: "MULTI-02", title: "第二项执行任务", status: "accepted" as const, progress: 0 };
+
+    saveOperationsState(employeeContext, {
+      ...state,
+      tasks: state.tasks.flatMap((task) => task.id === sourceTask.id ? [firstTask, secondTask] : [task]),
+    });
+    window.history.replaceState(null, "", "/execution#task-multi-task-first");
+
+    render(
+      <WorkspaceSessionProvider session={employeeSession} demoSessions={customerDemoSessions}>
+        <RoleWorkbench role="employee" />
+      </WorkspaceSessionProvider>,
+    );
+
+    const firstTaskCard = screen.getByRole("heading", { name: "第一项执行任务" }).closest("article")!;
+    const firstTaskScroll = vi.fn();
+    Object.defineProperty(firstTaskCard, "scrollIntoView", { configurable: true, value: firstTaskScroll });
+    const secondTaskCard = screen.getByRole("heading", { name: "第二项执行任务" }).closest("article")!;
+
+    await user.click(within(secondTaskCard).getByRole("button", { name: "开始执行：第二项执行任务" }));
+
+    expect(await within(secondTaskCard).findByText("进行中")).toBeVisible();
+    expect(firstTaskScroll).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe("#task-multi-task-first");
+  });
+
   it("shows the executive assignee and makes the final submission step explicit", async () => {
     const user = userEvent.setup();
     const executiveSession = sessionFor("demo-executive");

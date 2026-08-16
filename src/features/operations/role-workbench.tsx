@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -378,6 +378,7 @@ export function RoleWorkbench({ role }: { role: Exclude<WorkspaceRole, "executiv
   const { state, context, actor, isFixtureBound } = useOperations(session);
   const [feedback, setFeedback] = useState<{ message: string; tone: "error" | "success" } | null>(null);
   const [missingTaskAnchor, setMissingTaskAnchor] = useState<string | null>(null);
+  const handledTaskAnchorRef = useRef<string | null>(null);
   const copy = roleCopy[role];
 
   const tasks = useMemo(() => {
@@ -398,9 +399,15 @@ export function RoleWorkbench({ role }: { role: Exclude<WorkspaceRole, "executiv
   useEffect(() => {
     const targetId = decodeURIComponent(window.location.hash.slice(1));
     if (!targetId.startsWith("task-") && !targetId.startsWith("review-")) {
+      handledTaskAnchorRef.current = null;
       setMissingTaskAnchor(null);
       return;
     }
+
+    // The hash is an entry target, not a permanent scroll command. Task
+    // actions refresh state repeatedly; re-running the same anchor scroll on
+    // every refresh pulls someone working on a later card back to the first.
+    if (handledTaskAnchorRef.current === targetId) return;
 
     const target = document.getElementById(targetId);
     if (!target) {
@@ -409,6 +416,7 @@ export function RoleWorkbench({ role }: { role: Exclude<WorkspaceRole, "executiv
     }
 
     setMissingTaskAnchor(null);
+    handledTaskAnchorRef.current = targetId;
     target.scrollIntoView?.({ block: "center" });
     target.focus({ preventScroll: true });
     if (targetId.startsWith("review-")) {
