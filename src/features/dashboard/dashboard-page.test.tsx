@@ -311,6 +311,9 @@ describe("DashboardPage", () => {
   it("uses a real profile avatar first and an AI demo portrait as fallback", () => {
     const { unmount } = renderWithSpecificWorkspaceSession(<DashboardPage />, executive);
     expect(screen.getByTestId("dashboard-identity-avatar")).toHaveAttribute("data-avatar-source", "mock");
+    expect(screen.getByRole("img", { name: "林远的AI演示头像" })).toHaveStyle({
+      backgroundImage: expect.stringMatching(/demo-avatar-sprite-v1/),
+    });
     unmount();
 
     renderWithSpecificWorkspaceSession(
