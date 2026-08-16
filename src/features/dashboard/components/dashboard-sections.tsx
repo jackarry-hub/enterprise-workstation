@@ -40,7 +40,7 @@ const categoryCopy: Record<DashboardTodoCategory, string> = {
   task: "今日任务",
   deadline: "即将到期",
   acceptance: "等待验收",
-  decision: "等待决策",
+  decision: "调度跟进",
   risk: "AI风险",
 };
 
@@ -153,7 +153,10 @@ export function DashboardToday({ today, source }: { today: DashboardViewModel["t
                 </span>
                 <span className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground"><span>{categoryCopy[item.category]}</span><span>截止 {formatDate(item.dueDate)}</span></span>
               </span>
-              <ArrowRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-primary" />
+              <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary">
+                {item.actionLabel ?? (item.category === "acceptance" ? "去验收" : item.category === "risk" || item.category === "decision" ? "查看" : "去办理")}
+                <ArrowRight aria-hidden="true" className="size-4 transition group-hover:translate-x-0.5" />
+              </span>
             </Link>
           ))}
         </div>

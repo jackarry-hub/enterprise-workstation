@@ -83,6 +83,49 @@ describe("buildDashboardViewModel", () => {
     expect(view.tasks.items.map(({ sourceId }) => sourceId)).not.toContain("runtime-assignee-1");
   });
 
+  it("turns an owner's dispatch reminder into a direct review action when review work is available", () => {
+    const context = createOperationFixtureContext(managerSession);
+    const actor = context.actor!;
+    const initial = createInitialOperationsState(context);
+    const reviewSource = initial.tasks.find(({ id }) => id === "dept-task-engineer")!;
+    const reviewTask = {
+      ...reviewSource,
+      id: "runtime-owner-review",
+      title: "验收客户交付成果",
+      commandId: "ai-command-owner-review",
+      runtimeSource: "ai_dispatch" as const,
+      status: "review" as const,
+      progress: 90,
+    };
+    const state = {
+      ...initial,
+      command: {
+        ...initial.command,
+        id: "ai-command-owner-review",
+        ownerId: actor.id,
+        title: "安排团队完成本周客户交付",
+        status: "executing" as const,
+      },
+      tasks: [reviewTask],
+    };
+
+    const view = buildDashboardViewModel({
+      session: managerSession,
+      actor,
+      state,
+      projects: [],
+      now: new Date("2026-08-14T09:00:00+08:00"),
+      source: "mock",
+    });
+
+    expect(view.today.items[0]).toEqual(expect.objectContaining({
+      title: "验收：验收客户交付成果",
+      category: "acceptance",
+      actionLabel: "去验收",
+      href: "/department#review-runtime-owner-review",
+    }));
+  });
+
   it("limits AI dispatch to responsible roles and calculates runtime progress from tasks", () => {
     const managerContext = createOperationFixtureContext(managerSession);
     const managerActor = managerContext.actor!;

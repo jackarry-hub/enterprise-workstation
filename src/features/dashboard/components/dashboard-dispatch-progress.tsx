@@ -45,6 +45,8 @@ export function DashboardDispatchProgress({
   const visibleTasks = activeStage
     ? current.tasks.filter((task) => task.stage === activeStage)
     : [];
+  const actionableTask = current.tasks.find((task) => task.stage === "review" && task.href)
+    ?? current.tasks.find((task) => task.stage !== "done" && task.href);
 
   return (
     <section
@@ -166,6 +168,26 @@ export function DashboardDispatchProgress({
         <span><strong className="block text-sm text-foreground">{current.participantCount}</strong>参与人员</span>
         <span><strong className="block text-sm text-foreground">{current.rejectionCount}</strong>退回次数</span>
       </div>
+
+      {current.isOwner && current.progress < 100 ? (
+        <div className="mt-3 flex flex-col gap-2 rounded-xl border border-primary/15 bg-brand-soft/35 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold text-foreground">这项待办如何完成</p>
+            <p className="mt-1 text-[11px] leading-5 text-muted-foreground">所有子任务通过验收后，生成执行总结并完成归档；该待办会自动关闭。</p>
+          </div>
+          {actionableTask?.href ? (
+            <Link
+              href={actionableTask.href}
+              aria-label={`${actionableTask.stage === "review" ? "去验收" : "去办理"}：${actionableTask.title}`}
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-1 rounded-xl bg-primary px-3 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90"
+            >
+              {actionableTask.stage === "review" ? "去验收" : "去办理"}<ChevronRight aria-hidden="true" className="size-4" />
+            </Link>
+          ) : (
+            <span className="shrink-0 rounded-full bg-white/80 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">等待执行人推进</span>
+          )}
+        </div>
+      ) : null}
 
       {children}
     </section>

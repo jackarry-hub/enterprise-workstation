@@ -27,6 +27,7 @@ export type DashboardTaskItem = {
 
 export type DashboardTodoItem = DashboardTaskItem & {
   category: DashboardTodoCategory;
+  actionLabel?: string;
 };
 
 export type DashboardProjectItem = {
@@ -316,6 +317,18 @@ export function buildDashboardViewModel({
     && state.command.ownerId === actor.id
     && runtimeTasks.length > 0;
   const dispatchOwnerHref = "/dashboard#ai-dispatch-progress";
+  const dispatchReviewAction = runtimeTasks.find((task) => (
+    task.status === "review" && getTaskReviewerId(task) === actor.id
+  ));
+  const dispatchExecutionAction = runtimeTasks.find((task) => (
+    task.assigneeId === actor.id && task.status !== "done" && task.status !== "review"
+  ));
+  const dispatchOwnerAction = dispatchReviewAction ?? dispatchExecutionAction;
+  const dispatchOwnerTodayHref = dispatchReviewAction
+    ? `${personalTaskPath}#review-${dispatchReviewAction.id}`
+    : dispatchExecutionAction
+      ? `${personalTaskPath}#task-${dispatchExecutionAction.id}`
+      : dispatchOwnerHref;
   const dispatchOwnerTask: DashboardTaskItem | null = isDispatchOwner ? {
     sourceId: `dispatch-owner-${state.command.id}`,
     title: `统筹与复盘：${state.command.title}`,
@@ -337,8 +350,20 @@ export function buildDashboardViewModel({
       ? state.command.aiSummary
         ? `归档本次调度：${state.command.title}`
         : `生成执行总结：${state.command.title}`
-      : `跟进调度进度：${state.command.title}`,
-    category: "decision",
+      : dispatchReviewAction
+        ? `验收：${dispatchReviewAction.title}`
+        : dispatchExecutionAction
+          ? `办理：${dispatchExecutionAction.title}`
+          : `跟进调度进度：${state.command.title}`,
+    href: dispatchOwnerTodayHref,
+    category: dispatchReviewAction ? "acceptance" : dispatchExecutionAction ? "task" : "decision",
+    actionLabel: allRuntimeTasksDone
+      ? state.command.aiSummary ? "去归档" : "生成总结"
+      : dispatchReviewAction
+        ? "去验收"
+        : dispatchOwnerAction
+          ? "去办理"
+          : "查看进度",
   } : null;
   const dispatchOwnerProject: DashboardProjectItem | null = isDispatchOwner ? {
     id: `dispatch-project-${state.command.id}`,

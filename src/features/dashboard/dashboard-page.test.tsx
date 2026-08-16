@@ -162,6 +162,11 @@ describe("DashboardPage", () => {
     expect(screen.getByRole("button", { name: "已开始 1" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "待验收 1" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "已完成 1" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("link", { name: "去验收：验收任务详情" })).toHaveAttribute(
+      "href",
+      "/department#review-progress-filter-review",
+    );
+    expect(screen.getByText("所有子任务通过验收后，生成执行总结并完成归档；该待办会自动关闭。")).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "已开始 1" }));
     const detail = screen.getByRole("region", { name: "调度任务明细" });
