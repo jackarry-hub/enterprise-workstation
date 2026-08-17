@@ -414,7 +414,7 @@ function fmt(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDat
 function md(d){ return pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
 function diffD(a,b){ return Math.round((b-a)/86400000); }
 function uid(p){ return p+Math.random().toString(36).slice(2,7); }
-function save(){ try{ localStorage.setItem('qxy', JSON.stringify({tasks:S.tasks,cfg:S.cfg,members:MEMBERS,projects:PROJECTS,kb:KB,agents:S.agents,runs:S.runs.slice(0,40),depts:DEPTS,reqs:S.reqs})); }catch(e){} }
+function save(){ try{ localStorage.setItem('qxy', JSON.stringify({tasks:S.tasks,cfg:S.cfg,members:MEMBERS,projects:PROJECTS,kb:KB,agents:S.agents,runs:S.runs.slice(0,40),depts:DEPTS,reqs:S.reqs,customers:S.customers,activities:S.activities,decisions:S.decisions})); }catch(e){} }
 function load(){ try{ var r=localStorage.getItem('qxy'); return r?JSON.parse(r):null; }catch(e){ return null; } }
 function toast(t){ var n=el('toast'); n.textContent=t; n.className='toast on'; clearTimeout(n._t); n._t=setTimeout(function(){ n.className='toast'; },2400); }
 
@@ -574,6 +574,31 @@ var PROJECTS = [
 ];
 var PB={}; PROJECTS.forEach(function(p){ PB[p.id]=p; });
 
+function seedCustomers(){ return [
+  {id:'c1',n:'星河科技有限公司',industry:'信息技术',contact:'张宇',phone:'138 **** 9921',source:'官网咨询',stage:'跟进中',own:'m13',last:'2026-08-05',next:'2026-08-18 10:00',progress:60,amount:480000,project:'p3',need:'建设企业知识与客户成功交付体系'},
+  {id:'c2',n:'未来智造集团',industry:'制造业',contact:'李明',phone:'139 **** 1123',source:'市场活动',stage:'方案报价',own:'m1',last:'2026-08-04',next:'2026-08-19 14:00',progress:75,amount:700000,project:'p2',need:'数据中台与供应链运营升级'},
+  {id:'c3',n:'云启信息技术有限公司',industry:'信息技术',contact:'陈静',phone:'137 **** 5566',source:'客户推荐',stage:'初步沟通',own:'m2',last:'2026-08-03',next:'2026-08-20 09:30',progress:30,amount:0,project:'',need:'评估 AI 智能体落地方案'},
+  {id:'c4',n:'锐思数据服务有限公司',industry:'金融服务',contact:'赵敏',phone:'135 **** 7766',source:'市场活动',stage:'跟进中',own:'m13',last:'2026-08-02',next:'2026-08-21 11:00',progress:50,amount:0,project:'p5',need:'指标归因与模型优化'},
+  {id:'c5',n:'博远软件股份有限公司',industry:'信息技术',contact:'周强',phone:'136 **** 8899',source:'官网咨询',stage:'已成交',own:'m6',last:'2026-07-30',next:'',progress:100,amount:1180000,project:'p1',need:'智能体平台升级交付'},
+  {id:'c6',n:'创想未来科技有限公司',industry:'零售消费',contact:'孙凯',phone:'138 **** 3344',source:'客户推荐',stage:'谈判中',own:'m1',last:'2026-07-29',next:'2026-08-22 15:00',progress:80,amount:0,project:'p4',need:'品牌升级与增长活动'}
+]; }
+
+function seedActivities(){ return [
+  {id:'a1',n:'企业官网升级项目',own:'m1',project:'p1',s:'2026-07-01',e:'2026-09-30',goal:'完成新版官网上线并形成可复用交付案例',progress:68,roi:3.2,stage:'执行',st:'进行中'},
+  {id:'a2',n:'新产品发布活动',own:'m13',project:'p4',s:'2026-07-15',e:'2026-10-20',goal:'建立可持续品牌增长引擎',progress:42,roi:3.62,stage:'执行',st:'进行中'},
+  {id:'a3',n:'年度市场推广计划',own:'m13',project:'p4',s:'2026-08-01',e:'2026-12-15',goal:'提升品牌触达和有效线索',progress:15,roi:2.1,stage:'策划',st:'规划中'},
+  {id:'a4',n:'客户成功知识库建设',own:'m1',project:'p3',s:'2026-04-08',e:'2026-07-28',goal:'沉淀客户交付与复用知识',progress:100,roi:4.1,stage:'复盘',st:'已完成'}
+]; }
+
+function seedDecisions(){ return [
+  {id:'d1',type:'费用报销',n:'市场推广活动费用报销（5月）',by:'m13',detail:'金额 ¥ 28,650.00',at:'10:20',st:'待我决策',ref:'a2'},
+  {id:'d2',type:'采购申请',n:'云服务资源扩容采购申请',by:'m2',detail:'金额 ¥ 120,000.00',at:'09:55',st:'待我决策',ref:'p2'},
+  {id:'d3',type:'项目变更',n:'智能客服升级项目范围变更申请',by:'m1',detail:'影响：周期延长 5 天',at:'09:30',st:'待我决策',ref:'p1'},
+  {id:'d4',type:'合同审批',n:'与上海某科技公司合作协议',by:'m3',detail:'金额 ¥ 500,000.00',at:'昨天 17:40',st:'我发起的',ref:'c1'},
+  {id:'d5',type:'预算申请',n:'Q3 数字化营销预算变更申请',by:'m11',detail:'金额 ¥ 300,000.00',at:'昨天 16:20',st:'已完成',result:'已通过',ref:'a3'},
+  {id:'d6',type:'成果验收',n:'量子平台一期交付验收',by:'m10',detail:'测试报告与交付清单已齐备',at:'昨天 15:10',st:'待我决策',ref:'p1'}
+]; }
+
 /* 种子任务（示例数据，与 AI 下发的任务同构） */
 function seedTasks(){
   var t0=today(); var mk=function(o){ return o; };
@@ -606,7 +631,7 @@ var KB = [
 /* ---------------- 全局状态 ---------------- */
 var S = {
   page:'dash', me:'m14', menu:false, helper:true,
-  tasks:[], proj:PROJECTS,
+  tasks:[], proj:PROJECTS, customers:[], activities:[], decisions:[],
   tab:{proj:'all', task:'all', kb:'week'},
   sel:{task:null, wbs:null},
   cfg:{ provider:'deepseek', endpoint:'https://api.deepseek.com/chat/completions',
@@ -618,8 +643,8 @@ var S = {
   chat:[], chatBusy:false, cmenu:false, form:null,
   f:{ projCat:'all', projSt:'all', projQ:'', taskQ:'', taskOwn:'all', taskPri:'all', taskSt:'all',
       meTab:'all', kbQ:'', kbCat:'all', orgQ:'', orgDept:'all', agentDept:'all', agentQ:'', agentTab:'dir',
-      dashTab:'进行中', insightG:'日', gq:'' },
-  confirm:null, editId:null, deptMgr:false, curProj:null, curAgent:null,
+      dashTab:'进行中', insightG:'日', gq:'', customerQ:'', customerSt:'all', activitySt:'all', decisionTab:'待我决策' },
+  confirm:null, editId:null, deptMgr:false, curProj:null, curAgent:null, curCustomer:null, curActivity:null,
   agents:[], runs:[], agentIn:{}, agentOut:'', agentBusy:false,
   chain:[], chainIn:'', chainOut:[], chainBusy:false, chainStep:0, reqs:[],
   appr:null
@@ -842,7 +867,8 @@ function aiDecompose(goal, deadline, budget, must){
 /* ---------------- 外壳渲染 ---------------- */
 var NAV=[
   ['dash','总览 / 决策驾驶舱','dash'], ['proj','项目中心','proj'], ['sched','AI 调度中心','ai'],
-  ['task','任务中心','task'], ['me','员工工作台','user'], ['assistant','AI 助理','bot'],
+  ['task','任务中心','task'], ['customers','客户与交付','org'], ['activities','活动推进','target'],
+  ['decisions','业务决策中心','ok'], ['me','员工工作台','user'], ['assistant','AI 助理','bot'],
   ['insight','数据洞察','chart'], ['kb','知识中心','book'], ['flow','Agent 中心','flow'],
   ['fin','财务中心','money'], ['org','组织与权限','org'], ['set','系统设置','set']
 ];
@@ -851,6 +877,9 @@ var META={
   proj:['项目中心','全面掌控项目进展，高效协作，驱动业务目标达成'],
   sched:['AI 调度中心','给 AI 一个目标，AI 拆解 · 定人 · 定时 · 定标准'],
   task:['任务中心','高效协同，驱动执行落地'],
+  customers:['客户与交付','统一管理客户机会、跟进节奏与项目交付'],
+  activities:['活动推进','从策划到复盘，贯通阶段、任务与关键节点'],
+  decisions:['业务决策中心','聚合费用、采购、合同、项目与验收决策'],
   me:['员工工作台','今天要完成什么，一屏看清'],
   assistant:['AI 助理','您的专属 AI 生产力伙伴，助您更快决策与执行'],
   insight:['数据洞察','洞察数据趋势，驱动业务增长'],
@@ -866,7 +895,9 @@ var META={
   'new-member':['添加成员','新成员将立即进入人才池，成为 AI 调度的可选资源'],
   'new-project':['新建项目','建立项目档案，可直接交给 AI 拆解目标'],
   'new-file':['上传文档','沉淀到知识中心，供检索与 AI 引用'],
-  'new-task':['新建任务','手动创建任务并指派给成员']
+  'new-task':['新建任务','手动创建任务并指派给成员'],
+  'new-customer':['新建客户','建立客户档案并安排下一次跟进'],
+  'new-activity':['新建活动','定义目标、负责人和活动周期']
 };
 function renderNav(){
   el('nav').innerHTML=NAV.map(function(x){
@@ -2643,10 +2674,19 @@ function delProject(id){
   }, true);
 }
 
+/* 融合模块先注册到统一路由，后续页面复用既有卡片、表单与交互模式。 */
+function viewCustomers(){ return '<div class="card"><div class="bd">客户与交付</div></div>'; }
+function viewActivities(){ return '<div class="card"><div class="bd">活动推进</div></div>'; }
+function viewDecisions(){ return '<div class="card"><div class="bd">业务决策中心</div></div>'; }
+function viewNewCustomer(){ return '<div class="card"><div class="bd">新建客户</div></div>'; }
+function viewNewActivity(){ return '<div class="card"><div class="bd">新建活动</div></div>'; }
+
 /* ---------------- 路由 ---------------- */
 var VIEWS={dash:viewDash,proj:viewProj,sched:viewSched,task:viewTask,me:viewMe,assistant:viewAssistant,
+  customers:viewCustomers,activities:viewActivities,decisions:viewDecisions,
   insight:viewInsight,kb:viewKb,flow:viewAgents,fin:viewFin,org:viewOrg,set:viewSet,
   'new-member':viewNewMember,'new-project':viewNewProject,'new-file':viewNewFile,'new-task':viewNewTask,
+  'new-customer':viewNewCustomer,'new-activity':viewNewActivity,
   'new-agent':viewNewAgent, agent:viewAgentRun, project:viewProject, search:viewSearch};
 function render(){
   renderNav(); renderTop();
@@ -2926,6 +2966,9 @@ document.addEventListener('keydown',function(e){
 /* ---------------- 启动 ---------------- */
 var saved=load();
 S.tasks=(saved&&saved.tasks&&saved.tasks.length)?saved.tasks:seedTasks();
+S.customers=(saved&&saved.customers&&saved.customers.length)?saved.customers:seedCustomers();
+S.activities=(saved&&saved.activities&&saved.activities.length)?saved.activities:seedActivities();
+S.decisions=(saved&&saved.decisions&&saved.decisions.length)?saved.decisions:seedDecisions();
 if(saved&&saved.cfg) Object.keys(saved.cfg).forEach(function(k){
   if(k==='apiKey'&&!saved.cfg[k]&&!saved.cfg.keyCleared) return;
   S.cfg[k]=saved.cfg[k];

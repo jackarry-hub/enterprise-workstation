@@ -26,3 +26,26 @@ test("creates a standalone fusion HTML from the supplied baseline", async () => 
   assert.match(html, /Agent 中心/);
   assert.match(html, /组织与权限/);
 });
+
+test("registers fused navigation, routes, and persistent collections", async () => {
+  const html = await readFusionHtml();
+  for (const label of ["客户与交付", "活动推进", "业务决策中心"]) {
+    assert.match(html, new RegExp(label));
+  }
+  for (const fn of ["seedCustomers", "seedActivities", "seedDecisions"]) {
+    assert.match(html, new RegExp(`function ${fn}\\(`));
+  }
+  assert.match(html, /customers:S\.customers/);
+  assert.match(html, /activities:S\.activities/);
+  assert.match(html, /decisions:S\.decisions/);
+  assert.match(html, /customers:viewCustomers/);
+  assert.match(html, /activities:viewActivities/);
+  assert.match(html, /decisions:viewDecisions/);
+});
+
+test("does not add traditional HR workflows", async () => {
+  const html = await readFusionHtml();
+  for (const label of ["考勤中心", "请假管理", "薪资管理", "工资单"]) {
+    assert.doesNotMatch(html, new RegExp(label));
+  }
+});
