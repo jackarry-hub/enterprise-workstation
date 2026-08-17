@@ -11,8 +11,8 @@ import { getSupabaseEnv } from "@/lib/supabase/env";
 
 export const dynamic = "force-dynamic";
 
-async function dependencies() {
-  const session = await getWorkspaceApiSession();
+async function dependencies(request: Request) {
+  const session = await getWorkspaceApiSession(request);
   const { encryptionKey, supabaseServiceRoleKey } = getAiConfigEnv();
   const { url } = getSupabaseEnv();
   const admin = createClient(url, supabaseServiceRoleKey, {
@@ -25,9 +25,9 @@ async function dependencies() {
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    return handleGetAiConfig(await dependencies());
+    return handleGetAiConfig(await dependencies(request));
   } catch {
     return serverError();
   }
@@ -35,7 +35,7 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
-    return handlePutAiConfig(request, await dependencies());
+    return handlePutAiConfig(request, await dependencies(request));
   } catch {
     return serverError();
   }

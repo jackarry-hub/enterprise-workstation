@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    const session = await getWorkspaceApiSession();
+    const session = await getWorkspaceApiSession(request);
     const { encryptionKey, supabaseServiceRoleKey } = getAiConfigEnv();
     const { url } = getSupabaseEnv();
     const admin = createClient(url, supabaseServiceRoleKey, {

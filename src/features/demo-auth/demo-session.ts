@@ -104,6 +104,19 @@ export function createDemoWorkspaceSession(
   };
 }
 
+export function readDemoSessionToken(cookieHeader: string | null | undefined) {
+  if (!cookieHeader || cookieHeader.length > 8192) return null;
+  for (const part of cookieHeader.split(";")) {
+    const separator = part.indexOf("=");
+    if (separator < 0) continue;
+    const name = part.slice(0, separator).trim();
+    if (name === DEMO_SESSION_COOKIE) {
+      return part.slice(separator + 1).trim() || null;
+    }
+  }
+  return null;
+}
+
 function sign(payload: string, key: Uint8Array) {
   return createHmac("sha256", key).update(payload, "utf8").digest("base64url");
 }
