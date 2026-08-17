@@ -78,6 +78,36 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 input,select,textarea{font:inherit;color:inherit;outline:none}
 a{color:inherit;text-decoration:none}
 .app{display:flex;min-height:100vh}
+.app.auth-hidden{display:none}
+
+/* ---------- demo login ---------- */
+.login-gate{min-height:100vh;padding:32px;display:grid;place-items:center;background:
+  radial-gradient(circle at 20% 12%,rgba(37,99,235,.10),transparent 30%),
+  radial-gradient(circle at 88% 88%,rgba(124,58,237,.07),transparent 28%),var(--bg)}
+.login-gate[hidden]{display:none}
+.login-card{width:min(100%,420px);background:#fff;border:1px solid var(--line);border-radius:18px;
+  padding:34px 36px 30px;box-shadow:0 22px 60px rgba(20,30,60,.12)}
+.login-brand{text-align:center;margin-bottom:24px}
+.login-brand svg{display:block;margin:0 auto 8px}
+.login-brand .wm{font-size:22px;line-height:1;letter-spacing:2.5px;font-weight:500;color:#0d1b3c}
+.login-brand .wm .x{background:linear-gradient(48deg,#0d1b3c 47%,#2f6bff 53%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.login-brand h1{font-size:20px;margin:21px 0 5px;letter-spacing:.2px}
+.login-brand p{font-size:12.5px;color:var(--mut);margin:0}
+.login-field{display:block;margin-top:16px}
+.login-field>span{display:block;font-size:12.5px;font-weight:600;color:var(--sub);margin-bottom:7px}
+.login-input{display:flex;align-items:center;gap:8px;border:1px solid #dbe2ef;border-radius:11px;background:#fff;
+  padding:0 12px;transition:.15s}
+.login-input:focus-within{border-color:var(--brand);box-shadow:0 0 0 3px rgba(37,99,235,.10)}
+.login-input input{border:0;background:transparent;width:100%;height:44px;min-width:0;font-size:13.5px}
+.login-toggle{flex:0 0 auto;color:var(--brand);font-size:12px;padding:7px 2px}
+.login-options{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:15px 0 0}
+.login-remember{display:flex;align-items:center;gap:7px;color:var(--sub);font-size:12.5px;cursor:pointer}
+.login-remember input{width:15px;height:15px;accent-color:var(--brand)}
+.login-error{min-height:22px;padding-top:8px;color:var(--risk);font-size:12px}
+.login-submit{width:100%;height:44px;justify-content:center;font-size:14px;font-weight:600;box-shadow:0 10px 22px rgba(37,99,235,.25)}
+.login-note{margin:18px 0 0;padding:11px 12px;border-radius:10px;background:var(--brand-s);color:var(--sub);
+  font-size:11.5px;line-height:1.65;text-align:center}
+.login-note b{color:var(--brand-d)}
 
 /* ---------- sidebar ---------- */
 .side{width:236px;flex:0 0 236px;background:#fff;border-right:1px solid var(--line);
@@ -256,6 +286,8 @@ tr:last-child td{border-bottom:0}
   .gantt-row{grid-template-columns:130px minmax(380px,1fr)}
 }
 @media (max-width:480px){
+  .login-gate{padding:18px}
+  .login-card{padding:28px 22px 24px;border-radius:16px}
   .brand{justify-content:flex-start}
   .top .bell{display:none}
   .top .me{margin-left:auto}
@@ -267,6 +299,7 @@ tr:last-child td{border-bottom:0}
 </style>
 </head>
 <body>
+<div id="loginGate" class="login-gate" hidden></div>
 <div class="app">
   <aside class="side">
     <div class="brand" id="brand"></div>
@@ -507,6 +540,61 @@ function renderBrand(){
     lk.href='data:image/svg+xml,'+encodeURIComponent(logoSVG(64));
     document.head.appendChild(lk);
   }catch(e){}
+}
+
+/* ---------------- 演示登录 ---------------- */
+var QXY_DEMO_USER='admin';
+var QXY_DEMO_PASS='123456';
+var QXY_AUTH_KEY='qxy_demo_auth';
+var LOGIN={user:'',pass:'',remember:true,show:false,error:'',memory:false,busy:false};
+function authState(){
+  if(LOGIN.memory) return true;
+  try{ if(sessionStorage.getItem(QXY_AUTH_KEY)==='1') return true; }catch(e){}
+  try{ if(localStorage.getItem(QXY_AUTH_KEY)==='1') return true; }catch(e){}
+  return false;
+}
+function setAuthState(remember){
+  LOGIN.memory=true;
+  try{
+    if(remember){ localStorage.setItem(QXY_AUTH_KEY,'1'); sessionStorage.removeItem(QXY_AUTH_KEY); }
+    else { sessionStorage.setItem(QXY_AUTH_KEY,'1'); localStorage.removeItem(QXY_AUTH_KEY); }
+  }catch(e){}
+}
+function renderLogin(){
+  var gate=el('loginGate'), app=document.querySelector('.app');
+  if(app) app.classList.add('auth-hidden');
+  if(!gate) return;
+  gate.hidden=false;
+  gate.innerHTML=j([
+    '<main class="login-card" aria-labelledby="loginTitle">',
+      '<div class="login-brand">',logoSVG(76),'<div class="wm">Quant<span class="x">X</span>Y</div>',
+        '<h1 id="loginTitle">登录企业工作站</h1><p>统一协作、客户交付与智能决策入口</p></div>',
+      '<label class="login-field" for="loginUser"><span>账号</span><div class="login-input">',
+        '<input id="loginUser" data-login="user" autocomplete="username" value="',esc(LOGIN.user),'" placeholder="请输入账号"></div></label>',
+      '<label class="login-field" for="loginPass"><span>密码</span><div class="login-input">',
+        '<input id="loginPass" data-login="pass" type="',LOGIN.show?'text':'password','" autocomplete="current-password" value="',esc(LOGIN.pass),'" placeholder="请输入密码">',
+        '<button type="button" class="login-toggle" data-act="login-toggle" aria-label="',LOGIN.show?'隐藏密码':'显示密码','">',LOGIN.show?'隐藏':'显示','</button>',
+      '</div></label>',
+      '<div class="login-options"><label class="login-remember"><input type="checkbox" data-login="remember" ',LOGIN.remember?'checked':'','>记住登录状态</label></div>',
+      '<div class="login-error" role="alert">',esc(LOGIN.error),'</div>',
+      '<button type="button" class="btn login-submit" data-act="login-submit" ',LOGIN.busy?'disabled':'','>',LOGIN.busy?'正在登录…':'登录工作站','</button>',
+      '<p class="login-note"><b>演示环境</b>　账号：admin　密码：123456<br>登录信息仅用于当前单文件前端演示</p>',
+    '</main>'
+  ]);
+}
+function submitLogin(){
+  if(LOGIN.busy) return;
+  var u=el('loginUser'), p=el('loginPass');
+  LOGIN.user=u?u.value.trim():LOGIN.user.trim();
+  LOGIN.pass=p?p.value:LOGIN.pass;
+  if(!LOGIN.user||!LOGIN.pass){ LOGIN.error='请输入账号和密码'; renderLogin(); return; }
+  if(LOGIN.user!==QXY_DEMO_USER||LOGIN.pass!==QXY_DEMO_PASS){
+    LOGIN.error='账号或密码错误，请使用演示账号'; renderLogin(); return;
+  }
+  LOGIN.busy=true; LOGIN.error='';
+  setAuthState(LOGIN.remember);
+  LOGIN.busy=false; LOGIN.pass='';
+  render();
 }
 
 /* 头像（首字 + 稳定色） */
@@ -2869,6 +2957,10 @@ var VIEWS={dash:viewDash,proj:viewProj,sched:viewSched,task:viewTask,me:viewMe,a
   'new-customer':viewNewCustomer,'new-activity':viewNewActivity,
   'new-agent':viewNewAgent, agent:viewAgentRun, project:viewProject, search:viewSearch};
 function render(){
+  if(!authState()){ renderLogin(); return; }
+  var gate=el('loginGate'), app=document.querySelector('.app');
+  if(gate){ gate.hidden=true; gate.innerHTML=''; }
+  if(app) app.classList.remove('auth-hidden');
   renderNav(); renderTop();
   el('view').innerHTML=(VIEWS[S.page]||viewDash)()+modalHTML();
   var cb=el('chatBox'); if(cb) cb.scrollTop=cb.scrollHeight;
@@ -2925,7 +3017,9 @@ document.addEventListener('click',function(e){
   var a=t.getAttribute('data-act');
   if(a!=='menu'&&S.menu) S.menu=false;
   if(a!=='cmenu'&&S.cmenu) S.cmenu=false;
-  if(a==='go'){ if(S.page.indexOf('new-')===0){ syncForm(); if(S.editId){ S.editId=null; S.form=blankForm(); } }
+  if(a==='login-toggle'){ LOGIN.show=!LOGIN.show; renderLogin(); }
+  else if(a==='login-submit'){ submitLogin(); }
+  else if(a==='go'){ if(S.page.indexOf('new-')===0){ syncForm(); if(S.editId){ S.editId=null; S.form=blankForm(); } }
     S.page=t.getAttribute('data-page'); S.sel.task=null; S.deptMgr=false; render(); }
   else if(a==='cmenu'){ S.cmenu=!S.cmenu; render(); }
   else if(a==='f-member'){ createMember(); }
@@ -3124,12 +3218,20 @@ document.addEventListener('drop',function(e){
 });
 /* 筛选与搜索输入 */
 document.addEventListener('input',function(e){
+  var lk=e.target.getAttribute&&e.target.getAttribute('data-login');
+  if(lk==='user'||lk==='pass'){
+    LOGIN[lk]=e.target.value; LOGIN.error='';
+    var le=document.querySelector('.login-error'); if(le) le.textContent='';
+    return;
+  }
   var q=e.target.getAttribute&&e.target.getAttribute('data-q'); if(!q) return;
   S.f[q]=e.target.value;
   if(q==='gq'&&S.f.gq.trim()&&S.page!=='search') S.page='search';
   reRenderKeepFocus();
 });
 document.addEventListener('change',function(e){
+  var loginKey=e.target.getAttribute&&e.target.getAttribute('data-login');
+  if(loginKey==='remember'){ LOGIN.remember=!!e.target.checked; return; }
   var q=e.target.getAttribute&&e.target.getAttribute('data-q');
   if(q&&e.target.tagName==='SELECT'){ S.f[q]=e.target.value; render(); return; }
   var pv=e.target.getAttribute&&e.target.getAttribute('data-prov');
@@ -3152,6 +3254,7 @@ document.addEventListener('input',function(e){
   syncForm(); var n=el('fpv'); if(n&&PREV[S.page]) n.innerHTML=PREV[S.page]();
 });
 document.addEventListener('keydown',function(e){
+  if(e.key==='Enter'&&e.target&&e.target.getAttribute&&e.target.getAttribute('data-login')){ e.preventDefault(); submitLogin(); return; }
   if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)&&document.activeElement&&document.activeElement.id==='chatIn'){ e.preventDefault(); sendChat(); }
 });
 

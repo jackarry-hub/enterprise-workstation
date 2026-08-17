@@ -98,3 +98,22 @@ test("surfaces fused records on the dashboard and global search", async () => {
   assert.match(html, /S\.activities\.forEach/);
   assert.match(html, /搜索项目、任务、客户、活动、成员、文档、Agent/);
 });
+
+test("renders a standalone demo login gate before the workstation", async () => {
+  const html = await readFusionHtml();
+  for (const token of [
+    'id="loginGate"',
+    'data-login="user"',
+    'data-login="pass"',
+    'data-login="remember"',
+    'data-act="login-toggle"',
+    'data-act="login-submit"',
+    "演示环境",
+  ]) {
+    assert.match(html, new RegExp(token));
+  }
+  for (const fn of ["authState", "renderLogin", "submitLogin"]) {
+    assert.match(html, new RegExp(`function ${fn}\\(`));
+  }
+  assert.match(html, /if\(!authState\(\)\)/);
+});
