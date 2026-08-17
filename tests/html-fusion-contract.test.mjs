@@ -76,3 +76,25 @@ test("implements activity stages, related tasks, and creation", async () => {
   assert.match(html, /阶段任务/);
   assert.match(html, /关键节点/);
 });
+
+test("implements business decisions without leave or payroll", async () => {
+  const html = await readFusionHtml();
+  assert.match(html, /function viewDecisions\(/);
+  assert.match(html, /function decisionRef\(/);
+  assert.match(html, /待我决策/);
+  assert.match(html, /我发起的/);
+  assert.match(html, /已完成/);
+  assert.match(html, /data-act="decision-pass"/);
+  assert.match(html, /data-act="decision-reject"/);
+  assert.doesNotMatch(html, /请假申请/);
+});
+
+test("surfaces fused records on the dashboard and global search", async () => {
+  const html = await readFusionHtml();
+  for (const label of ["重点客户机会", "重点活动进度", "待我决策"]) {
+    assert.match(html, new RegExp(label));
+  }
+  assert.match(html, /S\.customers\.forEach/);
+  assert.match(html, /S\.activities\.forEach/);
+  assert.match(html, /搜索项目、任务、客户、活动、成员、文档、Agent/);
+});

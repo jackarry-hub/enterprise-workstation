@@ -910,7 +910,7 @@ function renderTop(){
   el('top').innerHTML=j([
     '<div class="ttl"><h1>',m[0],'</h1><p>',m[1],'</p></div>',
     '<div class="grow"></div>',
-    '<div class="search">',ic('search',16),'<input data-q="gq" value="',esc(S.f.gq||''),'" placeholder="搜索项目、任务、成员、文档、Agent…"></div>',
+    '<div class="search">',ic('search',16),'<input data-q="gq" value="',esc(S.f.gq||''),'" placeholder="搜索项目、任务、客户、活动、成员、文档、Agent…"></div>',
     '<div class="pill">',ic('cal',15),fmt(addD(today(),-30)),' ~ ',fmt(today()),ic('down',14),'</div>',
     '<button class="bell">',ic('bell',18),'<i>12</i></button>',
     '<div style="position:relative"><button class="btn" data-act="cmenu">',ic('plus',16),'快速创建',ic('down',14),'</button>',
@@ -946,21 +946,12 @@ function viewDash(){
   var dept={}; MEMBERS.forEach(function(m){ dept[m.dept]=(dept[m.dept]||0)+1; });
   var dk=Object.keys(dept), segs=dk.map(function(k,i){ return {n:k,v:dept[k],c:AVC[i%AVC.length]}; });
   var tot=MEMBERS.length;
-  var acts=[
-    ['10:15','项目「星河智能体平台升级项目」里程碑完成','完成了「多轮对话优化」里程碑，项目进度更新为 72%','张云帆'],
-    ['09:48','AI 洞察报告生成完成','生成了《2025年Q2客户流失原因深度分析报告》','CyberDaddy'],
-    ['09:30','任务「竞品分析报告」已完成','任务已完成并提交审核','刘辉'],
-    ['昨天 18:22','新知识库文档发布','《供应链风险管理最佳实践》已发布到知识中心','王磊']
-  ];
-  if(!S.appr) S.appr=seedAppr();
-  var appr=S.appr;
-  var _old=[
-    ['费用报销','市场推广活动费用报销（5月）','陈思远','¥ 28,650.00','10:20','t-o'],
-    ['采购申请','云服务资源扩容采购申请','刘宇航','¥ 120,000.00','09:55','t-v'],
-    ['项目变更','智能客服升级项目范围变更申请','张云帆','周期延长 5 天','09:30','t-b'],
-    ['合同审批','与上海某科技公司合作协议','王磊','¥ 500,000.00','昨天 17:40','t-g'],
-    ['预算申请','Q3 数字化营销预算变更申请','黄欣怡','¥ 300,000.00','昨天 16:20','t-n']
-  ];
+  var focusCustomers=[], focusActivities=[], pendingDecisions=[];
+  S.customers.forEach(function(c){ if(c.stage!=='已成交') focusCustomers.push(c); });
+  S.activities.forEach(function(a){ if(a.st!=='已完成') focusActivities.push(a); });
+  S.decisions.forEach(function(d){ if(d.st==='待我决策') pendingDecisions.push(d); });
+  focusCustomers.sort(function(a,b){ return (b.amount||0)-(a.amount||0)||(b.progress||0)-(a.progress||0); });
+  focusActivities.sort(function(a,b){ return (b.progress||0)-(a.progress||0); });
   return j([
   '<div class="grid fade" style="grid-template-columns:repeat(5,1fr)">',
     kpi({t:'营收（本月）',v:'¥ 8,642.18',u:' 万',i:'money',c:'#2563eb',bg:'var(--brand-s)',d:12.6,s:[38,42,40,47,44,52,58,55,63,68,66,74]}),
@@ -1011,33 +1002,15 @@ function viewDash(){
     '</div></div>',
   '</div>',
 
-  '<div class="grid" style="grid-template-columns:1fr 1.55fr 1.1fr;margin-top:16px">',
-    '<div class="card"><div class="hd"><h3>团队负载分布</h3></div><div class="bd" style="display:flex;gap:14px;align-items:center">',
-      donut(segs,150,''+tot,'总人数'),
-      '<div style="flex:1">'+legend(segs.map(function(s){ return {n:s.n,c:s.c,r:s.v+' ('+Math.round(s.v/tot*100)+'%)'}; }))+'</div>',
-    '</div><div class="bd" style="border-top:1px solid var(--line2);display:flex;gap:20px;font-size:12.5px;color:var(--sub)">',
-      '<span>负载健康度：<span class="tag t-g">良好</span></span><span>平均负载率：<b>68%</b></span></div></div>',
-
-    '<div class="card"><div class="hd"><h3>近期活动</h3><div class="grow"></div><button class="link">查看全部 ›</button></div><div class="bd">',
-      acts.map(function(a,i){
-        return '<div style="display:flex;gap:12px;padding-bottom:'+(i===acts.length-1?'0':'16px')+'">'+
-          '<div style="flex:0 0 54px;font-size:11.5px;color:var(--mut);text-align:right;padding-top:2px">'+a[0]+'</div>'+
-          '<div style="flex:0 0 10px;position:relative"><i style="display:block;width:8px;height:8px;border-radius:50%;background:var(--brand);margin-top:6px"></i>'+
-          (i<acts.length-1?'<i style="position:absolute;left:3.5px;top:16px;bottom:-8px;width:1px;background:var(--line)"></i>':'')+'</div>'+
-          '<div style="flex:1"><b style="font-size:13px">'+a[1]+'</b><p style="margin:3px 0 0;font-size:12px;color:var(--sub)">'+a[2]+'</p></div>'+
-          '<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--sub)">'+av(a[3])+a[3]+'</div></div>';
-      }).join(''),
+  '<div class="grid fusion-dashboard" style="grid-template-columns:repeat(3,1fr);margin-top:16px">',
+    '<div class="card"><div class="hd"><h3>重点客户机会</h3><div class="grow"></div><button class="link" data-act="go" data-page="customers">查看全部 ›</button></div><div class="bd" style="padding-top:8px">',
+      focusCustomers.slice(0,3).map(function(c){ return '<button data-act="open-customer" data-id="'+c.id+'" style="display:flex;width:100%;gap:10px;align-items:center;text-align:left;padding:10px 0;border-bottom:1px solid var(--line2)"><span style="width:30px;height:30px;border-radius:9px;background:var(--brand-s);display:grid;place-items:center">'+ic('org',15,'#2563eb')+'</span><div style="min-width:0;flex:1"><b style="display:block;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(c.n)+'</b><span style="font-size:11px;color:var(--mut)">'+esc(c.stage)+' · 下次 '+esc(c.next||'待安排')+'</span></div><b style="font-size:12px">'+c.progress+'%</b></button>'; }).join('')||'<div class="empty">暂无在跟客户</div>',
     '</div></div>',
-
-    '<div class="card"><div class="hd"><h3>待办审批</h3><div class="grow"></div><button class="link">查看全部 ›</button></div><div class="bd" style="padding-top:8px">',
-      appr.length? appr.map(function(a,i){
-        return '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line2)">'+
-          '<span class="tag '+a[5]+'" style="margin-top:2px">'+a[0]+'</span>'+
-          '<div style="flex:1"><b style="font-size:12.5px;display:block">'+a[1]+'</b>'+
-          '<span style="font-size:11.5px;color:var(--mut)">申请人：'+a[2]+'　'+a[3]+'</span></div>'+
-          '<button class="tag t-g" style="cursor:pointer" data-act="appr" data-i="'+i+'" data-v="1">通过</button>'+
-          '<button class="tag t-r" style="cursor:pointer" data-act="appr" data-i="'+i+'" data-v="0">驳回</button></div>';
-      }).join('') : '<div class="empty">审批都处理完了</div>',
+    '<div class="card"><div class="hd"><h3>重点活动进度</h3><div class="grow"></div><button class="link" data-act="go" data-page="activities">查看全部 ›</button></div><div class="bd" style="padding-top:8px">',
+      focusActivities.slice(0,3).map(function(a){ return '<button data-act="open-activity" data-id="'+a.id+'" style="display:block;width:100%;text-align:left;padding:10px 0;border-bottom:1px solid var(--line2)"><div style="display:flex;justify-content:space-between;gap:10px"><b style="font-size:12.5px">'+esc(a.n)+'</b><span class="tag t-v">'+esc(a.stage)+'</span></div><div style="display:flex;align-items:center;gap:8px;margin-top:7px"><div class="bar" style="flex:1"><i style="width:'+a.progress+'%;background:var(--violet)"></i></div><b style="font-size:11px">'+a.progress+'%</b></div></button>'; }).join('')||'<div class="empty">暂无推进中活动</div>',
+    '</div></div>',
+    '<div class="card"><div class="hd"><h3>待我决策</h3><div class="grow"></div><button class="link" data-act="go" data-page="decisions">查看全部 ›</button></div><div class="bd" style="padding-top:8px">',
+      pendingDecisions.slice(0,3).map(function(d){ var who=MB[d.by]||{}; return '<button data-act="go" data-page="decisions" style="display:flex;width:100%;gap:10px;align-items:flex-start;text-align:left;padding:10px 0;border-bottom:1px solid var(--line2)"><span class="tag t-o">'+esc(d.type)+'</span><div style="min-width:0;flex:1"><b style="display:block;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(d.n)+'</b><span style="font-size:11px;color:var(--mut)">'+esc(who.n||'未知')+' · '+esc(d.detail)+'</span></div></button>'; }).join('')||'<div class="empty">决策均已处理</div>',
     '</div></div>',
   '</div>']);
 }
@@ -2620,22 +2593,26 @@ function viewProject(){
 function viewSearch(){
   var q=(S.f.gq||'').trim();
   var mk=function(t,rows){ return rows.length? '<div class="card" style="margin-bottom:16px"><div class="hd"><h3>'+t+'</h3><div class="grow"></div><span class="sm">'+rows.length+' 条</span></div><div class="bd" style="padding-top:6px">'+rows.join('')+'</div></div>':''; };
-  if(!q) return '<div class="empty">输入关键词，可跨项目、任务、成员、文档与 Agent 搜索</div>';
+  if(!q) return '<div class="empty">输入关键词，可跨项目、任务、客户、活动、成员、文档与 Agent 搜索</div>';
   var pj=PROJECTS.filter(function(p){ return (p.n+p.cat).indexOf(q)>=0; }).map(function(p){
     return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);cursor:pointer" data-act="open-proj" data-id="'+p.id+'">'+ic('proj',16,'#2563eb')+'<b style="flex:1;font-size:12.5px">'+esc(p.n)+'</b>'+stTag(p.st)+'</div>'; });
   var tk=S.tasks.filter(function(t){ return t.n.indexOf(q)>=0; }).map(function(t){
     return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);cursor:pointer" data-act="pick-task-go" data-id="'+t.id+'">'+ic('task',16,'#7c3aed')+'<b style="flex:1;font-size:12.5px">'+esc(t.n)+'</b><span style="font-size:11.5px;color:var(--mut)">'+esc(MB[t.own].n)+'</span>'+stTag(t.st)+'</div>'; });
+  var cu=S.customers.filter(function(c){ return (c.n+c.contact+c.industry+c.need).indexOf(q)>=0; }).map(function(c){
+    return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);cursor:pointer" data-act="search-customer" data-id="'+c.id+'">'+ic('org',16,'#2563eb')+'<b style="flex:1;font-size:12.5px">'+esc(c.n)+'</b><span style="font-size:11.5px;color:var(--mut)">'+esc(c.contact)+'</span><span class="tag t-b">'+esc(c.stage)+'</span></div>'; });
+  var ac=S.activities.filter(function(a){ return (a.n+a.goal+a.stage).indexOf(q)>=0; }).map(function(a){
+    return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);cursor:pointer" data-act="search-activity" data-id="'+a.id+'">'+ic('target',16,'#7c3aed')+'<b style="flex:1;font-size:12.5px">'+esc(a.n)+'</b><span style="font-size:11.5px;color:var(--mut)">'+esc(a.stage)+'</span><span class="tag t-v">'+a.progress+'%</span></div>'; });
   var mm=MEMBERS.filter(function(m){ return (m.n+m.r+m.sk+m.dept).indexOf(q)>=0; }).map(function(m){
     return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);cursor:pointer" data-act="edit-member" data-id="'+m.id+'">'+av(m.n)+'<b style="flex:1;font-size:12.5px">'+esc(m.n)+'</b><span class="tag t-b">'+esc(m.r)+'</span><span class="tag t-n">'+esc(m.dept)+'</span></div>'; });
   var kb=KB.filter(function(k){ return (k.n+k.c).indexOf(q)>=0; }).map(function(k){
     return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2)">'+ic('file',16,'#f59e0b')+'<b style="flex:1;font-size:12.5px">'+esc(k.n)+'</b><span class="tag t-n">'+esc(k.c)+'</span></div>'; });
   var ag=S.agents.filter(function(a){ return (a.n+a.dept+a.d).indexOf(q)>=0; }).map(function(a){
     return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);cursor:pointer" data-act="open-agent" data-id="'+a.id+'">'+ic(a.ic,16,'#2563eb')+'<b style="flex:1;font-size:12.5px">'+esc(a.n)+'</b><span class="tag t-n">'+esc(a.dept)+'</span></div>'; });
-  var total=pj.length+tk.length+mm.length+kb.length+ag.length;
+  var total=pj.length+tk.length+cu.length+ac.length+mm.length+kb.length+ag.length;
   return j(['<div class="fade"><div class="card" style="margin-bottom:16px"><div class="bd" style="display:flex;gap:10px;align-items:center">',
-    '<div class="search" style="flex:1;width:auto">',ic('search',16),'<input data-q="gq" value="',esc(q),'" placeholder="搜索项目、任务、成员、文档、Agent"></div>',
+    '<div class="search" style="flex:1;width:auto">',ic('search',16),'<input data-q="gq" value="',esc(q),'" placeholder="搜索项目、任务、客户、活动、成员、文档、Agent"></div>',
     '<span class="sm">共 ',total,' 条结果</span></div></div>',
-    mk('项目',pj),mk('任务',tk),mk('成员',mm),mk('知识文档',kb),mk('Agent',ag),
+    mk('项目',pj),mk('任务',tk),mk('客户',cu),mk('活动',ac),mk('成员',mm),mk('知识文档',kb),mk('Agent',ag),
     total?'':'<div class="empty">没有找到「'+esc(q)+'」相关内容</div>','</div>']);
 }
 
@@ -2819,7 +2796,31 @@ function viewActivities(){
       '<div class="card"><div class="hd"><h3>关键节点</h3></div><div class="bd" style="padding-top:8px">'+[['活动启动',cur.s],['当前阶段',cur.stage],['计划完成',cur.e],['复盘指标','ROI '+Number(cur.roi||0).toFixed(1)]].map(function(k,i){ return '<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--line2)"><span style="width:24px;height:24px;border-radius:8px;background:'+(i<2?'var(--brand-s)':'#f3f5fa')+';display:grid;place-items:center">'+ic(i===1?'target':'cal',13,i<2?'#2563eb':'#98a2ba')+'</span><div><b style="font-size:12.5px">'+k[0]+'</b><div style="font-size:11px;color:var(--mut)">'+esc(k[1])+'</div></div></div>'; }).join('')+'</div></div></div></div>':'<div class="card"><div class="bd" style="color:var(--mut)">请选择一个活动</div></div>',
     '</div></div>']);
 }
-function viewDecisions(){ return '<div class="card"><div class="bd">业务决策中心</div></div>'; }
+function decisionRef(id){
+  if(!id) return null;
+  if(id.charAt(0)==='p'&&PB[id]) return {label:'项目 · '+PB[id].n,page:'project',id:id};
+  var c=S.customers.filter(function(x){ return x.id===id; })[0];
+  if(c) return {label:'客户 · '+c.n,page:'customers',id:id};
+  var a=S.activities.filter(function(x){ return x.id===id; })[0];
+  if(a) return {label:'活动 · '+a.n,page:'activities',id:id};
+  return null;
+}
+function viewDecisions(){
+  var tab=S.f.decisionTab||'待我决策';
+  var list=S.decisions.filter(function(d){ return d.st===tab; });
+  var pending=S.decisions.filter(function(d){ return d.st==='待我决策'; }).length;
+  var passed=S.decisions.filter(function(d){ return d.result==='已通过'; }).length;
+  var rejected=S.decisions.filter(function(d){ return d.result==='已驳回'; }).length;
+  return j(['<div class="fade">',
+    '<div class="grid" style="grid-template-columns:repeat(3,1fr)">',
+      '<div class="card kpi"><div class="t"><span>待我决策</span><span class="ico" style="background:var(--warn-s)">',ic('clock',16,'#f59e0b'),'</span></div><div class="v">',pending,'</div><div class="f"><em>需要判断与反馈</em></div></div>',
+      '<div class="card kpi"><div class="t"><span>已通过</span><span class="ico" style="background:var(--ok-s)">',ic('ok',16,'#10b981'),'</span></div><div class="v">',passed,'</div><div class="f"><em>已形成执行结论</em></div></div>',
+      '<div class="card kpi"><div class="t"><span>已驳回</span><span class="ico" style="background:var(--risk-s)">',ic('warn',16,'#ef4444'),'</span></div><div class="v">',rejected,'</div><div class="f"><em>需补充或调整</em></div></div>',
+    '</div>',
+    '<div class="card" style="margin-top:16px"><div class="tabs">',['待我决策','我发起的','已完成'].map(function(x){ var n=S.decisions.filter(function(d){ return d.st===x; }).length; return '<button class="'+(tab===x?'on':'')+'" data-act="set" data-k="decisionTab" data-v="'+x+'">'+x+' <span class="tag '+(x==='待我决策'?'t-o':'t-n')+'">'+n+'</span></button>'; }).join(''),'</div><div class="bd" style="padding-top:8px">',
+      list.length?list.map(function(d){ var who=MB[d.by]||{}, ref=decisionRef(d.ref); return '<div style="display:flex;gap:12px;align-items:flex-start;padding:15px 0;border-bottom:1px solid var(--line2)"><span style="width:36px;height:36px;border-radius:10px;background:'+(d.st==='已完成'?'var(--ok-s)':'var(--brand-s)')+';display:grid;place-items:center">'+ic(d.st==='已完成'?'ok':'file',17,d.st==='已完成'?'#10b981':'#2563eb')+'</span><div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="tag t-v">'+esc(d.type)+'</span><b style="font-size:13.5px">'+esc(d.n)+'</b>'+(d.result?'<span class="tag '+(d.result==='已通过'?'t-g':'t-r')+'">'+esc(d.result)+'</span>':'')+'</div><div style="font-size:12px;color:var(--sub);margin-top:6px">发起人：'+esc(who.n||'未知')+'　'+esc(d.detail)+'　'+esc(d.at)+'</div>'+(ref?'<button class="link" data-act="open-decision-ref" data-page="'+ref.page+'" data-id="'+ref.id+'" style="margin-top:7px">'+ic('link',13)+esc(ref.label)+'</button>':'')+'</div>'+(d.st==='待我决策'?'<div style="display:flex;gap:7px"><button class="btn ghost" data-act="decision-reject" data-id="'+d.id+'" style="padding:7px 11px;color:var(--risk)">驳回</button><button class="btn" data-act="decision-pass" data-id="'+d.id+'" style="padding:7px 11px;box-shadow:none">通过</button></div>':'')+'</div>'; }).join(''):'<div class="empty">当前分类没有记录</div>',
+    '</div></div></div>']);
+}
 
 /* ---------------- 路由 ---------------- */
 var VIEWS={dash:viewDash,proj:viewProj,sched:viewSched,task:viewTask,me:viewMe,assistant:viewAssistant,
@@ -2908,6 +2909,14 @@ document.addEventListener('click',function(e){
   else if(a==='open-proj'){ S.curProj=t.getAttribute('data-id'); S.page='project'; render(); }
   else if(a==='open-customer'){ S.curCustomer=t.getAttribute('data-id'); render(); }
   else if(a==='open-activity'){ S.curActivity=t.getAttribute('data-id'); render(); }
+  else if(a==='search-customer'){ S.curCustomer=t.getAttribute('data-id'); S.page='customers'; render(); }
+  else if(a==='search-activity'){ S.curActivity=t.getAttribute('data-id'); S.page='activities'; render(); }
+  else if(a==='open-decision-ref'){ var rp=t.getAttribute('data-page'), rid=t.getAttribute('data-id');
+    if(rp==='project') S.curProj=rid; else if(rp==='customers') S.curCustomer=rid; else if(rp==='activities') S.curActivity=rid;
+    S.page=rp; render(); }
+  else if(a==='decision-pass'||a==='decision-reject'){ var did=t.getAttribute('data-id');
+    var decision=S.decisions.filter(function(x){ return x.id===did; })[0];
+    if(decision){ decision.st='已完成'; decision.result=a==='decision-pass'?'已通过':'已驳回'; save(); render(); toast(decision.result+'：'+decision.n); } }
   else if(a==='del-proj'){ delProject(t.getAttribute('data-id')); }
   else if(a==='proj-goal'){ var pj=PB[t.getAttribute('data-id')];
     S.sch.goal='围绕项目「'+pj.n+'」达成交付目标'; S.sch.tasks=null; S.sch.plans=null; S.page='sched'; render(); }
