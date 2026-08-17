@@ -7,17 +7,7 @@ import {
   type PublicAiConfig,
 } from "@/features/ai-config/ai-config-types";
 
-const COLUMNS = [
-  "tenant_id",
-  "provider",
-  "model_name",
-  "api_base_url",
-  "encrypted_api_key",
-  "api_key_iv",
-  "key_hint",
-  "updated_at",
-  "updated_by",
-].join(",");
+const COLUMNS = "tenant_id,provider,model_name,api_base_url,encrypted_api_key,api_key_iv,key_hint,updated_at,updated_by" as const;
 
 export function sanitizeAiConfig(
   record: AiConfigRecord | null,

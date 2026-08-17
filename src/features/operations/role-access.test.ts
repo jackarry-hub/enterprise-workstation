@@ -44,4 +44,12 @@ describe("role access policy", () => {
       expect(canRoleAccessPath(role, "/attendance")).toBe(true);
     }
   });
+
+  it("lets authenticated roles reach the standalone workstation and AI API boundary", () => {
+    for (const role of workspaceRoles) {
+      expect(canRoleAccessPath(role, "/quantxy-ai-workbench-fused.html")).toBe(true);
+      expect(canRoleAccessPath(role, "/api/ai/config")).toBe(true);
+      expect(canRoleAccessPath(role, "/api/ai/chat")).toBe(true);
+    }
+  });
 });
