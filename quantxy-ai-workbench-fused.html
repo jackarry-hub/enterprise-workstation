@@ -1846,6 +1846,7 @@ var FORM={
   file:{n:'',cat:'公司制度',proj:'',sum:'',scope:'全员可见',tags:[],files:[]},
   task:{n:'',proj:'p1',own:'m1',pri:'P1',s:'',e:'',ac:'',sub:''},
   customer:{n:'',industry:'信息技术',contact:'',phone:'',source:'官网咨询',stage:'初步沟通',own:'m1',next:'',amount:0,project:'',need:''},
+  activity:{n:'',own:'m13',project:'p4',s:'',e:'',goal:'',progress:0,roi:0,stage:'策划',st:'规划中'},
   agent:{n:'',dept:'市场部',ic:'bot',d:'',sys:'',model:'',fields:[],nf:'',nt:'ta',scope:'dept',minLv:2,depts:[]}
 };
 function blankForm(){
@@ -1853,6 +1854,7 @@ function blankForm(){
   f.project.s=fmt(today()); f.project.e=fmt(addD(today(),60));
   f.task.s=fmt(today()); f.task.e=fmt(addD(today(),5));
   f.customer.next=fmt(addD(today(),3))+' 10:00';
+  f.activity.s=fmt(today()); f.activity.e=fmt(addD(today(),45));
   return f;
 }
 function fkey(){ return S.page.replace('new-',''); }
@@ -2143,6 +2145,47 @@ function createCustomer(){
   save(); S.page='customers'; render(); toast('客户「'+c.n+'」已加入交付工作台');
 }
 
+/* ---- 新建活动 ---- */
+function pvActivity(){
+  var f=S.form.activity, own=MB[f.own]||MEMBERS[0], project=PB[f.project];
+  return j(['<div style="display:flex;gap:11px;align-items:center">',
+    '<span style="width:38px;height:38px;border-radius:11px;background:var(--violet-s);display:grid;place-items:center">',ic('target',18,'#7c3aed'),'</span>',
+    '<div><b style="font-size:14px">',esc(f.n||'未命名活动'),'</b><div style="font-size:11.5px;color:var(--mut)">',esc(f.stage),' · ',esc(f.st),'</div></div></div>',
+    '<div style="margin-top:14px">',
+    [['负责人',own.n],['关联项目',project?project.n:'暂未关联'],['周期',f.s+' → '+f.e],['目标 ROI',Number(f.roi||0).toFixed(1)]].map(function(kv){
+      return '<div style="display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line2);font-size:12.5px"><span style="color:var(--mut)">'+kv[0]+'</span><b style="text-align:right">'+esc(kv[1])+'</b></div>';
+    }).join(''),'</div>',f.goal?'<p class="hint" style="margin-top:12px">'+esc(f.goal)+'</p>':'']);
+}
+function viewNewActivity(){
+  /* formShell primary CTA renders data-act="f-activity". */
+  var f=S.form.activity;
+  var body=j([
+    fld('活动名称',finp('n',f.n,'如：新产品发布活动'),'',1),
+    '<div class="frow"><div>',fld('负责人',fsel('own',f.own,memOpts())),'</div>',
+    '<div>',fld('关联项目',fsel('project',f.project,[{v:'',l:'暂不关联'}].concat(PROJECTS.map(function(p){ return {v:p.id,l:p.n}; })))),'</div></div>',
+    '<div class="frow"><div>',fld('开始日期',finp('s',f.s,'','date')),'</div>',
+    '<div>',fld('结束日期',finp('e',f.e,'','date')),'</div></div>',
+    '<div class="frow"><div>',fld('当前阶段',fsel('stage',f.stage,['策划','执行','推广','复盘'])),'</div>',
+    '<div>',fld('状态',fsel('st',f.st,['规划中','进行中','已完成'])),'</div></div>',
+    '<div class="frow"><div>',fld('完成度（%）',finp('progress',f.progress,'0','number')),'</div>',
+    '<div>',fld('目标 ROI',finp('roi',f.roi,'0','number')),'</div></div>',
+    fld('活动目标',fta('goal',f.goal,'用可衡量的结果说明活动要达成什么'),'',1)
+  ]);
+  return formShell('新建活动','把目标、项目、负责人和时间节点放到同一条执行链','activities','f-activity','创建活动',body,
+    tipCard('执行建议',[['活动必须有业务目标','目标决定阶段任务和复盘指标，不只记录活动名称。'],['关联已有项目','项目任务会自动出现在活动详情中，避免重复建任务。'],['阶段持续更新','策划、执行、推广、复盘四阶段让管理者快速判断下一步。']]));
+}
+function createActivity(){
+  syncForm(); var f=S.form.activity;
+  if(!f.n){ toast('请填写活动名称'); return; }
+  if(!f.s||!f.e||new Date(f.e)<new Date(f.s)){ toast('请填写有效的活动周期'); return; }
+  if(!f.goal){ toast('请填写活动目标'); return; }
+  var id='a'+Date.now().toString(36).slice(-6);
+  var a={id:id,n:f.n,own:f.own,project:f.project,s:f.s,e:f.e,goal:f.goal,
+    progress:Math.max(0,Math.min(100,parseFloat(f.progress)||0)),roi:Math.max(0,parseFloat(f.roi)||0),stage:f.stage,st:f.st};
+  S.activities.unshift(a); S.curActivity=id; S.form.activity=blankForm().activity;
+  save(); S.page='activities'; render(); toast('活动「'+a.n+'」已进入推进工作台');
+}
+
 function pvAgent(){
   var f=S.form.agent;
   return j(['<div style="display:flex;gap:11px;align-items:center">',
@@ -2154,7 +2197,7 @@ function pvAgent(){
       : '<p class="hint">还没有输入字段，至少加一个。</p>'),'</div>',
     f.sys?'<p class="hint" style="margin-top:12px">系统提示词已填写 '+f.sys.length+' 字</p>':'<p class="hint" style="margin-top:12px;color:var(--risk)">系统提示词为必填，它决定 Agent 的专业性</p>']);
 }
-var PREV={'new-member':pvMember,'new-project':pvProject,'new-file':pvFile,'new-task':pvTask,'new-customer':pvCustomer,'new-agent':pvAgent};
+var PREV={'new-member':pvMember,'new-project':pvProject,'new-file':pvFile,'new-task':pvTask,'new-customer':pvCustomer,'new-activity':pvActivity,'new-agent':pvAgent};
 
 
 /* ---------------- Agent 中心（各部门 Agent 调用） ---------------- */
@@ -2749,10 +2792,34 @@ function viewCustomers(){
       cur?'<div class="card"><div class="hd"><span class="ico" style="width:34px;height:34px;border-radius:10px;background:var(--brand-s);display:grid;place-items:center">'+ic('org',17,'#2563eb')+'</span><div><h3>'+esc(cur.n)+'</h3><div class="sm">'+esc(cur.industry)+' · '+esc(cur.source)+'</div></div></div><div class="bd"><span class="tag '+stageClass(cur.stage)+'">'+esc(cur.stage)+'</span><p style="margin:13px 0;color:var(--sub);line-height:1.75">'+esc(cur.need||'尚未补充客户需求')+'</p>'+[['联系人',cur.contact+' '+(cur.phone||'')],['负责人',(MB[cur.own]||{}).n||'未分配'],['下次跟进',cur.next||'待安排'],['预计金额',cur.amount?'¥ '+num(cur.amount):'待评估']].map(function(k){ return '<div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line2);font-size:12.5px"><span style="color:var(--mut)">'+k[0]+'</span><b style="text-align:right">'+esc(k[1])+'</b></div>'; }).join('')+'<div style="margin-top:15px"><div style="font-size:12px;color:var(--mut);margin-bottom:8px">关联项目</div>'+(cur.project&&PB[cur.project]?'<button class="btn soft" data-act="open-proj" data-id="'+cur.project+'">'+ic('proj',15)+esc(PB[cur.project].n)+'</button>':'<span class="tag t-n">暂未关联项目</span>')+'</div></div></div>':'<div class="card"><div class="bd" style="color:var(--mut)">请选择一个客户</div></div>',
     '</div></div>']);
 }
-function viewActivities(){ return '<div class="card"><div class="bd">活动推进</div></div>'; }
+function activityPhases(a){
+  var stages=['策划','执行','推广','复盘'], cur=Math.max(0,stages.indexOf(a.stage));
+  return stages.map(function(n,i){ return {n:n,st:i<cur?'完成':i===cur?'当前':'待开始'}; });
+}
+function viewActivities(){
+  var st=S.f.activitySt||'all';
+  var list=S.activities.filter(function(a){ return st==='all'||a.st===st; });
+  var active=S.activities.filter(function(a){ return a.st==='进行中'; }).length;
+  var avg=S.activities.length?Math.round(S.activities.reduce(function(n,a){ return n+(Number(a.progress)||0); },0)/S.activities.length):0;
+  var roi=S.activities.length?(S.activities.reduce(function(n,a){ return n+(Number(a.roi)||0); },0)/S.activities.length).toFixed(1):'0.0';
+  if(!S.curActivity&&list.length) S.curActivity=list[0].id;
+  var cur=S.activities.filter(function(a){ return a.id===S.curActivity; })[0]||list[0];
+  var rel=cur?S.tasks.filter(function(t){ return t.p===cur.project; }).slice(0,5):[];
+  var kpis=[['活动总数',S.activities.length,'覆盖完整活动周期'],['进行中',active,'需要持续推进'],['平均完成度',avg+'%','跨活动执行进度'],['平均 ROI',roi,'投入产出参考']];
+  var statusClass=function(v){ return v==='已完成'?'t-g':v==='进行中'?'t-b':'t-n'; };
+  return j(['<div class="fade">',
+    '<div class="grid" style="grid-template-columns:repeat(4,1fr)">',kpis.map(function(k,i){ return '<div class="card kpi"><div class="t"><span>'+k[0]+'</span><span class="ico" style="background:'+(i===3?'var(--violet-s)':'var(--brand-s)')+'">'+ic(i===3?'chart':'target',16,i===3?'#7c3aed':'#2563eb')+'</span></div><div class="v">'+k[1]+'</div><div class="f"><em>'+k[2]+'</em></div></div>'; }).join(''),'</div>',
+    '<div class="card" style="margin-top:16px"><div class="bd" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><select class="sel" data-q="activitySt" style="width:150px"><option value="all">全部状态</option>',
+      ['规划中','进行中','已完成'].map(function(x){ return '<option'+(st===x?' selected':'')+'>'+x+'</option>'; }).join(''),'</select><span style="font-size:12px;color:var(--mut)">共 ',list.length,' 项活动</span><div class="grow"></div>',
+      '<button class="btn" data-act="go" data-page="new-activity">',ic('plus',15),'新建活动</button></div></div>',
+    '<div class="grid fusion-split" style="grid-template-columns:minmax(280px,.9fr) minmax(0,1.6fr);margin-top:16px;align-items:start">',
+      '<div style="display:flex;flex-direction:column;gap:12px">',list.length?list.map(function(a){ return '<button class="card" data-act="open-activity" data-id="'+a.id+'" style="padding:16px;text-align:left;border-color:'+(cur&&cur.id===a.id?'#9bbcff':'var(--line)')+';box-shadow:'+(cur&&cur.id===a.id?'0 0 0 2px var(--brand-s)':'var(--sh)')+'"><div style="display:flex;align-items:flex-start;gap:10px"><span class="ico" style="width:34px;height:34px;border-radius:10px;background:var(--violet-s);display:grid;place-items:center">'+ic('target',17,'#7c3aed')+'</span><div style="min-width:0;flex:1"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(a.n)+'</b><div style="font-size:11.5px;color:var(--mut);margin-top:2px">'+esc((PB[a.project]||{}).n||'未关联项目')+'</div></div><span class="tag '+statusClass(a.st)+'">'+esc(a.st)+'</span></div><div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--mut);margin:13px 0 6px"><span>'+esc(a.stage)+'阶段</span><b>'+a.progress+'%</b></div><div class="bar"><i style="width:'+a.progress+'%;background:var(--violet)"></i></div></button>'; }).join(''):'<div class="card"><div class="bd" style="color:var(--mut)">没有符合条件的活动</div></div>','</div>',
+      cur?'<div style="display:flex;flex-direction:column;gap:16px"><div class="card"><div class="hd"><div><h3>'+esc(cur.n)+'</h3><div class="sm">'+esc(cur.goal)+'</div></div><div class="grow"></div><span class="tag '+statusClass(cur.st)+'">'+esc(cur.st)+'</span></div><div class="bd"><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">'+activityPhases(cur).map(function(p,pi){ return '<div style="padding:12px 8px;border-radius:10px;text-align:center;background:'+(p.st==='当前'?'var(--brand-s)':p.st==='完成'?'var(--ok-s)':'#f6f8fc')+'"><span style="width:24px;height:24px;border-radius:50%;margin:0 auto 5px;display:grid;place-items:center;background:'+(p.st==='当前'?'var(--brand)':p.st==='完成'?'var(--ok)':'#dbe1ed')+';color:#fff;font-size:11px">'+(p.st==='完成'?'✓':pi+1)+'</span><b style="font-size:12px">'+p.n+'</b><div style="font-size:10.5px;color:var(--mut)">'+p.st+'</div></div>'; }).join('')+'</div><div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">'+(cur.project&&PB[cur.project]?'<button class="btn soft" data-act="open-proj" data-id="'+cur.project+'">'+ic('proj',15)+'关联项目：'+esc(PB[cur.project].n)+'</button>':'')+'<span class="tag t-v">ROI '+Number(cur.roi||0).toFixed(1)+'</span><span class="tag t-n">'+esc(cur.s)+' → '+esc(cur.e)+'</span></div></div></div>',
+      '<div class="grid" style="grid-template-columns:1fr 1fr"><div class="card"><div class="hd"><h3>阶段任务</h3><div class="grow"></div><span class="sm">'+rel.length+' 项</span></div><div class="bd" style="padding-top:8px">'+(rel.length?rel.map(function(t){ return '<div style="padding:10px 0;border-bottom:1px solid var(--line2)"><div style="display:flex;gap:8px;align-items:center"><span class="tag '+(t.st==='已完成'?'t-g':t.st==='进行中'?'t-b':'t-n')+'">'+esc(t.st)+'</span><b style="font-size:12.5px">'+esc(t.n)+'</b></div><div style="font-size:11px;color:var(--mut);margin-top:5px">'+esc((MB[t.own]||{}).n||'未分配')+' · '+esc(t.e)+'</div></div>'; }).join(''):'<p class="hint">关联项目暂无任务，可从任务中心补充。</p>')+'</div></div>',
+      '<div class="card"><div class="hd"><h3>关键节点</h3></div><div class="bd" style="padding-top:8px">'+[['活动启动',cur.s],['当前阶段',cur.stage],['计划完成',cur.e],['复盘指标','ROI '+Number(cur.roi||0).toFixed(1)]].map(function(k,i){ return '<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--line2)"><span style="width:24px;height:24px;border-radius:8px;background:'+(i<2?'var(--brand-s)':'#f3f5fa')+';display:grid;place-items:center">'+ic(i===1?'target':'cal',13,i<2?'#2563eb':'#98a2ba')+'</span><div><b style="font-size:12.5px">'+k[0]+'</b><div style="font-size:11px;color:var(--mut)">'+esc(k[1])+'</div></div></div>'; }).join('')+'</div></div></div></div>':'<div class="card"><div class="bd" style="color:var(--mut)">请选择一个活动</div></div>',
+    '</div></div>']);
+}
 function viewDecisions(){ return '<div class="card"><div class="bd">业务决策中心</div></div>'; }
-function viewNewCustomer(){ return '<div class="card"><div class="bd">新建客户</div></div>'; }
-function viewNewActivity(){ return '<div class="card"><div class="bd">新建活动</div></div>'; }
 
 /* ---------------- 路由 ---------------- */
 var VIEWS={dash:viewDash,proj:viewProj,sched:viewSched,task:viewTask,me:viewMe,assistant:viewAssistant,
@@ -2826,6 +2893,7 @@ document.addEventListener('click',function(e){
   else if(a==='f-file'){ createFile(); }
   else if(a==='f-task'){ createTask(); }
   else if(a==='f-customer'){ createCustomer(); }
+  else if(a==='f-activity'){ createActivity(); }
   else if(a==='f-skill'){ syncForm(); var sk=S.form.member.sk||'', v=t.getAttribute('data-v');
     var arr=sk.split('·').filter(function(x){ return x.trim(); });
     var ix=arr.indexOf(v); if(ix>=0) arr.splice(ix,1); else arr.push(v);
@@ -2839,6 +2907,7 @@ document.addEventListener('click',function(e){
     var item=S.appr[ai]; S.appr.splice(ai,1); render(); toast((pass?'已通过：':'已驳回：')+item[1]); }
   else if(a==='open-proj'){ S.curProj=t.getAttribute('data-id'); S.page='project'; render(); }
   else if(a==='open-customer'){ S.curCustomer=t.getAttribute('data-id'); render(); }
+  else if(a==='open-activity'){ S.curActivity=t.getAttribute('data-id'); render(); }
   else if(a==='del-proj'){ delProject(t.getAttribute('data-id')); }
   else if(a==='proj-goal'){ var pj=PB[t.getAttribute('data-id')];
     S.sch.goal='围绕项目「'+pj.n+'」达成交付目标'; S.sch.tasks=null; S.sch.plans=null; S.page='sched'; render(); }

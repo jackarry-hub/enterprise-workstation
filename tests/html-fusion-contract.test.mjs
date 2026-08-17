@@ -62,3 +62,17 @@ test("implements customer delivery list, filters, detail, and creation", async (
   assert.match(html, /关联项目/);
   assert.match(html, /下次跟进/);
 });
+
+test("implements activity stages, related tasks, and creation", async () => {
+  const html = await readFusionHtml();
+  for (const fn of ["viewActivities", "viewNewActivity", "createActivity", "activityPhases"]) {
+    assert.match(html, new RegExp(`function ${fn}\\(`));
+  }
+  for (const stage of ["策划", "执行", "推广", "复盘"]) {
+    assert.match(html, new RegExp(stage));
+  }
+  assert.match(html, /data-act="open-activity"/);
+  assert.match(html, /data-act="f-activity"/);
+  assert.match(html, /阶段任务/);
+  assert.match(html, /关键节点/);
+});
