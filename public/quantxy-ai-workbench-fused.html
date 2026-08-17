@@ -3125,8 +3125,7 @@ document.addEventListener('drop',function(e){
 document.addEventListener('input',function(e){
   var lk=e.target.getAttribute&&e.target.getAttribute('data-login');
   if(lk==='user'||lk==='pass'){
-    LOGIN[lk]=e.target.value; LOGIN.error='';
-    var le=document.querySelector('.login-error'); if(le) le.textContent='';
+    LOGIN[lk]=e.target.value;
     return;
   }
   var q=e.target.getAttribute&&e.target.getAttribute('data-q'); if(!q) return;
