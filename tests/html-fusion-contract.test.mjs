@@ -117,3 +117,18 @@ test("renders a standalone demo login gate before the workstation", async () => 
   }
   assert.match(html, /if\(!authState\(\)\)/);
 });
+
+test("keeps authentication separate from identity and business data", async () => {
+  const html = await readFusionHtml();
+  assert.match(html, /var QXY_AUTH_KEY='qxy_demo_auth'/);
+  assert.match(html, /sessionStorage\.setItem\(QXY_AUTH_KEY/);
+  assert.match(html, /localStorage\.setItem\(QXY_AUTH_KEY/);
+  assert.match(html, /sessionStorage\.removeItem\(QXY_AUTH_KEY/);
+  assert.match(html, /localStorage\.removeItem\(QXY_AUTH_KEY/);
+  assert.match(html, /function logoutDemo\(/);
+  assert.match(html, /data-act="logout"/);
+  assert.match(html, /data-act="setme"/);
+  assert.match(html, /切换身份查看工作台/);
+  assert.match(html, /localStorage\.setItem\('qxy'/);
+  assert.doesNotMatch(html, /localStorage\.removeItem\('qxy'\)/);
+});
