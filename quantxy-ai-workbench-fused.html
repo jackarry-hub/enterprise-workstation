@@ -1845,12 +1845,14 @@ var FORM={
   project:{n:'',cat:'AI研发',own:'m1',bud:300,s:'',e:'',desc:'',goal:'',auto:0},
   file:{n:'',cat:'公司制度',proj:'',sum:'',scope:'全员可见',tags:[],files:[]},
   task:{n:'',proj:'p1',own:'m1',pri:'P1',s:'',e:'',ac:'',sub:''},
+  customer:{n:'',industry:'信息技术',contact:'',phone:'',source:'官网咨询',stage:'初步沟通',own:'m1',next:'',amount:0,project:'',need:''},
   agent:{n:'',dept:'市场部',ic:'bot',d:'',sys:'',model:'',fields:[],nf:'',nt:'ta',scope:'dept',minLv:2,depts:[]}
 };
 function blankForm(){
   var f=JSON.parse(JSON.stringify(FORM));
   f.project.s=fmt(today()); f.project.e=fmt(addD(today(),60));
   f.task.s=fmt(today()); f.task.e=fmt(addD(today(),5));
+  f.customer.next=fmt(addD(today(),3))+' 10:00';
   return f;
 }
 function fkey(){ return S.page.replace('new-',''); }
@@ -2098,6 +2100,49 @@ function createTask(){
     sub:f.sub?f.sub.split('\n').filter(function(x){ return x.trim(); }).map(function(){ return 0; }):null});
   S.form.task=blankForm().task; save(); toast('任务已创建并指派给 '+m.n); S.page='task'; render();
 }
+
+/* ---- 新建客户 ---- */
+function pvCustomer(){
+  var f=S.form.customer, own=MB[f.own]||MEMBERS[0], project=PB[f.project];
+  return j(['<div style="display:flex;gap:11px;align-items:center">',
+    '<span style="width:38px;height:38px;border-radius:11px;background:var(--brand-s);display:grid;place-items:center">',ic('org',18,'#2563eb'),'</span>',
+    '<div><b style="font-size:14px">',esc(f.n||'未命名客户'),'</b><div style="font-size:11.5px;color:var(--mut)">',esc(f.industry),' · ',esc(f.stage),'</div></div></div>',
+    '<div style="margin-top:14px">',
+    [['联系人',f.contact||'待填写'],['客户负责人',own.n],['下次跟进',f.next||'待安排'],['关联项目',project?project.n:'暂未关联']].map(function(kv){
+      return '<div style="display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line2);font-size:12.5px"><span style="color:var(--mut)">'+kv[0]+'</span><b style="text-align:right">'+esc(kv[1])+'</b></div>';
+    }).join(''),'</div>',
+    f.need?'<p class="hint" style="margin-top:12px">'+esc(f.need)+'</p>':'']);
+}
+function viewNewCustomer(){
+  /* formShell primary CTA renders data-act="f-customer". */
+  var f=S.form.customer;
+  var body=j([
+    fld('客户名称',finp('n',f.n,'如：星河科技有限公司'),'',1),
+    '<div class="frow"><div>',fld('行业',fsel('industry',f.industry,['信息技术','制造业','金融服务','零售消费','专业服务','其他'])),'</div>',
+    '<div>',fld('当前阶段',fsel('stage',f.stage,['初步沟通','跟进中','方案报价','谈判中','已成交'])),'</div></div>',
+    '<div class="frow"><div>',fld('联系人',finp('contact',f.contact,'姓名'),'',1),'</div>',
+    '<div>',fld('联系电话',finp('phone',f.phone,'手机或座机')),'</div></div>',
+    '<div class="frow"><div>',fld('客户来源',fsel('source',f.source,['官网咨询','市场活动','客户推荐','主动拓展','其他'])),'</div>',
+    '<div>',fld('客户负责人',fsel('own',f.own,memOpts())),'</div></div>',
+    '<div class="frow"><div>',fld('下次跟进',finp('next',f.next,'','datetime-local')),'</div>',
+    '<div>',fld('预计金额（元）',finp('amount',f.amount,'0','number')),'</div></div>',
+    fld('关联项目',fsel('project',f.project,[{v:'',l:'暂不关联'}].concat(PROJECTS.map(function(p){ return {v:p.id,l:p.n}; })))),
+    fld('客户需求',fta('need',f.need,'说明客户最关心的问题、目标与交付边界'),'',1)
+  ]);
+  return formShell('新建客户','建立客户档案，明确下一步跟进和项目交付关系','customers','f-customer','保存客户',body,
+    tipCard('跟进建议',[['先安排下一步','每个有效机会都应该有清晰的下次跟进时间。'],['需求连接项目','确认交付范围后，把客户关联到已有项目，项目进度会成为交付依据。'],['金额按机会口径填写','尚未形成报价时可留为 0，进入方案报价后再补充。']]));
+}
+function createCustomer(){
+  syncForm(); var f=S.form.customer;
+  if(!f.n){ toast('请填写客户名称'); return; }
+  if(!f.contact){ toast('请填写联系人'); return; }
+  var id='c'+Date.now().toString(36).slice(-6);
+  var c={id:id,n:f.n,industry:f.industry,contact:f.contact,phone:f.phone,source:f.source,stage:f.stage,own:f.own,
+    last:fmt(today()),next:(f.next||'').replace('T',' '),progress:f.stage==='已成交'?100:20,amount:parseFloat(f.amount)||0,project:f.project,need:f.need};
+  S.customers.unshift(c); S.curCustomer=id; S.form.customer=blankForm().customer;
+  save(); S.page='customers'; render(); toast('客户「'+c.n+'」已加入交付工作台');
+}
+
 function pvAgent(){
   var f=S.form.agent;
   return j(['<div style="display:flex;gap:11px;align-items:center">',
@@ -2109,7 +2154,7 @@ function pvAgent(){
       : '<p class="hint">还没有输入字段，至少加一个。</p>'),'</div>',
     f.sys?'<p class="hint" style="margin-top:12px">系统提示词已填写 '+f.sys.length+' 字</p>':'<p class="hint" style="margin-top:12px;color:var(--risk)">系统提示词为必填，它决定 Agent 的专业性</p>']);
 }
-var PREV={'new-member':pvMember,'new-project':pvProject,'new-file':pvFile,'new-task':pvTask,'new-agent':pvAgent};
+var PREV={'new-member':pvMember,'new-project':pvProject,'new-file':pvFile,'new-task':pvTask,'new-customer':pvCustomer,'new-agent':pvAgent};
 
 
 /* ---------------- Agent 中心（各部门 Agent 调用） ---------------- */
@@ -2675,7 +2720,35 @@ function delProject(id){
 }
 
 /* 融合模块先注册到统一路由，后续页面复用既有卡片、表单与交互模式。 */
-function viewCustomers(){ return '<div class="card"><div class="bd">客户与交付</div></div>'; }
+function viewCustomers(){
+  var q=(S.f.customerQ||'').trim().toLowerCase(), st=S.f.customerSt||'all';
+  var list=S.customers.filter(function(c){
+    var text=(c.n+' '+c.contact+' '+c.industry+' '+c.need).toLowerCase();
+    return (st==='all'||c.stage===st)&&(!q||text.indexOf(q)>=0);
+  });
+  var open=S.customers.filter(function(c){ return c.stage!=='已成交'; }).length;
+  var quoted=S.customers.filter(function(c){ return c.stage==='方案报价'||c.stage==='谈判中'; }).length;
+  var won=S.customers.filter(function(c){ return c.stage==='已成交'; }).reduce(function(n,c){ return n+(Number(c.amount)||0); },0);
+  if(!S.curCustomer&&list.length) S.curCustomer=list[0].id;
+  var cur=S.customers.filter(function(c){ return c.id===S.curCustomer; })[0]||list[0];
+  var stageClass=function(v){ return v==='已成交'?'t-g':v==='谈判中'?'t-v':v==='方案报价'?'t-o':'t-b'; };
+  var kpis=[['客户总数',S.customers.length,'统一客户档案'],['在跟机会',open,'需要持续推进'],['报价 / 谈判',quoted,'近期重点机会'],['已成交金额','¥ '+num(won),'已形成交付']];
+  return j(['<div class="fade">',
+    '<div class="grid" style="grid-template-columns:repeat(4,1fr)">',kpis.map(function(k,i){ return '<div class="card kpi"><div class="t"><span>'+k[0]+'</span><span class="ico" style="background:'+(i===3?'var(--ok-s)':'var(--brand-s)')+'">'+ic(i===3?'money':'org',16,i===3?'#10b981':'#2563eb')+'</span></div><div class="v">'+k[1]+'</div><div class="f"><em>'+k[2]+'</em></div></div>'; }).join(''),'</div>',
+    '<div class="card" style="margin-top:16px"><div class="bd" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">',
+      '<div class="search" style="width:min(360px,100%)">',ic('search',16),'<input data-q="customerQ" value="',esc(S.f.customerQ),'" placeholder="搜索客户、联系人或需求"></div>',
+      '<select class="sel" data-q="customerSt" style="width:150px"><option value="all">全部阶段</option>',
+      ['初步沟通','跟进中','方案报价','谈判中','已成交'].map(function(x){ return '<option'+(st===x?' selected':'')+'>'+x+'</option>'; }).join(''),'</select>',
+      '<div class="grow"></div><span style="font-size:12px;color:var(--mut)">显示 ',list.length,' 条</span>',
+      '<button class="btn" data-act="go" data-page="new-customer">',ic('plus',15),'新建客户</button>',
+    '</div></div>',
+    '<div class="grid fusion-split" style="grid-template-columns:minmax(0,1.7fr) minmax(280px,1fr);margin-top:16px;align-items:start">',
+      '<div class="card"><div class="hd"><h3>客户机会与交付</h3><div class="grow"></div><span class="sm">点击客户查看详情</span></div><div class="bd" style="padding-top:8px;overflow:auto">',
+        list.length?'<table><thead><tr><th>客户</th><th>阶段</th><th>负责人</th><th>下次跟进</th><th>交付进度</th></tr></thead><tbody>'+list.map(function(c){ var own=MB[c.own]||{}; return '<tr data-act="open-customer" data-id="'+c.id+'" style="cursor:pointer;background:'+(cur&&cur.id===c.id?'#f8faff':'transparent')+'"><td><b>'+esc(c.n)+'</b><div style="font-size:11.5px;color:var(--mut)">'+esc(c.industry)+' · '+esc(c.contact)+'</div></td><td><span class="tag '+stageClass(c.stage)+'">'+esc(c.stage)+'</span></td><td>'+esc(own.n||'未分配')+'</td><td>'+esc(c.next||'待安排')+'</td><td style="min-width:120px"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px"><span>'+c.progress+'%</span></div><div class="bar"><i style="width:'+c.progress+'%"></i></div></td></tr>'; }).join('')+'</tbody></table>':'<div style="padding:32px;text-align:center;color:var(--mut)">没有符合条件的客户</div>',
+      '</div></div>',
+      cur?'<div class="card"><div class="hd"><span class="ico" style="width:34px;height:34px;border-radius:10px;background:var(--brand-s);display:grid;place-items:center">'+ic('org',17,'#2563eb')+'</span><div><h3>'+esc(cur.n)+'</h3><div class="sm">'+esc(cur.industry)+' · '+esc(cur.source)+'</div></div></div><div class="bd"><span class="tag '+stageClass(cur.stage)+'">'+esc(cur.stage)+'</span><p style="margin:13px 0;color:var(--sub);line-height:1.75">'+esc(cur.need||'尚未补充客户需求')+'</p>'+[['联系人',cur.contact+' '+(cur.phone||'')],['负责人',(MB[cur.own]||{}).n||'未分配'],['下次跟进',cur.next||'待安排'],['预计金额',cur.amount?'¥ '+num(cur.amount):'待评估']].map(function(k){ return '<div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line2);font-size:12.5px"><span style="color:var(--mut)">'+k[0]+'</span><b style="text-align:right">'+esc(k[1])+'</b></div>'; }).join('')+'<div style="margin-top:15px"><div style="font-size:12px;color:var(--mut);margin-bottom:8px">关联项目</div>'+(cur.project&&PB[cur.project]?'<button class="btn soft" data-act="open-proj" data-id="'+cur.project+'">'+ic('proj',15)+esc(PB[cur.project].n)+'</button>':'<span class="tag t-n">暂未关联项目</span>')+'</div></div></div>':'<div class="card"><div class="bd" style="color:var(--mut)">请选择一个客户</div></div>',
+    '</div></div>']);
+}
 function viewActivities(){ return '<div class="card"><div class="bd">活动推进</div></div>'; }
 function viewDecisions(){ return '<div class="card"><div class="bd">业务决策中心</div></div>'; }
 function viewNewCustomer(){ return '<div class="card"><div class="bd">新建客户</div></div>'; }
@@ -2752,6 +2825,7 @@ document.addEventListener('click',function(e){
   else if(a==='f-project'){ createProject(); }
   else if(a==='f-file'){ createFile(); }
   else if(a==='f-task'){ createTask(); }
+  else if(a==='f-customer'){ createCustomer(); }
   else if(a==='f-skill'){ syncForm(); var sk=S.form.member.sk||'', v=t.getAttribute('data-v');
     var arr=sk.split('·').filter(function(x){ return x.trim(); });
     var ix=arr.indexOf(v); if(ix>=0) arr.splice(ix,1); else arr.push(v);
@@ -2764,6 +2838,7 @@ document.addEventListener('click',function(e){
   else if(a==='appr'){ var ai=parseInt(t.getAttribute('data-i'),10), pass=t.getAttribute('data-v')==='1';
     var item=S.appr[ai]; S.appr.splice(ai,1); render(); toast((pass?'已通过：':'已驳回：')+item[1]); }
   else if(a==='open-proj'){ S.curProj=t.getAttribute('data-id'); S.page='project'; render(); }
+  else if(a==='open-customer'){ S.curCustomer=t.getAttribute('data-id'); render(); }
   else if(a==='del-proj'){ delProject(t.getAttribute('data-id')); }
   else if(a==='proj-goal'){ var pj=PB[t.getAttribute('data-id')];
     S.sch.goal='围绕项目「'+pj.n+'」达成交付目标'; S.sch.tasks=null; S.sch.plans=null; S.page='sched'; render(); }

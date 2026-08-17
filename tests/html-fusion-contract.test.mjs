@@ -49,3 +49,16 @@ test("does not add traditional HR workflows", async () => {
     assert.doesNotMatch(html, new RegExp(label));
   }
 });
+
+test("implements customer delivery list, filters, detail, and creation", async () => {
+  const html = await readFusionHtml();
+  for (const fn of ["viewCustomers", "viewNewCustomer", "createCustomer"]) {
+    assert.match(html, new RegExp(`function ${fn}\\(`));
+  }
+  assert.match(html, /data-q="customerQ"/);
+  assert.match(html, /data-q="customerSt"/);
+  assert.match(html, /data-act="open-customer"/);
+  assert.match(html, /data-act="f-customer"/);
+  assert.match(html, /关联项目/);
+  assert.match(html, /下次跟进/);
+});
