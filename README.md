@@ -39,3 +39,15 @@
 - 可选云端：Supabase 数据库、Auth 与 Storage
 
 清除浏览器站点数据会删除本地业务记录和本地上传文件。正式部署前请配置企业账号、数据库备份和对象存储策略。
+
+## Docker 生产部署
+
+项目使用 Next.js standalone 输出和非 root 运行用户。先复制环境变量示例并填写真实值，文件名必须保留为本地文件，不得提交 Git：
+
+    Copy-Item .env.example .env.production.local
+
+生产构建与启动：
+
+    docker compose --env-file .env.production.local up -d --build
+
+默认映射到宿主机 `3000` 端口，可在本地环境文件中通过 `APP_PORT` 修改。所有 `.env*` 文件均被排除在 Docker 构建上下文之外，密钥只在容器运行时注入；`NEXT_PUBLIC_*` 变量属于前端公开配置，会在镜像构建阶段写入客户端资源。
