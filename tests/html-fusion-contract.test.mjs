@@ -167,3 +167,16 @@ test("offers an active secure-server entry instead of a dead file-mode form", as
   assert.match(html, /打开安全服务版/);
   assert.match(html, /http:\/\/127\.0\.0\.1:3011\/quantxy-ai-workbench-fused\.html/);
 });
+
+test("uses the original demo login UI with a server session on HTTP", async () => {
+  const html = await readFusionHtml();
+
+  assert.match(html, /fetch\('\/api\/demo-auth\/session'/);
+  assert.match(html, /fetch\('\/api\/demo-auth\/login'/);
+  assert.match(html, /fetch\('\/api\/demo-auth\/logout'/);
+  assert.match(html, /credentials:'same-origin'/);
+  assert.match(html, /LOGIN\.authenticated/);
+  assert.match(html, /location\.protocol==='file:'/);
+  assert.match(html, /data-act="login-submit"/);
+  assert.match(html, /data-act="setme"/);
+});

@@ -31,6 +31,8 @@ function loginDestination(request: NextRequest) {
 
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
+  if (isStandaloneAuthorizedPath(pathname)) return NextResponse.next();
+
   const { response, supabase, subject } = await updateSupabaseSession(request);
 
   if (isPublicAuthPath(pathname)) return response;
@@ -82,6 +84,15 @@ export async function middleware(request: NextRequest) {
   }
 
   return response;
+}
+
+export function isStandaloneAuthorizedPath(pathname: string) {
+  return pathname === "/quantxy-ai-workbench-fused.html"
+    || pathname === "/api/demo-auth/login"
+    || pathname === "/api/demo-auth/session"
+    || pathname === "/api/demo-auth/logout"
+    || pathname === "/api/ai/config"
+    || pathname === "/api/ai/chat";
 }
 
 export const config = {

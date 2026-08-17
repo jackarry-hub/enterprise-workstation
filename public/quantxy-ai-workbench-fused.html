@@ -404,8 +404,9 @@ function renderBrand(){
 var QXY_DEMO_USER='admin';
 var QXY_DEMO_PASS='123456';
 var QXY_AUTH_KEY='qxy_demo_auth';
-var LOGIN={user:'',pass:'',remember:true,show:false,error:'',memory:false,busy:false};
+var LOGIN={user:'',pass:'',remember:true,show:false,error:'',memory:false,busy:false,authenticated:false,checked:false};
 function authState(){
+  if(location.protocol!=='file:') return LOGIN.authenticated;
   if(LOGIN.memory) return true;
   try{ if(sessionStorage.getItem(QXY_AUTH_KEY)==='1') return true; }catch(e){}
   try{ if(localStorage.getItem(QXY_AUTH_KEY)==='1') return true; }catch(e){}
@@ -413,6 +414,8 @@ function authState(){
 }
 function setAuthState(remember){
   LOGIN.memory=true;
+  LOGIN.authenticated=true;
+  if(location.protocol!=='file:') return;
   try{
     if(remember){ localStorage.setItem(QXY_AUTH_KEY,'1'); sessionStorage.removeItem(QXY_AUTH_KEY); }
     else { sessionStorage.setItem(QXY_AUTH_KEY,'1'); localStorage.removeItem(QXY_AUTH_KEY); }
@@ -446,20 +449,52 @@ function submitLogin(){
   LOGIN.user=u?u.value.trim():LOGIN.user.trim();
   LOGIN.pass=p?p.value:LOGIN.pass;
   if(!LOGIN.user||!LOGIN.pass){ LOGIN.error='请输入账号和密码'; renderLogin(); return; }
-  if(LOGIN.user!==QXY_DEMO_USER||LOGIN.pass!==QXY_DEMO_PASS){
-    LOGIN.error='账号或密码错误，请使用演示账号'; renderLogin(); return;
+  if(location.protocol==='file:'){
+    if(LOGIN.user!==QXY_DEMO_USER||LOGIN.pass!==QXY_DEMO_PASS){
+      LOGIN.error='账号或密码错误，请使用演示账号'; renderLogin(); return;
+    }
+    LOGIN.busy=true; LOGIN.error='';
+    setAuthState(LOGIN.remember);
+    LOGIN.busy=false; LOGIN.pass='';
+    render();
+    return;
   }
   LOGIN.busy=true; LOGIN.error='';
-  setAuthState(LOGIN.remember);
-  LOGIN.busy=false; LOGIN.pass='';
-  render();
+  renderLogin();
+  fetch('/api/demo-auth/login',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({username:LOGIN.user,password:LOGIN.pass,remember:LOGIN.remember})})
+    .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(d){ if(!r.ok) throw new Error(d.error||'login_failed'); return d; }); })
+    .then(function(){
+      LOGIN.authenticated=true; LOGIN.checked=true; LOGIN.busy=false; LOGIN.error=''; LOGIN.pass='';
+      render(); S.aiConfig.loaded=false; loadAiConfig(true);
+    })
+    .catch(function(e){
+      LOGIN.authenticated=false; LOGIN.checked=true; LOGIN.busy=false; LOGIN.pass='';
+      LOGIN.error=String(e&&e.message)==='invalid_credentials'?'账号或密码错误，请重新输入':'服务器连接失败，请稍后重试';
+      renderLogin();
+    });
 }
 function logoutDemo(){
-  LOGIN.memory=false; LOGIN.pass=''; LOGIN.error=''; LOGIN.busy=false;
+  LOGIN.memory=false; LOGIN.authenticated=false; LOGIN.checked=true; LOGIN.pass=''; LOGIN.error=''; LOGIN.busy=false;
   try{ sessionStorage.removeItem(QXY_AUTH_KEY); }catch(e){}
   try{ localStorage.removeItem(QXY_AUTH_KEY); }catch(e){}
   S.menu=false;
   render();
+  if(location.protocol!=='file:') fetch('/api/demo-auth/logout',{method:'POST',credentials:'same-origin'}).catch(function(){});
+}
+function bootstrapDemoSession(){
+  if(location.protocol==='file:'){
+    LOGIN.checked=true; render(); loadAiConfig(false); return;
+  }
+  LOGIN.checked=false; LOGIN.authenticated=false; renderLogin();
+  fetch('/api/demo-auth/session',{credentials:'same-origin',cache:'no-store'})
+    .then(function(r){ return r.json().catch(function(){ return {}; }); })
+    .then(function(d){
+      LOGIN.checked=true; LOGIN.authenticated=!!d.authenticated; render();
+      if(LOGIN.authenticated){ S.aiConfig.loaded=false; loadAiConfig(true); }
+    })
+    .catch(function(){ LOGIN.checked=true; LOGIN.authenticated=false; renderLogin(); });
 }
 
 /* 头像（首字 + 稳定色） */
@@ -3157,8 +3192,7 @@ if(legacyAiSecret) save();
 S.form=blankForm();
 S.appr=seedAppr();
 renderBrand();
-render();
-loadAiConfig(false);
+bootstrapDemoSession();
 return {S:S, render:render, schedule:schedule, makePlans:makePlans};
 })();
 </script>
