@@ -6,6 +6,7 @@ import test from "node:test";
 
 const root = process.cwd();
 const outputPath = path.join(root, "quantxy-ai-workbench-fused.html");
+const deployedPath = path.join(root, "public", "quantxy-ai-workbench-fused.html");
 const sourcePath = "E:/xwechat_files/wxid_dlkzyugmv5rz22_ab99/msg/file/2026-08/quantxy-ai-workbench_10(1).html";
 const sourceHash = "7E2437FDC2D6E9688076D582AA683F12E9FAFB40994E2936DAB34A0A4CD44607";
 
@@ -148,4 +149,12 @@ test("keeps model credentials on the server and makes key updates write only", a
   assert.match(html, /输入新 Key 进行更新/);
   assert.match(html, /更新密钥/);
   assert.match(html, /更新时间/);
+});
+
+test("deploys the exact fused workstation HTML through the Next public directory", async () => {
+  const [source, deployed] = await Promise.all([
+    readFile(outputPath),
+    readFile(deployedPath),
+  ]);
+  assert.deepEqual(deployed, source);
 });
