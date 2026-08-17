@@ -225,6 +225,45 @@ tr:last-child td{border-bottom:0}
 .msg.u .bub{background:var(--brand);color:#fff;border-color:var(--brand)}
 .msg .bub p{margin:0 0 8px} .msg .bub p:last-child{margin:0}
 .flow-node{fill:#fff;stroke:var(--line);stroke-width:1.5}
+
+/* ---------- compact workstation layout ---------- */
+@media (max-width:820px){
+  .app{display:block;min-width:0}
+  .side{width:100%;height:auto;position:relative;border-right:0;border-bottom:1px solid var(--line)}
+  .brand{padding:10px 12px;display:flex;align-items:center;justify-content:center;gap:8px}
+  .brand svg{width:54px;height:34px;margin:0}
+  .brand .wm{font-size:16px;margin:0;letter-spacing:1.5px}
+  .brand .cn,.side h6,.helper{display:none!important}
+  .nav{display:flex;gap:6px;overflow-x:auto;padding:8px 10px 10px;scrollbar-width:thin}
+  .nav button{width:auto;flex:0 0 auto;margin:0;padding:8px 10px;white-space:nowrap}
+  .main{width:100%;min-width:0}
+  .top{padding:10px 12px;gap:8px;flex-wrap:wrap;position:sticky;top:0}
+  .top .ttl h1{font-size:18px}
+  .top .ttl p,.top .pill,.top .me .nm,.top .me .rl{display:none}
+  .top .search{order:5;width:100%}
+  .top .btn{padding:8px 10px}
+  .view{padding:0 12px 22px}
+  .grid{grid-template-columns:minmax(0,1fr)!important}
+  .grid[style*="repeat(5"],.grid[style*="repeat(4"]{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .fusion-split,.fusion-dashboard{grid-template-columns:minmax(0,1fr)!important}
+  .frow{grid-template-columns:1fr}
+  #formPage>.grid{grid-template-columns:1fr!important}
+  .card .hd{flex-wrap:wrap}
+  .card .bd{max-width:100%;overflow-x:auto}
+  table{min-width:680px}
+  .tabs{gap:14px;overflow-x:auto}
+  .tabs button{flex:0 0 auto;white-space:nowrap}
+  .gantt-row{grid-template-columns:130px minmax(380px,1fr)}
+}
+@media (max-width:480px){
+  .brand{justify-content:flex-start}
+  .top .bell{display:none}
+  .top .me{margin-left:auto}
+  .kpi{padding:13px}
+  .kpi .v{font-size:21px}
+  .card .bd{padding:14px}
+  .modal{padding:18px}
+}
 </style>
 </head>
 <body>
@@ -2791,9 +2830,9 @@ function viewActivities(){
       '<button class="btn" data-act="go" data-page="new-activity">',ic('plus',15),'新建活动</button></div></div>',
     '<div class="grid fusion-split" style="grid-template-columns:minmax(280px,.9fr) minmax(0,1.6fr);margin-top:16px;align-items:start">',
       '<div style="display:flex;flex-direction:column;gap:12px">',list.length?list.map(function(a){ return '<button class="card" data-act="open-activity" data-id="'+a.id+'" style="padding:16px;text-align:left;border-color:'+(cur&&cur.id===a.id?'#9bbcff':'var(--line)')+';box-shadow:'+(cur&&cur.id===a.id?'0 0 0 2px var(--brand-s)':'var(--sh)')+'"><div style="display:flex;align-items:flex-start;gap:10px"><span class="ico" style="width:34px;height:34px;border-radius:10px;background:var(--violet-s);display:grid;place-items:center">'+ic('target',17,'#7c3aed')+'</span><div style="min-width:0;flex:1"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(a.n)+'</b><div style="font-size:11.5px;color:var(--mut);margin-top:2px">'+esc((PB[a.project]||{}).n||'未关联项目')+'</div></div><span class="tag '+statusClass(a.st)+'">'+esc(a.st)+'</span></div><div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--mut);margin:13px 0 6px"><span>'+esc(a.stage)+'阶段</span><b>'+a.progress+'%</b></div><div class="bar"><i style="width:'+a.progress+'%;background:var(--violet)"></i></div></button>'; }).join(''):'<div class="card"><div class="bd" style="color:var(--mut)">没有符合条件的活动</div></div>','</div>',
-      cur?'<div style="display:flex;flex-direction:column;gap:16px"><div class="card"><div class="hd"><div><h3>'+esc(cur.n)+'</h3><div class="sm">'+esc(cur.goal)+'</div></div><div class="grow"></div><span class="tag '+statusClass(cur.st)+'">'+esc(cur.st)+'</span></div><div class="bd"><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">'+activityPhases(cur).map(function(p,pi){ return '<div style="padding:12px 8px;border-radius:10px;text-align:center;background:'+(p.st==='当前'?'var(--brand-s)':p.st==='完成'?'var(--ok-s)':'#f6f8fc')+'"><span style="width:24px;height:24px;border-radius:50%;margin:0 auto 5px;display:grid;place-items:center;background:'+(p.st==='当前'?'var(--brand)':p.st==='完成'?'var(--ok)':'#dbe1ed')+';color:#fff;font-size:11px">'+(p.st==='完成'?'✓':pi+1)+'</span><b style="font-size:12px">'+p.n+'</b><div style="font-size:10.5px;color:var(--mut)">'+p.st+'</div></div>'; }).join('')+'</div><div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">'+(cur.project&&PB[cur.project]?'<button class="btn soft" data-act="open-proj" data-id="'+cur.project+'">'+ic('proj',15)+'关联项目：'+esc(PB[cur.project].n)+'</button>':'')+'<span class="tag t-v">ROI '+Number(cur.roi||0).toFixed(1)+'</span><span class="tag t-n">'+esc(cur.s)+' → '+esc(cur.e)+'</span></div></div></div>',
+      cur?j(['<div style="display:flex;flex-direction:column;gap:16px"><div class="card"><div class="hd"><div><h3>'+esc(cur.n)+'</h3><div class="sm">'+esc(cur.goal)+'</div></div><div class="grow"></div><span class="tag '+statusClass(cur.st)+'">'+esc(cur.st)+'</span></div><div class="bd"><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">'+activityPhases(cur).map(function(p,pi){ return '<div style="padding:12px 8px;border-radius:10px;text-align:center;background:'+(p.st==='当前'?'var(--brand-s)':p.st==='完成'?'var(--ok-s)':'#f6f8fc')+'"><span style="width:24px;height:24px;border-radius:50%;margin:0 auto 5px;display:grid;place-items:center;background:'+(p.st==='当前'?'var(--brand)':p.st==='完成'?'var(--ok)':'#dbe1ed')+';color:#fff;font-size:11px">'+(p.st==='完成'?'✓':pi+1)+'</span><b style="font-size:12px">'+p.n+'</b><div style="font-size:10.5px;color:var(--mut)">'+p.st+'</div></div>'; }).join('')+'</div><div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">'+(cur.project&&PB[cur.project]?'<button class="btn soft" data-act="open-proj" data-id="'+cur.project+'">'+ic('proj',15)+'关联项目：'+esc(PB[cur.project].n)+'</button>':'')+'<span class="tag t-v">ROI '+Number(cur.roi||0).toFixed(1)+'</span><span class="tag t-n">'+esc(cur.s)+' → '+esc(cur.e)+'</span></div></div></div>',
       '<div class="grid" style="grid-template-columns:1fr 1fr"><div class="card"><div class="hd"><h3>阶段任务</h3><div class="grow"></div><span class="sm">'+rel.length+' 项</span></div><div class="bd" style="padding-top:8px">'+(rel.length?rel.map(function(t){ return '<div style="padding:10px 0;border-bottom:1px solid var(--line2)"><div style="display:flex;gap:8px;align-items:center"><span class="tag '+(t.st==='已完成'?'t-g':t.st==='进行中'?'t-b':'t-n')+'">'+esc(t.st)+'</span><b style="font-size:12.5px">'+esc(t.n)+'</b></div><div style="font-size:11px;color:var(--mut);margin-top:5px">'+esc((MB[t.own]||{}).n||'未分配')+' · '+esc(t.e)+'</div></div>'; }).join(''):'<p class="hint">关联项目暂无任务，可从任务中心补充。</p>')+'</div></div>',
-      '<div class="card"><div class="hd"><h3>关键节点</h3></div><div class="bd" style="padding-top:8px">'+[['活动启动',cur.s],['当前阶段',cur.stage],['计划完成',cur.e],['复盘指标','ROI '+Number(cur.roi||0).toFixed(1)]].map(function(k,i){ return '<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--line2)"><span style="width:24px;height:24px;border-radius:8px;background:'+(i<2?'var(--brand-s)':'#f3f5fa')+';display:grid;place-items:center">'+ic(i===1?'target':'cal',13,i<2?'#2563eb':'#98a2ba')+'</span><div><b style="font-size:12.5px">'+k[0]+'</b><div style="font-size:11px;color:var(--mut)">'+esc(k[1])+'</div></div></div>'; }).join('')+'</div></div></div></div>':'<div class="card"><div class="bd" style="color:var(--mut)">请选择一个活动</div></div>',
+      '<div class="card"><div class="hd"><h3>关键节点</h3></div><div class="bd" style="padding-top:8px">'+[['活动启动',cur.s],['当前阶段',cur.stage],['计划完成',cur.e],['复盘指标','ROI '+Number(cur.roi||0).toFixed(1)]].map(function(k,i){ return '<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--line2)"><span style="width:24px;height:24px;border-radius:8px;background:'+(i<2?'var(--brand-s)':'#f3f5fa')+';display:grid;place-items:center">'+ic(i===1?'target':'cal',13,i<2?'#2563eb':'#98a2ba')+'</span><div><b style="font-size:12.5px">'+k[0]+'</b><div style="font-size:11px;color:var(--mut)">'+esc(k[1])+'</div></div></div>'; }).join('')+'</div></div></div></div>']):'<div class="card"><div class="bd" style="color:var(--mut)">请选择一个活动</div></div>',
     '</div></div>']);
 }
 function decisionRef(id){
