@@ -158,3 +158,12 @@ test("deploys the exact fused workstation HTML through the Next public directory
   ]);
   assert.deepEqual(deployed, source);
 });
+
+test("offers an active secure-server entry instead of a dead file-mode form", async () => {
+  const html = await readFusionHtml();
+
+  assert.match(html, /location\.protocol==='file:'/);
+  assert.match(html, /data-act="open-secure-ai"/);
+  assert.match(html, /打开安全服务版/);
+  assert.match(html, /http:\/\/127\.0\.0\.1:3011\/quantxy-ai-workbench-fused\.html/);
+});
