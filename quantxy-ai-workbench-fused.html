@@ -323,151 +323,6 @@ tr:last-child td{border-bottom:0}
   </div>
 </div>
 <div class="toast" id="toast"></div>
-<script type="text/plain" id="srcWorker">
-/**
- * DeepSeek API 跨域中转 · Cloudflare Worker
- * ------------------------------------------------------------
- * 为什么需要它：api.deepseek.com 不返回 CORS 响应头，
- * 浏览器里的 fetch 会被同源策略直接拦掉（Failed to fetch）。
- * 这个 Worker 做两件事：补上 CORS 头 + 在服务端注入 API Key。
- *
- * 部署（约 3 分钟，免费，不需要信用卡）：
- *   1. dash.cloudflare.com → Workers & Pages → Create → Worker
- *   2. 把本文件全部内容粘进编辑器，Deploy
- *   3. Settings → Variables → 添加环境变量：
- *        DEEPSEEK_KEY     = sk-你的真实 Key      （建议设为 Secret）
- *        ACCESS_PASSWORD  = 自己定一个口令       （可选，防止别人白嫖额度）
- *        ALLOW_ORIGIN     = https://你的站点域名  （可选，默认 * ）
- *   4. 把 https://你的名字.workers.dev/chat/completions
- *      填进工作台的「系统设置 → API 地址」
- *   5. 前端「API Key」填 ACCESS_PASSWORD；没设口令就留空
- */
-
-const UPSTREAM = 'https://api.deepseek.com';
-
-export default {
-  async fetch(request, env) {
-    const cors = {
-      'Access-Control-Allow-Origin': env.ALLOW_ORIGIN || '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Max-Age': '86400',
-    };
-
-    // 预检请求
-    if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
-
-    const url = new URL(request.url);
-
-    // 两种用法都支持：
-    //   A) 路径透传： https://worker.dev/chat/completions  →  api.deepseek.com/chat/completions
-    //   B) 前缀模式： https://worker.dev/?url=https://api.deepseek.com/chat/completions
-    const target = url.searchParams.get('url') || UPSTREAM + url.pathname + url.search;
-
-    const headers = new Headers();
-    headers.set('Content-Type', 'application/json');
-
-    if (env.DEEPSEEK_KEY) {
-      // 口令校验：前端传来的 Authorization 当作虚拟 Key 比对
-      if (env.ACCESS_PASSWORD) {
-        const got = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim();
-        if (got !== env.ACCESS_PASSWORD) {
-          return json({ error: { message: '访问口令不正确，请检查前端填写的 API Key' } }, 401, cors);
-        }
-      }
-      headers.set('Authorization', 'Bearer ' + env.DEEPSEEK_KEY);
-    } else {
-      // 没配环境变量时，原样透传前端带来的 Key（不推荐，Key 会暴露在前端）
-      const auth = request.headers.get('Authorization');
-      if (auth) headers.set('Authorization', auth);
-    }
-
-    let resp;
-    try {
-      resp = await fetch(target, {
-        method: request.method,
-        headers,
-        body: request.method === 'POST' ? await request.text() : undefined,
-      });
-    } catch (e) {
-      return json({ error: { message: '代理转发失败：' + e.message } }, 502, cors);
-    }
-
-    const out = new Response(resp.body, resp);
-    for (const k in cors) out.headers.set(k, cors[k]);
-    return out;
-  },
-};
-
-function json(obj, status, cors) {
-  return new Response(JSON.stringify(obj), {
-    status,
-    headers: Object.assign({ 'Content-Type': 'application/json' }, cors),
-  });
-}
-
-</script>
-<script type="text/plain" id="srcPhp">
-<?php
-/**
- * DeepSeek API 跨域中转 · PHP 单文件版
- * ------------------------------------------------------------
- * 适用：宝塔 / LNMP / 虚拟主机 / 任何能跑 PHP 的服务器。
- * 用法：把本文件放到和工作台 HTML 同一个站点下（例如 /api/ds.php），
- *      然后把「系统设置 → API 地址」填成 https://你的域名/api/ds.php
- *      同源调用，连 CORS 都不会触发。
- * 安全：把真实 Key 写在下面（或用环境变量），前端就不用带 Key 了。
- */
-
-$KEY             = getenv('DEEPSEEK_KEY') ?: 'sk-在这里填你的真实-Key';
-$ACCESS_PASSWORD = getenv('ACCESS_PASSWORD') ?: '';   // 可选：前端要带的虚拟口令
-$UPSTREAM        = 'https://api.deepseek.com/chat/completions';
-
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
-header('Access-Control-Allow-Methods: POST, OPTIONS');
-header('Content-Type: application/json; charset=utf-8');
-
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405);
-    echo json_encode(['error' => ['message' => '只接受 POST 请求']], JSON_UNESCAPED_UNICODE);
-    exit;
-}
-
-if ($ACCESS_PASSWORD !== '') {
-    $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? ($_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
-    $got  = trim(preg_replace('/^Bearer\s+/i', '', $auth));
-    if ($got !== $ACCESS_PASSWORD) {
-        http_response_code(401);
-        echo json_encode(['error' => ['message' => '访问口令不正确']], JSON_UNESCAPED_UNICODE);
-        exit;
-    }
-}
-
-$body = file_get_contents('php://input');
-$ch   = curl_init($UPSTREAM);
-curl_setopt_array($ch, [
-    CURLOPT_POST           => true,
-    CURLOPT_POSTFIELDS     => $body,
-    CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'Authorization: Bearer ' . $KEY],
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_TIMEOUT        => 120,
-]);
-$res  = curl_exec($ch);
-$code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-$err  = curl_error($ch);
-curl_close($ch);
-
-if ($res === false) {
-    http_response_code(502);
-    echo json_encode(['error' => ['message' => '代理请求失败：' . $err]], JSON_UNESCAPED_UNICODE);
-    exit;
-}
-http_response_code($code ?: 200);
-echo $res;
-
-</script>
 <script>
 /* =========================================================
    量子星河 QuantXY · AI 企业工作台
@@ -771,9 +626,13 @@ var S = {
   tasks:[], proj:PROJECTS, customers:[], activities:[], decisions:[],
   tab:{proj:'all', task:'all', kb:'week'},
   sel:{task:null, wbs:null},
-  cfg:{ provider:'deepseek', endpoint:'https://api.deepseek.com/chat/completions',
-        model:'deepseek-v4-flash', apiKey:'sk-2abcec9c5f1d4d2c8dbde7a57f9515cc', proxy:'', keyCleared:0,
+  cfg:{ provider:'deepseek', endpoint:'/api/ai/chat',
+        model:'deepseek-v4-flash',
         workday:5, parallel:3, riskLine:20 },
+  aiConfig:{ loading:false, loaded:false, saving:false, error:'', provider:'deepseek',
+        apiBaseUrl:'https://api.deepseek.com', model:'deepseek-v4-flash',
+        keyConfigured:false, keyHint:null, updatedAt:null, canManage:false },
+  aiKeyDraft:'', showKey:false,
   aiTest:null,
   sch:{ goal:'', deadline:fmt(addD(today(),45)), budget:30, must:'', busy:false, err:'',
         tasks:null, plans:null, pick:'A', from:'', issued:false },
@@ -895,45 +754,20 @@ function localDecompose(goal){
       ac:'交付物通过 '+r[0]+' 阶段评审，满足《'+g.slice(0,12)+'》既定验收标准' };
   });
 }
-/* 6) 调用大模型做真实拆解（Key 在「系统设置」中配置） */
-var PROVIDERS={
-  deepseek:{n:'DeepSeek',fmt:'openai',ep:'https://api.deepseek.com/chat/completions',
-    models:['deepseek-v4-flash','deepseek-v4-pro','deepseek-chat','deepseek-reasoner'],
-    tip:'OpenAI 兼容格式。V4 已上线，deepseek-chat / deepseek-reasoner 属旧名，官方公告于 2026-07-24 起停用。'},
-  openai:{n:'OpenAI 兼容',fmt:'openai',ep:'https://api.openai.com/v1/chat/completions',
-    models:['gpt-4o-mini','gpt-4o'],tip:'适用于任何 OpenAI 兼容网关：Moonshot、通义、SiliconFlow、one-api 等。'},
-  anthropic:{n:'Anthropic',fmt:'anthropic',ep:'https://api.anthropic.com/v1/messages',
-    models:['claude-sonnet-4-6','claude-opus-4-1'],tip:'Anthropic 原生格式，Key 留空时在 Claude 预览环境中可直接调用。'},
-  dsanthropic:{n:'DeepSeek（Anthropic 格式）',fmt:'anthropic',ep:'https://api.deepseek.com/anthropic/v1/messages',
-    models:['deepseek-v4-flash','deepseek-v4-pro'],tip:'DeepSeek 提供的 Anthropic 兼容端点，直连失败时可作为备选。'},
-  proxy:{n:'自建代理（推荐）',fmt:'openai',ep:'https://你的名字.workers.dev/chat/completions',
-    models:['deepseek-v4-flash','deepseek-v4-pro'],
-    tip:'DeepSeek 官方接口不返回 CORS 头，浏览器直连必然失败。用自己部署的中转：既解决跨域，Key 也留在服务端不外泄。下方有一键复制的部署代码。'}
-};
-function pvd(){ return PROVIDERS[S.cfg.provider]||PROVIDERS.deepseek; }
-/* 统一按 Anthropic 形状传入 {model,max_tokens,system,messages}，内部按服务商翻译 */
+/* 6) 调用同源服务端接口；模型密钥只由服务器解密并转发 */
+var AI_MODELS=['deepseek-v4-flash','deepseek-chat','deepseek-reasoner'];
 function aiCall(body){
-  var c=S.cfg, fmt=pvd().fmt, h={'content-type':'application/json'}, payload;
-  var url=(c.proxy||'')+(c.endpoint||pvd().ep);
-  if(fmt==='anthropic'){
-    h['anthropic-version']='2023-06-01';
-    h['anthropic-dangerous-direct-browser-access']='true';
-    if(c.apiKey) h['x-api-key']=c.apiKey;
-    payload={model:body.model||c.model,max_tokens:body.max_tokens||1200,messages:body.messages||[]};
-    if(body.system) payload.system=body.system;
-  }else{
-    if(c.apiKey) h['Authorization']='Bearer '+c.apiKey;
-    payload={model:body.model||c.model,max_tokens:body.max_tokens||1200,stream:false,
-      messages:(body.system?[{role:'system',content:body.system}]:[]).concat(body.messages||[])};
-  }
-  return fetch(url,{method:'POST',headers:h,body:JSON.stringify(payload)}).then(function(r){
+  var payload={max_tokens:body.max_tokens||1200,messages:body.messages||[]};
+  if(body.system) payload.system=body.system;
+  return fetch('/api/ai/chat',{method:'POST',credentials:'same-origin',
+    headers:{'content-type':'application/json'},body:JSON.stringify(payload)}).then(function(r){
     return r.text().then(function(txt){
       var d=null; try{ d=JSON.parse(txt); }catch(e){}
       if(!r.ok){
-        var m=(d&&d.error&&(d.error.message||d.error.type))||(txt||'').slice(0,140);
+        var m=(d&&d.error)||'request_failed';
         throw new Error('HTTP '+r.status+'：'+m);
       }
-      if(!d) throw new Error('返回内容不是 JSON：'+(txt||'').slice(0,140));
+      if(!d) throw new Error('服务端返回内容不是 JSON');
       return d;
     });
   });
@@ -949,27 +783,18 @@ function aiText(d){
 /* 把底层报错翻译成能直接照做的话 */
 function diagnose(e){
   var m=(e&&e.message)||String(e||'');
-  if(/Failed to fetch|NetworkError|Load failed|ERR_/i.test(m))
-    return '浏览器把请求拦下了。DeepSeek 官方接口不返回 CORS 响应头，网页直连必定失败——换 https 域名也没用。'+
-      '解决办法只有一个：部署一个中转（Cloudflare Worker 约 3 分钟，或放一个 PHP 文件到自己服务器），'+
-      '然后把「服务商」切成「自建代理」。下方「跨域中转部署指南」里有现成代码，点开即可复制。';
-  if(/\b401\b|Authentication|invalid.*key|Unauthorized/i.test(m))
-    return 'Key 没通过验证（401）。确认 Key 复制完整、没有多余空格，且平台已开通对应模型。';
+  if(/Failed to fetch|NetworkError|Load failed|ERR_|upstream_unavailable/i.test(m))
+    return '暂时无法连接服务器端模型服务，请稍后重试或联系管理员检查部署状态。';
+  if(/\b401\b|unauthorized/i.test(m)) return '登录状态已失效，请重新登录后再试。';
+  if(/\b403\b|forbidden/i.test(m)) return '当前账号没有模型配置权限。';
+  if(/ai_not_configured/i.test(m)) return '尚未配置模型密钥，请由企业决策人或管理员在系统设置中更新。';
+  if(/upstream_auth_failed/i.test(m)) return '模型密钥验证失败，请由管理员更新密钥。';
   if(/\b402\b|Insufficient Balance|balance/i.test(m))
     return '账户余额不足（402），到 DeepSeek 平台充值后即可恢复。';
-  if(/\b404\b|Model Not Exist|model_not_found/i.test(m))
-    return '模型名不存在（404）。DeepSeek 已升级到 V4，旧名 deepseek-chat / deepseek-reasoner 已停用，请改选 deepseek-v4-flash。';
-  if(/\b429\b|rate limit/i.test(m)) return '触发限流（429），等几秒再试或降低并发。';
-  if(/\b5\d\d\b/.test(m)) return '服务端错误（'+m+'），通常是对方临时故障，稍后重试。';
+  if(/\b429\b|rate_limited/i.test(m)) return '请求较多，请稍等一分钟后再试。';
+  if(/upstream_timeout/i.test(m)) return '模型响应超时，请稍后重试。';
+  if(/\b5\d\d\b|upstream_failed|invalid_server_config/i.test(m)) return '模型服务暂时不可用，请联系管理员检查配置。';
   return m;
-}
-function fallbackCopy(txt){
-  try{
-    var ta=document.createElement('textarea'); ta.value=txt;
-    ta.style.position='fixed'; ta.style.left='-9999px';
-    document.body.appendChild(ta); ta.select(); document.execCommand('copy');
-    document.body.removeChild(ta);
-  }catch(e){}
 }
 function testAI(){
   S.aiTest={busy:1}; render();
@@ -978,6 +803,68 @@ function testAI(){
     .then(function(d){ S.aiTest={ok:1,ms:Date.now()-t0,msg:(aiText(d)||'').slice(0,40)||'（空回复）'}; })
     .catch(function(e){ S.aiTest={ok:0,msg:diagnose(e),raw:(e&&e.message)||''}; })
     .then(function(){ render(); });
+}
+function applyAiConfig(d){
+  if(!d||typeof d!=='object') return;
+  S.aiConfig.provider='deepseek';
+  S.aiConfig.apiBaseUrl=typeof d.apiBaseUrl==='string'?d.apiBaseUrl:'https://api.deepseek.com';
+  S.aiConfig.model=AI_MODELS.indexOf(d.model)>=0?d.model:'deepseek-v4-flash';
+  S.aiConfig.keyConfigured=!!d.keyConfigured;
+  S.aiConfig.keyHint=typeof d.keyHint==='string'?d.keyHint:null;
+  S.aiConfig.updatedAt=typeof d.updatedAt==='string'?d.updatedAt:null;
+  S.aiConfig.canManage=!!d.canManage;
+  S.cfg.model=S.aiConfig.model;
+}
+function aiConfigError(code,status){
+  if(status===401||code==='unauthorized') return '登录状态已失效，请重新登录。';
+  if(status===403||code==='forbidden') return '当前账号没有模型配置权限。';
+  if(code==='invalid_model') return '请选择可用的模型。';
+  if(code==='invalid_api_key') return '密钥格式不正确，请检查后重新输入。';
+  return '模型配置服务暂时不可用，请联系管理员检查服务器部署。';
+}
+function loadAiConfig(force){
+  if(S.aiConfig.loading||(!force&&S.aiConfig.loaded)) return;
+  S.aiConfig.loading=true; S.aiConfig.error='';
+  if(S.page==='set') render();
+  fetch('/api/ai/config',{credentials:'same-origin',cache:'no-store'}).then(function(r){
+    return r.text().then(function(txt){
+      var d=null; try{ d=JSON.parse(txt); }catch(e){}
+      if(!r.ok) throw new Error(aiConfigError(d&&d.error,r.status));
+      if(!d) throw new Error(aiConfigError('',r.status));
+      return d;
+    });
+  }).then(function(d){ applyAiConfig(d); S.aiConfig.loaded=true; })
+    .catch(function(e){ S.aiConfig.loaded=true; S.aiConfig.error=(e&&e.message)||aiConfigError('',0); })
+    .then(function(){ S.aiConfig.loading=false; if(S.page==='set') render(); });
+}
+function updateAiConfig(includeKey){
+  if(S.aiConfig.saving) return;
+  var modelEl=el('cfgModel'), keyEl=el('cfgNewKey');
+  var model=modelEl?modelEl.value:S.aiConfig.model;
+  var payload={model:model};
+  if(includeKey){
+    var key=keyEl?keyEl.value.trim():'';
+    if(!key){ toast('请先输入新的 API Key'); return; }
+    if(key.indexOf('sk-')!==0||key.length<12){ toast('密钥格式不正确，请重新输入'); return; }
+    payload.apiKey=key;
+    if(keyEl) keyEl.value='';
+  }
+  S.aiKeyDraft=''; S.showKey=false; S.aiConfig.saving=true; S.aiConfig.error='';
+  render();
+  fetch('/api/ai/config',{method:'PUT',credentials:'same-origin',
+    headers:{'content-type':'application/json'},body:JSON.stringify(payload)}).then(function(r){
+    return r.text().then(function(txt){
+      var d=null; try{ d=JSON.parse(txt); }catch(e){}
+      if(!r.ok) throw new Error(aiConfigError(d&&d.error,r.status));
+      if(!d) throw new Error(aiConfigError('',r.status));
+      return d;
+    });
+  }).then(function(d){
+    applyAiConfig(d); S.aiConfig.loaded=true; S.aiTest=null;
+    toast(includeKey?'密钥已安全更新':'模型已更新');
+  }).catch(function(e){
+    S.aiConfig.error=(e&&e.message)||aiConfigError('',0); toast(S.aiConfig.error);
+  }).then(function(){ S.aiConfig.saving=false; render(); });
 }
 function stripFence(t){ return String(t).replace(/\u0060\u0060\u0060(json)?/g,'').trim(); }
 
@@ -1637,7 +1524,7 @@ function viewAssistant(){
     '<div class="card" style="display:flex;flex-direction:column;height:calc(100vh - 130px)">',
       '<div class="hd" style="padding-bottom:14px;border-bottom:1px solid var(--line2)"><h3>与量子星河 AI 助理对话</h3>',
       '<span class="tag t-b">多轮对话</span><span class="tag t-v">企业知识</span><div class="grow"></div>',
-      '<span class="sm">'+(S.cfg.apiKey?'已接入自有 Key':'使用默认接入')+'</span></div>',
+      '<span class="sm">'+(S.aiConfig.keyConfigured?'模型服务已配置':'模型服务待配置')+'</span></div>',
       '<div class="bd" style="flex:1;overflow:auto" id="chatBox">',
         S.chat.length? S.chat.map(function(m){
           return '<div class="msg '+(m.r==='u'?'u':'')+'">'+(m.r==='u'?av(MB[S.me].n,1):'<span class="av lg" style="background:linear-gradient(135deg,#2563eb,#7c3aed)">AI</span>')+
@@ -1852,95 +1739,65 @@ function viewKb(){
 
 /* ---------------- 页面：系统设置 ---------------- */
 function viewSet(){
+  var c=S.aiConfig;
+  var locked=!c.canManage||c.saving;
+  var disabled=locked?' disabled':'';
+  var status=c.loading?'读取中':(c.keyConfigured?'已配置':'未配置');
+  var statusClass=c.keyConfigured?'t-g':(c.loading?'t-b':'t-o');
+  var keySummary=c.keyConfigured?('****'+(c.keyHint||'')):'尚未设置密钥';
+  var updated='尚未更新';
+  if(c.updatedAt){
+    var updatedDate=new Date(c.updatedAt);
+    if(!isNaN(updatedDate.getTime())) updated=updatedDate.toLocaleString('zh-CN',{hour12:false});
+  }
   return j([
-  (location.protocol==='file:'? '<div class="card fade" style="grid-column:1/-1;border-color:#f5c78a;background:var(--warn-s);margin-bottom:16px"><div class="bd" style="display:flex;gap:10px;align-items:flex-start">'+
-    ic('warn',18,'#b26a00')+'<div><b style="font-size:13px">当前是用 file:// 双击打开的</b>'+
-    '<p style="margin:5px 0 0;font-size:12px;color:var(--sub);line-height:1.7">这种方式下浏览器限制最严，接口调用几乎一定失败。请把文件放到任意 http/https 地址下访问'+
-    '（本地可在文件夹里执行 <code>python3 -m http.server 8080</code>，再打开 http://localhost:8080）。'+
-    '不过要说清楚：即使换了 https，DeepSeek 官方接口仍然不支持浏览器直连，还是需要下方的中转。</p></div></div></div>':''),
   '<div class="grid fade" style="grid-template-columns:1.2fr 1fr">',
-  '<div class="card"><div class="hd">'+ic('ai',18,'#2563eb')+'<h3>大模型接入</h3><div class="grow"></div>',
-    (S.cfg.apiKey?'<span class="tag t-g">已配置 Key</span>':'<span class="tag t-o">未配置 Key</span>'),'</div>',
+  '<div class="card"><div class="hd">'+ic('ai',18,'#2563eb')+'<div><h3 style="margin:0">DeepSeek</h3>',
+    '<p style="margin:3px 0 0;font-size:11.5px;color:var(--sub)">选题 · 文案 · 标题 · 分镜</p></div><div class="grow"></div>',
+    '<span class="tag '+statusClass+'">'+status+'</span></div>',
   '<div class="bd" style="padding-top:12px">',
-    '<label class="field">服务商</label>',
-    '<select class="sel" data-prov="1">'+Object.keys(PROVIDERS).map(function(k){
-      return '<option value="'+k+'"'+(S.cfg.provider===k?' selected':'')+'>'+PROVIDERS[k].n+'</option>'; }).join('')+'</select>',
-    '<p class="hint">',esc(pvd().tip),'</p>',
-    '<label class="field" style="margin-top:12px">模型</label>',
-    '<select class="sel" id="cfgModel">'+pvd().models.concat(pvd().models.indexOf(S.cfg.model)<0?[S.cfg.model]:[]).map(function(m){
-      return '<option'+(S.cfg.model===m?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select>',
-    '<label class="field" style="margin-top:12px">API 地址</label><input class="inp" id="cfgEp" value="',esc(S.cfg.endpoint),'">',
-    '<label class="field" style="margin-top:12px">API Key</label>',
-    '<div style="display:flex;gap:8px"><input class="inp" id="cfgKey" type="',(S.showKey?'text':'password'),'" placeholder="留空则不带鉴权头" value="',esc(S.cfg.apiKey),'" style="flex:1">',
-      '<button class="btn ghost" data-act="toggle-key">',(S.showKey?'隐藏':'显示'),'</button>',
-      '<button class="btn ghost" style="color:var(--risk)" data-act="clear-key">清除</button></div>',
-    '<label class="field" style="margin-top:12px">跨域代理前缀（可选）</label>',
-    '<input class="inp" id="cfgProxy" value="',esc(S.cfg.proxy||''),'" placeholder="如 https://your-worker.workers.dev/?url=">',
-    '<p class="hint">只有在浏览器直连被跨域拦截时才需要。代理会看到你的 Key，务必用自己部署的。</p>',
+    '<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:11px;background:#f6f8fc;margin-bottom:14px">',
+      '<b style="font-size:12.5px;letter-spacing:.4px">'+esc(keySummary)+'</b>',
+      '<span style="font-size:11.5px;color:var(--mut)">更新时间：'+esc(updated)+'</span>',
+      '<div class="grow"></div>',
+      (c.loading?'<span class="sm">正在从服务器读取…</span>':''),
+    '</div>',
+    '<div class="frow">',
+      '<div><label class="field">API Base URL</label><input class="inp" value="'+esc(c.apiBaseUrl)+'" readonly></div>',
+      '<div><label class="field">模型名称</label><select class="sel" id="cfgModel"'+disabled+'>',
+        AI_MODELS.map(function(m){ return '<option value="'+m+'"'+(c.model===m?' selected':'')+'>'+m+'</option>'; }).join(''),
+      '</select></div>',
+    '</div>',
+    '<label class="field" style="margin-top:14px">输入新 Key 进行更新</label>',
+    '<div style="display:flex;gap:8px">',
+      '<input class="inp" id="cfgNewKey" type="'+(S.showKey?'text':'password')+'" autocomplete="new-password" spellcheck="false" ',
+        'placeholder="粘贴客户自己的 API Key" value="'+esc(S.aiKeyDraft)+'" style="flex:1"'+disabled+'>',
+      '<button class="btn ghost" data-act="toggle-key"'+disabled+'>'+(S.showKey?'隐藏':'显示')+'</button>',
+      '<button class="btn" data-act="update-ai-key"'+disabled+'>'+(c.saving?'更新中…':'更新密钥')+'</button>',
+    '</div>',
     '<div style="display:flex;gap:9px;margin-top:14px">',
-      '<button class="btn ghost" style="flex:1;justify-content:center" data-act="test-ai" ',(S.aiTest&&S.aiTest.busy?'disabled':''),'>',
+      '<button class="btn ghost" style="flex:1;justify-content:center" data-act="test-ai" '+((S.aiTest&&S.aiTest.busy)||!c.keyConfigured?'disabled':'')+'>',
         ic('bolt',15),(S.aiTest&&S.aiTest.busy?'测试中…':'测试连接'),'</button>',
-      '<button class="btn" style="flex:1;justify-content:center" data-act="save-cfg">保存设置</button></div>',
+      '<button class="btn soft" style="flex:1;justify-content:center" data-act="save-ai-model"'+disabled+'>'+(c.saving?'保存中…':'保存模型')+'</button>',
+    '</div>',
     (S.aiTest&&!S.aiTest.busy? '<div style="margin-top:12px;padding:12px;border-radius:11px;background:'+(S.aiTest.ok?'var(--ok-s)':'var(--risk-s)')+'">'+
       '<b style="font-size:12.5px;color:'+(S.aiTest.ok?'#0b8f6a':'#c62828')+'">'+(S.aiTest.ok?'连接正常 · 往返 '+S.aiTest.ms+' ms':'连接失败')+'</b>'+
-      '<p style="margin:5px 0 0;font-size:11.5px;color:var(--sub);line-height:1.7">'+esc(S.aiTest.msg)+'</p>'+
-      (S.aiTest.raw?'<p style="margin:5px 0 0;font-size:11px;color:var(--mut)">原始报错：'+esc(S.aiTest.raw)+'</p>':'')+
-      (!S.aiTest.ok?'<button class="btn" style="margin-top:10px" data-act="open-proxy-guide">'+ic('link',15)+'查看中转部署指南</button>':'')+'</div>' : ''),
-    '<p style="margin:12px 0 0;font-size:11.5px;color:var(--mut);line-height:1.7">Key 保存在本机浏览器，不会上传到任何服务器。但如果这个 HTML 被公开部署，Key 会随源码暴露给所有访客——公开发布前请点「清除」，改由代理端注入。</p>',
+      '<p style="margin:5px 0 0;font-size:11.5px;color:var(--sub);line-height:1.7">'+esc(S.aiTest.msg)+'</p></div>' : ''),
+    (c.error?'<div style="margin-top:12px;padding:11px 12px;border-radius:10px;background:var(--risk-s);color:#c62828;font-size:12px">'+esc(c.error)+
+      ' <button class="link" data-act="reload-ai-config">重新读取</button></div>':''),
+    (!c.canManage&&!c.loading?'<p class="hint">仅企业决策人或管理员可以更换模型和更新密钥。</p>':''),
+    '<p style="margin:12px 0 0;font-size:11.5px;color:var(--mut);line-height:1.7">密钥提交后只在服务器加密保存；页面不会回显、不会写入浏览器存储，也不会随网页源码发布。</p>',
   '</div></div>',
-  '<div class="card" style="grid-column:1/-1"><div class="hd">',ic('link',18,'#f59e0b'),'<h3>跨域中转部署指南</h3><div class="grow"></div>',
-    '<button class="btn ghost" data-act="toggle-proxy">',(S.showProxy?'收起':'展开'),'</button></div>',
-  S.showProxy? j(['<div class="bd">',
-    '<div style="padding:12px;border-radius:11px;background:var(--warn-s);margin-bottom:14px">',
-      '<b style="font-size:12.5px">为什么一定要中转</b>',
-      '<p style="margin:5px 0 0;font-size:12px;color:var(--sub);line-height:1.75">浏览器的同源策略要求目标服务器返回 <code>Access-Control-Allow-Origin</code> 响应头，而 DeepSeek 官方接口不返回。',
-      '所以网页里 fetch 它一定报 Failed to fetch，跟你的 Key、网络、域名都无关。中转做的事就是：替你去调 DeepSeek，然后把结果加上 CORS 头还给浏览器。顺带把 Key 藏在服务端。</p></div>',
-    '<div class="chips" style="margin-bottom:12px">',
-      [['worker','方案 A · Cloudflare Worker（免费，3 分钟）'],['php','方案 B · PHP 单文件（放自己服务器）']].map(function(x){
-        return '<button class="chip '+((S.f.proxyTab||'worker')===x[0]?'on':'')+'" data-act="set" data-k="proxyTab" data-v="'+x[0]+'">'+x[1]+'</button>'; }).join(''),
-    '</div>',
-    (S.f.proxyTab||'worker')==='worker'? j([
-      '<div style="display:grid;grid-template-columns:1fr 1.4fr;gap:18px">',
-      '<div>',
-        [['打开 dash.cloudflare.com，进 Workers &amp; Pages → Create → Worker，随便起个名，Deploy'],
-         ['点 Edit code，把右边代码全选粘贴进去，再 Deploy'],
-         ['进 Settings → Variables，加环境变量 <b>DEEPSEEK_KEY</b> = 你的真实 Key（选 Secret 类型）；想防盗刷再加 <b>ACCESS_PASSWORD</b> = 自定口令'],
-         ['把 <b>https://你的名字.workers.dev/chat/completions</b> 填到上面的「API 地址」，服务商选「自建代理」'],
-         ['上面的 API Key 改填你设的 ACCESS_PASSWORD；没设口令就点「清除」留空'],
-         ['点「测试连接」，出现绿色「连接正常」就通了']].map(function(x,i){
-          return '<div class="step"><b>'+(i+1)+'</b><span>'+x[0]+'</span></div>'; }).join(''),
-        '<p class="hint">注意：workers.dev 域名在部分内地网络访问不稳定，若测试超时，可在 Cloudflare 里给 Worker 绑一个自有域名。</p>',
-      '</div>',
-      '<div><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><b style="font-size:13px;flex:1">worker.js</b>',
-        '<button class="btn ghost" style="padding:5px 11px" data-act="copy-src" data-id="srcWorker">复制代码</button></div>',
-        '<pre class="code">',esc((el('srcWorker')||{textContent:''}).textContent.trim()),'</pre></div>',
-      '</div>'])
-    : j([
-      '<div style="display:grid;grid-template-columns:1fr 1.4fr;gap:18px">',
-      '<div>',
-        [['把右边代码存成 <b>ds.php</b>，上传到你自己的服务器，例如站点下的 /api/ds.php'],
-         ['打开文件，把 <b>$KEY</b> 改成你的真实 Key（或用服务器环境变量 DEEPSEEK_KEY）'],
-         ['把 <b>https://你的域名/api/ds.php</b> 填到上面的「API 地址」，服务商选「自建代理」'],
-         ['如果工作台 HTML 和这个 php 在同一个域名下，属于同源请求，连 CORS 都不会触发'],
-         ['点「测试连接」验证']].map(function(x,i){
-          return '<div class="step"><b>'+(i+1)+'</b><span>'+x[0]+'</span></div>'; }).join(''),
-        '<p class="hint">服务器需要装 curl 扩展（宝塔默认已装）。这条路的好处是内地访问速度稳定。</p>',
-      '</div>',
-      '<div><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><b style="font-size:13px;flex:1">ds.php</b>',
-        '<button class="btn ghost" style="padding:5px 11px" data-act="copy-src" data-id="srcPhp">复制代码</button></div>',
-        '<pre class="code">',esc((el('srcPhp')||{textContent:''}).textContent.trim()),'</pre></div>',
-      '</div>']),
-  '</div>']):'',
-  '</div>',
   '<div class="card"><div class="hd">'+ic('set',18,'#7c3aed')+'<h3>调度参数</h3></div><div class="bd" style="padding-top:12px">',
     '<label class="field">每周工作日</label><input class="inp" id="cfgWd" type="number" value="',S.cfg.workday,'">',
     '<label class="field" style="margin-top:12px">同角色最大并行人数（默认方案）</label><input class="inp" id="cfgPl" type="number" value="',S.cfg.parallel,'">',
     '<label class="field" style="margin-top:12px">风险预警阈值（%）</label><input class="inp" id="cfgRl" type="number" value="',S.cfg.riskLine,'">',
     '<div style="margin-top:16px;padding:12px;border-radius:11px;background:#f9fbff">',
       '<b style="font-size:12.5px">数据说明</b>',
-      '<p style="margin:6px 0 0;font-size:11.5px;color:var(--sub);line-height:1.7">当前为演示数据集，任务与配置保存在本机。接入后端后，只需替换 MEMBERS / PROJECTS / tasks 三个数据源与 aiDecompose 的调用地址即可上线。</p>',
+      '<p style="margin:6px 0 0;font-size:11.5px;color:var(--sub);line-height:1.7">模型密钥由服务器统一管理；当前演示任务和调度参数仍保存在本机浏览器。</p>',
     '</div>',
-    '<button class="btn ghost" style="width:100%;justify-content:center;margin-top:14px" data-act="reset">重置演示数据</button>',
+    '<button class="btn soft" style="width:100%;justify-content:center;margin-top:14px" data-act="save-schedule">保存调度参数</button>',
+    '<button class="btn ghost" style="width:100%;justify-content:center;margin-top:9px" data-act="reset">重置演示数据</button>',
   '</div></div></div>']);
 }
 
@@ -2974,6 +2831,7 @@ function render(){
   renderNav(); renderTop();
   el('view').innerHTML=(VIEWS[S.page]||viewDash)()+modalHTML();
   var cb=el('chatBox'); if(cb) cb.scrollTop=cb.scrollHeight;
+  if(S.page==='set'&&!S.aiConfig.loaded&&!S.aiConfig.loading) setTimeout(function(){ loadAiConfig(false); },0);
 }
 
 /* ---------------- 交互 ---------------- */
@@ -3017,7 +2875,7 @@ function sendChat(text){
   var msgs=S.chat.slice(-8).map(function(m){ return {role:m.r==='u'?'user':'assistant',content:m.t}; });
   aiCall({model:S.cfg.model,max_tokens:1000,system:sys,messages:msgs})
     .then(function(d){ var x=aiText(d)||'（未获取到模型回复）'; S.chat.push({r:'a',t:x}); })
-    .catch(function(){ S.chat.push({r:'a',t:'当前未连接到模型服务。请在「系统设置 → 大模型接入」中填写 API Key 后重试。\n在未接入模型时，AI 调度中心依然可以用内置引擎完成目标拆解与排期。'}); })
+    .catch(function(){ S.chat.push({r:'a',t:'当前未连接到模型服务。请由企业决策人或管理员在「系统设置 → 大模型接入」中更新密钥后重试。\n在未接入模型时，AI 调度中心依然可以用内置引擎完成目标拆解与排期。'}); })
     .then(function(){ S.chatBusy=false; render(); });
 }
 document.addEventListener('click',function(e){
@@ -3148,17 +3006,12 @@ document.addEventListener('click',function(e){
     var dv3=t.getAttribute('data-v'), ix3=fa.depts.indexOf(dv3);
     if(ix3>=0) fa.depts.splice(ix3,1); else fa.depts.push(dv3); render(); }
   else if(a==='test-ai'){ testAI(); }
-  else if(a==='toggle-proxy'){ S.showProxy=!S.showProxy; render(); }
-  else if(a==='open-proxy-guide'){ S.showProxy=true; render();
-    setTimeout(function(){ var g=document.querySelector('.code'); if(g&&g.scrollIntoView) g.scrollIntoView({behavior:'smooth',block:'center'}); },60); }
-  else if(a==='copy-src'){ var src=el(t.getAttribute('data-id'));
-    var txt=src?src.textContent.trim():'';
-    var done=function(){ toast('代码已复制到剪贴板'); };
-    if(navigator.clipboard&&navigator.clipboard.writeText){
-      navigator.clipboard.writeText(txt).then(done,function(){ fallbackCopy(txt); done(); });
-    } else { fallbackCopy(txt); done(); } }
-  else if(a==='toggle-key'){ S.showKey=!S.showKey; render(); }
-  else if(a==='clear-key'){ S.cfg.apiKey=''; S.cfg.keyCleared=1; S.aiTest=null; save(); render(); toast('已清除 Key'); }
+  else if(a==='reload-ai-config'){ S.aiConfig.loaded=false; loadAiConfig(true); }
+  else if(a==='toggle-key'){
+    var newKeyEl=el('cfgNewKey'); S.aiKeyDraft=newKeyEl?newKeyEl.value:'';
+    S.showKey=!S.showKey; render(); }
+  else if(a==='update-ai-key'){ updateAiConfig(true); }
+  else if(a==='save-ai-model'){ updateAiConfig(false); }
   else if(a==='modal-cancel'){ S.confirm=null; render(); }
   else if(a==='modal-ok'){ var fn=S.confirm&&S.confirm.fn; if(fn) fn(); else { S.confirm=null; render(); } }
   else if(a==='menu'){ S.menu=!S.menu; render(); }
@@ -3187,16 +3040,11 @@ document.addEventListener('click',function(e){
   else if(a==='chat'){ sendChat(); }
   else if(a==='cap'){ var p=t.getAttribute('data-p'); var ci=el('chatIn'); if(ci){ ci.value=p; ci.focus(); } }
   else if(a==='new-chat'){ S.chat=[]; render(); }
-  else if(a==='save-cfg'){
-    S.cfg.endpoint=el('cfgEp').value.trim()||S.cfg.endpoint;
-    S.cfg.model=el('cfgModel').value.trim()||S.cfg.model;
-    S.cfg.apiKey=el('cfgKey').value.trim();
-    S.cfg.proxy=el('cfgProxy')?el('cfgProxy').value.trim():'';
-    if(!S.cfg.apiKey) S.cfg.keyCleared=1;
+  else if(a==='save-schedule'){
     S.cfg.workday=parseInt(el('cfgWd').value,10)||5;
     S.cfg.parallel=parseInt(el('cfgPl').value,10)||3;
     S.cfg.riskLine=parseInt(el('cfgRl').value,10)||20;
-    save(); toast('设置已保存'); render();
+    save(); toast('调度参数已保存'); render();
   }
   else if(a==='reset'){ S.tasks=seedTasks(); S.sch={goal:'',deadline:fmt(addD(today(),45)),budget:30,must:'',busy:false,err:'',tasks:null,plans:null,pick:'A',from:'',issued:false};
     save(); toast('已重置为演示数据'); S.page='dash'; render(); }
@@ -3245,9 +3093,6 @@ document.addEventListener('change',function(e){
   if(loginKey==='remember'){ LOGIN.remember=!!e.target.checked; return; }
   var q=e.target.getAttribute&&e.target.getAttribute('data-q');
   if(q&&e.target.tagName==='SELECT'){ S.f[q]=e.target.value; render(); return; }
-  var pv=e.target.getAttribute&&e.target.getAttribute('data-prov');
-  if(pv){ var k2=e.target.value, P=PROVIDERS[k2];
-    S.cfg.provider=k2; S.cfg.endpoint=P.ep; S.cfg.model=P.models[0]; S.aiTest=null; save(); render(); return; }
   var pm=e.target.getAttribute&&e.target.getAttribute('data-perm');
   if(pm){ var ps=pm.split(':'), ag=S.agents.filter(function(x){ return x.id===ps[0]; })[0];
     if(ag){ if(ps[1]==='minLv') ag.minLv=parseInt(e.target.value,10)||1;
@@ -3271,15 +3116,18 @@ document.addEventListener('keydown',function(e){
 
 /* ---------------- 启动 ---------------- */
 var saved=load();
+var legacyAiSecret=false;
 S.tasks=(saved&&saved.tasks&&saved.tasks.length)?saved.tasks:seedTasks();
 S.customers=(saved&&saved.customers&&saved.customers.length)?saved.customers:seedCustomers();
 S.activities=(saved&&saved.activities&&saved.activities.length)?saved.activities:seedActivities();
 S.decisions=(saved&&saved.decisions&&saved.decisions.length)?saved.decisions:seedDecisions();
-if(saved&&saved.cfg) Object.keys(saved.cfg).forEach(function(k){
-  if(k==='apiKey'&&!saved.cfg[k]&&!saved.cfg.keyCleared) return;
-  S.cfg[k]=saved.cfg[k];
-});
-if(!PROVIDERS[S.cfg.provider]) S.cfg.provider='deepseek';
+if(saved&&saved.cfg){
+  ['apiKey','proxy','keyCleared'].forEach(function(k){
+    if(Object.prototype.hasOwnProperty.call(saved.cfg,k)){ delete saved.cfg[k]; legacyAiSecret=true; }
+  });
+  ['workday','parallel','riskLine'].forEach(function(k){ if(saved.cfg[k]!=null) S.cfg[k]=saved.cfg[k]; });
+}
+S.cfg.provider='deepseek'; S.cfg.endpoint='/api/ai/chat';
 if(saved&&saved.members&&saved.members.length){
   MEMBERS.length=0; Object.keys(MB).forEach(function(k){ delete MB[k]; });
   saved.members.forEach(function(m){ MEMBERS.push(m); MB[m.id]=m; });
@@ -3294,10 +3142,12 @@ S.runs=(saved&&saved.runs)?saved.runs:[];
 S.reqs=(saved&&saved.reqs)?saved.reqs:[];
 if(saved&&saved.depts&&saved.depts.length){ DEPTS.length=0; saved.depts.forEach(function(d){ DEPTS.push(d); }); }
 normalize();
+if(legacyAiSecret) save();
 S.form=blankForm();
 S.appr=seedAppr();
 renderBrand();
 render();
+loadAiConfig(false);
 return {S:S, render:render, schedule:schedule, makePlans:makePlans};
 })();
 </script>

@@ -132,3 +132,20 @@ test("keeps authentication separate from identity and business data", async () =
   assert.match(html, /localStorage\.setItem\('qxy'/);
   assert.doesNotMatch(html, /localStorage\.removeItem\('qxy'\)/);
 });
+
+test("keeps model credentials on the server and makes key updates write only", async () => {
+  const html = await readFusionHtml();
+
+  assert.doesNotMatch(html, /sk-[A-Za-z0-9_-]{16,}/);
+  assert.doesNotMatch(html, /S\.cfg\.apiKey/);
+  assert.doesNotMatch(html, /id="cfgKey"/);
+  assert.doesNotMatch(html, /h\['Authorization'\]|h\['x-api-key'\]/);
+  assert.match(html, /\['apiKey','proxy','keyCleared'\][\s\S]*?delete saved\.cfg/);
+  assert.match(html, /fetch\('\/api\/ai\/chat'/);
+  assert.match(html, /fetch\('\/api\/ai\/config'/);
+  assert.match(html, /data-act="update-ai-key"/);
+  assert.match(html, /data-act="save-ai-model"/);
+  assert.match(html, /输入新 Key 进行更新/);
+  assert.match(html, /更新密钥/);
+  assert.match(html, /更新时间/);
+});
