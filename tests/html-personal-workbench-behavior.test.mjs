@@ -452,3 +452,106 @@ test("executes a pending task from the rendered detail controls", async () => {
     dom.window.close();
   }
 });
+
+test("shows only the selected identity payroll and clears stale month selection", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S, gateway } = dom.window.Q;
+    S.me = "m1";
+    S.page = "fin";
+    dom.window.Q.render();
+    const firstNet = gateway.loadPayroll("m1")[0].net;
+    assert.match(
+      dom.window.document.querySelector("#view").textContent,
+      new RegExp(firstNet.toLocaleString("zh-CN")),
+    );
+
+    S.f.payMonth = gateway.loadPayroll("m1")[1].month;
+    S.f.payFocus = "performance";
+    S.menu = true;
+    dom.window.Q.render();
+    dom.window.document.querySelector('[data-act="setme"][data-id="m2"]').click();
+
+    assert.equal(S.me, "m2");
+    assert.equal(S.f.payMonth, "");
+    assert.equal(S.f.payFocus, "");
+    const secondNet = gateway.loadPayroll("m2")[0].net;
+    assert.notEqual(secondNet, firstNet);
+    S.page = "fin";
+    dom.window.Q.render();
+    const secondView = dom.window.document.querySelector("#view").textContent;
+    assert.match(secondView, new RegExp(secondNet.toLocaleString("zh-CN")));
+    assert.doesNotMatch(secondView, new RegExp(firstNet.toLocaleString("zh-CN")));
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("opens a selected payroll month and salary component without leaving personal finance", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S, gateway } = dom.window.Q;
+    S.me = "m1";
+    S.page = "fin";
+    dom.window.Q.render();
+    const month = gateway.loadPayroll("m1")[1].month;
+    const monthButton = dom.window.document.querySelector(
+      `[data-act="payroll-month"][data-month="${month}"]`,
+    );
+    assert.ok(monthButton);
+    monthButton.click();
+    assert.equal(S.page, "fin");
+    assert.equal(S.f.payMonth, month);
+    assert.match(dom.window.document.querySelector("#view").textContent, new RegExp(`${month} 薪酬明细`));
+
+    const projectBonusCard = dom.window.document.querySelector(
+      '[data-act="payroll-focus"][data-focus="projectBonus"]',
+    );
+    assert.ok(projectBonusCard);
+    projectBonusCard.click();
+    assert.equal(S.f.payFocus, "projectBonus");
+    assert.match(dom.window.document.querySelector("#view").textContent, /项目奖金明细/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("recomputes displayed payroll totals instead of trusting stored aggregate fields", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S } = dom.window.Q;
+    S.me = "m1";
+    S.page = "fin";
+    const row = S.payroll.m1[0];
+    const expectedGross = row.base + row.performance + row.projectBonus + row.otherBonus;
+    const expectedDeductions = row.social + row.tax + row.otherDeduction;
+    const expectedNet = expectedGross - expectedDeductions;
+    row.gross = -111;
+    row.deductions = -222;
+    row.net = -333;
+    dom.window.Q.render();
+    const view = dom.window.document.querySelector("#view").textContent;
+    assert.match(view, new RegExp(expectedGross.toLocaleString("zh-CN")));
+    assert.match(view, new RegExp(expectedDeductions.toLocaleString("zh-CN")));
+    assert.match(view, new RegExp(expectedNet.toLocaleString("zh-CN")));
+    assert.doesNotMatch(view, /-333/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("renders a safe empty payroll state for the selected identity", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S } = dom.window.Q;
+    S.me = "m1";
+    S.page = "fin";
+    S.payroll.m1 = [];
+    dom.window.Q.render();
+    assert.match(dom.window.document.querySelector("#view").textContent, /当前身份暂无工资记录/);
+    assert.equal(dom.window.document.querySelector('[data-act="payroll-month"]'), null);
+    assert.equal(dom.window.document.querySelector('[data-act="payroll-focus"]'), null);
+  } finally {
+    dom.window.close();
+  }
+});

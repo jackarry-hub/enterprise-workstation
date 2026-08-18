@@ -778,7 +778,7 @@ var S = {
         tasks:null, plans:null, pick:'A', from:'', issued:false },
   chat:[], chatBusy:false, cmenu:false, form:null,
   f:{ projCat:'all', projSt:'all', projQ:'', taskQ:'', taskOwn:'all', taskPri:'all', taskSt:'all',
-      meScope:'todo', meTab:'all', payMonth:'', kbQ:'', kbCat:'all', orgQ:'', orgDept:'all', agentDept:'all', agentQ:'', agentTab:'dir',
+      meScope:'todo', meTab:'all', payMonth:'', payFocus:'', kbQ:'', kbCat:'all', orgQ:'', orgDept:'all', agentDept:'all', agentQ:'', agentTab:'dir',
       dashTab:'进行中', insightG:'日', gq:'', customerQ:'', customerSt:'all', activitySt:'all', decisionTab:'待我决策' },
   confirm:null, editId:null, deptMgr:false, curProj:null, curAgent:null, curCustomer:null, curActivity:null,
   agents:[], runs:[], agentIn:{}, agentOut:'', agentBusy:false,
@@ -814,6 +814,13 @@ function seedPayroll(){
   return out;
 }
 function payrollMoney(value){ return '¥ '+num(value,0); }
+function payrollRow(memberId,month){
+  var rows=WORKSTATION_GATEWAY.loadPayroll(memberId).sort(function(a,b){
+    return String(b.month||'').localeCompare(String(a.month||''));
+  }), selected=null;
+  rows.forEach(function(row){ if(row.month===month) selected=row; });
+  return selected||rows[0]||null;
+}
 function isOverdue(task){ return task.st!=='已完成'&&diffD(today(),new Date(task.e))<0; }
 function taskUrgency(task){
   if(isOverdue(task)) return 0;
@@ -1132,7 +1139,7 @@ var META={
   'new-agent':['Agent 配置','定义一个部门 Agent，保存后全公司可调用'],
   project:['项目详情','项目下的任务、成员与健康度'],
   search:['搜索结果','跨项目、任务、成员、文档与 Agent'],
-  fin:['财务中心','数据更新于 '+fmt(today())+' 10:30'],
+  fin:['我的薪酬','工资、奖金、扣款与实发明细'],
   org:['组织与权限','人才池即调度资源池，能力与负载一目了然'],
   set:['系统设置','模型接入与调度参数配置'],
   'new-member':['添加成员','新成员将立即进入人才池，成为 AI 调度的可选资源'],
@@ -1926,45 +1933,56 @@ function viewInsight(){
 
 /* ---------------- 页面：财务中心 ---------------- */
 function viewFin(){
-  var inc=[{n:'主营业务收入',v:78.6,c:'#2563eb',r:'78.6%'},{n:'其他业务收入',v:15.3,c:'#7c3aed',r:'15.3%'},{n:'投资收益',v:6.1,c:'#94a3b8',r:'6.1%'}];
-  var exp=[{n:'营业成本',v:62.1,c:'#10b981',r:'62.1%'},{n:'销售费用',v:18.7,c:'#38bdf8',r:'18.7%'},{n:'管理费用',v:12.4,c:'#f59e0b',r:'12.4%'},{n:'研发费用',v:6.8,c:'#ef4444',r:'6.8%'}];
-  var mon=['2025-01','2025-02','2025-03','2025-04','2025-05','2025-06'];
+  var rows=WORKSTATION_GATEWAY.loadPayroll(S.me).sort(function(a,b){
+    return String(b.month||'').localeCompare(String(a.month||''));
+  });
+  var member=MB[S.me]||{n:'当前员工'};
+  if(!rows.length){
+    return '<div class="card fade"><div class="hd"><h3>我的薪酬</h3></div><div class="empty">当前身份暂无工资记录</div></div>';
+  }
+  var selected=payrollRow(S.me,S.f.payMonth);
+  var gross=Number(selected.base||0)+Number(selected.performance||0)+Number(selected.projectBonus||0)+Number(selected.otherBonus||0);
+  var deductions=Number(selected.social||0)+Number(selected.tax||0)+Number(selected.otherDeduction||0);
+  var net=gross-deductions;
+  var focusValues={net:net,gross:gross,performance:Number(selected.performance||0),projectBonus:Number(selected.projectBonus||0)};
+  var focusLabels={net:'实发工资',gross:'应发工资',performance:'绩效奖金',projectBonus:'项目奖金'};
+  var cards=[
+    {key:'net',label:'实发工资',value:net,icon:'money',color:'#2563eb',bg:'var(--brand-s)'},
+    {key:'gross',label:'应发工资',value:gross,icon:'chart',color:'#10b981',bg:'var(--ok-s)'},
+    {key:'performance',label:'绩效奖金',value:selected.performance,icon:'target',color:'#7c3aed',bg:'var(--violet-s)'},
+    {key:'projectBonus',label:'项目奖金',value:selected.projectBonus,icon:'bolt',color:'#f59e0b',bg:'var(--warn-s)'}
+  ];
+  var details=[
+    ['基本工资',selected.base],['绩效奖金',selected.performance],['项目奖金',selected.projectBonus],['其他奖励',selected.otherBonus],
+    ['社保公积金',-Number(selected.social||0)],['个人所得税',-Number(selected.tax||0)],['其他扣款',-Number(selected.otherDeduction||0)],
+    ['应发工资',gross],['扣款合计',-deductions],['实发工资',net]
+  ];
   return j([
-  '<div class="grid fade" style="grid-template-columns:repeat(6,1fr)">',
-    kpi({t:'财务总览（本月）',v:'¥ 8,642',u:' 万',i:'money',c:'#2563eb',bg:'var(--brand-s)',d:12.6,s:[40,44,42,50,48,56,60,58,66,70,68,76]}),
-    kpi({t:'营业收入',v:'¥ 12,835',u:' 万',i:'money',c:'#2563eb',bg:'var(--brand-s)',d:15.3,s:[50,54,52,60,58,66,70,72,76,80,78,86]}),
-    kpi({t:'净利润',v:'¥ 2,142',u:' 万',i:'chart',c:'#10b981',bg:'var(--ok-s)',d:18.7,s:[20,22,21,25,24,28,30,29,33,35,34,38]}),
-    kpi({t:'毛利率',v:'28.7',u:'%',i:'chart',c:'#7c3aed',bg:'var(--violet-s)',d:2.3,du:' pp',s:[25,26,25.5,27,26.4,27.2,27,28,28.2,28.5,28.4,28.7]}),
-    kpi({t:'经营现金流净额',v:'¥ 3,256',u:' 万',i:'bolt',c:'#38bdf8',bg:'#e6f6fe',d:21.5,s:[18,20,19,24,22,28,30,29,34,36,35,40]}),
-    kpi({t:'资金结余',v:'¥ 5,632',u:' 万',i:'money',c:'#f59e0b',bg:'var(--warn-s)',d:9.8,s:[30,32,31,36,34,40,42,41,46,48,47,52]}),
-  '</div>',
-  '<div class="grid" style="grid-template-columns:1fr 1fr 1fr;margin-top:16px">',
-    '<div class="card"><div class="hd"><h3>收入 / 支出结构</h3><span class="sm">本月</span></div><div class="bd" style="display:flex;gap:12px;align-items:center">',
-      donut(inc,150,'3,556','收入 - 支出(万)'),'<div style="flex:1">'+legend(inc.concat(exp))+'</div></div></div>',
-    '<div class="card"><div class="hd"><h3>利润率趋势</h3></div><div class="bd">',
-      '<div style="display:flex;gap:16px;font-size:12px;color:var(--sub);margin-bottom:6px">'+
-      [['毛利率','#2563eb'],['净利率','#10b981'],['ROE','#7c3aed']].map(function(x){ return '<span style="display:flex;align-items:center;gap:6px"><i style="width:8px;height:8px;border-radius:50%;background:'+x[1]+';display:block"></i>'+x[0]+'</span>'; }).join('')+'</div>',
-      lines([{d:[31,33,32,34,33,33.5],c:'#2563eb'},{d:[12,13,12.5,14,13.6,14.2],c:'#10b981'},{d:[22,23,22.4,24,23.6,24.1],c:'#7c3aed'}],mon,460,210,function(v){ return Math.round(v)+'%'; }),
-    '</div></div>',
-    '<div class="card"><div class="hd"><h3>预算执行情况</h3><span class="sm">本月</span></div><div class="bd" style="display:flex;gap:14px;align-items:center">',
-      ring(73,'#2563eb',110,'总体执行'),
-      '<div style="flex:1">'+[['收入预算',120.5,'#2563eb'],['支出预算',68.3,'#7c3aed'],['费用预算',71.2,'#10b981'],['资本预算',54.7,'#f59e0b']].map(function(x){
-        return '<div style="margin-bottom:9px"><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--sub);margin-bottom:4px"><span>'+x[0]+'</span><b>'+x[1]+'%</b></div>'+
-          '<div class="bar"><i style="width:'+Math.min(100,x[1])+'%;background:'+x[2]+'"></i></div></div>'; }).join('')+'</div>',
-    '</div></div>',
-  '</div>',
-  '<div class="grid" style="grid-template-columns:1.6fr 1fr;margin-top:16px">',
-    '<div class="card"><div class="hd"><h3>月度财务趋势分析</h3><div class="grow"></div><span class="sm">营业收入 / 净利润 / 经营现金流（万元）</span></div><div class="bd">',
-      bars([[10500,9800,11200,12100,12600,12835],[1600,1450,1750,1900,2050,2142],[2300,2100,2600,2900,3050,3256]],mon,660,230,['#2563eb','#7c3aed','#10b981']),
-    '</div></div>',
-    '<div class="card"><div class="hd">'+ic('ai',17,'#2563eb')+'<h3>AI 财务洞察</h3></div><div class="bd" style="padding-top:8px">',
-      [['收入增长强劲','本月收入较上月增长 15.3%，主要受产品 A 与区域市场增长驱动，建议持续优化高毛利产品结构。'],
-       ['费用管控提醒','管理费用环比上升 8.2%，建议加强差旅与会议费管控，预计可节省 3-5%。'],
-       ['现金流健康','经营现金流持续向好，现金储备充足，可支持未来 6-8 个月经营需求。']].map(function(x){
-        return '<div style="display:flex;gap:9px;padding:10px;border-radius:11px;background:#f9fbff;margin-bottom:8px">'+ic('target',16,'#2563eb')+
-          '<div><b style="font-size:12.5px">'+x[0]+'</b><p style="margin:4px 0 0;font-size:11.5px;color:var(--sub);line-height:1.65">'+x[1]+'</p></div></div>'; }).join(''),
-    '</div></div>',
-  '</div>']);
+    '<div class="card fade"><div class="hd"><h3>我的薪酬</h3><div class="grow"></div><span class="tag t-b">',esc(member.n),'</span><span class="sm">',esc(selected.month),' 工资明细</span></div>',
+      S.f.payFocus&&focusLabels[S.f.payFocus]?'<div class="bd" style="padding-bottom:0"><div style="padding:11px 13px;border-radius:11px;background:var(--brand-s);color:var(--brand-d)"><b>'+focusLabels[S.f.payFocus]+'明细</b><span style="margin-left:10px">'+payrollMoney(focusValues[S.f.payFocus])+'</span><span class="sm" style="margin-left:8px">'+esc(selected.month)+'</span></div></div>':'',
+      '<div class="bd"><div class="grid" style="grid-template-columns:repeat(4,1fr)">',
+        cards.map(function(card){
+          var active=S.f.payFocus===card.key;
+          return '<button class="card kpi" style="width:100%;text-align:left;border-color:'+(active?card.color:'var(--line)')+'" data-act="payroll-focus" data-focus="'+card.key+'">'+
+            '<div class="t"><span>'+card.label+'</span><span class="ico" style="background:'+card.bg+'">'+ic(card.icon,17,card.color)+'</span></div>'+
+            '<div class="v">'+payrollMoney(card.value)+'</div><div class="f"><em>点击查看当月明细</em><span class="link">查看 ›</span></div></button>';
+        }).join(''),
+      '</div></div></div>',
+    '<div class="grid" style="grid-template-columns:1fr 1.15fr;margin-top:16px">',
+      '<div class="card"><div class="hd"><h3>',esc(selected.month),' 薪酬明细</h3><div class="grow"></div>',
+        selected.status?'<span class="tag '+(selected.status==='已发放'?'t-g':'t-o')+'">'+esc(selected.status)+'</span>':'','</div><div class="bd"><table><thead><tr><th>项目</th><th style="text-align:right">金额</th></tr></thead><tbody>',
+        details.map(function(item){ return '<tr><td>'+item[0]+'</td><td style="text-align:right;font-weight:'+(item[0]==='实发工资'?'700':'500')+';color:'+(Number(item[1])<0?'var(--risk)':'inherit')+'">'+payrollMoney(item[1])+'</td></tr>'; }).join(''),
+        '</tbody></table></div></div>',
+      '<div class="card"><div class="hd"><h3>最近月份工资记录</h3><div class="grow"></div><span class="sm">仅显示当前身份</span></div><div class="bd"><table><thead><tr><th>月份</th><th>实发工资</th><th>状态</th><th>发放日期</th></tr></thead><tbody>',
+        rows.map(function(row){
+          var rowGross=Number(row.base||0)+Number(row.performance||0)+Number(row.projectBonus||0)+Number(row.otherBonus||0);
+          var rowDeductions=Number(row.social||0)+Number(row.tax||0)+Number(row.otherDeduction||0);
+          var active=row.month===selected.month;
+          return '<tr data-act="payroll-month" data-month="'+esc(row.month)+'" style="cursor:pointer;background:'+(active?'var(--brand-s)':'transparent')+'"><td><b>'+esc(row.month)+'</b></td><td>'+payrollMoney(rowGross-rowDeductions)+'</td><td><span class="tag '+(row.status==='已发放'?'t-g':'t-o')+'">'+esc(row.status||'待确认')+'</span></td><td>'+esc(row.payDate||'待定')+'</td></tr>';
+        }).join(''),
+        '</tbody></table></div></div>',
+    '</div>'
+  ]);
 }
 
 /* ---------------- 页面：知识中心 ---------------- */
@@ -3316,7 +3334,7 @@ document.addEventListener('click',function(e){
   else if(a==='logout'){ logoutDemo(); }
   else if(a==='setme'){
     S.me=t.getAttribute('data-id'); S.menu=false; S.page='me';
-    S.f.meScope='todo'; S.f.meTab='all'; S.f.payMonth='';
+    S.f.meScope='todo'; S.f.meTab='all'; S.f.payMonth=''; S.f.payFocus='';
     S.sel.task=null; S.curProj=null; render();
   }
   else if(a==='hide-helper'){ S.helper=false; renderNav(); }
@@ -3363,6 +3381,12 @@ document.addEventListener('click',function(e){
   }
   else if(a==='open-income'){
     S.f.payMonth=t.getAttribute('data-month')||''; S.page='fin'; render();
+  }
+  else if(a==='payroll-month'){
+    S.f.payMonth=t.getAttribute('data-month')||''; S.f.payFocus=''; render();
+  }
+  else if(a==='payroll-focus'){
+    S.f.payFocus=t.getAttribute('data-focus')||''; render();
   }
   else if(a==='pick-task-go'){ S.sel.task=t.getAttribute('data-id'); S.page='execution'; render(); }
   else if(a==='goal-go'){ var gb=el('goalBox'); S.sch.goal=gb?gb.value.trim():''; S.page='sched'; render();

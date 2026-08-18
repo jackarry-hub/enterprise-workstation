@@ -224,3 +224,29 @@ test("registers the personal execution detail and closed-loop controls", async (
     assert.match(html, new RegExp(label));
   }
 });
+
+test("replaces corporate finance with personal salary and bonus detail", async () => {
+  const html = await readFusionHtml();
+  const start = html.indexOf("function viewFin()");
+  const end = html.indexOf("/* ---------------- 页面：知识中心", start);
+  const source = html.slice(start, end);
+  for (const label of [
+    "我的薪酬",
+    "基本工资",
+    "绩效奖金",
+    "项目奖金",
+    "其他奖励",
+    "社保公积金",
+    "个人所得税",
+    "应发工资",
+    "实发工资",
+    "最近月份工资记录",
+  ]) {
+    assert.match(source, new RegExp(label));
+  }
+  for (const forbidden of ["营业收入", "净利润", "经营现金流", "预算执行", "收入 / 支出结构"]) {
+    assert.doesNotMatch(source, new RegExp(forbidden));
+  }
+  assert.match(source, /data-act="payroll-month"/);
+  assert.match(source, /data-act="payroll-focus"/);
+});
