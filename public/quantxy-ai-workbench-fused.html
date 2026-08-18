@@ -348,6 +348,7 @@ var WORKSTATION_RUNTIME={authMode:'demo',dataMode:'demo'};
 var QXY_DEMO_DATA_KEY='qxy.workstation.demo.v2';
 var QXY_DEMO_CLEARED_KEY='qxy.workstation.demo.cleared';
 var QXY_LEGACY_DATA_KEY='qxy';
+var LOADED_DATA_SOURCE='';
 
 function demoSnapshot(){
   return {tasks:S.tasks,cfg:S.cfg,members:MEMBERS,projects:PROJECTS,kb:KB,
@@ -356,15 +357,21 @@ function demoSnapshot(){
     payroll:S.payroll};
 }
 function save(){
-  try{ localStorage.setItem(QXY_DEMO_DATA_KEY,JSON.stringify(demoSnapshot())); }catch(e){}
+  try{ localStorage.setItem(QXY_DEMO_DATA_KEY,JSON.stringify(demoSnapshot())); return true; }catch(e){ return false; }
+}
+function readStoredJson(key){
+  try{
+    var raw=localStorage.getItem(key);
+    return raw?JSON.parse(raw):null;
+  }catch(e){ return null; }
 }
 function load(){
-  try{
-    var current=localStorage.getItem(QXY_DEMO_DATA_KEY);
-    if(current) return JSON.parse(current);
-    var legacy=localStorage.getItem(QXY_LEGACY_DATA_KEY);
-    return legacy?JSON.parse(legacy):null;
-  }catch(e){ return null; }
+  LOADED_DATA_SOURCE='';
+  var current=readStoredJson(QXY_DEMO_DATA_KEY);
+  if(current){ LOADED_DATA_SOURCE='v2'; return current; }
+  var legacy=readStoredJson(QXY_LEGACY_DATA_KEY);
+  if(legacy){ LOADED_DATA_SOURCE='legacy'; return legacy; }
+  return null;
 }
 function defaultReviewer(task){
   var project=PB[task.p], candidate=project&&project.own;
@@ -765,15 +772,20 @@ function personalDashboard(memberId){
   return {tasks:tasks,must:tasks.filter(function(task){ return task.st!=='已完成'; }).slice(0,6),
     projects:PROJECTS.filter(function(project){ return project.own===memberId; }).slice(0,4),payroll:payroll,reminders:[]};
 }
+function cloneGatewayValue(value){
+  if(value==null||typeof value!=='object') return value;
+  if(Array.isArray(value)) return value.map(cloneGatewayValue);
+  var copy={}; Object.keys(value).forEach(function(key){ copy[key]=cloneGatewayValue(value[key]); }); return copy;
+}
 function createDemoGateway(){
   return {
     getSession:function(){ return {authMode:'demo',dataMode:'demo',memberId:S.me,permissions:['task.execute','payroll.read.self']}; },
-    loadBootstrap:function(){ return {mode:'demo',session:this.getSession(),members:MEMBERS,projects:PROJECTS,tasks:S.tasks,payroll:S.payroll,features:{identitySwitch:true,demoReset:true}}; },
-    loadMyDashboard:function(memberId){ return personalDashboard(memberId); },
-    listMyTasks:function(memberId,scope,filter){ return personalTasks(memberId,scope,filter); },
-    loadMyTask:function(memberId,taskId){ return S.tasks.filter(function(task){ return task.id===taskId&&(task.own===memberId||task.createdBy===memberId||task.reviewer===memberId); })[0]||null; },
-    listMyProjects:function(memberId){ return PROJECTS.filter(function(project){ return project.own===memberId||S.tasks.some(function(task){ return task.p===project.id&&task.own===memberId; }); }); },
-    loadPayroll:function(memberId){ return (S.payroll[memberId]||[]).map(copyPayrollRow); }
+    loadBootstrap:function(){ return cloneGatewayValue({mode:'demo',session:this.getSession(),members:MEMBERS,projects:PROJECTS,tasks:S.tasks,payroll:S.payroll,features:{identitySwitch:true,demoReset:true}}); },
+    loadMyDashboard:function(memberId){ return cloneGatewayValue(personalDashboard(memberId)); },
+    listMyTasks:function(memberId,scope,filter){ return cloneGatewayValue(personalTasks(memberId,scope,filter)); },
+    loadMyTask:function(memberId,taskId){ return cloneGatewayValue(S.tasks.filter(function(task){ return task.id===taskId&&(task.own===memberId||task.createdBy===memberId||task.reviewer===memberId); })[0]||null); },
+    listMyProjects:function(memberId){ return cloneGatewayValue(PROJECTS.filter(function(project){ return project.own===memberId||S.tasks.some(function(task){ return task.p===project.id&&task.own===memberId; }); })); },
+    loadPayroll:function(memberId){ return cloneGatewayValue(S.payroll[memberId]||[]); }
   };
 }
 var WORKSTATION_GATEWAY=createDemoGateway();
@@ -3269,8 +3281,7 @@ document.addEventListener('keydown',function(e){
 /* ---------------- 启动 ---------------- */
 var saved=load();
 var legacyAiSecret=false;
-var migratedLegacy=false;
-try{ migratedLegacy=!!saved&&!localStorage.getItem(QXY_DEMO_DATA_KEY)&&!!localStorage.getItem(QXY_LEGACY_DATA_KEY); }catch(e){}
+var migratedLegacy=LOADED_DATA_SOURCE==='legacy';
 if(saved&&saved.cfg){
   ['apiKey','proxy','keyCleared'].forEach(function(k){
     if(Object.prototype.hasOwnProperty.call(saved.cfg,k)){ delete saved.cfg[k]; legacyAiSecret=true; }
@@ -3296,7 +3307,10 @@ S.runs=(saved&&saved.runs)?saved.runs:[];
 S.reqs=(saved&&saved.reqs)?saved.reqs:[];
 if(saved&&saved.depts&&saved.depts.length){ DEPTS.length=0; saved.depts.forEach(function(d){ DEPTS.push(d); }); }
 normalize();
-if(legacyAiSecret||migratedLegacy) save();
+if(legacyAiSecret||migratedLegacy){
+  var migrationSaved=save();
+  if(migratedLegacy&&migrationSaved){ try{ localStorage.removeItem(QXY_LEGACY_DATA_KEY); }catch(e){} }
+}
 S.form=blankForm();
 S.appr=seedAppr();
 renderBrand();

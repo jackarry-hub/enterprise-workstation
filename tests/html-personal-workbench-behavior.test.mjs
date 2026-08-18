@@ -85,3 +85,94 @@ test("seeds identity-scoped payroll with internally consistent totals", async ()
   );
   dom.window.close();
 });
+
+test("migrates legacy data to a secret-free snapshot and retires the legacy key", async () => {
+  const legacy = {
+    tasks: [{ id: "legacy-secret", n: "旧数据", p: "p1", own: "m1", st: "待处理" }],
+    cfg: {
+      apiKey: "sk-legacy-secret-should-not-survive",
+      proxy: "https://legacy-proxy.invalid",
+      keyCleared: false,
+      workday: 6,
+    },
+  };
+  const dom = await openWorkbench({ qxy: JSON.stringify(legacy) });
+  try {
+    const snapshotText = dom.window.localStorage.getItem("qxy.workstation.demo.v2");
+    assert.ok(snapshotText);
+    const snapshot = JSON.parse(snapshotText);
+    assert.equal(snapshot.cfg.workday, 6);
+    assert.equal(Object.hasOwn(snapshot.cfg, "apiKey"), false);
+    assert.equal(Object.hasOwn(snapshot.cfg, "proxy"), false);
+    assert.equal(snapshotText.includes("sk-legacy-secret-should-not-survive"), false);
+    assert.equal(dom.window.localStorage.getItem("qxy"), null);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("falls back to valid legacy data when the v2 snapshot is corrupt", async () => {
+  const legacy = {
+    tasks: [{ id: "legacy-fallback", n: "回退任务", p: "p1", own: "m1", st: "待审核" }],
+  };
+  const dom = await openWorkbench({
+    "qxy.workstation.demo.v2": "{not-valid-json",
+    qxy: JSON.stringify(legacy),
+  });
+  try {
+    assert.ok(dom.window.Q.S.tasks.some((task) => task.id === "legacy-fallback"));
+    assert.doesNotThrow(() => JSON.parse(dom.window.localStorage.getItem("qxy.workstation.demo.v2")));
+    assert.equal(dom.window.localStorage.getItem("qxy"), null);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("returns defensive copies from every read-only gateway method", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { gateway, S } = dom.window.Q;
+    const memberId = "m1";
+    const sourceTask = S.tasks.find((task) => task.own === memberId);
+    const sourceProject = gateway.listMyProjects(memberId)[0];
+    const original = {
+      taskName: sourceTask.n,
+      timelineLength: sourceTask.timeline.length,
+      projectName: sourceProject.n,
+      memberName: gateway.loadBootstrap().members[0].n,
+      payrollNet: S.payroll[memberId][0].net,
+    };
+
+    const listedTasks = gateway.listMyTasks(memberId, "todo", "all");
+    listedTasks[0].n = "外部篡改任务";
+    listedTasks[0].timeline.push({ action: "外部篡改" });
+
+    const task = gateway.loadMyTask(memberId, sourceTask.id);
+    task.n = "外部篡改单任务";
+    task.timeline.push({ action: "外部篡改" });
+
+    const projects = gateway.listMyProjects(memberId);
+    projects[0].n = "外部篡改项目";
+
+    const dashboard = gateway.loadMyDashboard(memberId);
+    dashboard.tasks[0].n = "外部篡改工作台";
+    dashboard.payroll.net = -1;
+
+    const bootstrap = gateway.loadBootstrap();
+    bootstrap.members[0].n = "外部篡改成员";
+    bootstrap.tasks[0].n = "外部篡改启动任务";
+    bootstrap.projects[0].n = "外部篡改启动项目";
+    bootstrap.payroll[memberId][0].net = -2;
+
+    const payroll = gateway.loadPayroll(memberId);
+    payroll[0].net = -3;
+
+    assert.equal(sourceTask.n, original.taskName);
+    assert.equal(sourceTask.timeline.length, original.timelineLength);
+    assert.equal(gateway.listMyProjects(memberId)[0].n, original.projectName);
+    assert.equal(gateway.loadBootstrap().members[0].n, original.memberName);
+    assert.equal(S.payroll[memberId][0].net, original.payrollNet);
+  } finally {
+    dom.window.close();
+  }
+});
