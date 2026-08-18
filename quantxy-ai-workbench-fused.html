@@ -2340,10 +2340,10 @@ function syncForm(){
 function fld(label,html,hint,req){
   return '<div style="margin-bottom:15px"><label class="field'+(req?' req':'')+'">'+label+'</label>'+html+(hint?'<p class="hint">'+hint+'</p>':'')+'</div>';
 }
-function finp(f,v,ph,type){ return '<input class="inp" data-f="'+f+'" type="'+(type||'text')+'" value="'+esc(v)+'" placeholder="'+esc(ph||'')+'">'; }
-function fta(f,v,ph,h){ return '<textarea class="ta" data-f="'+f+'" style="min-height:'+(h||88)+'px" placeholder="'+esc(ph||'')+'">'+esc(v)+'</textarea>'; }
+function finp(f,v,ph,type){ return '<input class="inp" data-f="'+attr(f)+'" type="'+attr(type||'text')+'" value="'+esc(v)+'" placeholder="'+esc(ph||'')+'">'; }
+function fta(f,v,ph,h){ return '<textarea class="ta" data-f="'+attr(f)+'" style="min-height:'+(h||88)+'px" placeholder="'+esc(ph||'')+'">'+esc(v)+'</textarea>'; }
 function fsel(f,v,opts){
-  return '<select class="sel" data-f="'+f+'">'+opts.map(function(o){
+  return '<select class="sel" data-f="'+attr(f)+'">'+opts.map(function(o){
     var val=o.v!==undefined?o.v:o, lab=o.l!==undefined?o.l:o;
     return '<option value="'+esc(val)+'"'+(String(val)===String(v)?' selected':'')+'>'+esc(lab)+'</option>';
   }).join('')+'</select>';
@@ -2866,12 +2866,12 @@ function viewAgents(){
       S.agents.map(function(a){
         return '<tr><td><div style="display:flex;align-items:center;gap:9px">'+agentIcon(a,26)+'<b style="font-weight:600">'+esc(a.n)+'</b></div></td>'+
           '<td><span class="tag t-n">'+esc(a.dept)+'</span></td>'+
-          '<td><select class="sel" style="padding:5px 8px;font-size:12px" data-perm="'+a.id+':scope">'+
+          '<td><select class="sel" style="padding:5px 8px;font-size:12px" data-perm="'+attr(a.id+':scope')+'">'+
             [['all','全公司'],['dept','仅本部门'],['list','指定部门']].map(function(o){
               return '<option value="'+o[0]+'"'+(a.scope===o[0]?' selected':'')+'>'+o[1]+'</option>'; }).join('')+'</select>'+
             (a.scope==='list'?'<div class="chips" style="margin-top:6px">'+DEPTS.map(function(d){
               return '<button class="fchip'+((a.depts||[]).indexOf(d)>=0?' on':'')+'" style="font-size:11px;padding:3px 8px" data-act="perm-dept" data-id="'+attr(a.id)+'" data-v="'+attr(d)+'">'+esc(d)+'</button>'; }).join('')+'</div>':'')+'</td>'+
-          '<td><select class="sel" style="padding:5px 8px;font-size:12px" data-perm="'+a.id+':minLv">'+
+          '<td><select class="sel" style="padding:5px 8px;font-size:12px" data-perm="'+attr(a.id+':minLv')+'">'+
             LEVELS.map(function(l){ return '<option value="'+l.v+'"'+((a.minLv||1)===l.v?' selected':'')+'>'+l.l+'</option>'; }).join('')+'</select></td>'+
           '<td>'+((a.grant||[]).length? a.grant.map(function(id){
               return MB[id]?'<span class="fchip on" style="font-size:11px;padding:3px 8px;display:inline-flex;gap:5px;align-items:center">'+esc(MB[id].n)+
@@ -3160,8 +3160,12 @@ function logRun(a,ok,ms,out){
 function runAgent(){
   var a=S.agents.filter(function(x){ return x.id===S.curAgent; })[0]; if(!a) return;
   var perm=canUse(a); if(!perm.ok){ toast('无调用权限：'+perm.why); return; }
-  var ins={};
-  a.f.forEach(function(x){ var n=document.querySelector('[data-f="ai_'+x.k+'"]'); if(n) ins[x.k]=n.value; });
+  var ins={}, fields=document.querySelectorAll('#formPage [data-f]');
+  a.f.forEach(function(x){
+    var key='ai_'+x.k, n=null;
+    Array.prototype.some.call(fields,function(field){ if(field.getAttribute('data-f')===key){ n=field; return true; } return false; });
+    if(n) ins[x.k]=n.value;
+  });
   S.agentIn=ins;
   if(!a.f.some(function(x){ return (ins[x.k]||'').trim(); })){ toast('请至少填写一项输入'); return; }
   S.agentBusy=true; S.agentOut=''; render();
@@ -3221,18 +3225,21 @@ function memberReferenceLabels(id){
   if(S.activities.some(function(activity){ return activity.own===id; })) add('活动');
   if(S.decisions.some(function(decision){ return decision.by===id; })) add('决策');
   if(S.reqs.some(function(request){ return request.m===id; })) add('权限申请');
-  if(Object.prototype.hasOwnProperty.call(S.payroll,id)) add('薪酬');
+  var payrollRows=S.payroll&&S.payroll[id];
+  if(Array.isArray(payrollRows)&&payrollRows.some(function(row){ return row&&typeof row==='object'; })) add('薪酬');
   if(S.agents.some(function(agent){ return Array.isArray(agent.grant)&&agent.grant.indexOf(id)>=0; })) add('Agent 授权');
   return labels;
 }
 function delMember(id){
   var m=MB[id]; if(!m) return;
+  if(MEMBERS.length<=1){ toast('至少保留一名成员，当前成员不能删除'); return; }
   var references=memberReferenceLabels(id);
   if(references.length){ toast('无法删除 '+m.n+'：仍被'+references.join('、')+'引用，请先解除关联'); return; }
   ask('删除成员 '+m.n+'？','该成员没有业务关联，可以安全删除。','确认删除', function(){
       var i=MEMBERS.map(function(x){ return x.id; }).indexOf(id);
       if(i>=0) MEMBERS.splice(i,1);
       delete MB[id];
+      delete S.payroll[id];
       if(S.me===id&&MEMBERS.length) S.me=MEMBERS[MEMBERS.length-1].id;
       save(); S.confirm=null; render();
       toast('已删除 '+m.n);

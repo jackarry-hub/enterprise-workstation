@@ -1452,3 +1452,152 @@ test("keeps known non-task project statuses while still rejecting unknown labels
     dom.window.close();
   }
 });
+
+test("escapes malicious Agent ids and field keys without breaking permissions or input collection", async () => {
+  const maliciousAgentId = 'agent" autofocus onfocus="window.__agentXss=1';
+  const maliciousFieldKey = 'field" autofocus onfocus="window.__fieldXss=1';
+  const snapshot = {
+    members: [
+      { id: "m14", n: "管理员", r: "企业决策人", sk: "管理", rate: 0, cap: 0.3, dept: "管理层", lv: 5 },
+    ],
+    projects: [], tasks: [], kb: [], runs: [], depts: ["管理层"], reqs: [], customers: [], activities: [], decisions: [], payroll: {},
+    agents: [{
+      id: maliciousAgentId,
+      n: "安全测试 Agent",
+      dept: "管理层",
+      ic: "bot",
+      d: "验证动态属性安全",
+      sys: "你是一个用于验证动态属性安全的测试 Agent。",
+      model: "",
+      on: 1,
+      runs: 0,
+      ok: 100,
+      scope: "dept",
+      minLv: 1,
+      grant: [],
+      depts: ["管理层"],
+      f: [{ k: maliciousFieldKey, l: "测试输入", t: "in", ph: "请输入测试内容" }],
+    }],
+  };
+  const dom = await openWorkbench({ "qxy.workstation.demo.v2": JSON.stringify(snapshot) });
+  try {
+    const { S } = dom.window.Q;
+    const assertNoInjectedAttributes = () => {
+      assert.equal(dom.window.document.querySelector("#view [onfocus], #view [onerror], #view [onclick]"), null);
+      assert.equal(dom.window.__agentXss, undefined);
+      assert.equal(dom.window.__fieldXss, undefined);
+    };
+
+    S.me = "m14";
+    S.page = "flow";
+    S.f.agentTab = "perm";
+    dom.window.Q.render();
+    const permission = Array.from(dom.window.document.querySelectorAll("[data-perm]"))
+      .find((node) => node.getAttribute("data-perm") === `${maliciousAgentId}:scope`);
+    assert.ok(permission);
+    assert.equal(permission.dataset.perm, `${maliciousAgentId}:scope`);
+    assertNoInjectedAttributes();
+
+    permission.value = "all";
+    permission.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    assert.equal(S.agents[0].scope, "all");
+
+    S.curAgent = maliciousAgentId;
+    S.page = "agent";
+    dom.window.Q.render();
+    const field = Array.from(dom.window.document.querySelectorAll("[data-f]"))
+      .find((node) => node.getAttribute("data-f") === `ai_${maliciousFieldKey}`);
+    assert.ok(field);
+    assert.equal(field.dataset.f, `ai_${maliciousFieldKey}`);
+    assertNoInjectedAttributes();
+
+    field.value = "安全输入内容";
+    dom.window.document.querySelector('[data-act="run-agent"]').click();
+    assert.equal(S.agentIn[maliciousFieldKey], "安全输入内容");
+    await waitFor(() => !S.agentBusy);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("allows deletion when payroll contains only empty or null member buckets", async () => {
+  const snapshot = {
+    members: [
+      { id: "m14", n: "管理员", r: "企业决策人", sk: "管理", rate: 0, cap: 0.3, dept: "管理层", lv: 5 },
+      { id: "empty-payroll", n: "空薪酬成员", r: "产品经理", sk: "产品", rate: 1000, cap: 0.8, dept: "产品中心", lv: 3 },
+      { id: "null-payroll", n: "空值薪酬成员", r: "设计师", sk: "设计", rate: 900, cap: 0.8, dept: "设计部", lv: 2 },
+    ],
+    projects: [], tasks: [], kb: [], agents: [], runs: [], depts: ["管理层", "产品中心", "设计部"], reqs: [], customers: [], activities: [], decisions: [],
+    payroll: { "empty-payroll": [], "null-payroll": null },
+  };
+  const dom = await openWorkbench({ "qxy.workstation.demo.v2": JSON.stringify(snapshot) });
+  try {
+    const { S, gateway } = dom.window.Q;
+    S.page = "org";
+    dom.window.Q.render();
+    for (const memberId of ["empty-payroll", "null-payroll"]) {
+      dom.window.document.querySelector(`[data-act="del-member"][data-id="${memberId}"]`).click();
+      assert.ok(S.confirm, `${memberId} should reach the deletion confirmation`);
+      dom.window.document.querySelector('[data-act="modal-ok"]').click();
+      assert.equal(gateway.loadBootstrap().members.some((member) => member.id === memberId), false);
+    }
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("keeps the sole current member and leaves the personal workbench renderable", async () => {
+  const snapshot = {
+    members: [
+      { id: "m14", n: "管理员", r: "企业决策人", sk: "管理", rate: 0, cap: 0.3, dept: "管理层", lv: 5 },
+    ],
+    projects: [], tasks: [], kb: [], agents: [], runs: [], depts: ["管理层"], reqs: [], customers: [], activities: [], decisions: [], payroll: {},
+  };
+  const dom = await openWorkbench({ "qxy.workstation.demo.v2": JSON.stringify(snapshot) });
+  try {
+    const { S, gateway } = dom.window.Q;
+    S.page = "org";
+    dom.window.Q.render();
+    dom.window.document.querySelector('[data-act="del-member"][data-id="m14"]').click();
+
+    assert.equal(S.confirm, null);
+    assert.match(dom.window.document.querySelector("#toast").textContent, /至少保留一名成员，当前成员不能删除/);
+    assert.equal(gateway.loadBootstrap().members.length, 1);
+    assert.equal(S.me, "m14");
+
+    S.page = "me";
+    assert.doesNotThrow(() => dom.window.Q.render());
+    assert.ok(dom.window.document.querySelector("#view").textContent.trim().length > 0);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("deletes an unreferenced non-only member and keeps the app renderable", async () => {
+  const snapshot = {
+    members: [
+      { id: "m14", n: "管理员", r: "企业决策人", sk: "管理", rate: 0, cap: 0.3, dept: "管理层", lv: 5 },
+      { id: "spare-member", n: "可删除成员", r: "产品经理", sk: "产品", rate: 1000, cap: 0.8, dept: "产品中心", lv: 3 },
+    ],
+    projects: [], tasks: [], kb: [], agents: [], runs: [], depts: ["管理层", "产品中心"], reqs: [], customers: [], activities: [], decisions: [], payroll: {},
+  };
+  const dom = await openWorkbench({ "qxy.workstation.demo.v2": JSON.stringify(snapshot) });
+  try {
+    const { S, gateway } = dom.window.Q;
+    S.page = "org";
+    dom.window.Q.render();
+    dom.window.document.querySelector('[data-act="del-member"][data-id="spare-member"]').click();
+    assert.ok(S.confirm);
+    dom.window.document.querySelector('[data-act="modal-ok"]').click();
+
+    assert.deepEqual(Array.from(gateway.loadBootstrap().members, (member) => member.id), ["m14"]);
+    assert.equal(S.me, "m14");
+    for (const page of ["org", "me", "fin"]) {
+      S.page = page;
+      assert.doesNotThrow(() => dom.window.Q.render(), `${page} should render after member deletion`);
+      assert.ok(dom.window.document.querySelector("#view").textContent.trim().length > 0);
+    }
+  } finally {
+    dom.window.close();
+  }
+});
