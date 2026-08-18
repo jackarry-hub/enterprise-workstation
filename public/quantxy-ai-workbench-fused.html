@@ -397,6 +397,64 @@ function normalizeTask(task){
   item.timeline=Array.isArray(item.timeline)?item.timeline:[];
   return item;
 }
+function stamp(){ var d=new Date(); return fmt(d)+' '+pad(d.getHours())+':'+pad(d.getMinutes()); }
+function findTask(taskId){
+  var task=S.tasks.filter(function(item){ return item.id===taskId; })[0];
+  if(!task) throw new Error('task_not_found');
+  return task;
+}
+function requireActor(actual,expected){ if(actual!==expected) throw new Error('forbidden'); }
+function addTimeline(task,actorId,action,note){
+  task.timeline=Array.isArray(task.timeline)?task.timeline:[];
+  task.timeline.push({actor:actorId,action:action,note:note||'',at:stamp()});
+}
+function claimTask(taskId,actorId){
+  var task=findTask(taskId); requireActor(actorId,task.own);
+  if(task.st!=='待处理') throw new Error('invalid_status');
+  task.st='进行中'; task.acceptedAt=stamp(); task.pr=Math.max(1,task.pr||0);
+  addTimeline(task,actorId,'领取任务',''); save(); return task;
+}
+function updateTaskExecution(taskId,actorId,input){
+  var task=findTask(taskId); input=input||{};
+  var progress=Number(input.progress); requireActor(actorId,task.own);
+  if(task.st!=='进行中') throw new Error('invalid_status');
+  if(!isFinite(progress)||progress<0||progress>100) throw new Error('invalid_progress');
+  task.pr=progress; task.blocker=String(input.blocker||'').trim(); task.nextStep=String(input.nextStep||'').trim();
+  addTimeline(task,actorId,'更新执行','进度 '+progress+'%'+(task.blocker?'；阻塞：'+task.blocker:'')); save(); return task;
+}
+function submitTaskResult(taskId,actorId,input){
+  var task=findTask(taskId); input=input||{};
+  var text=String(input.resultText||'').trim(), link=String(input.resultLink||'').trim();
+  var fileInput=Array.isArray(input.resultFiles)?input.resultFiles:[];
+  var files=fileInput.map(function(name){ return String(name).trim(); }).filter(function(name){ return name; });
+  requireActor(actorId,task.own);
+  if(task.st!=='进行中') throw new Error('invalid_status');
+  if(!text||(!link&&!files.length)) throw new Error('result_required');
+  task.resultText=text; task.resultLink=link; task.resultFiles=files; task.submittedAt=stamp(); task.st='待验收';
+  addTimeline(task,actorId,'提交验收',text); save(); return task;
+}
+function reviewTaskResult(taskId,actorId,input){
+  var task=findTask(taskId); input=input||{};
+  var decision=input.decision, note=String(input.note||'').trim();
+  if(actorId!==task.reviewer&&actorId!==task.createdBy) throw new Error('forbidden');
+  if(task.st!=='待验收') throw new Error('invalid_status');
+  if(decision!=='pass'&&decision!=='reject') throw new Error('invalid_decision');
+  if(decision==='reject'&&!note) throw new Error('review_note_required');
+  task.reviewNote=note; task.reviewedAt=stamp(); task.st=decision==='pass'?'已完成':'进行中';
+  if(decision==='pass') task.pr=100;
+  addTimeline(task,actorId,decision==='pass'?'验收通过':'驳回修改',note); save(); return task;
+}
+function reopenTask(taskId,actorId,note){
+  var task=findTask(taskId);
+  if(actorId!==task.reviewer&&actorId!==task.createdBy) throw new Error('forbidden');
+  if(task.st!=='已完成') throw new Error('invalid_status');
+  task.st='进行中'; task.pr=Math.min(95,task.pr);
+  addTimeline(task,actorId,'重新打开',String(note||'').trim()); save(); return task;
+}
+function saveTaskRecord(task,revision){
+  var current=findTask(task.id), index=S.tasks.indexOf(current), normalized=normalizeTask(task);
+  void revision; S.tasks[index]=normalized; save(); return normalized;
+}
 function toast(t){ var n=el('toast'); n.textContent=t; n.className='toast on'; clearTimeout(n._t); n._t=setTimeout(function(){ n.className='toast'; },2400); }
 
 /* SVG 图标（内联，无图标库依赖） */
@@ -782,7 +840,13 @@ function createDemoGateway(){
     listMyTasks:function(memberId,scope,filter){ return cloneGatewayValue(personalTasks(memberId,scope,filter)); },
     loadMyTask:function(memberId,taskId){ return cloneGatewayValue(S.tasks.filter(function(task){ return task.id===taskId&&(task.own===memberId||task.createdBy===memberId||task.reviewer===memberId); })[0]||null); },
     listMyProjects:function(memberId){ return cloneGatewayValue(PROJECTS.filter(function(project){ return project.own===memberId||S.tasks.some(function(task){ return task.p===project.id&&task.own===memberId; }); })); },
-    loadPayroll:function(memberId){ return cloneGatewayValue(S.payroll[memberId]||[]); }
+    loadPayroll:function(memberId){ return cloneGatewayValue(S.payroll[memberId]||[]); },
+    saveTask:saveTaskRecord,
+    claimTask:claimTask,
+    updateTaskExecution:updateTaskExecution,
+    submitTaskResult:submitTaskResult,
+    reviewTaskResult:reviewTaskResult,
+    reopenTask:reopenTask
   };
 }
 var WORKSTATION_GATEWAY=createDemoGateway();
@@ -2225,9 +2289,12 @@ function createTask(){
   syncForm(); var f=S.form.task;
   if(!f.n){ toast('请填写任务名称'); return; }
   var m=MB[f.own];
-  S.tasks.unshift({id:'T'+Date.now().toString(36).slice(-5).toUpperCase(),n:f.n,p:f.proj,own:f.own,role:m.r,
+  var task={id:'T'+Date.now().toString(36).slice(-5).toUpperCase(),n:f.n,p:f.proj,own:f.own,role:m.r,
     pri:f.pri,st:'待处理',s:f.s,e:f.e,src:'人工',dep:[],ac:f.ac,
-    sub:f.sub?f.sub.split('\n').filter(function(x){ return x.trim(); }).map(function(){ return 0; }):null});
+    sub:f.sub?f.sub.split('\n').filter(function(x){ return x.trim(); }).map(function(){ return 0; }):null,
+    createdBy:S.me,description:f.n,timeline:[{actor:S.me,action:'创建任务',note:'',at:stamp()}]};
+  task.reviewer=defaultReviewer(task);
+  S.tasks.unshift(normalizeTask(task));
   S.form.task=blankForm().task; save(); toast('任务已创建并指派给 '+m.n); S.page='task'; render();
 }
 
@@ -3001,8 +3068,10 @@ function issue(){
   var base=today(), n=0;
   sc.tasks.forEach(function(t){
     var m=pl.map[t.id]; if(!m) return;
-    S.tasks.unshift({ id:'T'+Math.floor(Math.random()*9000+1000), n:t.n, p:'p1', own:m.own, role:t.role,
-      pri:t.pri, st:'待处理', s:fmt(addD(base,m.s)), e:fmt(addD(base,m.e)), src:'AI调度', dep:[], ac:t.ac });
+    S.tasks.unshift(normalizeTask({ id:'T'+Math.floor(Math.random()*9000+1000), n:t.n, p:'p1', own:m.own, role:t.role,
+      pri:t.pri, st:'待处理', s:fmt(addD(base,m.s)), e:fmt(addD(base,m.e)), src:'AI调度', dep:[], ac:t.ac,
+      createdBy:S.me, reviewer:S.me, description:t.n,
+      timeline:[{actor:S.me,action:'下发任务',note:'AI 调度',at:stamp()}] }));
     n++;
   });
   sc.issued=true; save();

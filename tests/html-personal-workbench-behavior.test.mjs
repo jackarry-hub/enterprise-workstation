@@ -205,3 +205,49 @@ test("returns defensive copies from every read-only gateway method", async () =>
     dom.window.close();
   }
 });
+
+test("runs claim, execution, submission, rejection, and acceptance in order", async () => {
+  const dom = await openWorkbench();
+  const gateway = dom.window.Q.gateway;
+  const task = dom.window.Q.S.tasks.find((item) => item.st === "待处理" && item.own !== item.reviewer);
+  assert.ok(task);
+  assert.throws(() => gateway.claimTask(task.id, "m14"), /forbidden/);
+  gateway.claimTask(task.id, task.own);
+  gateway.updateTaskExecution(task.id, task.own, { progress: 60, blocker: "等待接口", nextStep: "完成联调" });
+  gateway.submitTaskResult(task.id, task.own, { resultText: "已完成第一版", resultLink: "https://example.test/result", resultFiles: [] });
+  assert.equal(task.st, "待验收");
+  gateway.reviewTaskResult(task.id, task.reviewer, { decision: "reject", note: "补充验证记录" });
+  assert.equal(task.st, "进行中");
+  gateway.submitTaskResult(task.id, task.own, { resultText: "已补充验证记录", resultLink: "", resultFiles: ["验证记录.pdf"] });
+  gateway.reviewTaskResult(task.id, task.reviewer, { decision: "pass", note: "验收通过" });
+  assert.equal(task.st, "已完成");
+  assert.equal(task.pr, 100);
+  assert.deepEqual(Array.from(task.timeline).map((row) => row.action), ["领取任务", "更新执行", "提交验收", "驳回修改", "提交验收", "验收通过"]);
+  assert.throws(() => gateway.reopenTask(task.id, task.own, "越权重开"), /forbidden/);
+  gateway.reopenTask(task.id, task.reviewer, "补充回归验证");
+  assert.equal(task.st, "进行中");
+  assert.equal(task.pr, 95);
+  assert.equal(task.timeline.at(-1).action, "重新打开");
+  const persisted = JSON.parse(dom.window.localStorage.getItem("qxy.workstation.demo.v2"));
+  const persistedTask = persisted.tasks.find((item) => item.id === task.id);
+  assert.equal(persistedTask.st, "进行中");
+  assert.equal(persistedTask.timeline.at(-1).note, "补充回归验证");
+  dom.window.close();
+});
+
+test("validates task result and review input", async () => {
+  const dom = await openWorkbench();
+  const gateway = dom.window.Q.gateway;
+  const task = dom.window.Q.S.tasks.find((item) => item.st === "待处理" && item.own !== item.reviewer);
+  gateway.claimTask(task.id, task.own);
+  assert.throws(() => gateway.claimTask(task.id, task.own), /invalid_status/);
+  assert.throws(() => gateway.updateTaskExecution(task.id, "m14", { progress: 50 }), /forbidden/);
+  assert.throws(() => gateway.submitTaskResult(task.id, "m14", { resultText: "成果", resultLink: "https://example.test" }), /forbidden/);
+  assert.throws(() => gateway.updateTaskExecution(task.id, task.own, { progress: 101, blocker: "", nextStep: "" }), /invalid_progress/);
+  assert.throws(() => gateway.submitTaskResult(task.id, task.own, { resultText: "", resultLink: "", resultFiles: [] }), /result_required/);
+  gateway.submitTaskResult(task.id, task.own, { resultText: "成果", resultLink: "https://example.test", resultFiles: [] });
+  assert.throws(() => gateway.reviewTaskResult(task.id, task.own, { decision: "pass", note: "" }), /forbidden/);
+  assert.throws(() => gateway.reviewTaskResult(task.id, task.reviewer, { decision: "later", note: "" }), /invalid_decision/);
+  assert.throws(() => gateway.reviewTaskResult(task.id, task.reviewer, { decision: "reject", note: "" }), /review_note_required/);
+  dom.window.close();
+});
