@@ -6,13 +6,23 @@ import { JSDOM } from "jsdom";
 
 const htmlPath = path.join(process.cwd(), "quantxy-ai-workbench-fused.html");
 
-async function openWorkbench(seedStorage) {
+async function openWorkbench(seedStorage, setupWindow) {
   const html = await readFile(htmlPath, "utf8");
   const dom = new JSDOM(html, {
     url: "http://127.0.0.1:3011/quantxy-ai-workbench-fused.html",
     runScripts: "dangerously",
     pretendToBeVisual: true,
     beforeParse(window) {
+      window.scrollTo = () => {};
+      window.matchMedia = (query) => ({
+        matches: false,
+        media: query,
+        addEventListener() {},
+        removeEventListener() {},
+        addListener() {},
+        removeListener() {},
+      });
+      if (setupWindow) setupWindow(window);
       if (seedStorage) {
         for (const [key, value] of Object.entries(seedStorage)) {
           window.localStorage.setItem(key, value);
@@ -463,6 +473,279 @@ test("routes clickable workbench records to their exact destination", async () =
     incomeButton.click();
     assert.equal(dom.window.Q.S.page, "fin");
     assert.equal(dom.window.Q.S.f.payMonth, month);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("keeps the four mobile destinations fixed while more opens only secondary modules", async () => {
+  const dom = await openWorkbench();
+  try {
+    dom.window.Q.S.page = "me";
+    dom.window.Q.render();
+    const core = Array.from(dom.window.document.querySelectorAll("#nav .mobile-core"));
+    assert.deepEqual(core.map((node) => node.getAttribute("data-page")), ["me", "task", "fin"]);
+    const more = dom.window.document.querySelector('#nav [data-act="mobile-nav-more"]');
+    assert.ok(more);
+    assert.equal(dom.window.document.querySelector("#nav").classList.contains("expanded"), false);
+    more.click();
+    const expandedNav = dom.window.document.querySelector("#nav");
+    const panel = expandedNav.querySelector(".mobile-more-panel");
+    assert.equal(expandedNav.classList.contains("expanded"), true);
+    assert.ok(panel);
+    assert.equal(panel.querySelectorAll(".mobile-extra").length, 12);
+    assert.equal(expandedNav.querySelectorAll(":scope > .mobile-core").length, 3);
+    assert.ok(expandedNav.querySelector(":scope > [data-act=\"mobile-nav-more\"]"));
+    assert.equal(dom.window.document.activeElement?.getAttribute("data-act"), "mobile-nav-more");
+
+    dom.window.document.body.click();
+    assert.equal(dom.window.document.querySelector("#nav").classList.contains("expanded"), false);
+
+    dom.window.document.querySelector('[data-act="mobile-nav-more"]').click();
+    dom.window.document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    assert.equal(dom.window.document.querySelector("#nav").classList.contains("expanded"), false);
+    assert.equal(dom.window.document.activeElement?.getAttribute("data-act"), "mobile-nav-more");
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("opens a focused personal task screen from the mobile task destination", async () => {
+  const dom = await openWorkbench();
+  try {
+    const calls = [];
+    dom.window.scrollTo = (...args) => calls.push(args);
+    dom.window.matchMedia = (query) => ({
+      matches: query === "(max-width:820px)",
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+    });
+    const { S } = dom.window.Q;
+    S.me = "m1";
+    S.page = "me";
+    S.mobileTaskFocus = false;
+    dom.window.Q.render();
+    dom.window.document.documentElement.scrollTop = 320;
+    dom.window.document.body.scrollTop = 320;
+
+    dom.window.document.querySelector('#nav [data-page="task"]').click();
+
+    assert.equal(S.page, "me");
+    assert.equal(S.mobileTaskFocus, true);
+    assert.match(dom.window.document.querySelector("#top").textContent, /我的任务/);
+    assert.ok(dom.window.document.querySelector(".personal-workbench.mobile-task-focus"));
+    assert.ok(dom.window.document.querySelector('#nav [data-page="task"]').classList.contains("on"));
+    assert.equal(dom.window.document.documentElement.scrollTop, 0);
+    assert.equal(dom.window.document.body.scrollTop, 0);
+    assert.ok(calls.length > 0);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("opens filtered personal tasks from a workbench status and returns to the minimal home", async () => {
+  const dom = await openWorkbench();
+  try {
+    dom.window.matchMedia = (query) => ({
+      matches: query === "(max-width:820px)",
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+    });
+    const { S } = dom.window.Q;
+    S.me = "m1";
+    S.page = "me";
+    S.mobileTaskFocus = false;
+    dom.window.Q.render();
+
+    dom.window.document.querySelector('.me-summary [data-act="my-task-filter"]').click();
+    assert.equal(S.mobileTaskFocus, true);
+    assert.ok(dom.window.document.querySelector(".personal-workbench.mobile-task-focus"));
+
+    dom.window.document.querySelector('#nav [data-page="me"]').click();
+    assert.equal(S.page, "me");
+    assert.equal(S.mobileTaskFocus, false);
+    assert.ok(dom.window.document.querySelector(".personal-workbench:not(.mobile-task-focus)"));
+    assert.match(dom.window.document.querySelector("#top").textContent, /工作台/);
+    assert.doesNotMatch(dom.window.document.querySelector("#top").textContent, /员工工作台/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("keeps mobile task focus through landscape and clears it after entering desktop width", async () => {
+  const dom = await openWorkbench();
+  try {
+    let mobileShell = true;
+    dom.window.matchMedia = (query) => ({
+      matches: query === "(max-width:820px)" && mobileShell,
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+    });
+    const { S } = dom.window.Q;
+    S.me = "m1";
+    S.page = "me";
+    S.mobileTaskFocus = false;
+    dom.window.Q.render();
+
+    dom.window.document.querySelector('#nav [data-page="task"]').click();
+    assert.equal(S.mobileTaskFocus, true);
+    assert.ok(dom.window.document.querySelector(".personal-workbench.mobile-task-focus"));
+
+    dom.window.dispatchEvent(new dom.window.Event("resize"));
+    assert.equal(S.mobileTaskFocus, true);
+
+    mobileShell = false;
+    dom.window.dispatchEvent(new dom.window.Event("resize"));
+    assert.equal(S.mobileTaskFocus, false);
+    assert.ok(dom.window.document.querySelector(".personal-workbench:not(.mobile-task-focus)"));
+    assert.match(dom.window.document.querySelector("#top").textContent, /员工工作台/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("refreshes the personal workbench shell when entering mobile width from desktop", async () => {
+  const dom = await openWorkbench();
+  try {
+    let mobileShell = false;
+    dom.window.matchMedia = (query) => ({
+      matches: query === "(max-width:820px)" && mobileShell,
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+    });
+    dom.window.Q.S.page = "me";
+    dom.window.Q.S.mobileTaskFocus = false;
+    dom.window.Q.render();
+    assert.match(dom.window.document.querySelector("#top").textContent, /员工工作台/);
+
+    mobileShell = true;
+    dom.window.dispatchEvent(new dom.window.Event("resize"));
+
+    assert.match(dom.window.document.querySelector("#top").textContent, /工作台/);
+    assert.doesNotMatch(dom.window.document.querySelector("#top").textContent, /员工工作台/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("reacts to the mobile media-query change event when the viewport crosses the breakpoint", async () => {
+  let mobileShell = false;
+  let onShellChange;
+  const dom = await openWorkbench(undefined, (window) => {
+    window.matchMedia = (query) => ({
+      matches: query === "(max-width:820px)" && mobileShell,
+      media: query,
+      addEventListener(type, listener) {
+        if (query === "(max-width:820px)" && type === "change") onShellChange = listener;
+      },
+      removeEventListener() {},
+      addListener(listener) {
+        if (query === "(max-width:820px)") onShellChange = listener;
+      },
+      removeListener() {},
+    });
+  });
+  try {
+    dom.window.Q.S.page = "me";
+    dom.window.Q.render();
+    assert.equal(typeof onShellChange, "function");
+
+    mobileShell = true;
+    onShellChange({ matches: true });
+
+    assert.match(dom.window.document.querySelector("#top").textContent, /工作台/);
+    assert.doesNotMatch(dom.window.document.querySelector("#top").textContent, /员工工作台/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("resets page position and focuses the task heading when opening execution detail", async () => {
+  const dom = await openWorkbench();
+  try {
+    const calls = [];
+    dom.window.scrollTo = (...args) => calls.push(args);
+    dom.window.Q.S.me = "m1";
+    dom.window.Q.S.page = "me";
+    dom.window.Q.render();
+    dom.window.document.documentElement.scrollTop = 320;
+    dom.window.document.body.scrollTop = 320;
+    dom.window.document.querySelector('[data-act="open-execution"]').click();
+
+    const heading = dom.window.document.querySelector("#view [data-page-heading]");
+    assert.ok(heading);
+    assert.equal(dom.window.document.activeElement, heading);
+    assert.equal(dom.window.document.documentElement.scrollTop, 0);
+    assert.equal(dom.window.document.body.scrollTop, 0);
+    assert.ok(calls.length > 0);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("keeps seeded in-progress demo tasks ready for the next action", async () => {
+  const dom = await openWorkbench();
+  try {
+    const active = dom.window.Q.S.tasks.filter((task) => task.st === "进行中");
+    assert.ok(active.length > 0);
+    for (const task of active) {
+      assert.ok(task.acceptedAt, `${task.id} should have a claim time`);
+      assert.ok(task.nextStep, `${task.id} should have a next action`);
+      assert.ok(task.timeline.length > 0, `${task.id} should have an execution record`);
+    }
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("labels personal overdue counts and review reminders with distinct scopes", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S } = dom.window.Q;
+    const createdForReview = S.tasks.find((task) => task.own !== "m1");
+    createdForReview.createdBy = "m1";
+    createdForReview.reviewer = "m1";
+    createdForReview.st = "待验收";
+    createdForReview.e = "2020-01-01";
+    S.me = "m1";
+    S.page = "me";
+    dom.window.Q.render();
+
+    const text = dom.window.document.querySelector("#view").textContent;
+    assert.match(text, /我的逾期/);
+    assert.match(text, /待我验收 · 已逾期/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("explains the filtered empty task state and offers a return to all tasks", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S } = dom.window.Q;
+    S.me = "m1";
+    S.page = "me";
+    S.f.meScope = "todo";
+    S.f.meTab = "已完成";
+    S.tasks = S.tasks.filter((task) => !(task.own === "m1" && task.st === "已完成"));
+    dom.window.Q.render();
+    assert.match(dom.window.document.querySelector("#view").textContent, /暂无已完成任务/);
+    const showAll = dom.window.document.querySelector('[data-act="my-task-filter"][data-status="all"][data-empty-action]');
+    assert.ok(showAll);
+    showAll.click();
+    assert.equal(S.f.meTab, "all");
   } finally {
     dom.window.close();
   }

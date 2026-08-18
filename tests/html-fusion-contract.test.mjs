@@ -211,6 +211,57 @@ test("renders the complete clickable personal workbench", async () => {
   }
 });
 
+test("defines a complete desktop layout and a focused mobile employee shell", async () => {
+  const html = await readFusionHtml();
+  for (const token of [
+    "personal-workbench",
+    "me-identity",
+    "me-summary",
+    "me-focus-grid",
+    "me-must",
+    "me-reminders",
+    "me-task-list",
+    "me-secondary-grid",
+    "execution-layout",
+    "execution-actions",
+  ]) {
+    assert.match(html, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  assert.match(html, /data-act="mobile-nav-more"/);
+  assert.match(html, /mobile-more-panel/);
+  assert.match(html, /mobile-core/);
+  assert.match(html, /mobile-extra/);
+  assert.match(html, /\.nav\.expanded/);
+  assert.match(html, /\.execution-actions\s*\{[^}]*order:\s*-1/s);
+  assert.match(html, /\.me-must\s*\{[^}]*order:\s*1/s);
+  assert.match(html, /min-height:\s*44px/);
+});
+
+test("keeps the mobile personal workbench intentionally minimal", async () => {
+  const html = await readFusionHtml();
+  assert.match(html, /mobile-task-focus/);
+  assert.match(html, /mobile-nav-label/);
+  assert.match(html, /@media \(max-width:820px\)[\s\S]*?\.side\s*\{[^}]*position:\s*fixed[^}]*bottom:\s*0/s);
+  assert.match(html, /@media \(max-width:820px\)[\s\S]*?\.brand\s*\{[^}]*display:\s*none/s);
+  assert.match(html, /\.personal-workbench:not\(\.mobile-task-focus\) \.me-task-list\s*\{[^}]*display:\s*none/s);
+  assert.match(html, /\.personal-workbench:not\(\.mobile-task-focus\) \.me-secondary-grid\s*\{[^}]*display:\s*none/s);
+  assert.match(html, /\.personal-workbench\.mobile-task-focus \.me-task-list\s*\{[^}]*display:\s*block/s);
+  assert.match(html, /\.task-priority\s*\{[^}]*display:\s*none/s);
+  assert.match(html, /\.me-task-list \.hd h3\s*\{[^}]*display:\s*none/s);
+  assert.match(html, /\.me-reminders button>\.tag\s*\{[^}]*display:\s*none/s);
+  assert.match(html, /\.top \.search,\.top \.quick-create\s*\{[^}]*display:\s*none/s);
+});
+
+test("uses clear scoped employee copy and accessible shell controls", async () => {
+  const html = await readFusionHtml();
+  assert.match(html, /我的逾期/);
+  assert.match(html, /reviewScope\?'待我验收':'我的任务'/);
+  assert.match(html, /领取任务并开始执行/);
+  assert.match(html, /领取后开始处理，完成后提交负责人验收。/);
+  assert.match(html, /aria-label="通知，12 条未读"/);
+  assert.match(html, /data-page-heading/);
+});
+
 test("registers the personal execution detail and closed-loop controls", async () => {
   const html = await readFusionHtml();
   assert.match(html, /execution:\s*viewExecution/);

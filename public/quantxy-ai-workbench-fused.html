@@ -56,7 +56,7 @@
 <style>
 :root{
   --bg:#f3f5fa; --card:#fff; --line:#e9edf5; --line2:#f1f4fa;
-  --ink:#1b2440; --sub:#5b6785; --mut:#98a2ba;
+  --ink:#1b2440; --sub:#5b6785; --mut:#7d879f;
   --brand:#2563eb; --brand-d:#1d4ed8; --brand-s:#eef3ff; --brand-s2:#e2ebff;
   --violet:#7c3aed; --violet-s:#f3eeff;
   --ok:#10b981; --ok-s:#e8f9f2; --warn:#f59e0b; --warn-s:#fff4e2; --risk:#ef4444; --risk-s:#fdecec;
@@ -140,6 +140,9 @@ a{color:inherit;text-decoration:none}
 .nav button:hover{background:var(--brand-s);color:var(--brand-d)}
 .nav button.on{background:var(--brand);color:#fff;box-shadow:0 6px 16px rgba(37,99,235,.28)}
 .nav svg{flex:0 0 18px}
+.nav .mobile-more{display:none}
+.nav .mobile-more-panel{display:contents}
+.mobile-nav-label{display:none}
 .helper{margin:12px;padding:14px;border-radius:var(--r);background:linear-gradient(160deg,#eef3ff,#e7ecff);position:relative}
 .helper .x{position:absolute;right:8px;top:6px;color:var(--mut);font-size:15px}
 .helper .row{display:flex;gap:10px;align-items:flex-start}
@@ -157,7 +160,7 @@ a{color:inherit;text-decoration:none}
 .search{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:10px;
   padding:9px 13px;width:340px;color:var(--mut)}
 .search input{border:0;background:none;width:100%;font-size:13px}
-.pill{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:12.5px;color:var(--sub)}
+.pill{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:12.5px;color:var(--sub);white-space:nowrap}
 .bell{position:relative;width:38px;height:38px;border-radius:10px;background:#fff;border:1px solid var(--line);display:grid;place-items:center}
 .bell i{position:absolute;top:-6px;right:-6px;background:var(--risk);color:#fff;font-size:10px;font-style:normal;
   min-width:17px;height:17px;border-radius:9px;display:grid;place-items:center;padding:0 4px;border:2px solid var(--bg)}
@@ -166,6 +169,7 @@ a{color:inherit;text-decoration:none}
 .btn.ghost{background:#fff;color:var(--sub);border:1px solid var(--line);box-shadow:none}
 .btn.soft{background:var(--brand-s);color:var(--brand-d);box-shadow:none}
 .btn:disabled{opacity:.55;cursor:not-allowed}
+.quick-create .btn{white-space:nowrap}
 .me{display:flex;align-items:center;gap:9px;position:relative}
 .me .nm{font-size:13px;font-weight:600;line-height:1.2}
 .me .rl{font-size:11px;color:var(--mut)}
@@ -258,6 +262,7 @@ tr:last-child td{border-bottom:0}
 .msg.u .bub{background:var(--brand);color:#fff;border-color:var(--brand)}
 .msg .bub p{margin:0 0 8px} .msg .bub p:last-child{margin:0}
 .flow-node{fill:#fff;stroke:var(--line);stroke-width:1.5}
+[data-page-heading]:focus{outline:none}
 
 /* ---------- compact workstation layout ---------- */
 @media (max-width:820px){
@@ -267,8 +272,12 @@ tr:last-child td{border-bottom:0}
   .brand svg{width:54px;height:34px;margin:0}
   .brand .wm{font-size:16px;margin:0;letter-spacing:1.5px}
   .brand .cn,.side h6,.helper{display:none!important}
-  .nav{display:flex;gap:6px;overflow-x:auto;padding:8px 10px 10px;scrollbar-width:thin}
-  .nav button{width:auto;flex:0 0 auto;margin:0;padding:8px 10px;white-space:nowrap}
+  .nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;overflow:visible;padding:8px 10px 10px}
+  .nav button{width:100%;min-height:44px;margin:0;padding:9px 8px;justify-content:center;white-space:nowrap}
+  .nav .mobile-extra{display:none}
+  .nav .mobile-more{display:flex}
+  .nav .mobile-more-panel{display:none}
+  .nav.expanded .mobile-extra{display:flex}
   .main{width:100%;min-width:0}
   .top{padding:10px 12px;gap:8px;flex-wrap:wrap;position:sticky;top:0}
   .top .ttl h1{font-size:18px}
@@ -287,17 +296,74 @@ tr:last-child td{border-bottom:0}
   .tabs{gap:14px;overflow-x:auto}
   .tabs button{flex:0 0 auto;white-space:nowrap}
   .gantt-row{grid-template-columns:130px minmax(380px,1fr)}
+  .execution-actions{order:-1}
 }
-@media (max-width:480px){
+@media (max-width:820px){
+  body{background:#f6f7fb}
+  .app{padding-bottom:calc(72px + env(safe-area-inset-bottom))}
   .login-gate{padding:18px}
   .login-card{padding:28px 22px 24px;border-radius:16px}
-  .brand{justify-content:flex-start}
+  .side{position:fixed;z-index:70;left:0;right:0;top:auto;bottom:0;width:100%;height:calc(64px + env(safe-area-inset-bottom));
+    border:0;border-top:1px solid var(--line);background:rgba(255,255,255,.96);box-shadow:0 -8px 24px rgba(20,30,60,.08)}
+  .brand{display:none}
+  .nav{height:100%;padding:5px 8px calc(5px + env(safe-area-inset-bottom));gap:2px;grid-template-columns:repeat(4,minmax(0,1fr))}
+  .nav button{min-height:50px;padding:4px 3px;gap:2px;flex-direction:column;font-size:10.5px;border-radius:9px;margin:0}
+  .nav button.on{background:transparent;color:var(--brand);box-shadow:none;font-weight:600}
+  .nav button svg{width:20px;height:20px}
+  .nav .desktop-nav-label{display:none}
+  .nav .mobile-nav-label{display:inline}
+  .nav.expanded .mobile-more-panel{display:grid;position:fixed;z-index:1;left:10px;right:10px;
+    bottom:calc(72px + env(safe-area-inset-bottom));max-height:min(62vh,500px);overflow-y:auto;
+    padding:14px;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;background:#fff;
+    border:1px solid var(--line);border-radius:18px;box-shadow:0 18px 50px rgba(20,30,60,.22)}
+  .nav.expanded .mobile-extra{display:flex}
+  .top{min-height:58px;padding:9px 16px 7px;flex-wrap:nowrap;border-bottom:1px solid rgba(233,237,245,.85);background:rgba(246,247,251,.94)}
+  .top .ttl h1{font-size:18px;letter-spacing:0}
+  .top.employee-top .me>button{padding:0;gap:0}
+  .top.employee-top .me>button>span:not(.av),.top.employee-top .me>button>svg{display:none}
+  .top.employee-top .av.lg{width:34px;height:34px;flex-basis:34px}
   .top .bell{display:none}
   .top .me{margin-left:auto}
+  .top .search,.top .quick-create{display:none}
+  .view{padding:0 12px calc(22px + env(safe-area-inset-bottom))}
   .kpi{padding:13px}
   .kpi .v{font-size:21px}
   .card .bd{padding:14px}
   .modal{padding:18px}
+  .personal-workbench{display:flex;flex-direction:column;gap:10px;padding-top:8px}
+  .personal-workbench>*{margin-top:0!important}
+  .personal-workbench .card{box-shadow:none}
+  .me-identity{display:none}
+  .me-focus-grid{display:contents}
+  .me-must{order:1}
+  .grid.me-summary{order:2;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:5px}
+  .me-reminders{order:3}
+  .personal-workbench:not(.mobile-task-focus) .me-task-list{display:none}
+  .personal-workbench:not(.mobile-task-focus) .me-secondary-grid{display:none}
+  .personal-workbench.mobile-task-focus .me-summary,.personal-workbench.mobile-task-focus .me-focus-grid,
+  .personal-workbench.mobile-task-focus .me-secondary-grid{display:none}
+  .personal-workbench.mobile-task-focus .me-task-list{display:block;order:1}
+  .me-summary .kpi{padding:9px 5px;min-width:0;box-shadow:none;border:0;background:transparent}
+  .me-summary .kpi .t{font-size:11px;justify-content:center;text-align:center}
+  .me-summary .kpi .ico,.me-summary .kpi .f{display:none}
+  .me-summary .kpi .v{font-size:19px;text-align:center;margin-top:4px}
+  .me-summary .kpi .v small{font-size:10px}
+  .me-must .hd,.me-reminders .hd{padding:14px 14px 8px}
+  .me-must .bd,.me-reminders .bd{padding:0 14px 8px!important;overflow:visible}
+  .me-reminders .sm{display:none}
+  .me-reminders button>.tag{display:none}
+  .me-task-list .hd{align-items:flex-start}
+  .me-task-list .hd h3{display:none}
+  .me-task-list .chips{width:100%;overflow-x:auto;flex-wrap:nowrap}
+  .me-task-list .chips .chip{flex:0 0 auto;white-space:nowrap}
+  .task-priority{display:none}
+  .personal-workbench button[data-act="open-execution"],.personal-workbench button[data-act="open-my-project"]{min-height:48px}
+  .execution-heading{gap:9px!important;margin-bottom:12px!important}
+  .execution-heading>.btn{min-height:44px;padding:9px 11px}
+  .execution-heading h2{font-size:18px!important}
+  .execution-layout{gap:12px!important}
+  .execution-actions{gap:12px!important}
+  .execution-actions .btn{min-height:44px;justify-content:center;width:100%}
 }
 </style>
 </head>
@@ -399,6 +465,11 @@ function normalizeTask(task){
   item.reviewedAt=item.reviewedAt||'';
   item.reviewNote=item.reviewNote||'';
   item.timeline=Array.isArray(item.timeline)?item.timeline:[];
+  if(isDemoRuntime()&&item.st==='进行中'){
+    item.acceptedAt=item.acceptedAt||((item.s||fmt(today()))+' 09:00');
+    item.nextStep=item.nextStep||'继续推进并同步最新进展';
+    if(!item.timeline.length) item.timeline.push({actor:item.own,action:'领取任务',note:'开始执行',at:item.acceptedAt});
+  }
   item.revision=Math.max(0,Math.floor(Number(item.revision)||0));
   return item;
 }
@@ -811,7 +882,7 @@ var KB = [
 
 /* ---------------- 全局状态 ---------------- */
 var S = {
-  page:'dash', me:'m14', menu:false, helper:true,
+  page:'dash', me:'m14', menu:false, mobileNav:false, mobileTaskFocus:false, helper:true,
   tasks:[], proj:PROJECTS, customers:[], activities:[], decisions:[], payroll:{},
   tab:{proj:'all', task:'all', kb:'week'},
   sel:{task:null, wbs:null},
@@ -1250,12 +1321,16 @@ function aiDecompose(goal, deadline, budget, must){
 
 /* ---------------- 外壳渲染 ---------------- */
 var NAV=[
+  ['me','员工工作台','user'], ['task','任务中心','task'], ['fin','我的薪酬','money'],
   ['dash','总览 / 决策驾驶舱','dash'], ['proj','项目中心','proj'], ['sched','AI 调度中心','ai'],
-  ['task','任务中心','task'], ['customers','客户与交付','org'], ['activities','活动推进','target'],
-  ['decisions','业务决策中心','ok'], ['me','员工工作台','user'], ['assistant','AI 助理','bot'],
+  ['customers','客户与交付','org'], ['activities','活动推进','target'],
+  ['decisions','业务决策中心','ok'], ['assistant','AI 助理','bot'],
   ['insight','数据洞察','chart'], ['kb','知识中心','book'], ['flow','Agent 中心','flow'],
-  ['fin','财务中心','money'], ['org','组织与权限','org'], ['set','系统设置','set']
+  ['org','组织与权限','org'], ['set','系统设置','set']
 ];
+var MOBILE_CORE={me:1,task:1,fin:1};
+var MOBILE_LABEL={me:'工作台',task:'我的任务',fin:'薪酬'};
+function isMobileShell(){ return !!(window.matchMedia&&window.matchMedia('(max-width:820px)').matches); }
 var META={
   dash:['决策驾驶舱','数据更新于 '+fmt(today())+' 10:30'],
   proj:['项目中心','全面掌控项目进展，高效协作，驱动业务目标达成'],
@@ -1285,16 +1360,24 @@ var META={
   'new-activity':['新建活动','定义目标、负责人和活动周期']
 };
 function renderNav(){
-  el('nav').innerHTML=NAV.map(function(x){
-    return '<button data-act="go" data-page="'+x[0]+'" class="'+(S.page===x[0]?'on':'')+'">'+ic(x[2],18)+'<span>'+x[1]+'</span></button>';
-  }).join('');
+  var nav=el('nav');
+  nav.className='nav'+(S.mobileNav?' expanded':'');
+  function navButton(x){
+    var active=(x[0]==='me'&&S.page==='me'&&!S.mobileTaskFocus)||(x[0]==='task'&&(S.page==='task'||S.page==='execution'||(S.page==='me'&&S.mobileTaskFocus)))||(x[0]!=='me'&&x[0]!=='task'&&S.page===x[0]);
+    return '<button data-act="go" data-page="'+x[0]+'" class="'+(MOBILE_CORE[x[0]]?'mobile-core':'mobile-extra')+(active?' on':'')+'">'+ic(x[2],18)+'<span class="desktop-nav-label">'+x[1]+'</span><span class="mobile-nav-label">'+(MOBILE_LABEL[x[0]]||x[1])+'</span></button>';
+  }
+  var core=NAV.filter(function(x){ return MOBILE_CORE[x[0]]; }).map(navButton).join('');
+  var extra=NAV.filter(function(x){ return !MOBILE_CORE[x[0]]; }).map(navButton).join('');
+  nav.innerHTML=core+'<button class="mobile-more '+(!MOBILE_CORE[S.page]&&S.page!=='execution'?'on':'')+'" data-act="mobile-nav-more" aria-expanded="'+(S.mobileNav?'true':'false')+'">'+ic('down',18)+'<span>'+(S.mobileNav?'收起':'更多')+'</span></button><div class="mobile-more-panel" aria-label="更多功能">'+extra+'</div>';
   var hp=document.querySelector('.helper'); if(hp) hp.style.display=S.helper?'':'none';
 }
 function renderTop(){
-  var m=META[S.page], me=MB[S.me]||{n:'当前用户',r:'已登录'};
+  var isMobile=isMobileShell();
+  var m=(S.page==='me'&&S.mobileTaskFocus)?['我的任务','只看当前身份的执行事项']:(S.page==='me'&&isMobile?['工作台','今天要完成什么，一屏看清']:META[S.page]), me=MB[S.me]||{n:'当前用户',r:'已登录'};
   var canSwitch=workstationFeatures().identitySwitch;
+  var employeePage=S.page==='me'||S.page==='execution'||S.page==='fin';
   var identityControl=canSwitch?j([
-    '<div class="me"><button data-act="menu" style="display:flex;align-items:center;gap:9px">',av(me.n,1),
+    '<div class="me"><button data-act="menu" aria-label="切换当前身份" style="display:flex;align-items:center;gap:9px">',av(me.n,1),
       '<span style="text-align:left"><span class="nm">',esc(me.n),'</span><br><span class="rl">',esc(me.r),'</span></span>',ic('down',14),'</button>',
       S.menu?('<div class="menu"><div class="hd">切换身份查看工作台</div>'+MEMBERS.map(function(x){
         return '<button data-act="setme" data-id="'+attr(x.id)+'">'+av(x.n)+'<span style="flex:1;text-align:left">'+esc(x.n)+'</span><span class="tag t-n">'+esc(x.r)+'</span></button>';
@@ -1305,13 +1388,14 @@ function renderTop(){
       '<span style="text-align:left"><span class="nm">',esc(me.n),'</span><br><span class="rl">',esc(me.r),'</span></span>',
       '<button class="link" data-act="logout" style="margin-left:4px">退出</button></div>'
   ]);
+  el('top').className='top'+(employeePage?' employee-top':'');
   el('top').innerHTML=j([
     '<div class="ttl"><h1>',m[0],'</h1><p>',m[1],'</p></div>',
     '<div class="grow"></div>',
     '<div class="search">',ic('search',16),'<input data-q="gq" value="',esc(S.f.gq||''),'" placeholder="搜索项目、任务、客户、活动、成员、文档、Agent…"></div>',
     '<div class="pill">',ic('cal',15),fmt(addD(today(),-30)),' ~ ',fmt(today()),ic('down',14),'</div>',
-    '<button class="bell">',ic('bell',18),'<i>12</i></button>',
-    '<div style="position:relative"><button class="btn" data-act="cmenu">',ic('plus',16),'快速创建',ic('down',14),'</button>',
+    '<button class="bell" aria-label="通知，12 条未读">',ic('bell',18),'<i>12</i></button>',
+    '<div class="quick-create" style="position:relative"><button class="btn" data-act="cmenu">',ic('plus',16),'快速创建',ic('down',14),'</button>',
       S.cmenu?('<div class="menu" style="width:210px"><div class="hd">创建</div>'+
         [['new-project','proj','新建项目'],['new-task','task','新建任务'],['new-member','user','添加成员'],['new-file','file','上传文档'],['sched','ai','AI 调度目标']].map(function(x){
           return '<button data-act="go" data-page="'+x[0]+'">'+ic(x[1],16,'#2563eb')+'<span style="flex:1;text-align:left">'+x[2]+'</span></button>'; }).join('')+'</div>'):'',
@@ -1780,46 +1864,52 @@ function viewMe(){
   var tasks=WORKSTATION_GATEWAY.listMyTasks(S.me,scope,status);
   var projects=WORKSTATION_GATEWAY.listMyProjects(S.me);
   var payroll=payrollRow(S.me,''), payrollSummary=payrollTotals(payroll);
-  var statuses=[['待处理','待处理','#94a3b8','t-n'],['进行中','进行中','#2563eb','t-b'],['待验收','待验收','#7c3aed','t-v'],['已逾期','已逾期','#ef4444','t-r']];
+  var statuses=[['待处理','待处理','#64748b','t-n'],['进行中','进行中','#2563eb','t-b'],['待验收','待验收','#7c3aed','t-v'],['已逾期','我的逾期','#ef4444','t-r']];
   function taskRow(task,compact){
     var project=PB[task.p], overdue=isOverdue(task);
     return '<button data-act="open-execution" data-id="'+attr(task.id)+'" style="width:100%;display:flex;align-items:center;gap:10px;padding:'+(compact?'10px 0':'12px 0')+';text-align:left;border-bottom:1px solid var(--line2)">'+
       '<span style="width:30px;height:30px;border-radius:9px;background:'+(overdue?'var(--risk-s)':'var(--brand-s)')+';display:grid;place-items:center;flex:0 0 auto">'+ic(overdue?'warn':'task',15,overdue?'#ef4444':'#2563eb')+'</span>'+
-      '<span style="flex:1;min-width:0"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(task.n)+'</b><span style="font-size:11.5px;color:var(--mut)">'+esc(project?project.n:'未关联项目')+' · 截止 '+esc(task.e)+'</span></span>'+priTag(task.pri)+(overdue?stTag('已逾期'):stTag(task.st))+'</button>';
+      '<span style="flex:1;min-width:0"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(task.n)+'</b><span style="font-size:11.5px;color:var(--mut)">'+esc(project?project.n:'未关联项目')+' · 截止 '+esc(task.e)+'</span></span><span class="task-priority">'+priTag(task.pri)+'</span>'+(overdue?stTag('已逾期'):stTag(task.st))+'</button>';
+  }
+  function taskEmpty(){
+    if(status==='all') return '<div class="empty">'+(scope==='created'?'暂无我发起的任务':'当前身份暂无任务')+'</div>';
+    return '<div class="empty"><div>暂无'+esc(status)+'任务</div><button class="link" style="margin-top:8px" data-act="my-task-filter" data-scope="'+attr(scope)+'" data-status="all" data-empty-action>查看全部任务</button></div>';
   }
   return j([
-  '<div class="card fade" style="background:linear-gradient(120deg,#eef3ff,#f7f5ff);border-color:#e2e9fb"><div class="bd" style="display:flex;align-items:center;gap:16px">',
+  '<div class="personal-workbench'+(S.mobileTaskFocus?' mobile-task-focus':'')+' fade">',
+  '<div class="card me-identity" style="background:linear-gradient(120deg,#eef3ff,#f7f5ff);border-color:#e2e9fb"><div class="bd" style="display:flex;align-items:center;gap:16px">',
     av(me.n,1),'<div><h2 style="margin:0;font-size:20px">',esc(me.n),'的个人执行工作台</h2><p style="margin:4px 0 0;color:var(--sub);font-size:12.5px">',esc(me.dept),' · ',esc(me.r),' · 数据仅展示当前身份</p></div>',
     '<div class="grow"></div><span class="tag t-b">今日 ',fmt(today()),'</span>',
   '</div></div>',
 
-  '<div class="grid" style="grid-template-columns:repeat(4,1fr);margin-top:16px">',statuses.map(function(item){
+  '<div class="grid me-summary" style="grid-template-columns:repeat(4,1fr);margin-top:16px">',statuses.map(function(item){
     var count=personalTasks(S.me,'todo',item[0]).length;
     return '<button class="card kpi" data-act="my-task-filter" data-scope="todo" data-status="'+attr(item[0])+'" style="display:block;text-align:left;width:100%"><div class="t"><span>'+item[1]+'</span><span class="ico" style="background:'+item[2]+'18">'+ic(item[0]==='已逾期'?'warn':'task',17,item[2])+'</span></div><div class="v">'+count+'<small> 项</small></div><div class="f"><em>点击查看对应任务</em></div></button>';
   }).join(''),'</div>',
 
-  '<div class="grid" style="grid-template-columns:1.35fr 1fr;margin-top:16px">',
-    '<div class="card"><div class="hd"><h3>今日必须处理</h3><div class="grow"></div><span class="tag t-o">'+dashboard.must.length+'</span></div><div class="bd" style="padding-top:4px">',
+  '<div class="grid me-focus-grid" style="grid-template-columns:1.35fr 1fr;margin-top:16px">',
+    '<div class="card me-must"><div class="hd"><h3>今日必须处理</h3><div class="grow"></div><span class="tag t-o">'+dashboard.must.length+'</span></div><div class="bd" style="padding-top:4px">',
       dashboard.must.length?dashboard.must.map(function(task){ return taskRow(task,false); }).join(''):'<div class="empty">今日没有必须处理的事项</div>',
     '</div></div>',
-    '<div class="card"><div class="hd"><h3>执行提醒</h3><div class="grow"></div><span class="sm">逾期 · 阻塞 · 待验收</span></div><div class="bd" style="padding-top:4px">',
+    '<div class="card me-reminders"><div class="hd"><h3>执行提醒</h3><div class="grow"></div><span class="sm">我的任务 · 待我验收</span></div><div class="bd" style="padding-top:4px">',
       dashboard.reminders.length?dashboard.reminders.map(function(task){
-        var note=isOverdue(task)?'已逾期':task.blocker?('阻塞：'+task.blocker):'等待负责人验收';
+        var reviewScope=task.own!==S.me&&(task.reviewer===S.me||task.createdBy===S.me);
+        var note=(reviewScope?'待我验收':'我的任务')+' · '+(isOverdue(task)?'已逾期':task.blocker?('阻塞：'+task.blocker):'等待负责人验收');
         return '<button data-act="open-execution" data-id="'+attr(task.id)+'" style="width:100%;display:flex;gap:9px;align-items:center;padding:10px 0;text-align:left;border-bottom:1px solid var(--line2)">'+ic('bell',15,isOverdue(task)?'#ef4444':'#f59e0b')+'<span style="flex:1;min-width:0"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(task.n)+'</b><span style="font-size:11.5px;color:var(--mut)">'+esc(note)+'</span></span>'+stTag(isOverdue(task)?'已逾期':task.st)+'</button>';
       }).join(''):'<div class="empty">当前身份暂无执行提醒</div>',
     '</div></div>',
   '</div>',
 
-  '<div class="card" style="margin-top:16px"><div class="hd" style="gap:8px"><h3 style="margin-right:8px">个人任务</h3>',
+  '<div class="card me-task-list" style="margin-top:16px"><div class="hd" style="gap:8px"><h3 style="margin-right:8px">个人任务</h3>',
     '<button class="chip '+(scope==='todo'?'on':'')+'" data-act="my-task-filter" data-scope="todo" data-status="'+attr(status)+'">我的待办</button>',
     '<button class="chip '+(scope==='created'?'on':'')+'" data-act="my-task-filter" data-scope="created" data-status="'+attr(status)+'">我发起的</button>',
     '<div class="grow"></div><div class="chips">',['all','待处理','进行中','待验收','已完成','已逾期'].map(function(value){
       return '<button class="chip '+(status===value?'on':'')+'" data-act="my-task-filter" data-scope="'+attr(scope)+'" data-status="'+attr(value)+'">'+(value==='all'?'全部':esc(value))+'</button>';
     }).join(''),'</div></div><div class="bd" style="padding-top:4px;max-height:390px;overflow:auto">',
-      tasks.length?tasks.map(function(task){ return taskRow(task,false); }).join(''):'<div class="empty">当前身份暂无任务</div>',
+      tasks.length?tasks.map(function(task){ return taskRow(task,false); }).join(''):taskEmpty(),
   '</div></div>',
 
-  '<div class="grid" style="grid-template-columns:1.35fr 1fr;margin-top:16px">',
+  '<div class="grid me-secondary-grid" style="grid-template-columns:1.35fr 1fr;margin-top:16px">',
     '<div class="card"><div class="hd"><h3>我的项目</h3><div class="grow"></div><span class="tag t-n">'+projects.length+'</span></div><div class="bd" style="padding-top:4px">',
       projects.length?projects.slice(0,6).map(function(project){
         var mine=personalTasks(S.me,'todo','all').filter(function(task){ return task.p===project.id; });
@@ -1829,6 +1919,7 @@ function viewMe(){
     '<div class="card"><div class="hd"><h3>个人收入</h3><div class="grow"></div><span class="sm">仅本人可见</span></div><div class="bd">',
       payroll?'<button data-act="open-income" data-month="'+attr(payroll.month)+'" style="width:100%;padding:18px;border-radius:12px;background:linear-gradient(120deg,var(--brand-s),var(--violet-s));text-align:left"><span style="display:block;font-size:12px;color:var(--sub)">'+esc(payroll.month)+' 实发工资</span><b style="display:block;font-size:28px;margin:5px 0;color:var(--brand-d)">'+payrollMoney(payrollSummary.net)+'</b><span style="font-size:11.5px;color:var(--mut)">应发 '+payrollMoney(payrollSummary.gross)+' · 扣款 '+payrollMoney(payrollSummary.deductions)+' · 点击查看明细</span></button>':'<div class="empty">当前身份暂无工资记录</div>',
     '</div></div>',
+  '</div>',
   '</div>']);
 }
 
@@ -1850,11 +1941,12 @@ function viewExecution(){
   }
   var project=PB[task.p]||{}, owner=MB[task.own]||{}, creator=MB[task.createdBy]||{}, reviewer=MB[task.reviewer]||{};
   var isOwner=S.me===task.own, canReview=S.me===task.reviewer||S.me===task.createdBy;
+  var nextAction=task.nextStep||(isOwner&&task.st==='待处理'?'领取任务并开始执行':isOwner&&task.st==='进行中'?'补充下一步动作':task.st==='待验收'?'等待负责人验收':task.st==='已完成'?'任务已完成':'等待任务更新');
   var safeLink=/^https?:\/\//i.test(task.resultLink||'')?task.resultLink:'';
   var timeline=(task.timeline||[]).slice().reverse();
   var actionPanel='';
   if(isOwner&&task.st==='待处理'){
-    actionPanel='<div class="card"><div class="hd"><h3>开始执行</h3></div><div class="bd"><p class="hint" style="margin:0 0 14px">领取后任务进入“进行中”，即可更新进度并提交成果。</p><button class="btn" data-act="task-claim">'+ic('bolt',15)+'领取任务</button></div></div>';
+    actionPanel='<div class="card"><div class="hd"><h3>开始执行</h3></div><div class="bd"><p class="hint" style="margin:0 0 14px">领取后开始处理，完成后提交负责人验收。</p><button class="btn" data-act="task-claim">'+ic('bolt',15)+'领取任务</button></div></div>';
   }else if(isOwner&&task.st==='进行中'){
     actionPanel=j([
       '<div class="card"><div class="hd"><h3>更新执行进度</h3></div><div class="bd">',
@@ -1885,13 +1977,13 @@ function viewExecution(){
     actionPanel='<div class="card"><div class="bd"><div class="empty">当前身份在此状态下没有待执行操作</div></div></div>';
   }
   return j([
-    '<div class="fade"><div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:16px">',
+    '<div class="fade"><div class="execution-heading" style="display:flex;align-items:flex-start;gap:12px;margin-bottom:16px">',
       '<button class="btn ghost" data-act="go" data-page="me">← 返回个人工作台</button>',
-      '<div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap"><h2 style="font-size:20px;margin:0">',esc(task.n),'</h2>',stTag(task.st),priTag(task.pri),'</div>',
+      '<div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap"><h2 data-page-heading tabindex="-1" style="font-size:20px;margin:0">',esc(task.n),'</h2>',stTag(task.st),priTag(task.pri),'</div>',
       '<p style="margin:5px 0 0;color:var(--mut);font-size:12.5px">',esc(project.n||'未关联项目'),' · 任务编号 ',esc(task.id),' · 截止 ',esc(task.e||'未设置'),'</p></div>',
     '</div>',
-    '<div class="grid" style="grid-template-columns:minmax(0,1.35fr) minmax(310px,.65fr);align-items:start">',
-      '<div style="display:flex;flex-direction:column;gap:16px">',
+    '<div class="execution-layout grid" style="grid-template-columns:minmax(0,1.35fr) minmax(310px,.65fr);align-items:start">',
+      '<div class="execution-detail" style="display:flex;flex-direction:column;gap:16px">',
         '<div class="card"><div class="hd"><h3>任务信息</h3><div class="grow"></div><b style="font-size:13px">',Number(task.pr||0),'%</b></div><div class="bd">',
           '<div class="bar" style="margin-bottom:17px"><i style="width:',Math.max(0,Math.min(100,Number(task.pr||0))),'%"></i></div>',
           '<div class="grid" style="grid-template-columns:1fr 1fr;gap:0 24px">',
@@ -1903,7 +1995,7 @@ function viewExecution(){
           '<div style="margin-top:14px"><div style="font-size:12px;color:var(--mut);margin-bottom:6px">验收标准</div><p style="margin:0;padding:11px 12px;border-radius:10px;background:#f8faff;line-height:1.75">',esc(task.ac||'未补充验收标准'),'</p></div>',
           '<div class="grid" style="grid-template-columns:1fr 1fr;margin-top:14px">',
             '<div><div style="font-size:12px;color:var(--mut);margin-bottom:6px">阻塞原因</div><p style="margin:0;line-height:1.7">',esc(task.blocker||'暂无阻塞'),'</p></div>',
-            '<div><div style="font-size:12px;color:var(--mut);margin-bottom:6px">下一步动作</div><p style="margin:0;line-height:1.7">',esc(task.nextStep||'尚未填写'),'</p></div>',
+            '<div><div style="font-size:12px;color:var(--mut);margin-bottom:6px">下一步动作</div><p style="margin:0;line-height:1.7">',esc(nextAction),'</p></div>',
           '</div>',
         '</div></div>',
         '<div class="card"><div class="hd"><h3>成果信息</h3><div class="grow"></div>',task.submittedAt?'<span class="sm">提交于 '+esc(task.submittedAt)+'</span>':'','</div><div class="bd">',
@@ -1918,7 +2010,7 @@ function viewExecution(){
           timeline.length?timeline.map(function(row){ var actor=MB[row.actor]||{}; return '<div style="display:flex;gap:11px;padding:11px 0;border-bottom:1px solid var(--line2)"><span style="width:30px;height:30px;border-radius:9px;background:var(--brand-s);display:grid;place-items:center;flex:0 0 auto">'+ic('clock',14,'#2563eb')+'</span><div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b>'+esc(row.action||'任务更新')+'</b><span style="font-size:11.5px;color:var(--mut)">'+esc(actor.n||'系统')+' · '+esc(row.at||'')+'</span></div>'+(row.note?'<p style="margin:4px 0 0;color:var(--sub);line-height:1.65">'+esc(row.note)+'</p>':'')+'</div></div>'; }).join(''):'<div class="empty">暂无执行记录</div>',
         '</div></div>',
       '</div>',
-      '<div style="display:flex;flex-direction:column;gap:16px">',actionPanel,'</div>',
+      '<div class="execution-actions" id="executionAction" style="display:flex;flex-direction:column;gap:16px">',actionPanel,'</div>',
     '</div></div>'
   ]);
 }
@@ -3375,6 +3467,18 @@ function renderDemoCleared(){
     '</div>'
   ]);
 }
+var LAST_RENDERED_PAGE=null, LAST_RENDERED_TASK_FOCUS=null;
+function resetPagePosition(){
+  var root=document.documentElement, body=document.body, main=document.querySelector('.main');
+  if(root) root.scrollTop=0;
+  if(body) body.scrollTop=0;
+  if(main) main.scrollTop=0;
+  try{ if(window.scrollTo) window.scrollTo(0,0); }catch(e){}
+  var heading=el('view')&&el('view').querySelector('[data-page-heading]');
+  if(heading){
+    try{ heading.focus({preventScroll:true}); }catch(e){ try{ heading.focus(); }catch(e2){} }
+  }
+}
 function render(){
   if(S.serviceError){ renderServiceUnavailable(); return; }
   if(!authState()){ renderLogin(); return; }
@@ -3383,7 +3487,12 @@ function render(){
   if(app) app.classList.remove('auth-hidden');
   if(S.demoCleared){ renderDemoCleared(); return; }
   renderNav(); renderTop();
+  var pageChanged=LAST_RENDERED_PAGE!==S.page;
+  var taskFocusChanged=LAST_RENDERED_TASK_FOCUS!==S.mobileTaskFocus;
   el('view').innerHTML=(VIEWS[S.page]||viewDash)()+modalHTML();
+  LAST_RENDERED_PAGE=S.page;
+  LAST_RENDERED_TASK_FOCUS=S.mobileTaskFocus;
+  if(pageChanged||taskFocusChanged) resetPagePosition();
   var cb=el('chatBox'); if(cb) cb.scrollTop=cb.scrollHeight;
   if(S.page==='set'&&!S.aiConfig.loaded&&!S.aiConfig.loading) setTimeout(function(){ loadAiConfig(false); },0);
 }
@@ -3449,7 +3558,13 @@ function rejectLegacyWriteInRealMode(action){
 document.addEventListener('click',function(e){
   if(e.target.closest&&e.target.closest('[data-stop]')&&!(e.target.closest('[data-act]'))) return;
   var t=e.target.closest?e.target.closest('[data-act]'):null;
-  if(!t){ if(S.menu||S.cmenu){ S.menu=false; S.cmenu=false; render(); } return; }
+  if(!t){
+    var closeMobileNav=S.mobileNav;
+    if(closeMobileNav) S.mobileNav=false;
+    if(S.menu||S.cmenu){ S.menu=false; S.cmenu=false; render(); }
+    else if(closeMobileNav) renderNav();
+    return;
+  }
   var a=t.getAttribute('data-act');
   if(rejectLegacyWriteInRealMode(a)) return;
   if(a!=='menu'&&S.menu) S.menu=false;
@@ -3457,7 +3572,15 @@ document.addEventListener('click',function(e){
   if(a==='login-toggle'){ LOGIN.show=!LOGIN.show; renderLogin(); }
   else if(a==='login-submit'){ submitLogin(); }
   else if(a==='go'){ if(S.page.indexOf('new-')===0){ syncForm(); if(S.editId){ S.editId=null; S.form=blankForm(); } }
-    S.page=t.getAttribute('data-page'); S.sel.task=null; S.deptMgr=false; render(); }
+    var targetPage=t.getAttribute('data-page');
+    if(targetPage==='task'&&isMobileShell()){ S.page='me'; S.mobileTaskFocus=true; }
+    else { S.page=targetPage; S.mobileTaskFocus=false; }
+    S.mobileNav=false; S.sel.task=null; S.deptMgr=false; render(); }
+  else if(a==='mobile-nav-more'){
+    S.mobileNav=!S.mobileNav; renderNav();
+    var moreControl=el('nav')&&el('nav').querySelector('[data-act="mobile-nav-more"]');
+    if(moreControl) moreControl.focus();
+  }
   else if(a==='cmenu'){ S.cmenu=!S.cmenu; render(); }
   else if(a==='f-member'){ createMember(); }
   else if(a==='f-project'){ createProject(); }
@@ -3588,7 +3711,7 @@ document.addEventListener('click',function(e){
   else if(a==='logout'){ logoutDemo(); }
   else if(a==='setme'){
     if(!workstationFeatures().identitySwitch){ S.menu=false; render(); return; }
-    S.me=t.getAttribute('data-id'); S.menu=false; S.page='me';
+    S.me=t.getAttribute('data-id'); S.menu=false; S.mobileNav=false; S.mobileTaskFocus=false; S.page='me';
     S.f.meScope='todo'; S.f.meTab='all'; S.f.payMonth=''; S.f.payFocus='';
     S.sel.task=null; S.curProj=null; render();
   }
@@ -3602,6 +3725,7 @@ document.addEventListener('click',function(e){
   else if(a==='my-task-filter'){
     S.f.meScope=t.getAttribute('data-scope')||'todo';
     S.f.meTab=t.getAttribute('data-status')||'all';
+    S.mobileTaskFocus=isMobileShell();
     S.page='me'; render();
   }
   else if(a==='open-execution'){
@@ -3724,9 +3848,30 @@ document.addEventListener('input',function(e){
   syncForm(); var n=el('fpv'); if(n&&PREV[S.page]) n.innerHTML=PREV[S.page]();
 });
 document.addEventListener('keydown',function(e){
+  if(e.key==='Escape'&&S.mobileNav){
+    e.preventDefault(); S.mobileNav=false; renderNav();
+    var moreControl=el('nav')&&el('nav').querySelector('[data-act="mobile-nav-more"]');
+    if(moreControl) moreControl.focus();
+    return;
+  }
   if(e.key==='Enter'&&e.target&&e.target.getAttribute&&e.target.getAttribute('data-login')){ e.preventDefault(); submitLogin(); return; }
   if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)&&document.activeElement&&document.activeElement.id==='chatIn'){ e.preventDefault(); sendChat(); }
 });
+var MOBILE_SHELL_MEDIA=window.matchMedia?window.matchMedia('(max-width:820px)'):null;
+var MOBILE_SHELL_ACTIVE=isMobileShell();
+function syncMobileShell(){
+  var mobileShell=isMobileShell();
+  if(mobileShell===MOBILE_SHELL_ACTIVE) return;
+  MOBILE_SHELL_ACTIVE=mobileShell; S.mobileNav=false;
+  if(!mobileShell) S.mobileTaskFocus=false;
+  else if(S.page==='task'){ S.page='me'; S.mobileTaskFocus=true; }
+  render();
+}
+if(MOBILE_SHELL_MEDIA){
+  if(MOBILE_SHELL_MEDIA.addEventListener) MOBILE_SHELL_MEDIA.addEventListener('change',syncMobileShell);
+  else if(MOBILE_SHELL_MEDIA.addListener) MOBILE_SHELL_MEDIA.addListener(syncMobileShell);
+}
+window.addEventListener('resize',syncMobileShell);
 
 /* ---------------- 启动 ---------------- */
 var demoClearedAtStartup=false;
