@@ -358,6 +358,7 @@ function demoSnapshot(){
     payroll:S.payroll};
 }
 function save(){
+  if(!isDemoRuntime()) return false;
   try{ localStorage.setItem(QXY_DEMO_DATA_KEY,JSON.stringify(demoSnapshot())); return true; }catch(e){ return false; }
 }
 function readStoredJson(key){
@@ -930,10 +931,22 @@ function createDemoGateway(){
     resetDemoData:resetDemoData
   };
 }
-var SERVER_GATEWAY_METHODS=['getSession','loadBootstrap','loadMyDashboard','listMyTasks','loadMyTask','listMyProjects','loadPayroll',
-  'saveTask','claimTask','updateTaskExecution','submitTaskResult','reviewTaskResult','reopenTask'];
+var SERVER_GATEWAY_READ_METHODS=['getSession','loadBootstrap','loadMyDashboard','listMyTasks','loadMyTask','listMyProjects','loadPayroll'];
+var SERVER_GATEWAY_WRITE_METHODS=['saveTask','claimTask','updateTaskExecution','submitTaskResult','reviewTaskResult','reopenTask'];
 function isCompliantServerAdapter(adapter){
-  return !!adapter&&SERVER_GATEWAY_METHODS.every(function(method){ return typeof adapter[method]==='function'; });
+  return !!adapter&&SERVER_GATEWAY_READ_METHODS.every(function(method){ return typeof adapter[method]==='function'; });
+}
+function createServerGateway(adapter){
+  var gateway={};
+  SERVER_GATEWAY_READ_METHODS.forEach(function(method){
+    gateway[method]=function(){ return adapter[method].apply(adapter,arguments); };
+  });
+  SERVER_GATEWAY_WRITE_METHODS.forEach(function(method){
+    gateway[method]=typeof adapter[method]==='function'
+      ?function(){ return adapter[method].apply(adapter,arguments); }
+      :function(){ throw new Error('real_write_not_configured'); };
+  });
+  return gateway;
 }
 function createUnavailableGateway(){
   function unavailable(){ throw new Error('real_data_service_unavailable'); }
@@ -950,7 +963,7 @@ function createUnavailableGateway(){
 function resolveWorkstationGateway(){
   if(isDemoRuntime()) return createDemoGateway();
   var adapter=window.QUANTXY_WORKSTATION_SERVER_ADAPTER;
-  return isCompliantServerAdapter(adapter)?adapter:createUnavailableGateway();
+  return isCompliantServerAdapter(adapter)?createServerGateway(adapter):createUnavailableGateway();
 }
 var WORKSTATION_GATEWAY=resolveWorkstationGateway();
 function workstationFeatures(){
@@ -1810,7 +1823,7 @@ function readExecutionInput(){ return {progress:Number(fieldValue('execProgress'
 function readResultInput(){ return {resultText:fieldValue('execResultText'),resultLink:fieldValue('execResultLink'),resultFiles:fieldValue('execResultFiles').split(/\r?\n/).map(function(v){ return v.trim(); }).filter(Boolean)}; }
 function taskError(error){
   var code=String(error&&error.message||error);
-  return {forbidden:'当前身份没有此操作权限',invalid_status:'当前任务状态不允许此操作',invalid_progress:'进度必须在 0 到 100 之间',result_required:'请填写成果说明，并提供成果链接或文件名称',review_note_required:'驳回时必须填写验收意见',invalid_decision:'验收决定无效',task_not_found:'任务不存在'}[code]||'任务操作失败';
+  return {real_write_not_configured:'真实数据写接口未配置',real_data_service_unavailable:'真实数据写接口未配置',forbidden:'当前身份没有此操作权限',invalid_status:'当前任务状态不允许此操作',invalid_progress:'进度必须在 0 到 100 之间',result_required:'请填写成果说明，并提供成果链接或文件名称',review_note_required:'驳回时必须填写验收意见',invalid_decision:'验收决定无效',task_not_found:'任务不存在'}[code]||'任务操作失败';
 }
 function viewExecution(){
   var task=WORKSTATION_GATEWAY.loadMyTask(S.me,S.sel.task);
@@ -3384,11 +3397,24 @@ function sendChat(text){
     .catch(function(){ S.chat.push({r:'a',t:'当前未连接到模型服务。请由企业决策人或管理员在「系统设置 → 大模型接入」中更新密钥后重试。\n在未接入模型时，AI 调度中心依然可以用内置引擎完成目标拆解与排期。'}); })
     .then(function(){ S.chatBusy=false; render(); });
 }
+var REAL_WRITE_BLOCKED_ACTIONS={
+  'f-member':1,'f-project':1,'f-file':1,'f-task':1,'f-customer':1,'f-activity':1,'f-agent':1,
+  'appr':1,'decision-pass':1,'decision-reject':1,'del-proj':1,'del-task':1,'del-doc':1,
+  'dept-add':1,'dept-del':1,'del-member':1,'run-agent':1,'chain-run':1,
+  'req-apply':1,'req-ok':1,'req-no':1,'perm-dept':1,'perm-revoke':1,
+  'issue':1,'save-schedule':1,'clear-demo':1,'reset':1,'restore-demo':1,'modal-ok':1
+};
+function rejectLegacyWriteInRealMode(action){
+  if(isDemoRuntime()||!REAL_WRITE_BLOCKED_ACTIONS[action]) return false;
+  toast('真实数据写接口未配置');
+  return true;
+}
 document.addEventListener('click',function(e){
   if(e.target.closest&&e.target.closest('[data-stop]')&&!(e.target.closest('[data-act]'))) return;
   var t=e.target.closest?e.target.closest('[data-act]'):null;
   if(!t){ if(S.menu||S.cmenu){ S.menu=false; S.cmenu=false; render(); } return; }
   var a=t.getAttribute('data-act');
+  if(rejectLegacyWriteInRealMode(a)) return;
   if(a!=='menu'&&S.menu) S.menu=false;
   if(a!=='cmenu'&&S.cmenu) S.cmenu=false;
   if(a==='login-toggle'){ LOGIN.show=!LOGIN.show; renderLogin(); }
@@ -3641,16 +3667,17 @@ document.addEventListener('input',function(e){
 document.addEventListener('change',function(e){
   var loginKey=e.target.getAttribute&&e.target.getAttribute('data-login');
   if(loginKey==='remember'){ LOGIN.remember=!!e.target.checked; return; }
+  var pm=e.target.getAttribute&&e.target.getAttribute('data-perm');
+  var lm=e.target.getAttribute&&e.target.getAttribute('data-lv');
+  var dm=e.target.getAttribute&&e.target.getAttribute('data-dept');
+  if(!isDemoRuntime()&&(pm||lm||dm)){ render(); toast('真实数据写接口未配置'); return; }
   var q=e.target.getAttribute&&e.target.getAttribute('data-q');
   if(q&&e.target.tagName==='SELECT'){ S.f[q]=e.target.value; render(); return; }
-  var pm=e.target.getAttribute&&e.target.getAttribute('data-perm');
   if(pm){ var ps=pm.split(':'), ag=S.agents.filter(function(x){ return x.id===ps[0]; })[0];
     if(ag){ if(ps[1]==='minLv') ag.minLv=parseInt(e.target.value,10)||1;
       else { ag.scope=e.target.value; if(ag.scope==='list'&&!(ag.depts||[]).length) ag.depts=[ag.dept]; }
       save(); render(); } return; }
-  var lm=e.target.getAttribute&&e.target.getAttribute('data-lv');
   if(lm&&MB[lm]){ MB[lm].lv=parseInt(e.target.value,10)||1; save(); render(); toast(MB[lm].n+' 职级调整为 '+lvName(MB[lm].lv)); return; }
-  var dm=e.target.getAttribute&&e.target.getAttribute('data-dept');
   if(dm&&MB[dm]){ MB[dm].dept=e.target.value; save(); render(); toast(MB[dm].n+' 已调整到 '+e.target.value); }
 });
 /* 表单实时预览（只更新预览节点，不打断输入焦点） */

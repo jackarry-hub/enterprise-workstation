@@ -981,6 +981,134 @@ test("uses an injected server adapter for real session and business data without
   }
 });
 
+test("rejects legacy browser writes in real mode without mutating server state or demo storage", async () => {
+  const html = await readRealModeHtml();
+  const serverTask = {
+    id: "server-task-write-guard",
+    n: "真实任务写保护",
+    p: "server-project-write-guard",
+    own: "server-user-write-guard",
+    createdBy: "server-user-write-guard",
+    reviewer: "server-user-write-guard",
+    st: "待处理",
+    revision: 3,
+    e: "2026-08-30",
+    timeline: [],
+  };
+  const session = {
+    authenticated: true,
+    authMode: "feishu",
+    dataMode: "server",
+    memberId: "server-user-write-guard",
+    permissions: ["task.execute", "payroll.read.self"],
+  };
+  const adapterCalls = { clear: 0, reset: 0, claim: 0 };
+  const dom = new JSDOM(html, {
+    url: "http://127.0.0.1:3011/quantxy-ai-workbench-fused.html",
+    runScripts: "dangerously",
+    pretendToBeVisual: true,
+    beforeParse(window) {
+      window.localStorage.setItem("qxy.workstation.demo.v2", "server-v2-sentinel");
+      window.localStorage.setItem("qxy", "server-legacy-sentinel");
+      window.localStorage.setItem("unrelated", "keep");
+      window.QUANTXY_WORKSTATION_RUNTIME = { authMode: "feishu", dataMode: "server" };
+      const members = [{ id: session.memberId, n: "真实用户", r: "产品经理", dept: "产品中心", lv: 3 }];
+      const projects = [{ id: serverTask.p, n: "真实服务端项目", own: session.memberId, st: "进行中" }];
+      window.QUANTXY_WORKSTATION_SERVER_ADAPTER = {
+        getSession: () => session,
+        loadBootstrap: () => ({
+          mode: "server",
+          session,
+          members,
+          projects,
+          tasks: [serverTask],
+          customers: [],
+          payroll: { [session.memberId]: [] },
+          features: { identitySwitch: false, demoReset: false },
+        }),
+        loadMyDashboard: () => ({ tasks: [serverTask], must: [serverTask], projects, payroll: null, reminders: [] }),
+        listMyTasks: () => [serverTask],
+        loadMyTask: () => serverTask,
+        listMyProjects: () => projects,
+        loadPayroll: () => [],
+        clearDemoData: () => { adapterCalls.clear += 1; },
+        resetDemoData: () => { adapterCalls.reset += 1; },
+      };
+      window.fetch = async (url) => {
+        if (String(url) === "/api/ai/config") {
+          return response(true, {
+            provider: "deepseek",
+            apiBaseUrl: "https://api.deepseek.com",
+            model: "deepseek-v4-flash",
+            keyConfigured: false,
+            keyHint: null,
+            updatedAt: null,
+            canManage: false,
+          });
+        }
+        return response(false, { error: "unexpected_request" }, 404);
+      };
+    },
+  });
+  try {
+    await waitFor(() => dom.window.Q?.S.me === session.memberId);
+    const { S } = dom.window.Q;
+    const initialTasks = JSON.parse(JSON.stringify(S.tasks));
+    const initialCustomers = JSON.parse(JSON.stringify(S.customers));
+    const initialConfig = JSON.parse(JSON.stringify(S.cfg));
+    const messages = [];
+    const toastText = () => dom.window.document.querySelector("#toast")?.textContent || "";
+    const clickAction = (action, attributes = {}) => {
+      const button = dom.window.document.createElement("button");
+      button.setAttribute("data-act", action);
+      for (const [name, value] of Object.entries(attributes)) button.setAttribute(name, value);
+      dom.window.document.body.appendChild(button);
+      button.click();
+      messages.push(toastText());
+      button.remove();
+    };
+
+    S.page = "set";
+    dom.window.Q.render();
+    dom.window.document.querySelector("#cfgWd").value = "6";
+    dom.window.document.querySelector("#cfgPl").value = "8";
+    dom.window.document.querySelector("#cfgRl").value = "35";
+    dom.window.document.querySelector('[data-act="save-schedule"]').click();
+    messages.push(toastText());
+
+    clickAction("clear-demo");
+    const modalOk = dom.window.document.querySelector('[data-act="modal-ok"]');
+    if (modalOk) modalOk.click();
+    clickAction("reset");
+
+    S.sel.task = serverTask.id;
+    clickAction("task-claim");
+
+    S.page = "new-customer";
+    dom.window.Q.render();
+    dom.window.document.querySelector('[data-f="n"]').value = "不得创建的客户";
+    dom.window.document.querySelector('[data-f="contact"]').value = "测试联系人";
+    dom.window.document.querySelector('[data-act="f-customer"]').click();
+    messages.push(toastText());
+
+    assert.deepEqual(messages, Array(messages.length).fill("真实数据写接口未配置"));
+    assert.deepEqual(adapterCalls, { clear: 0, reset: 0, claim: 0 });
+    assert.deepEqual(JSON.parse(JSON.stringify(S.tasks)), initialTasks);
+    assert.deepEqual(JSON.parse(JSON.stringify(S.customers)), initialCustomers);
+    assert.deepEqual(JSON.parse(JSON.stringify(S.cfg)), initialConfig);
+    assert.equal(dom.window.localStorage.getItem("qxy.workstation.demo.v2"), "server-v2-sentinel");
+    assert.equal(dom.window.localStorage.getItem("qxy"), "server-legacy-sentinel");
+    assert.equal(dom.window.localStorage.getItem("unrelated"), "keep");
+    const storageKeys = Array.from(
+      { length: dom.window.localStorage.length },
+      (_, index) => dom.window.localStorage.key(index),
+    ).sort();
+    assert.deepEqual(storageKeys, ["qxy", "qxy.workstation.demo.v2", "unrelated"]);
+  } finally {
+    dom.window.close();
+  }
+});
+
 test("clears stale navigation filters and detail selections for clear reset and restore", async () => {
   const dom = await openWorkbench();
   try {
