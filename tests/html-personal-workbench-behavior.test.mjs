@@ -128,6 +128,35 @@ test("falls back to valid legacy data when the v2 snapshot is corrupt", async ()
   }
 });
 
+test("retires a secret-bearing legacy key when a valid v2 snapshot already exists", async () => {
+  const current = {
+    tasks: [{ id: "v2-current", n: "当前任务", p: "p1", own: "m1", st: "待处理" }],
+    cfg: { workday: 5, parallel: 3, riskLine: 20 },
+  };
+  const legacy = {
+    tasks: [{ id: "legacy-stale", n: "遗留任务", p: "p2", own: "m2", st: "待审核" }],
+    cfg: {
+      apiKey: "sk-stale-legacy-secret",
+      proxy: "https://stale-proxy.invalid",
+      keyCleared: false,
+    },
+  };
+  const dom = await openWorkbench({
+    "qxy.workstation.demo.v2": JSON.stringify(current),
+    qxy: JSON.stringify(legacy),
+  });
+  try {
+    assert.ok(dom.window.Q.S.tasks.some((task) => task.id === "v2-current"));
+    assert.equal(dom.window.Q.S.tasks.some((task) => task.id === "legacy-stale"), false);
+    const snapshotText = dom.window.localStorage.getItem("qxy.workstation.demo.v2");
+    assert.equal(snapshotText.includes("sk-stale-legacy-secret"), false);
+    assert.equal(snapshotText.includes("stale-proxy.invalid"), false);
+    assert.equal(dom.window.localStorage.getItem("qxy"), null);
+  } finally {
+    dom.window.close();
+  }
+});
+
 test("returns defensive copies from every read-only gateway method", async () => {
   const dom = await openWorkbench();
   try {

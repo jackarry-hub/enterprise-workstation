@@ -759,9 +759,6 @@ function seedPayroll(){
   });
   return out;
 }
-function copyPayrollRow(row){
-  var copy={}; Object.keys(row).forEach(function(key){ copy[key]=row[key]; }); return copy;
-}
 function personalTasks(memberId,scope,filter){
   var rows=S.tasks.filter(function(task){ return scope==='created'?task.createdBy===memberId:task.own===memberId; });
   if(filter&&filter!=='all') rows=rows.filter(function(task){ return task.st===filter; });
@@ -3282,6 +3279,8 @@ document.addEventListener('keydown',function(e){
 var saved=load();
 var legacyAiSecret=false;
 var migratedLegacy=LOADED_DATA_SOURCE==='legacy';
+var legacyDataPresent=false;
+try{ legacyDataPresent=localStorage.getItem(QXY_LEGACY_DATA_KEY)!=null; }catch(e){}
 if(saved&&saved.cfg){
   ['apiKey','proxy','keyCleared'].forEach(function(k){
     if(Object.prototype.hasOwnProperty.call(saved.cfg,k)){ delete saved.cfg[k]; legacyAiSecret=true; }
@@ -3307,10 +3306,9 @@ S.runs=(saved&&saved.runs)?saved.runs:[];
 S.reqs=(saved&&saved.reqs)?saved.reqs:[];
 if(saved&&saved.depts&&saved.depts.length){ DEPTS.length=0; saved.depts.forEach(function(d){ DEPTS.push(d); }); }
 normalize();
-if(legacyAiSecret||migratedLegacy){
-  var migrationSaved=save();
-  if(migratedLegacy&&migrationSaved){ try{ localStorage.removeItem(QXY_LEGACY_DATA_KEY); }catch(e){} }
-}
+var safeV2Ready=LOADED_DATA_SOURCE==='v2'&&!legacyAiSecret;
+if(legacyAiSecret||migratedLegacy) safeV2Ready=save();
+if(legacyDataPresent&&safeV2Ready){ try{ localStorage.removeItem(QXY_LEGACY_DATA_KEY); }catch(e){} }
 S.form=blankForm();
 S.appr=seedAppr();
 renderBrand();
