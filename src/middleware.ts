@@ -87,7 +87,13 @@ export async function middleware(request: NextRequest) {
 }
 
 export function isStandaloneAuthorizedPath(pathname: string) {
-  return pathname === "/quantxy-ai-workbench-fused.html"
+  return pathname === "/workstation-server-adapter.js"
+    || pathname === "/api/workstation/bootstrap"
+    || pathname === "/api/workstation/directory-sync"
+    || pathname === "/api/workstation/tasks"
+    || pathname.startsWith("/api/workstation/tasks/")
+    || pathname === "/api/workstation/payroll"
+    || pathname === "/api/auth/logout"
     || pathname === "/api/demo-auth/login"
     || pathname === "/api/demo-auth/session"
     || pathname === "/api/demo-auth/logout"

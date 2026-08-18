@@ -33,7 +33,7 @@ describe("LoginPage", () => {
       "登录服务暂时不可用，请稍后重试。",
     );
     expect(
-      screen.getByRole("button", { name: "使用飞书登录" }),
+      screen.getByRole("link", { name: "使用飞书登录" }),
     ).toBeVisible();
     expect(document.body).not.toHaveTextContent(
       /database|provider token/i,

@@ -1,26 +1,26 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { LoginCard } from "@/features/auth/login-card";
 
 describe("LoginCard", () => {
   it("shows exactly one clear Feishu login action", () => {
-    render(<LoginCard action={vi.fn()} errorCode={null} />);
+    render(<LoginCard loginHref="/auth/login/feishu" errorCode={null} />);
 
     expect(
       screen.getByRole("heading", { name: "登录 AI企业大脑" }),
     ).toBeVisible();
     expect(
-      screen.getByRole("button", { name: "使用飞书登录" }),
+      screen.getByRole("link", { name: "使用飞书登录" }),
     ).toBeVisible();
-    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(screen.getAllByRole("link")).toHaveLength(1);
     expect(screen.queryByLabelText(/邮箱|密码/)).not.toBeInTheDocument();
     expect(screen.getByText("仅限量子星河内部员工使用")).toBeVisible();
   });
 
   it("shows only approved plain-language errors", () => {
     const { rerender } = render(
-      <LoginCard action={vi.fn()} errorCode="login_unavailable" />,
+      <LoginCard loginHref="/auth/login/feishu" errorCode="login_unavailable" />,
     );
 
     expect(screen.getByRole("alert")).toHaveTextContent(
@@ -29,7 +29,7 @@ describe("LoginCard", () => {
 
     rerender(
       <LoginCard
-        action={vi.fn()}
+        loginHref="/auth/login/feishu"
         errorCode="OAuth RPC JWT open_id union_id tenant_key provider_token SQL"
       />,
     );
@@ -44,7 +44,7 @@ describe("LoginCard", () => {
     "renders no technical error for non-whitelisted code %s",
     (errorCode) => {
       expect(() => {
-        render(<LoginCard action={vi.fn()} errorCode={errorCode} />);
+        render(<LoginCard loginHref="/auth/login/feishu" errorCode={errorCode} />);
       }).not.toThrow();
 
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();

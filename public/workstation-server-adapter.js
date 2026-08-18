@@ -1,0 +1,164 @@
+(function installFormalWorkstationAdapter(window) {
+  "use strict";
+
+  if (window.location.protocol === "file:") return;
+
+  var bootstrap = null;
+  var runtime = { authMode: "feishu", dataMode: "server" };
+
+  function clone(value) {
+    return value == null ? value : JSON.parse(JSON.stringify(value));
+  }
+
+  function loginUrl() {
+    return "/login?next=" + encodeURIComponent(
+      window.location.pathname + window.location.search,
+    );
+  }
+
+  function readJson(response) {
+    return response.json().catch(function () { return {}; }).then(function (body) {
+      if (response.status === 401) {
+        window.location.assign(loginUrl());
+        throw new Error("unauthorized");
+      }
+      if (!response.ok) throw new Error(body.error || "workstation_unavailable");
+      return body;
+    });
+  }
+
+  function request(url, init) {
+    var options = init || {};
+    options.credentials = "same-origin";
+    options.cache = "no-store";
+    return window.fetch(url, options).then(readJson);
+  }
+
+  var readyPromise = request("/api/workstation/bootstrap").then(function (data) {
+    bootstrap = data;
+    return data;
+  });
+
+  function requireBootstrap() {
+    if (!bootstrap) throw new Error("workstation_not_ready");
+    return bootstrap;
+  }
+
+  function taskRows(memberId, scope, status) {
+    var rows = requireBootstrap().tasks || [];
+    rows = rows.filter(function (task) {
+      if (scope === "created") return task.createdBy === memberId;
+      return task.own === memberId;
+    });
+    if (status === "已逾期") {
+      var today = new Date(); today.setHours(0, 0, 0, 0);
+      rows = rows.filter(function (task) {
+        return task.st !== "已完成" && task.e && new Date(task.e) < today;
+      });
+    } else if (status && status !== "all") {
+      rows = rows.filter(function (task) { return task.st === status; });
+    }
+    return rows;
+  }
+
+  function myProjects(memberId) {
+    var data = requireBootstrap();
+    return (data.projects || []).filter(function (project) {
+      return project.own === memberId || (data.tasks || []).some(function (task) {
+        return task.p === project.id && task.own === memberId;
+      });
+    });
+  }
+
+  function replaceTask(task) {
+    var rows = requireBootstrap().tasks || [];
+    for (var index = 0; index < rows.length; index += 1) {
+      if (rows[index].id === task.id) {
+        rows[index] = Object.assign({}, rows[index], task);
+        task = rows[index];
+        break;
+      }
+    }
+    return clone(task);
+  }
+
+  function addTask(task) {
+    var rows = requireBootstrap().tasks || [];
+    rows.unshift(task);
+    return clone(task);
+  }
+
+  function mutateTask(taskId, action, input) {
+    return request("/api/workstation/tasks/" + encodeURIComponent(taskId), {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(Object.assign({ action: action }, input || {})),
+    }).then(function (result) { return replaceTask(result.task); });
+  }
+
+  window.QUANTXY_WORKSTATION_RUNTIME = runtime;
+  window.QUANTXY_WORKSTATION_SERVER_ADAPTER = {
+    ready: function () { return readyPromise; },
+    getSession: function () { return clone(requireBootstrap().session); },
+    loadBootstrap: function () { return clone(requireBootstrap()); },
+    loadMyDashboard: function (memberId) {
+      var tasks = taskRows(memberId, "todo", "all");
+      var reminders = tasks.filter(function (task) {
+        return !!task.blocker || task.st === "待验收";
+      });
+      return clone({
+        tasks: tasks,
+        must: tasks.filter(function (task) { return task.st !== "已完成"; }).slice(0, 6),
+        projects: myProjects(memberId).slice(0, 4),
+        payroll: (requireBootstrap().payroll[memberId] || [])[0] || null,
+        reminders: reminders.slice(0, 5),
+      });
+    },
+    listMyTasks: function (memberId, scope, status) {
+      return clone(taskRows(memberId, scope, status));
+    },
+    loadMyTask: function (memberId, taskId) {
+      var permissions = requireBootstrap().session.permissions || [];
+      var canManage = permissions.indexOf("task.manage") >= 0;
+      var task = (requireBootstrap().tasks || []).find(function (row) {
+        return row.id === taskId && (canManage
+          || row.own === memberId
+          || row.createdBy === memberId
+          || row.reviewer === memberId);
+      });
+      return clone(task || null);
+    },
+    listMyProjects: function (memberId) { return clone(myProjects(memberId)); },
+    loadPayroll: function (memberId) {
+      return clone(requireBootstrap().payroll[memberId] || []);
+    },
+    syncDirectory: function () {
+      return request("/api/workstation/directory-sync", { method: "POST" });
+    },
+    createTask: function (input) {
+      return request("/api/workstation/tasks", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input || {}),
+      }).then(function (result) { return addTask(result.task); });
+    },
+    savePayroll: function (input) {
+      return request("/api/workstation/payroll", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input || {}),
+      });
+    },
+    saveTask: function (taskId, input) { return mutateTask(taskId, "progress", input); },
+    claimTask: function (taskId) { return mutateTask(taskId, "claim"); },
+    updateTaskExecution: function (taskId, input) { return mutateTask(taskId, "progress", input); },
+    submitTaskResult: function (taskId, input) { return mutateTask(taskId, "submit", input); },
+    reviewTaskResult: function (taskId, input) { return mutateTask(taskId, "review", input); },
+    reopenTask: function (taskId, note) { return mutateTask(taskId, "reopen", { note: note || "" }); },
+    logout: function () {
+      return request("/api/auth/logout", { method: "POST" })
+        .catch(function () { return {}; })
+        .then(function () { window.location.assign(loginUrl()); });
+    },
+  };
+})(window);

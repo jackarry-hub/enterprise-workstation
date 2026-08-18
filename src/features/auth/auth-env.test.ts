@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { getAuthEnv } from "@/features/auth/auth-env";
 
 describe("auth environment", () => {
-  it("requires an absolute app URL and a Feishu tenant key", () => {
+  it("requires an absolute app URL", () => {
     expect(() => getAuthEnv({})).toThrow("认证配置缺失");
     expect(() =>
       getAuthEnv({
@@ -20,7 +20,6 @@ describe("auth environment", () => {
       }),
     ).toEqual({
       appUrl: "https://brain.quantxy.com",
-      feishuTenantKey: "tenant_qxy",
     });
   });
 });

@@ -51,7 +51,13 @@ const workspacePermissions = new Set<WorkspacePermissionCode>([
   "dashboard.read",
   "organization.manage",
   "department.manage",
+  "project.read",
+  "project.create",
   "project.manage",
+  "project.comment",
+  "project.files",
+  "project.report",
+  "task.execute",
   "task.manage",
   "hr.manage",
   "attendance.self",
@@ -218,6 +224,7 @@ export type WorkspaceAccessFailureReason =
 
 export function isPublicAuthPath(pathname: string) {
   return pathname === "/login"
+    || pathname === "/auth/login/feishu"
     || pathname === "/access-pending"
     || pathname === "/auth/callback"
     || pathname.startsWith("/auth/callback/")

@@ -284,6 +284,38 @@ describe("parseWorkspaceAccess", () => {
     ).toBeNull();
   });
 
+  it("accepts the complete owner permission set returned by the database", () => {
+    const permissionCodes = [
+      "approval.manage",
+      "approval.self",
+      "attendance.manage",
+      "attendance.self",
+      "dashboard.read",
+      "department.manage",
+      "files.manage",
+      "hr.manage",
+      "organization.manage",
+      "project.comment",
+      "project.create",
+      "project.files",
+      "project.manage",
+      "project.read",
+      "project.report",
+      "salary.manage",
+      "salary.self",
+      "task.execute",
+      "task.manage",
+    ];
+
+    expect(
+      parseWorkspaceAccess({
+        ...base,
+        roleCodes: ["owner"],
+        permissionCodes,
+      })?.permissionCodes,
+    ).toEqual(permissionCodes);
+  });
+
   it.each([
     ["not an array", "product"],
     ["wrong item type", ["product", null]],

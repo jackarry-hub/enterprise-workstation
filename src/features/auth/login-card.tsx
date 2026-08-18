@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -19,10 +20,10 @@ function getLoginMessage(errorCode: string | null) {
 }
 
 export function LoginCard({
-  action,
+  loginHref,
   errorCode,
 }: {
-  action: () => Promise<void>;
+  loginHref: string;
   errorCode: string | null;
 }) {
   const errorMessage = getLoginMessage(errorCode);
@@ -53,11 +54,11 @@ export function LoginCard({
           {errorMessage}
         </p>
       ) : null}
-      <form action={action} className="mt-6">
-        <Button type="submit" size="lg" className="w-full">
+      <Button asChild size="lg" className="mt-6 w-full">
+        <Link href={loginHref}>
           使用飞书登录
-        </Button>
-      </form>
+        </Link>
+      </Button>
       <p className="mt-4 text-center text-xs text-muted-foreground">
         登录后将按你的企业身份进入对应岗位工作台。
       </p>

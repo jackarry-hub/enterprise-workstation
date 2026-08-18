@@ -83,6 +83,7 @@ function refreshedSession({
 describe("public route policy", () => {
   it.each([
     "/login",
+    "/auth/login/feishu",
     "/auth/callback",
     "/auth/callback/feishu",
     "/access-pending",

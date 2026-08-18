@@ -1,4 +1,4 @@
-import { getAuthEnv } from "@/features/auth/auth-env";
+import { getLegacyFeishuAdapterTenantKey } from "@/features/auth/auth-env";
 import { handleFeishuUserInfo } from "@/features/auth/feishu-userinfo";
 
 export const dynamic = "force-dynamic";
@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 export function GET(request: Request) {
   let tenantKey: string;
   try {
-    tenantKey = getAuthEnv().feishuTenantKey;
+    tenantKey = getLegacyFeishuAdapterTenantKey();
   } catch {
     return Response.json(
       { error: "server_misconfigured" },
