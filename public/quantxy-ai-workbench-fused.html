@@ -335,6 +335,7 @@ var Q = (function(){
 /* ---------------- 基础工具 ---------------- */
 function el(id){ return document.getElementById(id); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function attr(s){ return esc(s).replace(/'/g,'&#39;'); }
 function j(a){ return a.join(''); }
 function num(n,d){ return Number(n||0).toLocaleString('zh-CN',{minimumFractionDigits:d||0,maximumFractionDigits:d||0}); }
 function pad(n){ return n<10?'0'+n:''+n; }
@@ -408,14 +409,16 @@ function findTask(taskId){
   return task;
 }
 function requireActor(actual,expected){ if(actual!==expected) throw new Error('forbidden'); }
+function requireDemoActor(actorId){ if(!isDemoRuntime()||actorId!==S.me) throw new Error('forbidden'); return S.me; }
 function addTimeline(task,actorId,action,note){
   task.timeline=Array.isArray(task.timeline)?task.timeline:[];
   task.timeline.push({actor:actorId,action:action,note:note||'',at:stamp()});
 }
 function bumpTaskRevision(task){ task.revision=Math.max(0,Math.floor(Number(task.revision)||0))+1; }
-function saveTaskRevision(input,revision){
+function saveTaskRevision(input,revision,actorId){
   input=input||{};
   if(!authState()||!S.me||!MB[S.me]) throw new Error('unauthorized');
+  requireDemoActor(actorId==null?S.me:actorId);
   var task=findTask(input.id);
   if(S.me!==task.createdBy&&S.me!==task.reviewer) throw new Error('forbidden');
   var expected=Number(revision), current=Math.max(0,Math.floor(Number(task.revision)||0));
@@ -433,12 +436,14 @@ function saveTaskRevision(input,revision){
   bumpTaskRevision(task); save(); return cloneGatewayValue(task);
 }
 function claimTask(taskId,actorId){
+  actorId=requireDemoActor(actorId);
   var task=findTask(taskId); requireActor(actorId,task.own);
   if(task.st!=='待处理') throw new Error('invalid_status');
   task.st='进行中'; task.acceptedAt=stamp(); task.pr=Math.max(1,task.pr||0);
   addTimeline(task,actorId,'领取任务',''); bumpTaskRevision(task); save(); return task;
 }
 function updateTaskExecution(taskId,actorId,input){
+  actorId=requireDemoActor(actorId);
   var task=findTask(taskId); input=input||{};
   var progress=Number(input.progress); requireActor(actorId,task.own);
   if(task.st!=='进行中') throw new Error('invalid_status');
@@ -447,6 +452,7 @@ function updateTaskExecution(taskId,actorId,input){
   addTimeline(task,actorId,'更新执行','进度 '+progress+'%'+(task.blocker?'；阻塞：'+task.blocker:'')); bumpTaskRevision(task); save(); return task;
 }
 function submitTaskResult(taskId,actorId,input){
+  actorId=requireDemoActor(actorId);
   var task=findTask(taskId); input=input||{};
   var text=String(input.resultText||'').trim(), link=String(input.resultLink||'').trim();
   var fileInput=Array.isArray(input.resultFiles)?input.resultFiles:[];
@@ -458,6 +464,7 @@ function submitTaskResult(taskId,actorId,input){
   addTimeline(task,actorId,'提交验收',text); bumpTaskRevision(task); save(); return task;
 }
 function reviewTaskResult(taskId,actorId,input){
+  actorId=requireDemoActor(actorId);
   var task=findTask(taskId); input=input||{};
   var decision=input.decision, note=String(input.note||'').trim();
   if(actorId!==task.reviewer&&actorId!==task.createdBy) throw new Error('forbidden');
@@ -469,6 +476,7 @@ function reviewTaskResult(taskId,actorId,input){
   addTimeline(task,actorId,decision==='pass'?'验收通过':'驳回修改',note); bumpTaskRevision(task); save(); return task;
 }
 function reopenTask(taskId,actorId,note){
+  actorId=requireDemoActor(actorId);
   var task=findTask(taskId);
   if(actorId!==task.reviewer&&actorId!==task.createdBy) throw new Error('forbidden');
   if(task.st!=='已完成') throw new Error('invalid_status');
@@ -943,7 +951,13 @@ function createServerGateway(adapter){
   });
   SERVER_GATEWAY_WRITE_METHODS.forEach(function(method){
     gateway[method]=typeof adapter[method]==='function'
-      ?function(){ return adapter[method].apply(adapter,arguments); }
+      ?function(){
+        var args=Array.prototype.slice.call(arguments), safeArgs;
+        if(method==='saveTask') safeArgs=[args[0],args[1]];
+        else if(method==='claimTask') safeArgs=[args[0]];
+        else safeArgs=[args[0],args[2]];
+        return adapter[method].apply(adapter,safeArgs);
+      }
       :function(){ throw new Error('real_write_not_configured'); };
   });
   return gateway;
@@ -1283,7 +1297,7 @@ function renderTop(){
     '<div class="me"><button data-act="menu" style="display:flex;align-items:center;gap:9px">',av(me.n,1),
       '<span style="text-align:left"><span class="nm">',esc(me.n),'</span><br><span class="rl">',esc(me.r),'</span></span>',ic('down',14),'</button>',
       S.menu?('<div class="menu"><div class="hd">切换身份查看工作台</div>'+MEMBERS.map(function(x){
-        return '<button data-act="setme" data-id="'+x.id+'">'+av(x.n)+'<span style="flex:1;text-align:left">'+esc(x.n)+'</span><span class="tag t-n">'+esc(x.r)+'</span></button>';
+        return '<button data-act="setme" data-id="'+attr(x.id)+'">'+av(x.n)+'<span style="flex:1;text-align:left">'+esc(x.n)+'</span><span class="tag t-n">'+esc(x.r)+'</span></button>';
       }).join('')+'<div class="sep"></div><button class="logout" data-act="logout">退出登录</button></div>'):'',
     '</div>'
   ]):j([
@@ -1311,8 +1325,9 @@ function kpi(o){
     spark(o.s,o.c,120,32),'</div></div>']);
 }
 function stTag(st){
-  var m={'进行中':'t-b','已完成':'t-g','待处理':'t-n','待验收':'t-v','风险':'t-o','已延期':'t-r','已逾期':'t-r'};
-  return '<span class="tag '+(m[st]||'t-n')+'">'+st+'</span>';
+  var m={'进行中':'t-b','已完成':'t-g','待处理':'t-n','待验收':'t-v','风险':'t-o','规划中':'t-n','已延期':'t-r','已逾期':'t-r'};
+  var safe=Object.prototype.hasOwnProperty.call(m,st)?st:'状态未知';
+  return '<span class="tag '+(m[safe]||'t-n')+'">'+esc(safe)+'</span>';
 }
 function priTag(p){ return '<span class="tag '+(p==='P0'?'t-r':p==='P1'?'t-o':'t-n')+'">'+(p==='P0'?'高优先级':p==='P1'?'中优先级':'低优先级')+'</span>'; }
 
@@ -1359,7 +1374,7 @@ function viewDash(){
     '<div class="bd" style="padding-top:6px"><table><thead><tr><th>项目名称</th><th style="width:150px">进度</th><th>负责人</th><th>截止日期</th><th>状态</th></tr></thead><tbody>',
       (function(){ var L=PROJECTS.filter(function(p){ return p.st===S.f.dashTab; });
         return L.length?L.slice(0,6):[]; })().map(function(p){
-        return '<tr style="cursor:pointer" data-act="open-proj" data-id="'+p.id+'"><td>'+esc(p.n)+'</td><td><div style="display:flex;align-items:center;gap:8px"><div class="bar" style="flex:1"><i style="width:'+p.pr+'%;background:'+(p.pr===100?'var(--ok)':'var(--brand)')+'"></i></div><b style="font-size:12px">'+p.pr+'%</b></div></td>'+
+        return '<tr style="cursor:pointer" data-act="open-proj" data-id="'+attr(p.id)+'"><td>'+esc(p.n)+'</td><td><div style="display:flex;align-items:center;gap:8px"><div class="bar" style="flex:1"><i style="width:'+p.pr+'%;background:'+(p.pr===100?'var(--ok)':'var(--brand)')+'"></i></div><b style="font-size:12px">'+p.pr+'%</b></div></td>'+
           '<td><div style="display:flex;align-items:center;gap:7px">'+av(MB[p.own].n)+esc(MB[p.own].n)+'</div></td>'+
           '<td style="color:var(--sub)">'+fmt(addD(today(),18))+'</td><td>'+stTag(p.st)+'</td></tr>';
       }).join(''),
@@ -1382,10 +1397,10 @@ function viewDash(){
 
   '<div class="grid fusion-dashboard" style="grid-template-columns:repeat(3,1fr);margin-top:16px">',
     '<div class="card"><div class="hd"><h3>重点客户机会</h3><div class="grow"></div><button class="link" data-act="go" data-page="customers">查看全部 ›</button></div><div class="bd" style="padding-top:8px">',
-      focusCustomers.slice(0,3).map(function(c){ return '<button data-act="open-customer" data-id="'+c.id+'" style="display:flex;width:100%;gap:10px;align-items:center;text-align:left;padding:10px 0;border-bottom:1px solid var(--line2)"><span style="width:30px;height:30px;border-radius:9px;background:var(--brand-s);display:grid;place-items:center">'+ic('org',15,'#2563eb')+'</span><div style="min-width:0;flex:1"><b style="display:block;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(c.n)+'</b><span style="font-size:11px;color:var(--mut)">'+esc(c.stage)+' · 下次 '+esc(c.next||'待安排')+'</span></div><b style="font-size:12px">'+c.progress+'%</b></button>'; }).join('')||'<div class="empty">暂无在跟客户</div>',
+      focusCustomers.slice(0,3).map(function(c){ return '<button data-act="open-customer" data-id="'+attr(c.id)+'" style="display:flex;width:100%;gap:10px;align-items:center;text-align:left;padding:10px 0;border-bottom:1px solid var(--line2)"><span style="width:30px;height:30px;border-radius:9px;background:var(--brand-s);display:grid;place-items:center">'+ic('org',15,'#2563eb')+'</span><div style="min-width:0;flex:1"><b style="display:block;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(c.n)+'</b><span style="font-size:11px;color:var(--mut)">'+esc(c.stage)+' · 下次 '+esc(c.next||'待安排')+'</span></div><b style="font-size:12px">'+c.progress+'%</b></button>'; }).join('')||'<div class="empty">暂无在跟客户</div>',
     '</div></div>',
     '<div class="card"><div class="hd"><h3>重点活动进度</h3><div class="grow"></div><button class="link" data-act="go" data-page="activities">查看全部 ›</button></div><div class="bd" style="padding-top:8px">',
-      focusActivities.slice(0,3).map(function(a){ return '<button data-act="open-activity" data-id="'+a.id+'" style="display:block;width:100%;text-align:left;padding:10px 0;border-bottom:1px solid var(--line2)"><div style="display:flex;justify-content:space-between;gap:10px"><b style="font-size:12.5px">'+esc(a.n)+'</b><span class="tag t-v">'+esc(a.stage)+'</span></div><div style="display:flex;align-items:center;gap:8px;margin-top:7px"><div class="bar" style="flex:1"><i style="width:'+a.progress+'%;background:var(--violet)"></i></div><b style="font-size:11px">'+a.progress+'%</b></div></button>'; }).join('')||'<div class="empty">暂无推进中活动</div>',
+      focusActivities.slice(0,3).map(function(a){ return '<button data-act="open-activity" data-id="'+attr(a.id)+'" style="display:block;width:100%;text-align:left;padding:10px 0;border-bottom:1px solid var(--line2)"><div style="display:flex;justify-content:space-between;gap:10px"><b style="font-size:12.5px">'+esc(a.n)+'</b><span class="tag t-v">'+esc(a.stage)+'</span></div><div style="display:flex;align-items:center;gap:8px;margin-top:7px"><div class="bar" style="flex:1"><i style="width:'+a.progress+'%;background:var(--violet)"></i></div><b style="font-size:11px">'+a.progress+'%</b></div></button>'; }).join('')||'<div class="empty">暂无推进中活动</div>',
     '</div></div>',
     '<div class="card"><div class="hd"><h3>待我决策</h3><div class="grow"></div><button class="link" data-act="go" data-page="decisions">查看全部 ›</button></div><div class="bd" style="padding-top:8px">',
       pendingDecisions.slice(0,3).map(function(d){ var who=MB[d.by]||{}; return '<button data-act="go" data-page="decisions" style="display:flex;width:100%;gap:10px;align-items:flex-start;text-align:left;padding:10px 0;border-bottom:1px solid var(--line2)"><span class="tag t-o">'+esc(d.type)+'</span><div style="min-width:0;flex:1"><b style="display:block;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(d.n)+'</b><span style="font-size:11px;color:var(--mut)">'+esc(who.n||'未知')+' · '+esc(d.detail)+'</span></div></button>'; }).join('')||'<div class="empty">决策均已处理</div>',
@@ -1417,7 +1432,7 @@ function depGraph(ts,map){
   }); });
   ts.forEach(function(t){ var p=pos[t.id]; if(!p) return; var m=map&&map[t.id];
     var on=S.sel.wbs===t.id, crit=m&&m.crit;
-    nodes+='<g style="cursor:pointer" data-act="pick-wbs" data-id="'+t.id+'">'+
+    nodes+='<g style="cursor:pointer" data-act="pick-wbs" data-id="'+attr(t.id)+'">'+
       '<rect x="'+p.x+'" y="'+p.y+'" width="118" height="38" rx="9" fill="'+(on?'#eef3ff':'#fff')+'" stroke="'+(on?'#2563eb':(crit?'#fca5a5':'#e9edf5'))+'" stroke-width="'+(on?2:1.4)+'"/>'+
       '<text x="'+(p.x+11)+'" y="'+(p.y+17)+'" font-size="11" fill="#1b2440" font-weight="600">'+esc(t.n.length>8?t.n.slice(0,8)+'…':t.n)+'</text>'+
       '<text x="'+(p.x+11)+'" y="'+(p.y+30)+'" font-size="9.5" fill="#98a2ba">'+esc(t.role)+(m?' · '+m.dur+'d':'')+'</text>'+
@@ -1472,7 +1487,7 @@ function viewSched(){
       return '<div class="ph"><span class="tag t-v">'+pad(i+1)+'</span>'+esc(ph)+'<span style="flex:1"></span><span style="font-size:11.5px;color:var(--mut);font-weight:400">'+phases[ph].length+' 项</span></div>'+
         phases[ph].map(function(t){
           var m=pl&&pl.map[t.id];
-          return '<div class="tk '+(S.sel.wbs===t.id?'on':'')+'" data-act="pick-wbs" data-id="'+t.id+'"><span style="flex:1">'+esc(t.n)+'</span>'+
+          return '<div class="tk '+(S.sel.wbs===t.id?'on':'')+'" data-act="pick-wbs" data-id="'+attr(t.id)+'"><span style="flex:1">'+esc(t.n)+'</span>'+
             (m&&m.crit?'<span class="tag t-r">关键</span>':'')+'<span style="font-size:11.5px;color:var(--mut)">'+t.days+' 人天</span></div>';
         }).join('');
     }).join('') : '<div class="empty">在左侧输入战略目标，AI 会把它拆成阶段化、可执行、可验收的任务树。</div>',
@@ -1484,7 +1499,7 @@ function viewSched(){
     '<div class="bd" style="padding-top:6px;max-height:330px;overflow:auto">',
     ts&&pl? '<table><thead><tr><th>任务名称</th><th>负责人</th><th>计划开始</th><th>计划结束</th><th>优先级</th></tr></thead><tbody>'+
       ts.map(function(t){ var m=pl.map[t.id]; if(!m) return '';
-        return '<tr class="'+(S.sel.wbs===t.id?'':'')+'" data-act="pick-wbs" data-id="'+t.id+'" style="cursor:pointer;background:'+(S.sel.wbs===t.id?'#f6f9ff':'transparent')+'">'+
+        return '<tr class="'+(S.sel.wbs===t.id?'':'')+'" data-act="pick-wbs" data-id="'+attr(t.id)+'" style="cursor:pointer;background:'+(S.sel.wbs===t.id?'#f6f9ff':'transparent')+'">'+
           '<td>'+esc(t.n)+'</td><td><div style="display:flex;align-items:center;gap:7px">'+av(MB[m.own].n)+esc(MB[m.own].n)+'</div></td>'+
           '<td style="color:var(--sub)">'+fmt(addD(today(),m.s))+'</td><td style="color:var(--sub)">'+fmt(addD(today(),m.e))+'</td>'+
           '<td><span class="tag '+(t.pri==='P0'?'t-r':t.pri==='P1'?'t-o':'t-n')+'">'+t.pri+'</span></td></tr>';
@@ -1630,7 +1645,7 @@ function viewProj(){
     '<table><thead><tr><th>项目名称</th><th>负责人</th><th>分类</th><th style="width:130px">里程碑进度</th><th>预算(万)</th><th>健康度</th><th>状态</th><th>更新时间</th></tr></thead><tbody>',
       list.map(function(p){
         var hc=p.health>=80?'#10b981':p.health>=70?'#f59e0b':'#ef4444';
-        return '<tr style="cursor:pointer" data-act="open-proj" data-id="'+p.id+'"><td><div style="display:flex;align-items:center;gap:9px"><span style="width:26px;height:26px;border-radius:8px;background:var(--brand-s);display:grid;place-items:center">'+ic('proj',15,'#2563eb')+'</span><b style="font-weight:600">'+esc(p.n)+'</b></div></td>'+
+        return '<tr style="cursor:pointer" data-act="open-proj" data-id="'+attr(p.id)+'"><td><div style="display:flex;align-items:center;gap:9px"><span style="width:26px;height:26px;border-radius:8px;background:var(--brand-s);display:grid;place-items:center">'+ic('proj',15,'#2563eb')+'</span><b style="font-weight:600">'+esc(p.n)+'</b></div></td>'+
           '<td><div style="display:flex;align-items:center;gap:7px">'+av(MB[p.own].n)+esc(MB[p.own].n)+'</div></td>'+
           '<td><span class="tag '+(p.cat==='AI研发'?'t-b':p.cat==='市场活动'?'t-o':p.cat==='产品开发'?'t-v':'t-n')+'">'+p.cat+'</span></td>'+
           '<td><div style="display:flex;align-items:center;gap:8px"><div class="bar" style="flex:1"><i style="width:'+p.pr+'%;background:'+(p.pr===100?'var(--ok)':'var(--brand)')+'"></i></div><b style="font-size:12px">'+p.pr+'%</b></div></td>'+
@@ -1684,7 +1699,7 @@ function viewTask(){
   '<div class="card"><div class="bd" style="display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--line2)">',
     '<div class="search" style="width:auto;flex:1">'+ic('search',15)+'<input data-q="taskQ" value="'+esc(S.f.taskQ||'')+'" placeholder="搜索任务标题或关键词"></div>',
     '<select class="sel" style="width:140px" data-q="taskOwn"><option value="all">全部负责人</option>'+MEMBERS.map(function(m){
-      return '<option value="'+m.id+'"'+(S.f.taskOwn===m.id?' selected':'')+'>'+esc(m.n)+'</option>'; }).join('')+'</select>',
+      return '<option value="'+attr(m.id)+'"'+(S.f.taskOwn===m.id?' selected':'')+'>'+esc(m.n)+'</option>'; }).join('')+'</select>',
     '<select class="sel" style="width:120px" data-q="taskPri">'+['all','P0','P1','P2'].map(function(v){
       return '<option value="'+v+'"'+(S.f.taskPri===v?' selected':'')+'>'+(v==='all'?'全部优先级':v)+'</option>'; }).join('')+'</select>',
     '<button class="btn soft" data-act="go" data-page="sched">'+ic('ai',15)+'AI 调度</button>',
@@ -1703,7 +1718,7 @@ function viewTask(){
         '<span style="flex:1"></span><span class="tag t-n">'+ts.length+'</span></div>'+
         ts.map(function(t){
           var left=diffD(t0,new Date(t.e));
-          return '<div class="tk-card '+(S.sel.task===t.id?'on':'')+'" data-act="pick-task" data-id="'+t.id+'">'+
+          return '<div class="tk-card '+(S.sel.task===t.id?'on':'')+'" data-act="pick-task" data-id="'+attr(t.id)+'">'+
             '<div class="n"><span>'+esc(t.n)+'</span>'+priTag(t.pri)+'</div>'+
             '<div style="font-size:11.5px;color:var(--mut)">项目：'+esc(PB[t.p]?PB[t.p].n:'—')+'</div>'+
             (t.pr!=null?'<div style="display:flex;align-items:center;gap:7px;margin-top:7px"><div class="bar" style="flex:1"><i style="width:'+t.pr+'%"></i></div><b style="font-size:11px">'+t.pr+'%</b></div>':'')+
@@ -1729,7 +1744,7 @@ function viewTask(){
         '<b>'+Math.round(sel.sub.filter(function(x){return x;}).length/sel.sub.length*100)+'%</b></div>'+
         '<div class="bar"><i style="width:'+Math.round(sel.sub.filter(function(x){return x;}).length/sel.sub.length*100)+'%"></i></div></div>'):'',
       '<div style="margin-top:16px;padding:10px;border-radius:10px;background:var(--brand-s);color:var(--brand-d);font-size:12px;line-height:1.6">任务状态只能按“领取 → 执行 → 提交验收 → 验收”流程更新，请从个人任务详情进入安全操作。</div>',
-      '<button class="link" style="color:var(--risk);display:block;margin:14px auto 0" data-act="del-task" data-id="',sel.id,'">删除此任务</button>'])
+      '<button class="link" style="color:var(--risk);display:block;margin:14px auto 0" data-act="del-task" data-id="',attr(sel.id),'">删除此任务</button>'])
     : '<div class="empty">选择左侧任意任务卡片查看详情</div>',
   '</div></div></div>',
 
@@ -1768,7 +1783,7 @@ function viewMe(){
   var statuses=[['待处理','待处理','#94a3b8','t-n'],['进行中','进行中','#2563eb','t-b'],['待验收','待验收','#7c3aed','t-v'],['已逾期','已逾期','#ef4444','t-r']];
   function taskRow(task,compact){
     var project=PB[task.p], overdue=isOverdue(task);
-    return '<button data-act="open-execution" data-id="'+task.id+'" style="width:100%;display:flex;align-items:center;gap:10px;padding:'+(compact?'10px 0':'12px 0')+';text-align:left;border-bottom:1px solid var(--line2)">'+
+    return '<button data-act="open-execution" data-id="'+attr(task.id)+'" style="width:100%;display:flex;align-items:center;gap:10px;padding:'+(compact?'10px 0':'12px 0')+';text-align:left;border-bottom:1px solid var(--line2)">'+
       '<span style="width:30px;height:30px;border-radius:9px;background:'+(overdue?'var(--risk-s)':'var(--brand-s)')+';display:grid;place-items:center;flex:0 0 auto">'+ic(overdue?'warn':'task',15,overdue?'#ef4444':'#2563eb')+'</span>'+
       '<span style="flex:1;min-width:0"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(task.n)+'</b><span style="font-size:11.5px;color:var(--mut)">'+esc(project?project.n:'未关联项目')+' · 截止 '+esc(task.e)+'</span></span>'+priTag(task.pri)+(overdue?stTag('已逾期'):stTag(task.st))+'</button>';
   }
@@ -1780,7 +1795,7 @@ function viewMe(){
 
   '<div class="grid" style="grid-template-columns:repeat(4,1fr);margin-top:16px">',statuses.map(function(item){
     var count=personalTasks(S.me,'todo',item[0]).length;
-    return '<button class="card kpi" data-act="my-task-filter" data-scope="todo" data-status="'+item[0]+'" style="display:block;text-align:left;width:100%"><div class="t"><span>'+item[1]+'</span><span class="ico" style="background:'+item[2]+'18">'+ic(item[0]==='已逾期'?'warn':'task',17,item[2])+'</span></div><div class="v">'+count+'<small> 项</small></div><div class="f"><em>点击查看对应任务</em></div></button>';
+    return '<button class="card kpi" data-act="my-task-filter" data-scope="todo" data-status="'+attr(item[0])+'" style="display:block;text-align:left;width:100%"><div class="t"><span>'+item[1]+'</span><span class="ico" style="background:'+item[2]+'18">'+ic(item[0]==='已逾期'?'warn':'task',17,item[2])+'</span></div><div class="v">'+count+'<small> 项</small></div><div class="f"><em>点击查看对应任务</em></div></button>';
   }).join(''),'</div>',
 
   '<div class="grid" style="grid-template-columns:1.35fr 1fr;margin-top:16px">',
@@ -1790,16 +1805,16 @@ function viewMe(){
     '<div class="card"><div class="hd"><h3>执行提醒</h3><div class="grow"></div><span class="sm">逾期 · 阻塞 · 待验收</span></div><div class="bd" style="padding-top:4px">',
       dashboard.reminders.length?dashboard.reminders.map(function(task){
         var note=isOverdue(task)?'已逾期':task.blocker?('阻塞：'+task.blocker):'等待负责人验收';
-        return '<button data-act="open-execution" data-id="'+task.id+'" style="width:100%;display:flex;gap:9px;align-items:center;padding:10px 0;text-align:left;border-bottom:1px solid var(--line2)">'+ic('bell',15,isOverdue(task)?'#ef4444':'#f59e0b')+'<span style="flex:1;min-width:0"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(task.n)+'</b><span style="font-size:11.5px;color:var(--mut)">'+esc(note)+'</span></span>'+stTag(isOverdue(task)?'已逾期':task.st)+'</button>';
+        return '<button data-act="open-execution" data-id="'+attr(task.id)+'" style="width:100%;display:flex;gap:9px;align-items:center;padding:10px 0;text-align:left;border-bottom:1px solid var(--line2)">'+ic('bell',15,isOverdue(task)?'#ef4444':'#f59e0b')+'<span style="flex:1;min-width:0"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(task.n)+'</b><span style="font-size:11.5px;color:var(--mut)">'+esc(note)+'</span></span>'+stTag(isOverdue(task)?'已逾期':task.st)+'</button>';
       }).join(''):'<div class="empty">当前身份暂无执行提醒</div>',
     '</div></div>',
   '</div>',
 
   '<div class="card" style="margin-top:16px"><div class="hd" style="gap:8px"><h3 style="margin-right:8px">个人任务</h3>',
-    '<button class="chip '+(scope==='todo'?'on':'')+'" data-act="my-task-filter" data-scope="todo" data-status="'+status+'">我的待办</button>',
-    '<button class="chip '+(scope==='created'?'on':'')+'" data-act="my-task-filter" data-scope="created" data-status="'+status+'">我发起的</button>',
+    '<button class="chip '+(scope==='todo'?'on':'')+'" data-act="my-task-filter" data-scope="todo" data-status="'+attr(status)+'">我的待办</button>',
+    '<button class="chip '+(scope==='created'?'on':'')+'" data-act="my-task-filter" data-scope="created" data-status="'+attr(status)+'">我发起的</button>',
     '<div class="grow"></div><div class="chips">',['all','待处理','进行中','待验收','已完成','已逾期'].map(function(value){
-      return '<button class="chip '+(status===value?'on':'')+'" data-act="my-task-filter" data-scope="'+scope+'" data-status="'+value+'">'+(value==='all'?'全部':value)+'</button>';
+      return '<button class="chip '+(status===value?'on':'')+'" data-act="my-task-filter" data-scope="'+attr(scope)+'" data-status="'+attr(value)+'">'+(value==='all'?'全部':esc(value))+'</button>';
     }).join(''),'</div></div><div class="bd" style="padding-top:4px;max-height:390px;overflow:auto">',
       tasks.length?tasks.map(function(task){ return taskRow(task,false); }).join(''):'<div class="empty">当前身份暂无任务</div>',
   '</div></div>',
@@ -1808,11 +1823,11 @@ function viewMe(){
     '<div class="card"><div class="hd"><h3>我的项目</h3><div class="grow"></div><span class="tag t-n">'+projects.length+'</span></div><div class="bd" style="padding-top:4px">',
       projects.length?projects.slice(0,6).map(function(project){
         var mine=personalTasks(S.me,'todo','all').filter(function(task){ return task.p===project.id; });
-        return '<button data-act="open-my-project" data-id="'+project.id+'" style="width:100%;display:flex;align-items:center;gap:11px;padding:12px 0;text-align:left;border-bottom:1px solid var(--line2)"><span style="width:34px;height:34px;border-radius:10px;background:var(--brand-s);display:grid;place-items:center">'+ic('proj',17,'#2563eb')+'</span><span style="flex:1"><b style="display:block">'+esc(project.n)+'</b><span style="font-size:11.5px;color:var(--mut)">'+mine.length+' 个我的任务 · '+esc(project.cat)+'</span></span>'+stTag(project.st)+'</button>';
+        return '<button data-act="open-my-project" data-id="'+attr(project.id)+'" style="width:100%;display:flex;align-items:center;gap:11px;padding:12px 0;text-align:left;border-bottom:1px solid var(--line2)"><span style="width:34px;height:34px;border-radius:10px;background:var(--brand-s);display:grid;place-items:center">'+ic('proj',17,'#2563eb')+'</span><span style="flex:1"><b style="display:block">'+esc(project.n)+'</b><span style="font-size:11.5px;color:var(--mut)">'+mine.length+' 个我的任务 · '+esc(project.cat)+'</span></span>'+stTag(project.st)+'</button>';
       }).join(''):'<div class="empty">当前身份暂无项目</div>',
     '</div></div>',
     '<div class="card"><div class="hd"><h3>个人收入</h3><div class="grow"></div><span class="sm">仅本人可见</span></div><div class="bd">',
-      payroll?'<button data-act="open-income" data-month="'+payroll.month+'" style="width:100%;padding:18px;border-radius:12px;background:linear-gradient(120deg,var(--brand-s),var(--violet-s));text-align:left"><span style="display:block;font-size:12px;color:var(--sub)">'+esc(payroll.month)+' 实发工资</span><b style="display:block;font-size:28px;margin:5px 0;color:var(--brand-d)">'+payrollMoney(payrollSummary.net)+'</b><span style="font-size:11.5px;color:var(--mut)">应发 '+payrollMoney(payrollSummary.gross)+' · 扣款 '+payrollMoney(payrollSummary.deductions)+' · 点击查看明细</span></button>':'<div class="empty">当前身份暂无工资记录</div>',
+      payroll?'<button data-act="open-income" data-month="'+attr(payroll.month)+'" style="width:100%;padding:18px;border-radius:12px;background:linear-gradient(120deg,var(--brand-s),var(--violet-s));text-align:left"><span style="display:block;font-size:12px;color:var(--sub)">'+esc(payroll.month)+' 实发工资</span><b style="display:block;font-size:28px;margin:5px 0;color:var(--brand-d)">'+payrollMoney(payrollSummary.net)+'</b><span style="font-size:11.5px;color:var(--mut)">应发 '+payrollMoney(payrollSummary.gross)+' · 扣款 '+payrollMoney(payrollSummary.deductions)+' · 点击查看明细</span></button>':'<div class="empty">当前身份暂无工资记录</div>',
     '</div></div>',
   '</div>']);
 }
@@ -1894,7 +1909,7 @@ function viewExecution(){
         '<div class="card"><div class="hd"><h3>成果信息</h3><div class="grow"></div>',task.submittedAt?'<span class="sm">提交于 '+esc(task.submittedAt)+'</span>':'','</div><div class="bd">',
           '<div style="font-size:12px;color:var(--mut);margin-bottom:6px">成果说明</div><p style="margin:0 0 14px;line-height:1.75">',esc(task.resultText||'尚未提交成果'),'</p>',
           '<div style="font-size:12px;color:var(--mut);margin-bottom:6px">成果链接</div>',
-          safeLink?'<a class="link" href="'+esc(safeLink)+'" target="_blank" rel="noopener noreferrer">'+esc(task.resultLink)+'</a>':'<span style="color:var(--sub)">'+esc(task.resultLink||'暂无成果链接')+'</span>',
+          safeLink?'<a class="link" href="'+attr(safeLink)+'" target="_blank" rel="noopener noreferrer">'+esc(task.resultLink)+'</a>':'<span style="color:var(--sub)">'+esc(task.resultLink||'暂无成果链接')+'</span>',
           '<div style="font-size:12px;color:var(--mut);margin:14px 0 6px">成果文件</div>',
           (task.resultFiles||[]).length?(task.resultFiles||[]).map(function(name){ return '<span class="tag t-n" style="margin:0 6px 6px 0">'+ic('file',12)+esc(name)+'</span>'; }).join(''):'<span style="color:var(--sub)">暂无成果文件</span>',
           '<div style="font-size:12px;color:var(--mut);margin:14px 0 6px">验收意见</div><p style="margin:0;line-height:1.75">',esc(task.reviewNote||'尚无验收意见'),'</p>',
@@ -2090,7 +2105,7 @@ function viewFin(){
       '<div class="bd"><div class="grid" style="grid-template-columns:repeat(4,1fr)">',
         cards.map(function(card){
           var active=S.f.payFocus===card.key;
-          return '<button class="card kpi" style="width:100%;text-align:left;border-color:'+(active?card.color:'var(--line)')+'" data-act="payroll-focus" data-focus="'+card.key+'">'+
+          return '<button class="card kpi" style="width:100%;text-align:left;border-color:'+(active?card.color:'var(--line)')+'" data-act="payroll-focus" data-focus="'+attr(card.key)+'">'+
             '<div class="t"><span>'+card.label+'</span><span class="ico" style="background:'+card.bg+'">'+ic(card.icon,17,card.color)+'</span></div>'+
             '<div class="v">'+payrollMoney(card.value)+'</div><div class="f"><em>点击查看当月明细</em><span class="link">查看 ›</span></div></button>';
         }).join(''),
@@ -2104,7 +2119,7 @@ function viewFin(){
         rows.map(function(row){
           var rowTotals=payrollTotals(row);
           var active=row.month===selected.month;
-          return '<tr style="background:'+(active?'var(--brand-s)':'transparent')+'"><td><button class="link" data-act="payroll-month" data-month="'+esc(row.month)+'" style="width:100%;text-align:left"><b>'+esc(row.month)+'</b></button></td><td>'+payrollMoney(rowTotals.net)+'</td><td><span class="tag '+(row.status==='已发放'?'t-g':'t-o')+'">'+esc(row.status||'待确认')+'</span></td><td>'+esc(row.payDate||'待定')+'</td></tr>';
+          return '<tr style="background:'+(active?'var(--brand-s)':'transparent')+'"><td><button class="link" data-act="payroll-month" data-month="'+attr(row.month)+'" style="width:100%;text-align:left"><b>'+esc(row.month)+'</b></button></td><td>'+payrollMoney(rowTotals.net)+'</td><td><span class="tag '+(row.status==='已发放'?'t-g':'t-o')+'">'+esc(row.status||'待确认')+'</span></td><td>'+esc(row.payDate||'待定')+'</td></tr>';
         }).join(''),
         '</tbody></table></div></div>',
     '</div>'
@@ -2245,6 +2260,15 @@ function rebuildLookups(){
 function replaceArray(target,rows){
   target.length=0;
   rows.forEach(function(row){ target.push(cloneGatewayValue(row)); });
+}
+function storedArray(snapshot,key,fallback){
+  if(snapshot&&Object.prototype.hasOwnProperty.call(snapshot,key)&&Array.isArray(snapshot[key])) return cloneGatewayValue(snapshot[key]);
+  return cloneGatewayValue(fallback);
+}
+function storedMap(snapshot,key,fallback){
+  var value=snapshot&&Object.prototype.hasOwnProperty.call(snapshot,key)?snapshot[key]:null;
+  if(value&&typeof value==='object'&&!Array.isArray(value)) return cloneGatewayValue(value);
+  return cloneGatewayValue(fallback);
 }
 function emptyDemoBusinessData(){
   S.tasks=[]; S.customers=[]; S.activities=[]; S.decisions=[]; S.agents=[]; S.runs=[]; S.reqs=[]; S.payroll={}; S.appr=[];
@@ -2401,7 +2425,6 @@ function createMember(){
     em.n=f.n; em.r=f.r; em.dept=f.dept; em.sk=f.sk||'待完善';
     em.rate=parseInt(f.rate,10)||em.rate; em.cap=Math.max(0.05,Math.min(1,(parseFloat(f.cap)||70)/100));
     em.perm=f.perm; em.lv=parseInt(f.lv,10)||2; em.mail=f.mail; em.tel=f.tel;
-    S.tasks.forEach(function(t){ if(t.own===em.id) t.role=em.r; });
     S.editId=null; S.form.member=blankForm().member;
     save(); toast('已更新 '+em.n+' 的资料'); S.page='org'; render(); return;
   }
@@ -2777,7 +2800,7 @@ function viewAgents(){
     '<div class="bd" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">',
       list.length? list.map(function(a){
         var c=canUse(a), req=S.reqs.filter(function(r){ return r.a===a.id&&r.m===S.me&&r.st==='待审批'; })[0];
-        return '<div class="card" style="box-shadow:none;'+(c.ok?'cursor:pointer':'background:#fbfcfe')+'" '+(c.ok?'data-act="open-agent" data-id="'+a.id+'"':'')+'><div class="bd">'+
+        return '<div class="card" style="box-shadow:none;'+(c.ok?'cursor:pointer':'background:#fbfcfe')+'" '+(c.ok?'data-act="open-agent" data-id="'+attr(a.id)+'"':'')+'><div class="bd">'+
           '<div style="display:flex;gap:11px;align-items:flex-start">'+agentIcon(a)+
           '<div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:7px"><b style="font-size:13.5px">'+esc(a.n)+'</b>'+
           (c.ok?'':'<span class="tag t-n">'+ic('set',11)+' 受限</span>')+'</div>'+
@@ -2786,7 +2809,7 @@ function viewAgents(){
           '<div style="display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--mut);padding-top:9px;border-top:1px solid var(--line2)">'+
           (c.ok? '<span>调用 '+num(a.runs)+' 次</span><span>成功率 '+a.ok+'%</span><span style="flex:1"></span><span class="link">立即调用 ›</span>'
                : '<span style="flex:1;color:var(--warn)">'+esc(c.why)+'</span>'+
-                 (req?'<span class="tag t-o">申请审批中</span>':'<button class="tag t-b" style="cursor:pointer" data-act="req-apply" data-id="'+a.id+'">申请权限</button>'))+
+                 (req?'<span class="tag t-o">申请审批中</span>':'<button class="tag t-b" style="cursor:pointer" data-act="req-apply" data-id="'+attr(a.id)+'">申请权限</button>'))+
           '</div></div></div>';
       }).join('') : '<div class="empty" style="grid-column:1/-1">没有匹配的 Agent</div>',
     '</div></div>']);
@@ -2807,7 +2830,7 @@ function viewAgents(){
       }).join('') : '<div class="empty">还没有节点，从下方选择 Agent 加入。</div>',
       '<label class="field" style="margin-top:10px">添加节点（仅显示你可调用的）</label><div class="chips">',
         S.agents.filter(function(a){ return canUse(a).ok; }).map(function(a){
-          return '<button class="fchip" data-act="chain-add" data-id="'+a.id+'">'+esc(a.n)+'</button>'; }).join('')||'<span class="hint">当前身份没有可调用的 Agent</span>',
+          return '<button class="fchip" data-act="chain-add" data-id="'+attr(a.id)+'">'+esc(a.n)+'</button>'; }).join('')||'<span class="hint">当前身份没有可调用的 Agent</span>',
       '</div>',
       '<label class="field" style="margin-top:14px">初始输入</label>',
       '<textarea class="ta" data-f="chainIn" id="chainIn" placeholder="输入交给第一个 Agent 的内容">',esc(S.chainIn||''),'</textarea>',
@@ -2833,9 +2856,9 @@ function viewAgents(){
           av(m.n)+'<div style="flex:1"><b style="font-size:12.5px">'+esc(m.n)+'</b> <span style="font-size:11.5px;color:var(--mut)">'+esc(m.dept)+' · '+lvName(m.lv)+'</span>'+
           '<div style="font-size:12px;color:var(--sub);margin-top:2px">申请调用「'+esc(a.n)+'」— '+esc(canUse(a,m.id).why)+'</div></div>'+
           '<span style="font-size:11px;color:var(--mut)">'+r.at+'</span>'+
-          '<button class="tag t-g" style="cursor:pointer" data-act="req-ok" data-id="'+r.id+'" data-v="one">单独授权</button>'+
-          '<button class="tag t-b" style="cursor:pointer" data-act="req-ok" data-id="'+r.id+'" data-v="dept">开放给该部门</button>'+
-          '<button class="tag t-r" style="cursor:pointer" data-act="req-no" data-id="'+r.id+'">驳回</button></div>';
+          '<button class="tag t-g" style="cursor:pointer" data-act="req-ok" data-id="'+attr(r.id)+'" data-v="one">单独授权</button>'+
+          '<button class="tag t-b" style="cursor:pointer" data-act="req-ok" data-id="'+attr(r.id)+'" data-v="dept">开放给该部门</button>'+
+          '<button class="tag t-r" style="cursor:pointer" data-act="req-no" data-id="'+attr(r.id)+'">驳回</button></div>';
       }).join('')+'</div>' : '<div class="empty">没有待审批的权限申请</div>',
     '<b style="font-size:14px;display:block;margin-top:20px">Agent 调用范围</b>',
     '<p class="hint" style="margin-bottom:10px">修改后立即生效。企业决策人不受任何限制。</p>',
@@ -2847,12 +2870,12 @@ function viewAgents(){
             [['all','全公司'],['dept','仅本部门'],['list','指定部门']].map(function(o){
               return '<option value="'+o[0]+'"'+(a.scope===o[0]?' selected':'')+'>'+o[1]+'</option>'; }).join('')+'</select>'+
             (a.scope==='list'?'<div class="chips" style="margin-top:6px">'+DEPTS.map(function(d){
-              return '<button class="fchip'+((a.depts||[]).indexOf(d)>=0?' on':'')+'" style="font-size:11px;padding:3px 8px" data-act="perm-dept" data-id="'+a.id+'" data-v="'+esc(d)+'">'+d+'</button>'; }).join('')+'</div>':'')+'</td>'+
+              return '<button class="fchip'+((a.depts||[]).indexOf(d)>=0?' on':'')+'" style="font-size:11px;padding:3px 8px" data-act="perm-dept" data-id="'+attr(a.id)+'" data-v="'+attr(d)+'">'+esc(d)+'</button>'; }).join('')+'</div>':'')+'</td>'+
           '<td><select class="sel" style="padding:5px 8px;font-size:12px" data-perm="'+a.id+':minLv">'+
             LEVELS.map(function(l){ return '<option value="'+l.v+'"'+((a.minLv||1)===l.v?' selected':'')+'>'+l.l+'</option>'; }).join('')+'</select></td>'+
           '<td>'+((a.grant||[]).length? a.grant.map(function(id){
               return MB[id]?'<span class="fchip on" style="font-size:11px;padding:3px 8px;display:inline-flex;gap:5px;align-items:center">'+esc(MB[id].n)+
-                '<button data-act="perm-revoke" data-id="'+a.id+'" data-m="'+id+'" style="color:var(--risk)">×</button></span>':''; }).join(' ')
+                '<button data-act="perm-revoke" data-id="'+attr(a.id)+'" data-m="'+attr(id)+'" style="color:var(--risk)">×</button></span>':''; }).join(' ')
             : '<span style="color:var(--mut);font-size:12px">无</span>')+'</td>'+
           '<td><b>'+usableCount(a)+'</b> <span style="color:var(--mut);font-size:12px">/ '+MEMBERS.length+'</span></td></tr>';
       }).join(''),
@@ -2883,7 +2906,7 @@ function viewAgentRun(){
       esc(a.dept),' · 可见范围 ',esc(scopeText(a)),' · ',lvName(a.minLv),'起 · 调用 ',num(a.runs),' 次</div></div>',
     '<div class="grow"></div>',
     c.ok?'<span class="tag t-g">'+esc(c.why)+'</span>':'<span class="tag t-r">无调用权限</span>',
-    isAdmin()?'<button class="btn ghost" data-act="edit-agent" data-id="'+a.id+'">编辑</button>':'',
+    isAdmin()?'<button class="btn ghost" data-act="edit-agent" data-id="'+attr(a.id)+'">编辑</button>':'',
     c.ok?('<button class="btn" data-act="run-agent" '+(S.agentBusy?'disabled':'')+'>'+ic('bolt',15)+(S.agentBusy?'执行中…':'运行 Agent')+'</button>'):'',
   '</div></div>']);
   if(!c.ok){
@@ -2895,7 +2918,7 @@ function viewAgentRun(){
         '<p style="color:var(--sub);font-size:13px;margin:8px 0 0;line-height:1.8">',esc(c.why),'<br>',
         '当前身份：',esc(me.n),'（',esc(me.dept),' · ',lvName(me.lv),'）　该 Agent 开放范围：',esc(scopeText(a)),'，',lvName(a.minLv),'起</p>',
         req? '<div style="margin-top:18px"><span class="tag t-o">权限申请审批中，提交于 '+req.at+'</span></div>'
-           : '<button class="btn" style="margin:18px auto 0" data-act="req-apply" data-id="'+a.id+'">'+ic('send',15)+'申请调用权限</button>',
+           : '<button class="btn" style="margin:18px auto 0" data-act="req-apply" data-id="'+attr(a.id)+'">'+ic('send',15)+'申请调用权限</button>',
         '<p class="hint" style="margin-top:14px">申请会发送给企业决策人与 L4 及以上管理者审批。</p>',
       '</div></div></div>']);
   }
@@ -3003,16 +3026,16 @@ function viewOrg(){
       var lv=load[m.id]||0;
       return '<tr><td><div style="display:flex;align-items:center;gap:9px">'+av(m.n,1)+'<b style="font-weight:600">'+esc(m.n)+'</b></div></td>'+
         '<td><span class="tag '+(m.r==='企业决策人'?'t-r':'t-b')+'">'+esc(m.r)+'</span></td>'+
-        '<td><select class="sel" style="padding:5px 8px;font-size:12px;width:104px" data-lv="'+m.id+'">'+
+        '<td><select class="sel" style="padding:5px 8px;font-size:12px;width:104px" data-lv="'+attr(m.id)+'">'+
           LEVELS.map(function(l){ return '<option value="'+l.v+'"'+((m.lv||1)===l.v?' selected':'')+'>'+l.l+'</option>'; }).join('')+'</select></td>'+
-        '<td><select class="sel" style="padding:5px 8px;font-size:12px;width:112px" data-dept="'+m.id+'">'+
+        '<td><select class="sel" style="padding:5px 8px;font-size:12px;width:112px" data-dept="'+attr(m.id)+'">'+
           DEPTS.concat(DEPTS.indexOf(m.dept)<0?[m.dept]:[]).map(function(d){ return '<option'+(d===m.dept?' selected':'')+'>'+esc(d)+'</option>'; }).join('')+'</select></td>'+
         '<td style="color:var(--sub);font-size:12px">'+esc(m.sk)+'</td>'+
         '<td style="font-variant-numeric:tabular-nums">'+num(m.rate)+'</td>'+
         '<td><div style="display:flex;align-items:center;gap:8px"><div class="bar" style="flex:1"><i style="width:'+Math.round(m.cap*100)+'%;background:'+(m.cap>=0.8?'var(--ok)':m.cap>=0.65?'var(--brand)':'var(--warn)')+'"></i></div><b style="font-size:12px">'+Math.round(m.cap*100)+'%</b></div></td>'+
         '<td>'+(lv?'<span class="tag '+(lv>=3?'t-o':'t-n')+'">'+lv+'</span>':'<span style="color:var(--mut);font-size:12px">空闲</span>')+'</td>'+
-        '<td><button class="link" data-act="edit-member" data-id="'+m.id+'">编辑</button>'+
-        '<button class="link" style="color:var(--risk);margin-left:10px" data-act="del-member" data-id="'+m.id+'">删除</button></td></tr>';
+        '<td><button class="link" data-act="edit-member" data-id="'+attr(m.id)+'">编辑</button>'+
+        '<button class="link" style="color:var(--risk);margin-left:10px" data-act="del-member" data-id="'+attr(m.id)+'">删除</button></td></tr>';
     }).join('')+'</tbody></table>' : '<div class="empty">没有匹配的成员</div>',
   '</div></div>']);
 }
@@ -3030,9 +3053,9 @@ function viewProject(){
     '<span style="width:36px;height:36px;border-radius:11px;background:var(--brand-s);display:grid;place-items:center">',ic('proj',18,'#2563eb'),'</span>',
     '<div><b style="font-size:16px">',esc(p.n),'</b><div style="font-size:12px;color:var(--mut);margin-top:2px">',esc(p.cat),' · 负责人 ',esc(MB[p.own]?MB[p.own].n:'—'),' · 更新于 ',esc(p.up),'</div></div>',
     '<div class="grow"></div>',stTag(p.st),
-    '<button class="btn ghost" data-act="proj-goal" data-id="',p.id,'">',ic('ai',15),'交给 AI 拆解</button>',
+    '<button class="btn ghost" data-act="proj-goal" data-id="',attr(p.id),'">',ic('ai',15),'交给 AI 拆解</button>',
     '<button class="btn ghost" data-act="go" data-page="new-task">',ic('plus',15),'加任务</button>',
-    '<button class="btn ghost" style="color:var(--risk)" data-act="del-proj" data-id="',p.id,'">删除项目</button>',
+    '<button class="btn ghost" style="color:var(--risk)" data-act="del-proj" data-id="',attr(p.id),'">删除项目</button>',
   '</div></div>',
   '<div class="grid" style="grid-template-columns:repeat(5,1fr);margin-top:16px">',
     kpi({t:'任务进度',v:''+pr,u:'%',i:'task',c:'#2563eb',bg:'var(--brand-s)',d:6.3,du:' pp',s:[10,18,25,30,38,45,52,58,64,70,pr-4,pr]}),
@@ -3045,7 +3068,7 @@ function viewProject(){
     '<div class="card"><div class="hd"><h3>项目任务</h3><div class="grow"></div><span class="sm">点击任意行进入任务中心</span></div><div class="bd" style="padding-top:6px">',
       ts.length? '<table><thead><tr><th>任务</th><th>负责人</th><th>优先级</th><th>截止</th><th>状态</th><th>来源</th></tr></thead><tbody>'+
         ts.map(function(t){
-          return '<tr style="cursor:pointer" data-act="pick-task-go" data-id="'+t.id+'"><td><b style="font-weight:600">'+esc(t.n)+'</b></td>'+
+          return '<tr style="cursor:pointer" data-act="pick-task-go" data-id="'+attr(t.id)+'"><td><b style="font-weight:600">'+esc(t.n)+'</b></td>'+
             '<td><div style="display:flex;align-items:center;gap:7px">'+av(MB[t.own].n)+esc(MB[t.own].n)+'</div></td>'+
             '<td>'+priTag(t.pri)+'</td><td style="color:var(--sub)">'+t.e+'</td><td>'+stTag(t.st)+'</td>'+
             '<td><span class="tag '+(t.src==='AI调度'?'t-v':'t-n')+'">'+t.src+'</span></td></tr>'; }).join('')+'</tbody></table>'
@@ -3075,19 +3098,19 @@ function viewSearch(){
   var mk=function(t,rows){ return rows.length? '<div class="card" style="margin-bottom:16px"><div class="hd"><h3>'+t+'</h3><div class="grow"></div><span class="sm">'+rows.length+' 条</span></div><div class="bd" style="padding-top:6px">'+rows.join('')+'</div></div>':''; };
   if(!q) return '<div class="empty">输入关键词，可跨项目、任务、客户、活动、成员、文档与 Agent 搜索</div>';
   var pj=PROJECTS.filter(function(p){ return (p.n+p.cat).indexOf(q)>=0; }).map(function(p){
-    return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);cursor:pointer" data-act="open-proj" data-id="'+p.id+'">'+ic('proj',16,'#2563eb')+'<b style="flex:1;font-size:12.5px">'+esc(p.n)+'</b>'+stTag(p.st)+'</div>'; });
+    return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);cursor:pointer" data-act="open-proj" data-id="'+attr(p.id)+'">'+ic('proj',16,'#2563eb')+'<b style="flex:1;font-size:12.5px">'+esc(p.n)+'</b>'+stTag(p.st)+'</div>'; });
   var tk=S.tasks.filter(function(t){ return t.n.indexOf(q)>=0; }).map(function(t){
-    return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);cursor:pointer" data-act="pick-task-go" data-id="'+t.id+'">'+ic('task',16,'#7c3aed')+'<b style="flex:1;font-size:12.5px">'+esc(t.n)+'</b><span style="font-size:11.5px;color:var(--mut)">'+esc(MB[t.own].n)+'</span>'+stTag(t.st)+'</div>'; });
+    return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);cursor:pointer" data-act="pick-task-go" data-id="'+attr(t.id)+'">'+ic('task',16,'#7c3aed')+'<b style="flex:1;font-size:12.5px">'+esc(t.n)+'</b><span style="font-size:11.5px;color:var(--mut)">'+esc(MB[t.own].n)+'</span>'+stTag(t.st)+'</div>'; });
   var cu=S.customers.filter(function(c){ return (c.n+c.contact+c.industry+c.need).indexOf(q)>=0; }).map(function(c){
-    return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);cursor:pointer" data-act="search-customer" data-id="'+c.id+'">'+ic('org',16,'#2563eb')+'<b style="flex:1;font-size:12.5px">'+esc(c.n)+'</b><span style="font-size:11.5px;color:var(--mut)">'+esc(c.contact)+'</span><span class="tag t-b">'+esc(c.stage)+'</span></div>'; });
+    return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);cursor:pointer" data-act="search-customer" data-id="'+attr(c.id)+'">'+ic('org',16,'#2563eb')+'<b style="flex:1;font-size:12.5px">'+esc(c.n)+'</b><span style="font-size:11.5px;color:var(--mut)">'+esc(c.contact)+'</span><span class="tag t-b">'+esc(c.stage)+'</span></div>'; });
   var ac=S.activities.filter(function(a){ return (a.n+a.goal+a.stage).indexOf(q)>=0; }).map(function(a){
-    return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);cursor:pointer" data-act="search-activity" data-id="'+a.id+'">'+ic('target',16,'#7c3aed')+'<b style="flex:1;font-size:12.5px">'+esc(a.n)+'</b><span style="font-size:11.5px;color:var(--mut)">'+esc(a.stage)+'</span><span class="tag t-v">'+a.progress+'%</span></div>'; });
+    return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);cursor:pointer" data-act="search-activity" data-id="'+attr(a.id)+'">'+ic('target',16,'#7c3aed')+'<b style="flex:1;font-size:12.5px">'+esc(a.n)+'</b><span style="font-size:11.5px;color:var(--mut)">'+esc(a.stage)+'</span><span class="tag t-v">'+a.progress+'%</span></div>'; });
   var mm=MEMBERS.filter(function(m){ return (m.n+m.r+m.sk+m.dept).indexOf(q)>=0; }).map(function(m){
-    return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);cursor:pointer" data-act="edit-member" data-id="'+m.id+'">'+av(m.n)+'<b style="flex:1;font-size:12.5px">'+esc(m.n)+'</b><span class="tag t-b">'+esc(m.r)+'</span><span class="tag t-n">'+esc(m.dept)+'</span></div>'; });
+    return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);cursor:pointer" data-act="edit-member" data-id="'+attr(m.id)+'">'+av(m.n)+'<b style="flex:1;font-size:12.5px">'+esc(m.n)+'</b><span class="tag t-b">'+esc(m.r)+'</span><span class="tag t-n">'+esc(m.dept)+'</span></div>'; });
   var kb=KB.filter(function(k){ return (k.n+k.c).indexOf(q)>=0; }).map(function(k){
     return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2)">'+ic('file',16,'#f59e0b')+'<b style="flex:1;font-size:12.5px">'+esc(k.n)+'</b><span class="tag t-n">'+esc(k.c)+'</span></div>'; });
   var ag=S.agents.filter(function(a){ return (a.n+a.dept+a.d).indexOf(q)>=0; }).map(function(a){
-    return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);cursor:pointer" data-act="open-agent" data-id="'+a.id+'">'+ic(a.ic,16,'#2563eb')+'<b style="flex:1;font-size:12.5px">'+esc(a.n)+'</b><span class="tag t-n">'+esc(a.dept)+'</span></div>'; });
+    return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);cursor:pointer" data-act="open-agent" data-id="'+attr(a.id)+'">'+ic(a.ic,16,'#2563eb')+'<b style="flex:1;font-size:12.5px">'+esc(a.n)+'</b><span class="tag t-n">'+esc(a.dept)+'</span></div>'; });
   var total=pj.length+tk.length+cu.length+ac.length+mm.length+kb.length+ag.length;
   return j(['<div class="fade"><div class="card" style="margin-bottom:16px"><div class="bd" style="display:flex;gap:10px;align-items:center">',
     '<div class="search" style="flex:1;width:auto">',ic('search',16),'<input data-q="gq" value="',esc(q),'" placeholder="搜索项目、任务、客户、活动、成员、文档、Agent"></div>',
@@ -3189,23 +3212,30 @@ function createAgent(){
 }
 
 /* ---------------- 成员 / 项目 删除 ---------------- */
+function memberReferenceLabels(id){
+  var labels=[];
+  function add(label){ if(labels.indexOf(label)<0) labels.push(label); }
+  if(S.tasks.some(function(task){ return task.own===id||task.reviewer===id||task.createdBy===id; })) add('任务');
+  if(PROJECTS.some(function(project){ return project.own===id||(Array.isArray(project.members)&&project.members.indexOf(id)>=0); })) add('项目');
+  if(S.customers.some(function(customer){ return customer.own===id; })) add('客户');
+  if(S.activities.some(function(activity){ return activity.own===id; })) add('活动');
+  if(S.decisions.some(function(decision){ return decision.by===id; })) add('决策');
+  if(S.reqs.some(function(request){ return request.m===id; })) add('权限申请');
+  if(Object.prototype.hasOwnProperty.call(S.payroll,id)) add('薪酬');
+  if(S.agents.some(function(agent){ return Array.isArray(agent.grant)&&agent.grant.indexOf(id)>=0; })) add('Agent 授权');
+  return labels;
+}
 function delMember(id){
   var m=MB[id]; if(!m) return;
-  var mine=S.tasks.filter(function(t){ return t.own===id&&t.st!=='已完成'; });
-  ask('删除成员 '+m.n+'？',
-    mine.length? ('TA 名下还有 '+mine.length+' 项未完成任务。删除后会自动改派给同角色同事；没有同角色时改派给企业决策人。')
-               : '该成员没有未完成任务，可以安全删除。',
-    '确认删除', function(){
-      var alt=MEMBERS.filter(function(x){ return x.id!==id&&x.r===m.r; })[0]
-          || MEMBERS.filter(function(x){ return x.id!==id&&x.r==='企业决策人'; })[0]
-          || MEMBERS.filter(function(x){ return x.id!==id; })[0];
-      if(alt) S.tasks.forEach(function(t){ if(t.own===id){ t.own=alt.id; t.role=alt.r; } });
+  var references=memberReferenceLabels(id);
+  if(references.length){ toast('无法删除 '+m.n+'：仍被'+references.join('、')+'引用，请先解除关联'); return; }
+  ask('删除成员 '+m.n+'？','该成员没有业务关联，可以安全删除。','确认删除', function(){
       var i=MEMBERS.map(function(x){ return x.id; }).indexOf(id);
       if(i>=0) MEMBERS.splice(i,1);
       delete MB[id];
       if(S.me===id&&MEMBERS.length) S.me=MEMBERS[MEMBERS.length-1].id;
       save(); S.confirm=null; render();
-      toast('已删除 '+m.n+(mine.length&&alt?'，'+mine.length+' 项任务已改派给 '+alt.n:''));
+      toast('已删除 '+m.n);
     }, true);
 }
 function delProject(id){
@@ -3244,9 +3274,9 @@ function viewCustomers(){
     '</div></div>',
     '<div class="grid fusion-split" style="grid-template-columns:minmax(0,1.7fr) minmax(280px,1fr);margin-top:16px;align-items:start">',
       '<div class="card"><div class="hd"><h3>客户机会与交付</h3><div class="grow"></div><span class="sm">点击客户查看详情</span></div><div class="bd" style="padding-top:8px;overflow:auto">',
-        list.length?'<table><thead><tr><th>客户</th><th>阶段</th><th>负责人</th><th>下次跟进</th><th>交付进度</th></tr></thead><tbody>'+list.map(function(c){ var own=MB[c.own]||{}; return '<tr data-act="open-customer" data-id="'+c.id+'" style="cursor:pointer;background:'+(cur&&cur.id===c.id?'#f8faff':'transparent')+'"><td><b>'+esc(c.n)+'</b><div style="font-size:11.5px;color:var(--mut)">'+esc(c.industry)+' · '+esc(c.contact)+'</div></td><td><span class="tag '+stageClass(c.stage)+'">'+esc(c.stage)+'</span></td><td>'+esc(own.n||'未分配')+'</td><td>'+esc(c.next||'待安排')+'</td><td style="min-width:120px"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px"><span>'+c.progress+'%</span></div><div class="bar"><i style="width:'+c.progress+'%"></i></div></td></tr>'; }).join('')+'</tbody></table>':'<div style="padding:32px;text-align:center;color:var(--mut)">没有符合条件的客户</div>',
+        list.length?'<table><thead><tr><th>客户</th><th>阶段</th><th>负责人</th><th>下次跟进</th><th>交付进度</th></tr></thead><tbody>'+list.map(function(c){ var own=MB[c.own]||{}; return '<tr data-act="open-customer" data-id="'+attr(c.id)+'" style="cursor:pointer;background:'+(cur&&cur.id===c.id?'#f8faff':'transparent')+'"><td><b>'+esc(c.n)+'</b><div style="font-size:11.5px;color:var(--mut)">'+esc(c.industry)+' · '+esc(c.contact)+'</div></td><td><span class="tag '+stageClass(c.stage)+'">'+esc(c.stage)+'</span></td><td>'+esc(own.n||'未分配')+'</td><td>'+esc(c.next||'待安排')+'</td><td style="min-width:120px"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px"><span>'+c.progress+'%</span></div><div class="bar"><i style="width:'+c.progress+'%"></i></div></td></tr>'; }).join('')+'</tbody></table>':'<div style="padding:32px;text-align:center;color:var(--mut)">没有符合条件的客户</div>',
       '</div></div>',
-      cur?'<div class="card"><div class="hd"><span class="ico" style="width:34px;height:34px;border-radius:10px;background:var(--brand-s);display:grid;place-items:center">'+ic('org',17,'#2563eb')+'</span><div><h3>'+esc(cur.n)+'</h3><div class="sm">'+esc(cur.industry)+' · '+esc(cur.source)+'</div></div></div><div class="bd"><span class="tag '+stageClass(cur.stage)+'">'+esc(cur.stage)+'</span><p style="margin:13px 0;color:var(--sub);line-height:1.75">'+esc(cur.need||'尚未补充客户需求')+'</p>'+[['联系人',cur.contact+' '+(cur.phone||'')],['负责人',(MB[cur.own]||{}).n||'未分配'],['下次跟进',cur.next||'待安排'],['预计金额',cur.amount?'¥ '+num(cur.amount):'待评估']].map(function(k){ return '<div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line2);font-size:12.5px"><span style="color:var(--mut)">'+k[0]+'</span><b style="text-align:right">'+esc(k[1])+'</b></div>'; }).join('')+'<div style="margin-top:15px"><div style="font-size:12px;color:var(--mut);margin-bottom:8px">关联项目</div>'+(cur.project&&PB[cur.project]?'<button class="btn soft" data-act="open-proj" data-id="'+cur.project+'">'+ic('proj',15)+esc(PB[cur.project].n)+'</button>':'<span class="tag t-n">暂未关联项目</span>')+'</div></div></div>':'<div class="card"><div class="bd" style="color:var(--mut)">请选择一个客户</div></div>',
+      cur?'<div class="card"><div class="hd"><span class="ico" style="width:34px;height:34px;border-radius:10px;background:var(--brand-s);display:grid;place-items:center">'+ic('org',17,'#2563eb')+'</span><div><h3>'+esc(cur.n)+'</h3><div class="sm">'+esc(cur.industry)+' · '+esc(cur.source)+'</div></div></div><div class="bd"><span class="tag '+stageClass(cur.stage)+'">'+esc(cur.stage)+'</span><p style="margin:13px 0;color:var(--sub);line-height:1.75">'+esc(cur.need||'尚未补充客户需求')+'</p>'+[['联系人',cur.contact+' '+(cur.phone||'')],['负责人',(MB[cur.own]||{}).n||'未分配'],['下次跟进',cur.next||'待安排'],['预计金额',cur.amount?'¥ '+num(cur.amount):'待评估']].map(function(k){ return '<div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line2);font-size:12.5px"><span style="color:var(--mut)">'+k[0]+'</span><b style="text-align:right">'+esc(k[1])+'</b></div>'; }).join('')+'<div style="margin-top:15px"><div style="font-size:12px;color:var(--mut);margin-bottom:8px">关联项目</div>'+(cur.project&&PB[cur.project]?'<button class="btn soft" data-act="open-proj" data-id="'+attr(cur.project)+'">'+ic('proj',15)+esc(PB[cur.project].n)+'</button>':'<span class="tag t-n">暂未关联项目</span>')+'</div></div></div>':'<div class="card"><div class="bd" style="color:var(--mut)">请选择一个客户</div></div>',
     '</div></div>']);
 }
 function activityPhases(a){
@@ -3270,8 +3300,8 @@ function viewActivities(){
       ['规划中','进行中','已完成'].map(function(x){ return '<option'+(st===x?' selected':'')+'>'+x+'</option>'; }).join(''),'</select><span style="font-size:12px;color:var(--mut)">共 ',list.length,' 项活动</span><div class="grow"></div>',
       '<button class="btn" data-act="go" data-page="new-activity">',ic('plus',15),'新建活动</button></div></div>',
     '<div class="grid fusion-split" style="grid-template-columns:minmax(280px,.9fr) minmax(0,1.6fr);margin-top:16px;align-items:start">',
-      '<div style="display:flex;flex-direction:column;gap:12px">',list.length?list.map(function(a){ return '<button class="card" data-act="open-activity" data-id="'+a.id+'" style="padding:16px;text-align:left;border-color:'+(cur&&cur.id===a.id?'#9bbcff':'var(--line)')+';box-shadow:'+(cur&&cur.id===a.id?'0 0 0 2px var(--brand-s)':'var(--sh)')+'"><div style="display:flex;align-items:flex-start;gap:10px"><span class="ico" style="width:34px;height:34px;border-radius:10px;background:var(--violet-s);display:grid;place-items:center">'+ic('target',17,'#7c3aed')+'</span><div style="min-width:0;flex:1"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(a.n)+'</b><div style="font-size:11.5px;color:var(--mut);margin-top:2px">'+esc((PB[a.project]||{}).n||'未关联项目')+'</div></div><span class="tag '+statusClass(a.st)+'">'+esc(a.st)+'</span></div><div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--mut);margin:13px 0 6px"><span>'+esc(a.stage)+'阶段</span><b>'+a.progress+'%</b></div><div class="bar"><i style="width:'+a.progress+'%;background:var(--violet)"></i></div></button>'; }).join(''):'<div class="card"><div class="bd" style="color:var(--mut)">没有符合条件的活动</div></div>','</div>',
-      cur?j(['<div style="display:flex;flex-direction:column;gap:16px"><div class="card"><div class="hd"><div><h3>'+esc(cur.n)+'</h3><div class="sm">'+esc(cur.goal)+'</div></div><div class="grow"></div><span class="tag '+statusClass(cur.st)+'">'+esc(cur.st)+'</span></div><div class="bd"><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">'+activityPhases(cur).map(function(p,pi){ return '<div style="padding:12px 8px;border-radius:10px;text-align:center;background:'+(p.st==='当前'?'var(--brand-s)':p.st==='完成'?'var(--ok-s)':'#f6f8fc')+'"><span style="width:24px;height:24px;border-radius:50%;margin:0 auto 5px;display:grid;place-items:center;background:'+(p.st==='当前'?'var(--brand)':p.st==='完成'?'var(--ok)':'#dbe1ed')+';color:#fff;font-size:11px">'+(p.st==='完成'?'✓':pi+1)+'</span><b style="font-size:12px">'+p.n+'</b><div style="font-size:10.5px;color:var(--mut)">'+p.st+'</div></div>'; }).join('')+'</div><div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">'+(cur.project&&PB[cur.project]?'<button class="btn soft" data-act="open-proj" data-id="'+cur.project+'">'+ic('proj',15)+'关联项目：'+esc(PB[cur.project].n)+'</button>':'')+'<span class="tag t-v">ROI '+Number(cur.roi||0).toFixed(1)+'</span><span class="tag t-n">'+esc(cur.s)+' → '+esc(cur.e)+'</span></div></div></div>',
+      '<div style="display:flex;flex-direction:column;gap:12px">',list.length?list.map(function(a){ return '<button class="card" data-act="open-activity" data-id="'+attr(a.id)+'" style="padding:16px;text-align:left;border-color:'+(cur&&cur.id===a.id?'#9bbcff':'var(--line)')+';box-shadow:'+(cur&&cur.id===a.id?'0 0 0 2px var(--brand-s)':'var(--sh)')+'"><div style="display:flex;align-items:flex-start;gap:10px"><span class="ico" style="width:34px;height:34px;border-radius:10px;background:var(--violet-s);display:grid;place-items:center">'+ic('target',17,'#7c3aed')+'</span><div style="min-width:0;flex:1"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(a.n)+'</b><div style="font-size:11.5px;color:var(--mut);margin-top:2px">'+esc((PB[a.project]||{}).n||'未关联项目')+'</div></div><span class="tag '+statusClass(a.st)+'">'+esc(a.st)+'</span></div><div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--mut);margin:13px 0 6px"><span>'+esc(a.stage)+'阶段</span><b>'+a.progress+'%</b></div><div class="bar"><i style="width:'+a.progress+'%;background:var(--violet)"></i></div></button>'; }).join(''):'<div class="card"><div class="bd" style="color:var(--mut)">没有符合条件的活动</div></div>','</div>',
+      cur?j(['<div style="display:flex;flex-direction:column;gap:16px"><div class="card"><div class="hd"><div><h3>'+esc(cur.n)+'</h3><div class="sm">'+esc(cur.goal)+'</div></div><div class="grow"></div><span class="tag '+statusClass(cur.st)+'">'+esc(cur.st)+'</span></div><div class="bd"><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">'+activityPhases(cur).map(function(p,pi){ return '<div style="padding:12px 8px;border-radius:10px;text-align:center;background:'+(p.st==='当前'?'var(--brand-s)':p.st==='完成'?'var(--ok-s)':'#f6f8fc')+'"><span style="width:24px;height:24px;border-radius:50%;margin:0 auto 5px;display:grid;place-items:center;background:'+(p.st==='当前'?'var(--brand)':p.st==='完成'?'var(--ok)':'#dbe1ed')+';color:#fff;font-size:11px">'+(p.st==='完成'?'✓':pi+1)+'</span><b style="font-size:12px">'+p.n+'</b><div style="font-size:10.5px;color:var(--mut)">'+p.st+'</div></div>'; }).join('')+'</div><div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">'+(cur.project&&PB[cur.project]?'<button class="btn soft" data-act="open-proj" data-id="'+attr(cur.project)+'">'+ic('proj',15)+'关联项目：'+esc(PB[cur.project].n)+'</button>':'')+'<span class="tag t-v">ROI '+Number(cur.roi||0).toFixed(1)+'</span><span class="tag t-n">'+esc(cur.s)+' → '+esc(cur.e)+'</span></div></div></div>',
       '<div class="grid" style="grid-template-columns:1fr 1fr"><div class="card"><div class="hd"><h3>阶段任务</h3><div class="grow"></div><span class="sm">'+rel.length+' 项</span></div><div class="bd" style="padding-top:8px">'+(rel.length?rel.map(function(t){ return '<div style="padding:10px 0;border-bottom:1px solid var(--line2)"><div style="display:flex;gap:8px;align-items:center"><span class="tag '+(t.st==='已完成'?'t-g':t.st==='进行中'?'t-b':'t-n')+'">'+esc(t.st)+'</span><b style="font-size:12.5px">'+esc(t.n)+'</b></div><div style="font-size:11px;color:var(--mut);margin-top:5px">'+esc((MB[t.own]||{}).n||'未分配')+' · '+esc(t.e)+'</div></div>'; }).join(''):'<p class="hint">关联项目暂无任务，可从任务中心补充。</p>')+'</div></div>',
       '<div class="card"><div class="hd"><h3>关键节点</h3></div><div class="bd" style="padding-top:8px">'+[['活动启动',cur.s],['当前阶段',cur.stage],['计划完成',cur.e],['复盘指标','ROI '+Number(cur.roi||0).toFixed(1)]].map(function(k,i){ return '<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--line2)"><span style="width:24px;height:24px;border-radius:8px;background:'+(i<2?'var(--brand-s)':'#f3f5fa')+';display:grid;place-items:center">'+ic(i===1?'target':'cal',13,i<2?'#2563eb':'#98a2ba')+'</span><div><b style="font-size:12.5px">'+k[0]+'</b><div style="font-size:11px;color:var(--mut)">'+esc(k[1])+'</div></div></div>'; }).join('')+'</div></div></div></div>']):'<div class="card"><div class="bd" style="color:var(--mut)">请选择一个活动</div></div>',
     '</div></div>']);
@@ -3298,7 +3328,7 @@ function viewDecisions(){
       '<div class="card kpi"><div class="t"><span>已驳回</span><span class="ico" style="background:var(--risk-s)">',ic('warn',16,'#ef4444'),'</span></div><div class="v">',rejected,'</div><div class="f"><em>需补充或调整</em></div></div>',
     '</div>',
     '<div class="card" style="margin-top:16px"><div class="tabs">',['待我决策','我发起的','已完成'].map(function(x){ var n=S.decisions.filter(function(d){ return d.st===x; }).length; return '<button class="'+(tab===x?'on':'')+'" data-act="set" data-k="decisionTab" data-v="'+x+'">'+x+' <span class="tag '+(x==='待我决策'?'t-o':'t-n')+'">'+n+'</span></button>'; }).join(''),'</div><div class="bd" style="padding-top:8px">',
-      list.length?list.map(function(d){ var who=MB[d.by]||{}, ref=decisionRef(d.ref); return '<div style="display:flex;gap:12px;align-items:flex-start;padding:15px 0;border-bottom:1px solid var(--line2)"><span style="width:36px;height:36px;border-radius:10px;background:'+(d.st==='已完成'?'var(--ok-s)':'var(--brand-s)')+';display:grid;place-items:center">'+ic(d.st==='已完成'?'ok':'file',17,d.st==='已完成'?'#10b981':'#2563eb')+'</span><div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="tag t-v">'+esc(d.type)+'</span><b style="font-size:13.5px">'+esc(d.n)+'</b>'+(d.result?'<span class="tag '+(d.result==='已通过'?'t-g':'t-r')+'">'+esc(d.result)+'</span>':'')+'</div><div style="font-size:12px;color:var(--sub);margin-top:6px">发起人：'+esc(who.n||'未知')+'　'+esc(d.detail)+'　'+esc(d.at)+'</div>'+(ref?'<button class="link" data-act="open-decision-ref" data-page="'+ref.page+'" data-id="'+ref.id+'" style="margin-top:7px">'+ic('link',13)+esc(ref.label)+'</button>':'')+'</div>'+(d.st==='待我决策'?'<div style="display:flex;gap:7px"><button class="btn ghost" data-act="decision-reject" data-id="'+d.id+'" style="padding:7px 11px;color:var(--risk)">驳回</button><button class="btn" data-act="decision-pass" data-id="'+d.id+'" style="padding:7px 11px;box-shadow:none">通过</button></div>':'')+'</div>'; }).join(''):'<div class="empty">当前分类没有记录</div>',
+      list.length?list.map(function(d){ var who=MB[d.by]||{}, ref=decisionRef(d.ref); return '<div style="display:flex;gap:12px;align-items:flex-start;padding:15px 0;border-bottom:1px solid var(--line2)"><span style="width:36px;height:36px;border-radius:10px;background:'+(d.st==='已完成'?'var(--ok-s)':'var(--brand-s)')+';display:grid;place-items:center">'+ic(d.st==='已完成'?'ok':'file',17,d.st==='已完成'?'#10b981':'#2563eb')+'</span><div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="tag t-v">'+esc(d.type)+'</span><b style="font-size:13.5px">'+esc(d.n)+'</b>'+(d.result?'<span class="tag '+(d.result==='已通过'?'t-g':'t-r')+'">'+esc(d.result)+'</span>':'')+'</div><div style="font-size:12px;color:var(--sub);margin-top:6px">发起人：'+esc(who.n||'未知')+'　'+esc(d.detail)+'　'+esc(d.at)+'</div>'+(ref?'<button class="link" data-act="open-decision-ref" data-page="'+attr(ref.page)+'" data-id="'+attr(ref.id)+'" style="margin-top:7px">'+ic('link',13)+esc(ref.label)+'</button>':'')+'</div>'+(d.st==='待我决策'?'<div style="display:flex;gap:7px"><button class="btn ghost" data-act="decision-reject" data-id="'+attr(d.id)+'" style="padding:7px 11px;color:var(--risk)">驳回</button><button class="btn" data-act="decision-pass" data-id="'+attr(d.id)+'" style="padding:7px 11px;box-shadow:none">通过</button></div>':'')+'</div>'; }).join(''):'<div class="empty">当前分类没有记录</div>',
     '</div></div></div>']);
 }
 
@@ -3715,23 +3745,19 @@ if(!isDemoRuntime()){
       ['workday','parallel','riskLine'].forEach(function(k){ if(saved.cfg[k]!=null) S.cfg[k]=saved.cfg[k]; });
     }
     S.cfg.provider='deepseek'; S.cfg.endpoint='/api/ai/chat';
-    if(saved&&saved.members&&saved.members.length){
-      MEMBERS.length=0; saved.members.forEach(function(m){ MEMBERS.push(m); });
-    }
-    if(saved&&saved.projects&&saved.projects.length){
-      PROJECTS.length=0; saved.projects.forEach(function(x){ PROJECTS.push(x); });
-    }
+    replaceArray(MEMBERS,storedArray(saved,'members',INITIAL_MEMBERS));
+    replaceArray(PROJECTS,storedArray(saved,'projects',INITIAL_PROJECTS));
+    replaceArray(KB,storedArray(saved,'kb',INITIAL_KB));
+    replaceArray(DEPTS,storedArray(saved,'depts',INITIAL_DEPTS));
     rebuildLookups();
-    S.tasks=((saved&&saved.tasks&&saved.tasks.length)?saved.tasks:seedTasks()).map(normalizeTask);
-    S.customers=(saved&&saved.customers&&saved.customers.length)?saved.customers:seedCustomers();
-    S.activities=(saved&&saved.activities&&saved.activities.length)?saved.activities:seedActivities();
-    S.decisions=(saved&&saved.decisions&&saved.decisions.length)?saved.decisions:seedDecisions();
-    S.payroll=(saved&&saved.payroll)||seedPayroll();
-    if(saved&&saved.kb&&saved.kb.length){ KB.length=0; saved.kb.forEach(function(k){ KB.push(k); }); }
-    S.agents=(saved&&saved.agents&&saved.agents.length)?saved.agents:seedAgents();
-    S.runs=(saved&&saved.runs)?saved.runs:[];
-    S.reqs=(saved&&saved.reqs)?saved.reqs:[];
-    if(saved&&saved.depts&&saved.depts.length){ DEPTS.length=0; saved.depts.forEach(function(d){ DEPTS.push(d); }); }
+    S.tasks=storedArray(saved,'tasks',seedTasks()).map(normalizeTask);
+    S.customers=storedArray(saved,'customers',seedCustomers());
+    S.activities=storedArray(saved,'activities',seedActivities());
+    S.decisions=storedArray(saved,'decisions',seedDecisions());
+    S.payroll=storedMap(saved,'payroll',seedPayroll());
+    S.agents=storedArray(saved,'agents',seedAgents());
+    S.runs=storedArray(saved,'runs',[]);
+    S.reqs=storedArray(saved,'reqs',[]);
     normalize();
     var safeV2Ready=LOADED_DATA_SOURCE==='v2'&&!legacyAiSecret;
     if(legacyAiSecret||migratedLegacy) safeV2Ready=save();

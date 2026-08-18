@@ -217,14 +217,18 @@ test("runs claim, execution, submission, rejection, and acceptance in order", as
   assert.ok(task);
   assert.equal(task.revision, 0);
   const initialRevision = task.revision;
+  dom.window.Q.S.me = task.own;
   assert.throws(() => gateway.claimTask(task.id, "m14"), /forbidden/);
   gateway.claimTask(task.id, task.own);
   gateway.updateTaskExecution(task.id, task.own, { progress: 60, blocker: "等待接口", nextStep: "完成联调" });
   gateway.submitTaskResult(task.id, task.own, { resultText: "已完成第一版", resultLink: "https://example.test/result", resultFiles: [] });
   assert.equal(task.st, "待验收");
+  dom.window.Q.S.me = task.reviewer;
   gateway.reviewTaskResult(task.id, task.reviewer, { decision: "reject", note: "补充验证记录" });
   assert.equal(task.st, "进行中");
+  dom.window.Q.S.me = task.own;
   gateway.submitTaskResult(task.id, task.own, { resultText: "已补充验证记录", resultLink: "", resultFiles: ["验证记录.pdf"] });
+  dom.window.Q.S.me = task.reviewer;
   gateway.reviewTaskResult(task.id, task.reviewer, { decision: "pass", note: "验收通过" });
   assert.equal(task.st, "已完成");
   assert.equal(task.pr, 100);
@@ -247,6 +251,7 @@ test("validates task result and review input", async () => {
   const dom = await openWorkbench();
   const gateway = dom.window.Q.gateway;
   const task = dom.window.Q.S.tasks.find((item) => item.st === "待处理" && item.own !== item.reviewer);
+  dom.window.Q.S.me = task.own;
   gateway.claimTask(task.id, task.own);
   assert.throws(() => gateway.claimTask(task.id, task.own), /invalid_status/);
   assert.throws(() => gateway.updateTaskExecution(task.id, "m14", { progress: 50 }), /forbidden/);
@@ -255,6 +260,7 @@ test("validates task result and review input", async () => {
   assert.throws(() => gateway.submitTaskResult(task.id, task.own, { resultText: "", resultLink: "", resultFiles: [] }), /result_required/);
   gateway.submitTaskResult(task.id, task.own, { resultText: "成果", resultLink: "https://example.test", resultFiles: [] });
   assert.throws(() => gateway.reviewTaskResult(task.id, task.own, { decision: "pass", note: "" }), /forbidden/);
+  dom.window.Q.S.me = task.reviewer;
   assert.throws(() => gateway.reviewTaskResult(task.id, task.reviewer, { decision: "later", note: "" }), /invalid_decision/);
   assert.throws(() => gateway.reviewTaskResult(task.id, task.reviewer, { decision: "reject", note: "" }), /review_note_required/);
   dom.window.close();
@@ -1165,6 +1171,283 @@ test("clears stale navigation filters and detail selections for clear reset and 
     dirtyUi();
     gateway.resetDemoData();
     assertCleanUi();
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("binds every demo task mutation to the selected identity and rejects spoofed actors", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { gateway, S } = dom.window.Q;
+    const task = S.tasks.find((item) => item.own !== item.reviewer);
+    assert.ok(task);
+    const original = JSON.stringify(task);
+    const outsider = S.me === task.own || S.me === task.reviewer ? "m7" : S.me;
+    S.me = outsider;
+
+    task.st = "待处理";
+    assert.throws(() => gateway.claimTask(task.id, task.own), /forbidden/);
+    task.st = "进行中";
+    assert.throws(() => gateway.updateTaskExecution(task.id, task.own, { progress: 40 }), /forbidden/);
+    assert.throws(
+      () => gateway.submitTaskResult(task.id, task.own, { resultText: "伪造成果", resultLink: "https://example.test" }),
+      /forbidden/,
+    );
+    task.st = "待验收";
+    assert.throws(() => gateway.reviewTaskResult(task.id, task.reviewer, { decision: "pass", note: "" }), /forbidden/);
+    task.st = "已完成";
+    assert.throws(() => gateway.reopenTask(task.id, task.reviewer, "伪造重开"), /forbidden/);
+
+    task.st = JSON.parse(original).st;
+    S.me = task.createdBy;
+    const beforeSave = JSON.stringify(task);
+    assert.throws(
+      () => gateway.saveTask({ id: task.id, description: "伪造安全编辑" }, task.revision, task.own),
+      /forbidden/,
+    );
+    assert.equal(JSON.stringify(task), beforeSave);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("does not forward browser-supplied actor identities to real server writes", async () => {
+  const html = await readRealModeHtml();
+  const received = {};
+  const session = { authenticated: true, authMode: "feishu", dataMode: "server", memberId: "server-user" };
+  const task = { id: "server-task", n: "真实任务", p: "server-project", own: "server-user", createdBy: "server-user", reviewer: "server-user", st: "待处理", timeline: [] };
+  const dom = new JSDOM(html, {
+    url: "http://127.0.0.1:3011/quantxy-ai-workbench-fused.html",
+    runScripts: "dangerously",
+    pretendToBeVisual: true,
+    beforeParse(window) {
+      const members = [{ id: "server-user", n: "真实用户", r: "产品经理", dept: "产品中心", lv: 3 }];
+      const projects = [{ id: "server-project", n: "真实项目", own: "server-user", st: "进行中" }];
+      window.QUANTXY_WORKSTATION_RUNTIME = { authMode: "feishu", dataMode: "server" };
+      window.QUANTXY_WORKSTATION_SERVER_ADAPTER = {
+        getSession: () => session,
+        loadBootstrap: () => ({ session, members, projects, tasks: [task], payroll: {}, features: {} }),
+        loadMyDashboard: () => ({ tasks: [task], must: [task], projects, payroll: null, reminders: [] }),
+        listMyTasks: () => [task],
+        loadMyTask: () => task,
+        listMyProjects: () => projects,
+        loadPayroll: () => [],
+        saveTask: (...args) => { received.saveTask = args; return task; },
+        claimTask: (...args) => { received.claimTask = args; return task; },
+        updateTaskExecution: (...args) => { received.updateTaskExecution = args; return task; },
+        submitTaskResult: (...args) => { received.submitTaskResult = args; return task; },
+        reviewTaskResult: (...args) => { received.reviewTaskResult = args; return task; },
+        reopenTask: (...args) => { received.reopenTask = args; return task; },
+      };
+      window.fetch = async (url) => String(url) === "/api/ai/config"
+        ? response(true, { provider: "deepseek", apiBaseUrl: "https://api.deepseek.com", model: "deepseek-v4-flash", keyConfigured: false, canManage: false })
+        : response(false, {}, 404);
+    },
+  });
+  try {
+    await waitFor(() => dom.window.Q?.S.me === "server-user");
+    const gateway = dom.window.Q.gateway;
+    gateway.saveTask({ id: task.id, n: "编辑" }, 1, "spoof-user");
+    gateway.claimTask(task.id, "spoof-user");
+    gateway.updateTaskExecution(task.id, "spoof-user", { progress: 10 });
+    gateway.submitTaskResult(task.id, "spoof-user", { resultText: "成果" });
+    gateway.reviewTaskResult(task.id, "spoof-user", { decision: "pass" });
+    gateway.reopenTask(task.id, "spoof-user", "重开");
+    assert.deepEqual(received.saveTask, [{ id: task.id, n: "编辑" }, 1]);
+    assert.deepEqual(received.claimTask, [task.id]);
+    assert.deepEqual(received.updateTaskExecution, [task.id, { progress: 10 }]);
+    assert.deepEqual(received.submitTaskResult, [task.id, { resultText: "成果" }]);
+    assert.deepEqual(received.reviewTaskResult, [task.id, { decision: "pass" }]);
+    assert.deepEqual(received.reopenTask, [task.id, "重开"]);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("member profile editing leaves task assignment and audit history unchanged", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S } = dom.window.Q;
+    const task = S.tasks.find((item) => item.own === "m1");
+    const before = {
+      own: task.own,
+      role: task.role,
+      st: task.st,
+      revision: task.revision,
+      timeline: JSON.stringify(task.timeline),
+    };
+    S.page = "org";
+    dom.window.Q.render();
+    dom.window.document.querySelector('[data-act="edit-member"][data-id="m1"]').click();
+    const role = dom.window.document.querySelector('[data-f="r"]');
+    role.value = role.value === "项目经理" ? "产品经理" : "项目经理";
+    dom.window.document.querySelector('[data-act="f-member"]').click();
+    assert.deepEqual(
+      { own: task.own, role: task.role, st: task.st, revision: task.revision, timeline: JSON.stringify(task.timeline) },
+      before,
+    );
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("blocks deletion of referenced members and keeps related modules renderable", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S } = dom.window.Q;
+    S.page = "org";
+    dom.window.Q.render();
+    dom.window.document.querySelector('[data-act="del-member"][data-id="m1"]').click();
+    assert.ok(S.proj.some((project) => project.own === "m1"));
+    assert.ok(S.tasks.some((task) => task.own === "m1"));
+    assert.match(dom.window.document.querySelector("#toast").textContent, /无法删除.*仍被.*引用/);
+    assert.equal(S.confirm, null);
+
+    const pages = [
+      ["org", null],
+      ["task", null],
+      ["project", () => { S.curProj = "p1"; }],
+      ["me", () => { S.me = "m1"; }],
+      ["fin", () => { S.me = "m1"; }],
+    ];
+    for (const [page, setup] of pages) {
+      if (setup) setup();
+      S.page = page;
+      assert.doesNotThrow(() => dom.window.Q.render(), `${page} should render after a blocked deletion`);
+      assert.ok(dom.window.document.querySelector("#view").textContent.trim().length > 0);
+    }
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("preserves every valid persisted empty collection instead of reseeding it", async () => {
+  const emptySnapshot = {
+    tasks: [], members: [], projects: [], kb: [], agents: [], runs: [], depts: [], reqs: [],
+    customers: [], activities: [], decisions: [], payroll: {},
+    cfg: { workday: 5, parallel: 3, riskLine: 20 },
+  };
+  const dom = await openWorkbench({ "qxy.workstation.demo.v2": JSON.stringify(emptySnapshot) });
+  try {
+    const { S, gateway } = dom.window.Q;
+    for (const key of ["tasks", "customers", "activities", "decisions", "agents", "runs", "reqs"]) {
+      assert.deepEqual(Array.from(S[key]), [], `${key} should remain empty`);
+    }
+    const bootstrap = gateway.loadBootstrap();
+    assert.deepEqual(Array.from(bootstrap.members), []);
+    assert.deepEqual(Array.from(bootstrap.projects), []);
+    assert.deepEqual(Object.keys(S.payroll), []);
+
+    S.page = "set";
+    dom.window.Q.render();
+    dom.window.document.querySelector('[data-act="save-schedule"]').click();
+    const persisted = JSON.parse(dom.window.localStorage.getItem("qxy.workstation.demo.v2"));
+    for (const key of ["tasks", "members", "projects", "kb", "agents", "runs", "depts", "reqs", "customers", "activities", "decisions"]) {
+      assert.deepEqual(persisted[key], [], `${key} should persist as empty`);
+    }
+    assert.deepEqual(persisted.payroll, {});
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("seeds only missing or invalid persisted collections", async () => {
+  const invalidSnapshot = {
+    tasks: null, members: {}, projects: "invalid", kb: null, agents: {}, runs: "invalid", depts: null,
+    reqs: {}, customers: null, activities: {}, decisions: "invalid", payroll: [],
+  };
+  const dom = await openWorkbench({ "qxy.workstation.demo.v2": JSON.stringify(invalidSnapshot) });
+  try {
+    const { S, gateway } = dom.window.Q;
+    const bootstrap = gateway.loadBootstrap();
+    for (const [name, value] of [
+      ["tasks", S.tasks], ["members", bootstrap.members], ["projects", bootstrap.projects],
+      ["customers", S.customers], ["activities", S.activities], ["decisions", S.decisions], ["agents", S.agents],
+    ]) {
+      assert.ok(value.length > 0, `${name} should be seeded when invalid`);
+    }
+    assert.ok(Object.keys(S.payroll).length > 0);
+    assert.deepEqual(Array.from(S.runs), []);
+    assert.deepEqual(Array.from(S.reqs), []);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("escapes malicious record ids and renders unknown task status with a safe fallback", async () => {
+  const malicious = {
+    member: 'member" autofocus onfocus="window.__memberXss=1',
+    project: 'project" autofocus onfocus="window.__projectXss=1',
+    task: 'task" autofocus onfocus="window.__taskXss=1',
+    customer: 'customer" autofocus onfocus="window.__customerXss=1',
+    status: '<img src=x onerror="window.__statusXss=1">',
+  };
+  const snapshot = {
+    members: [
+      { id: malicious.member, n: "恶意标识成员", r: "产品经理", sk: "测试", rate: 1000, cap: 0.8, dept: "产品中心", lv: 3 },
+      { id: "m14", n: "管理员", r: "企业决策人", sk: "管理", rate: 0, cap: 0.3, dept: "管理层", lv: 5 },
+    ],
+    projects: [{ id: malicious.project, n: "恶意标识项目", own: malicious.member, cat: "AI研发", pr: 10, bud: 1, health: 90, st: "进行中", up: "今天" }],
+    tasks: [{ id: malicious.task, n: "恶意状态任务", p: malicious.project, own: malicious.member, createdBy: malicious.member, reviewer: "m14", st: malicious.status, pri: "P1", s: "2026-08-01", e: "2099-08-30", timeline: [] }],
+    customers: [{ id: malicious.customer, n: "恶意标识客户", industry: "测试", contact: "联系人", stage: "跟进中", own: malicious.member, progress: 10, project: malicious.project }],
+    payroll: { [malicious.member]: [{ month: "2026-08", base: 1000, performance: 0, projectBonus: 0, otherBonus: 0, social: 0, tax: 0, otherDeduction: 0 }] },
+    kb: [], agents: [], runs: [], depts: ["产品中心", "管理层"], reqs: [], activities: [], decisions: [],
+  };
+  const dom = await openWorkbench({ "qxy.workstation.demo.v2": JSON.stringify(snapshot) });
+  try {
+    const { S } = dom.window.Q;
+    const assertNoInjectedAttributes = () => {
+      assert.equal(dom.window.document.querySelector("#view [onfocus], #view [onerror], #view [onclick]"), null);
+      assert.equal(dom.window.document.querySelector("#view img"), null);
+      assert.equal(dom.window.__memberXss, undefined);
+      assert.equal(dom.window.__projectXss, undefined);
+      assert.equal(dom.window.__taskXss, undefined);
+      assert.equal(dom.window.__customerXss, undefined);
+      assert.equal(dom.window.__statusXss, undefined);
+    };
+
+    S.me = malicious.member;
+    S.page = "me";
+    dom.window.Q.render();
+    assert.equal(dom.window.document.querySelector('[data-act="open-execution"]').getAttribute("data-id"), malicious.task);
+    assert.equal(dom.window.document.querySelector('[data-act="open-my-project"]').getAttribute("data-id"), malicious.project);
+    assert.match(dom.window.document.querySelector("#view").textContent, /状态未知/);
+    assertNoInjectedAttributes();
+
+    S.page = "org";
+    dom.window.Q.render();
+    assert.equal(dom.window.document.querySelector('[data-act="edit-member"]').getAttribute("data-id"), malicious.member);
+    assertNoInjectedAttributes();
+
+    S.page = "customers";
+    dom.window.Q.render();
+    assert.equal(dom.window.document.querySelector('[data-act="open-customer"]').getAttribute("data-id"), malicious.customer);
+    assertNoInjectedAttributes();
+
+    S.page = "dash";
+    dom.window.Q.render();
+    assertNoInjectedAttributes();
+
+    S.f.gq = "恶意";
+    S.page = "search";
+    dom.window.Q.render();
+    assertNoInjectedAttributes();
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("keeps known non-task project statuses while still rejecting unknown labels", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S } = dom.window.Q;
+    const project = S.proj.find((item) => item.own === "m1");
+    project.st = "规划中";
+    S.me = "m1";
+    S.page = "me";
+    dom.window.Q.render();
+    assert.match(dom.window.document.querySelector("#view").textContent, /规划中/);
   } finally {
     dom.window.close();
   }
