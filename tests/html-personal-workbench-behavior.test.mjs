@@ -251,3 +251,69 @@ test("validates task result and review input", async () => {
   assert.throws(() => gateway.reviewTaskResult(task.id, task.reviewer, { decision: "reject", note: "" }), /review_note_required/);
   dom.window.close();
 });
+
+test("does not expose or honor legacy task mutation bypasses", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { gateway, S } = dom.window.Q;
+    assert.equal(gateway.saveTask, undefined);
+
+    const task = S.tasks.find((item) => item.st === "待处理");
+    const before = {
+      status: task.st,
+      progress: task.pr,
+      timeline: task.timeline.length,
+      snapshot: dom.window.localStorage.getItem("qxy.workstation.demo.v2"),
+    };
+
+    S.page = "task";
+    S.sel.task = task.id;
+    dom.window.Q.render();
+    assert.equal(dom.window.document.querySelector('[data-act="advance"], [data-act="done"], [data-act="reject"], [data-act="reopen"]'), null);
+
+    S.page = "me";
+    S.me = task.own;
+    dom.window.Q.render();
+    assert.equal(dom.window.document.querySelector('[data-act="advance"], [data-act="done"], [data-act="reject"], [data-act="reopen"]'), null);
+
+    const forgedButton = dom.window.document.createElement("button");
+    forgedButton.dataset.act = "done";
+    forgedButton.dataset.id = task.id;
+    dom.window.document.body.append(forgedButton);
+    forgedButton.click();
+
+    assert.equal(task.st, before.status);
+    assert.equal(task.pr, before.progress);
+    assert.equal(task.timeline.length, before.timeline);
+    assert.equal(dom.window.localStorage.getItem("qxy.workstation.demo.v2"), before.snapshot);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("renders the normalized pending acceptance status on task surfaces", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S } = dom.window.Q;
+    const task = S.tasks.find((item) => item.st === "待验收");
+    assert.ok(task);
+
+    S.page = "task";
+    S.sel.task = task.id;
+    dom.window.Q.render();
+    const taskView = dom.window.document.getElementById("view").textContent;
+    assert.match(taskView, /待验收/);
+    assert.match(taskView, new RegExp(task.n));
+    assert.doesNotMatch(taskView, /待审核/);
+
+    S.page = "me";
+    S.me = task.reviewer;
+    dom.window.Q.render();
+    const personalView = dom.window.document.getElementById("view").textContent;
+    assert.match(personalView, /待验收/);
+    assert.match(personalView, new RegExp(task.n));
+    assert.doesNotMatch(personalView, /待审核/);
+  } finally {
+    dom.window.close();
+  }
+});

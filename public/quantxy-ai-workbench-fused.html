@@ -451,10 +451,6 @@ function reopenTask(taskId,actorId,note){
   task.st='进行中'; task.pr=Math.min(95,task.pr);
   addTimeline(task,actorId,'重新打开',String(note||'').trim()); save(); return task;
 }
-function saveTaskRecord(task,revision){
-  var current=findTask(task.id), index=S.tasks.indexOf(current), normalized=normalizeTask(task);
-  void revision; S.tasks[index]=normalized; save(); return normalized;
-}
 function toast(t){ var n=el('toast'); n.textContent=t; n.className='toast on'; clearTimeout(n._t); n._t=setTimeout(function(){ n.className='toast'; },2400); }
 
 /* SVG 图标（内联，无图标库依赖） */
@@ -745,9 +741,9 @@ function seedTasks(){
     mk({id:'T104',n:'AI 模型训练优化迭代',p:'p5',own:'m8',role:'算法工程师',pri:'P0',st:'进行中',s:fmt(addD(t0,-5)),e:fmt(addD(t0,2)),src:'AI调度',dep:[],pr:72,sub:[1,1,1,0]}),
     mk({id:'T105',n:'数据中台权限体系搭建',p:'p2',own:'m4',role:'后端工程师',pri:'P0',st:'进行中',s:fmt(addD(t0,-6)),e:fmt(addD(t0,3)),src:'AI调度',dep:[],pr:58,sub:[1,1,0,0]}),
     mk({id:'T106',n:'客户需求调研与分析',p:'p3',own:'m1',role:'产品经理',pri:'P1',st:'进行中',s:fmt(addD(t0,-4)),e:fmt(addD(t0,4)),src:'人工',dep:[],pr:33,sub:[1,0,0]}),
-    mk({id:'T107',n:'财务报销单-20250521',p:'p6',own:'m2',role:'项目经理',pri:'P2',st:'待审核',s:fmt(addD(t0,-8)),e:fmt(addD(t0,-1)),src:'流程',dep:[]}),
-    mk({id:'T108',n:'供应商准入申请-华星科技',p:'p6',own:'m3',role:'架构师',pri:'P0',st:'待审核',s:fmt(addD(t0,-9)),e:fmt(addD(t0,-1)),src:'流程',dep:[]}),
-    mk({id:'T109',n:'项目验收报告-量子平台一期',p:'p1',own:'m10',role:'测试工程师',pri:'P1',st:'待审核',s:fmt(addD(t0,-10)),e:fmt(addD(t0,-2)),src:'AI调度',dep:[]}),
+    mk({id:'T107',n:'财务报销单-20250521',p:'p6',own:'m2',role:'项目经理',pri:'P2',st:'待验收',s:fmt(addD(t0,-8)),e:fmt(addD(t0,-1)),src:'流程',dep:[]}),
+    mk({id:'T108',n:'供应商准入申请-华星科技',p:'p6',own:'m3',role:'架构师',pri:'P0',st:'待验收',s:fmt(addD(t0,-9)),e:fmt(addD(t0,-1)),src:'流程',dep:[]}),
+    mk({id:'T109',n:'项目验收报告-量子平台一期',p:'p1',own:'m10',role:'测试工程师',pri:'P1',st:'待验收',s:fmt(addD(t0,-10)),e:fmt(addD(t0,-2)),src:'AI调度',dep:[]}),
     mk({id:'T110',n:'企业官网改版上线',p:'p4',own:'m6',role:'前端工程师',pri:'P1',st:'已完成',s:fmt(addD(t0,-14)),e:fmt(addD(t0,-3)),src:'人工',dep:[]}),
     mk({id:'T111',n:'Q2 预算编制与汇总',p:'p6',own:'m2',role:'项目经理',pri:'P1',st:'已完成',s:fmt(addD(t0,-16)),e:fmt(addD(t0,-5)),src:'流程',dep:[]}),
     mk({id:'T112',n:'安全漏洞修复（批次 0428）',p:'p2',own:'m5',role:'后端工程师',pri:'P2',st:'已完成',s:fmt(addD(t0,-18)),e:fmt(addD(t0,-7)),src:'AI调度',dep:[]}),
@@ -841,7 +837,6 @@ function createDemoGateway(){
     loadMyTask:function(memberId,taskId){ return cloneGatewayValue(S.tasks.filter(function(task){ return task.id===taskId&&(task.own===memberId||task.createdBy===memberId||task.reviewer===memberId); })[0]||null); },
     listMyProjects:function(memberId){ return cloneGatewayValue(PROJECTS.filter(function(project){ return project.own===memberId||S.tasks.some(function(task){ return task.p===project.id&&task.own===memberId; }); })); },
     loadPayroll:function(memberId){ return cloneGatewayValue(S.payroll[memberId]||[]); },
-    saveTask:saveTaskRecord,
     claimTask:claimTask,
     updateTaskExecution:updateTaskExecution,
     submitTaskResult:submitTaskResult,
@@ -1168,7 +1163,7 @@ function kpi(o){
     spark(o.s,o.c,120,32),'</div></div>']);
 }
 function stTag(st){
-  var m={'进行中':'t-b','已完成':'t-g','待处理':'t-n','待审核':'t-v','风险':'t-o','已延期':'t-r'};
+  var m={'进行中':'t-b','已完成':'t-g','待处理':'t-n','待验收':'t-v','风险':'t-o','已延期':'t-r'};
   return '<span class="tag '+(m[st]||'t-n')+'">'+st+'</span>';
 }
 function priTag(p){ return '<span class="tag '+(p==='P0'?'t-r':p==='P1'?'t-o':'t-n')+'">'+(p==='P0'?'高优先级':p==='P1'?'中优先级':'低优先级')+'</span>'; }
@@ -1523,7 +1518,7 @@ function viewProj(){
 }
 
 /* ---------------- 页面：任务中心 ---------------- */
-var COLS=[['待处理','#f59e0b'],['进行中','#2563eb'],['待审核','#7c3aed'],['已完成','#10b981']];
+var COLS=[['待处理','#f59e0b'],['进行中','#2563eb'],['待验收','#7c3aed'],['已完成','#10b981']];
 function viewTask(){
   var t0=today();
   var cnt=function(s){ return S.tasks.filter(function(t){ return t.st===s; }).length; };
@@ -1533,7 +1528,7 @@ function viewTask(){
     kpi({t:'任务总数',v:''+S.tasks.length,i:'task',c:'#2563eb',bg:'var(--brand-s)',d:18.6,s:[12,14,15,18,20,22,25,27,30,33,36,S.tasks.length]}),
     kpi({t:'待处理',v:''+cnt('待处理'),i:'clock',c:'#f59e0b',bg:'var(--warn-s)',d:12.3,s:[3,4,4,5,6,6,7,8,8,9,10,cnt('待处理')]}),
     kpi({t:'进行中',v:''+cnt('进行中'),i:'bolt',c:'#2563eb',bg:'var(--brand-s)',d:9.8,s:[2,3,4,4,5,6,6,7,7,8,9,cnt('进行中')]}),
-    kpi({t:'待审核',v:''+cnt('待审核'),i:'user',c:'#7c3aed',bg:'var(--violet-s)',d:7.2,s:[1,1,2,2,3,3,4,4,5,5,6,cnt('待审核')]}),
+    kpi({t:'待验收',v:''+cnt('待验收'),i:'user',c:'#7c3aed',bg:'var(--violet-s)',d:7.2,s:[1,1,2,2,3,3,4,4,5,5,6,cnt('待验收')]}),
     kpi({t:'已完成',v:''+cnt('已完成'),i:'ok',c:'#10b981',bg:'var(--ok-s)',d:25.1,s:[1,2,3,4,5,6,7,9,10,12,14,cnt('已完成')]}),
   '</div>',
 
@@ -1585,10 +1580,7 @@ function viewTask(){
       sel.sub?('<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px"><span style="color:var(--mut)">子任务 '+sel.sub.filter(function(x){return x;}).length+'/'+sel.sub.length+'</span>'+
         '<b>'+Math.round(sel.sub.filter(function(x){return x;}).length/sel.sub.length*100)+'%</b></div>'+
         '<div class="bar"><i style="width:'+Math.round(sel.sub.filter(function(x){return x;}).length/sel.sub.length*100)+'%"></i></div></div>'):'',
-      '<div style="display:flex;gap:8px;margin-top:16px">',
-        sel.st!=='已完成'?'<button class="btn ghost" style="flex:1;justify-content:center" data-act="advance" data-id="'+sel.id+'">推进状态</button>':'',
-        sel.st!=='已完成'?'<button class="btn" style="flex:1;justify-content:center" data-act="done" data-id="'+sel.id+'">标记完成</button>':'<button class="btn ghost" style="flex:1;justify-content:center" data-act="reopen" data-id="'+sel.id+'">重新打开</button>',
-      '</div>',
+      '<div style="margin-top:16px;padding:10px;border-radius:10px;background:var(--brand-s);color:var(--brand-d);font-size:12px;line-height:1.6">任务状态只能按“领取 → 执行 → 提交验收 → 验收”流程更新，请从个人任务详情进入安全操作。</div>',
       '<button class="link" style="color:var(--risk);display:block;margin:14px auto 0" data-act="del-task" data-id="',sel.id,'">删除此任务</button>'])
     : '<div class="empty">选择左侧任意任务卡片查看详情</div>',
   '</div></div></div>',
@@ -1608,13 +1600,12 @@ function viewTask(){
         return '<div style="display:flex;gap:9px;padding:8px 0;font-size:12.5px;align-items:center"><span style="color:var(--mut);flex:0 0 42px">'+x[0]+'</span>'+av(x[1])+'<span style="flex:1;color:var(--sub)"><b style="color:var(--ink)">'+x[1]+'</b> '+x[2]+'</span></div>';
       }).join(''),
     '</div></div>',
-    '<div class="card"><div class="hd">'+ic('ok',17,'#7c3aed')+'<h3>审核队列</h3><div class="grow"></div><span class="tag t-n">'+S.tasks.filter(function(t){return t.st==='待审核';}).length+'</span></div><div class="bd" style="padding-top:8px">',
-      S.tasks.filter(function(t){ return t.st==='待审核'; }).map(function(t){
+    '<div class="card"><div class="hd">'+ic('ok',17,'#7c3aed')+'<h3>验收队列</h3><div class="grow"></div><span class="tag t-n">'+S.tasks.filter(function(t){return t.st==='待验收';}).length+'</span></div><div class="bd" style="padding-top:8px">',
+      S.tasks.filter(function(t){ return t.st==='待验收'; }).map(function(t){
         return '<div style="display:flex;gap:9px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2)">'+
           '<div style="flex:1"><b style="font-size:12.5px">'+esc(t.n)+'</b><div style="font-size:11px;color:var(--mut)">提交人：'+MB[t.own].n+'　'+t.e+'</div></div>'+
-          '<button class="tag t-g" data-act="done" data-id="'+t.id+'" style="cursor:pointer">通过</button>'+
-          '<button class="tag t-r" data-act="reject" data-id="'+t.id+'" style="cursor:pointer">驳回</button></div>';
-      }).join('')||'<div class="empty">暂无待审核任务</div>',
+          '<span class="tag t-v">进入任务详情验收</span></div>';
+      }).join('')||'<div class="empty">暂无待验收任务</div>',
     '</div></div>',
   '</div>']);
 }
@@ -1624,12 +1615,12 @@ function viewMe(){
   var me=MB[S.me], t0=today();
   var boss=me.r==='企业决策人';
   var mine=boss
-    ? S.tasks.filter(function(t){ return t.own===S.me || t.st==='待审核' || (PB[t.p]&&PB[t.p].own===S.me); })
+    ? S.tasks.filter(function(t){ return t.own===S.me || t.st==='待验收' || (PB[t.p]&&PB[t.p].own===S.me); })
     : S.tasks.filter(function(t){ return t.own===S.me; });
   var doing=mine.filter(function(t){ return t.st==='进行中'; }).length;
   var done=mine.filter(function(t){ return t.st==='已完成'; }).length;
   var late=mine.filter(function(t){ return t.st!=='已完成' && diffD(t0,new Date(t.e))<0; }).length;
-  var wait=mine.filter(function(t){ return t.st==='待审核'; }).length;
+  var wait=mine.filter(function(t){ return t.st==='待验收'; }).length;
   var pct=mine.length?Math.round(done/mine.length*100):0;
   var wk=[62,80,95,110,90,40,30];
   return j([
@@ -1677,14 +1668,13 @@ function viewMe(){
       }).join(''),
     '</div></div>',
     '<div class="card"><div class="hd"><h3>'+(boss?'待我处理与把关':'我的任务列表')+'</h3><div class="grow"></div>',
-      '<div class="chips">'+['all','进行中','待处理','已完成'].map(function(v){
+      '<div class="chips">'+['all','进行中','待处理','待验收','已完成'].map(function(v){
         return '<button class="chip '+(S.f.meTab===v?'on':'')+'" data-act="set" data-k="meTab" data-v="'+v+'">'+(v==='all'?'全部':v)+'</button>'; }).join('')+'</div></div>',
       '<div class="bd" style="padding-top:4px;max-height:290px;overflow:auto">',
       (function(){ if(S.f.meTab!=='all') mine=mine.filter(function(t){ return t.st===S.f.meTab; }); return ''; })(),
       mine.length? '<table><tbody>'+mine.map(function(t){
         var left=diffD(t0,new Date(t.e));
-        return '<tr style="cursor:pointer"><td style="width:20px"><button data-act="'+(t.st==='已完成'?'reopen':'done')+'" data-id="'+t.id+'" title="点击切换完成状态">'+
-          '<span style="display:inline-block;width:15px;height:15px;border-radius:4px;border:1.6px solid '+(t.st==='已完成'?'var(--ok)':'var(--line)')+';background:'+(t.st==='已完成'?'var(--ok)':'#fff')+'"></span></button></td>'+
+        return '<tr style="cursor:pointer"><td style="width:20px"><span title="状态只可在任务详情按流程更新" style="display:inline-block;width:15px;height:15px;border-radius:4px;border:1.6px solid '+(t.st==='已完成'?'var(--ok)':'var(--line)')+';background:'+(t.st==='已完成'?'var(--ok)':'#fff')+'"></span></td>'+
           '<td data-act="pick-task-go" data-id="'+t.id+'"><b style="font-weight:600;'+(t.st==='已完成'?'color:var(--mut);text-decoration:line-through':'')+'">'+esc(t.n)+'</b></td>'+
           '<td style="font-size:11.5px;color:var(--mut)">'+esc(PB[t.p]?PB[t.p].n:'—')+'</td>'+
           '<td>'+stTag(t.st)+'</td><td style="font-size:12px;color:'+(left<0?'var(--risk)':'var(--sub)')+'">'+md(new Date(t.e))+'</td>'+
@@ -3256,16 +3246,6 @@ document.addEventListener('click',function(e){
   else if(a==='issue'){ issue(); }
   else if(a==='pick-task'){ S.sel.task=t.getAttribute('data-id'); render(); }
   else if(a==='pick-task-go'){ S.sel.task=t.getAttribute('data-id'); S.page='task'; render(); }
-  else if(a==='advance'||a==='done'||a==='reject'||a==='reopen'){
-    var id=t.getAttribute('data-id');
-    S.tasks.forEach(function(x){ if(x.id!==id) return;
-      if(a==='done'){ x.st='已完成'; x.pr=100; }
-      else if(a==='reject'){ x.st='进行中'; }
-      else if(a==='reopen'){ x.st='进行中'; x.pr=60; }
-      else { var i=['待处理','进行中','待审核','已完成'].indexOf(x.st); x.st=['待处理','进行中','待审核','已完成'][Math.min(3,i+1)]; }
-    });
-    save(); toast(a==='reject'?'已驳回，任务回到进行中':'任务状态已更新'); render();
-  }
   else if(a==='goal-go'){ var gb=el('goalBox'); S.sch.goal=gb?gb.value.trim():''; S.page='sched'; render();
     if(S.sch.goal) setTimeout(genPlan,60); }
   else if(a==='chat'){ sendChat(); }
