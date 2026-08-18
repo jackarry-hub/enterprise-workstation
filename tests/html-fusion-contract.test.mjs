@@ -252,3 +252,29 @@ test("replaces corporate finance with personal salary and bonus detail", async (
   assert.match(source, /<button[^>]*data-act="payroll-month"/);
   assert.doesNotMatch(source, /<tr[^>]*data-act="payroll-month"/);
 });
+
+test("reserves Feishu cutover without activating a fake server adapter", async () => {
+  const html = await readFusionHtml();
+  assert.match(html, /features:\{identitySwitch:true,demoReset:true\}/);
+  assert.match(html, /workstationFeatures\(\)\.identitySwitch/);
+  for (const method of [
+    "getSession",
+    "loadBootstrap",
+    "loadMyDashboard",
+    "listMyTasks",
+    "loadMyTask",
+    "listMyProjects",
+    "loadPayroll",
+    "clearDemoData",
+    "resetDemoData",
+    "submitTaskResult",
+    "reviewTaskResult",
+  ]) {
+    assert.match(html, new RegExp(`${method}:`));
+  }
+  assert.doesNotMatch(html, /createServerGateway\(\)/);
+  assert.doesNotMatch(
+    html,
+    /NEXT_PUBLIC_FEISHU|FEISHU_APP_SECRET|user_access_token|authorization_code/,
+  );
+});

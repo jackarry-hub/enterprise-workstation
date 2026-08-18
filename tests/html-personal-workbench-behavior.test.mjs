@@ -641,3 +641,143 @@ test("renders each payroll month as one native focusable button with one click a
     dom.window.close();
   }
 });
+
+test("clears only namespaced demo business data and can restore seeds", async () => {
+  const dom = await openWorkbench();
+  try {
+    dom.window.localStorage.setItem("unrelated", "keep");
+    dom.window.localStorage.setItem("qxy_demo_auth", "1");
+
+    dom.window.Q.gateway.clearDemoData();
+
+    assert.equal(dom.window.localStorage.getItem("unrelated"), "keep");
+    assert.equal(dom.window.localStorage.getItem("qxy_demo_auth"), "1");
+    assert.equal(dom.window.localStorage.getItem("qxy.workstation.demo.v2"), null);
+    assert.equal(dom.window.localStorage.getItem("qxy.workstation.demo.cleared"), "1");
+    assert.match(dom.window.document.body.textContent, /演示数据已清除/);
+    assert.deepEqual(Array.from(dom.window.Q.S.tasks), []);
+    assert.deepEqual(Object.keys(dom.window.Q.S.payroll), []);
+
+    dom.window.Q.gateway.resetDemoData();
+
+    assert.ok(dom.window.Q.S.tasks.length > 0);
+    assert.ok(Object.keys(dom.window.Q.S.payroll).length > 0);
+    assert.equal(dom.window.localStorage.getItem("qxy.workstation.demo.cleared"), null);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("keeps a cleared demo empty across reload until the user restores it", async () => {
+  const dom = await openWorkbench({ "qxy.workstation.demo.cleared": "1" });
+  try {
+    assert.equal(dom.window.Q.S.demoCleared, true);
+    assert.deepEqual(Array.from(dom.window.Q.S.tasks), []);
+    assert.deepEqual(Object.keys(dom.window.Q.S.payroll), []);
+    assert.match(dom.window.document.body.textContent, /演示数据已清除/);
+    assert.ok(dom.window.document.querySelector('[data-act="restore-demo"]'));
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("hides and rejects arbitrary identity switching for a real authenticated session", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S, gateway } = dom.window.Q;
+    const originalMember = S.me;
+    const otherMember = originalMember === "m1" ? "m2" : "m1";
+    const originalLoadBootstrap = gateway.loadBootstrap;
+    gateway.loadBootstrap = () => ({
+      session: { authMode: "feishu", dataMode: "server", memberId: originalMember },
+      features: { identitySwitch: true, demoReset: true },
+    });
+
+    S.menu = true;
+    dom.window.Q.render();
+    assert.equal(dom.window.document.querySelector('[data-act="setme"]'), null);
+
+    const bypass = dom.window.document.createElement("button");
+    bypass.setAttribute("data-act", "setme");
+    bypass.setAttribute("data-id", otherMember);
+    dom.window.document.body.appendChild(bypass);
+    bypass.click();
+    assert.equal(S.me, originalMember);
+
+    gateway.loadBootstrap = originalLoadBootstrap;
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("returns to login when the server reports an expired AI session", async () => {
+  const html = await readFile(htmlPath, "utf8");
+  const dom = new JSDOM(html, {
+    url: "http://127.0.0.1:3011/quantxy-ai-workbench-fused.html",
+    runScripts: "dangerously",
+    pretendToBeVisual: true,
+    beforeParse(window) {
+      window.fetch = async (url) => {
+        if (String(url) === "/api/demo-auth/session") return response(true, { authenticated: true });
+        if (String(url) === "/api/ai/config") return response(false, { error: "unauthorized" }, 401);
+        return response(false, {}, 404);
+      };
+    },
+  });
+  try {
+    await waitFor(() => {
+      const gate = dom.window.document.querySelector("#loginGate");
+      const error = dom.window.document.querySelector(".login-error");
+      return gate && !gate.hidden && /登录状态已失效/.test(error?.textContent || "");
+    });
+    assert.match(dom.window.document.querySelector(".login-error").textContent, /登录状态已失效/);
+    assert.ok(dom.window.document.querySelector('[data-act="login-submit"]'));
+    assert.equal(dom.window.Q.S.aiConfig.canManage, false);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("returns to login when updating the AI configuration gets a 401", async () => {
+  const html = await readFile(htmlPath, "utf8");
+  const dom = new JSDOM(html, {
+    url: "http://127.0.0.1:3011/quantxy-ai-workbench-fused.html",
+    runScripts: "dangerously",
+    pretendToBeVisual: true,
+    beforeParse(window) {
+      window.fetch = async (url, options = {}) => {
+        if (String(url) === "/api/demo-auth/session") return response(true, { authenticated: true });
+        if (String(url) === "/api/ai/config" && options.method === "PUT") {
+          return response(false, { error: "unauthorized" }, 401);
+        }
+        if (String(url) === "/api/ai/config") {
+          return response(true, {
+            provider: "deepseek",
+            apiBaseUrl: "https://api.deepseek.com",
+            model: "deepseek-v4-flash",
+            keyConfigured: true,
+            keyHint: "8bcf",
+            updatedAt: null,
+            canManage: true,
+          });
+        }
+        return response(false, {}, 404);
+      };
+    },
+  });
+  try {
+    await waitFor(() => dom.window.Q?.S.aiConfig.loaded);
+    dom.window.Q.S.page = "set";
+    dom.window.Q.render();
+    dom.window.document.querySelector('[data-act="save-ai-model"]').click();
+    await waitFor(() => {
+      const gate = dom.window.document.querySelector("#loginGate");
+      const error = dom.window.document.querySelector(".login-error");
+      return gate && !gate.hidden && /登录状态已失效/.test(error?.textContent || "");
+    });
+    assert.ok(dom.window.document.querySelector('[data-act="login-submit"]'));
+    assert.equal(dom.window.Q.S.aiConfig.saving, false);
+  } finally {
+    dom.window.close();
+  }
+});

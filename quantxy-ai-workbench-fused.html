@@ -783,7 +783,7 @@ var S = {
   confirm:null, editId:null, deptMgr:false, curProj:null, curAgent:null, curCustomer:null, curActivity:null,
   agents:[], runs:[], agentIn:{}, agentOut:'', agentBusy:false,
   chain:[], chainIn:'', chainOut:[], chainBusy:false, chainStep:0, reqs:[],
-  appr:null
+  appr:null, demoCleared:false
 };
 
 var PAYROLL_BASE={m1:22000,m2:24000,m3:30000,m4:23000,m5:21000,m6:22000,m7:19000,
@@ -867,10 +867,22 @@ function createDemoGateway(){
     updateTaskExecution:updateTaskExecution,
     submitTaskResult:submitTaskResult,
     reviewTaskResult:reviewTaskResult,
-    reopenTask:reopenTask
+    reopenTask:reopenTask,
+    clearDemoData:clearDemoData,
+    resetDemoData:resetDemoData
   };
 }
 var WORKSTATION_GATEWAY=createDemoGateway();
+function workstationFeatures(){
+  try{
+    var bootstrap=WORKSTATION_GATEWAY.loadBootstrap();
+    var session=bootstrap&&bootstrap.session||{}, features=bootstrap&&bootstrap.features||{};
+    return {
+      identitySwitch:session.authMode==='demo'&&session.dataMode==='demo'&&features.identitySwitch===true,
+      demoReset:session.dataMode==='demo'&&features.demoReset===true
+    };
+  }catch(e){ return {identitySwitch:false,demoReset:false}; }
+}
 
 /* ---------------- 调度引擎 ---------------- */
 /* 1) 拓扑排序 */
@@ -1049,6 +1061,11 @@ function aiConfigError(code,status){
   if(code==='invalid_api_key') return '密钥格式不正确，请检查后重新输入。';
   return '模型配置服务暂时不可用，请联系管理员检查服务器部署。';
 }
+function expireSession(){
+  LOGIN.authenticated=false; LOGIN.checked=true; LOGIN.error='登录状态已失效，请重新登录';
+  S.aiConfig.canManage=false; S.aiConfig.loaded=false; S.aiConfig.loading=false; S.aiConfig.saving=false;
+  renderLogin();
+}
 function loadAiConfig(force){
   if(S.aiConfig.loading||(!force&&S.aiConfig.loaded)) return;
   if(location.protocol==='file:'){
@@ -1061,13 +1078,14 @@ function loadAiConfig(force){
   fetch('/api/ai/config',{credentials:'same-origin',cache:'no-store'}).then(function(r){
     return r.text().then(function(txt){
       var d=null; try{ d=JSON.parse(txt); }catch(e){}
+      if(r.status===401){ expireSession(); return null; }
       if(!r.ok) throw new Error(aiConfigError(d&&d.error,r.status));
       if(!d) throw new Error(aiConfigError('',r.status));
       return d;
     });
-  }).then(function(d){ applyAiConfig(d); S.aiConfig.loaded=true; })
-    .catch(function(e){ S.aiConfig.loaded=true; S.aiConfig.error=(e&&e.message)||aiConfigError('',0); })
-    .then(function(){ S.aiConfig.loading=false; if(S.page==='set') render(); });
+  }).then(function(d){ if(!d) return; applyAiConfig(d); S.aiConfig.loaded=true; })
+    .catch(function(e){ if(!LOGIN.authenticated) return; S.aiConfig.loaded=true; S.aiConfig.error=(e&&e.message)||aiConfigError('',0); })
+    .then(function(){ if(!LOGIN.authenticated) return; S.aiConfig.loading=false; if(S.page==='set') render(); });
 }
 function updateAiConfig(includeKey){
   if(S.aiConfig.saving) return;
@@ -1087,16 +1105,19 @@ function updateAiConfig(includeKey){
     headers:{'content-type':'application/json'},body:JSON.stringify(payload)}).then(function(r){
     return r.text().then(function(txt){
       var d=null; try{ d=JSON.parse(txt); }catch(e){}
+      if(r.status===401){ expireSession(); return null; }
       if(!r.ok) throw new Error(aiConfigError(d&&d.error,r.status));
       if(!d) throw new Error(aiConfigError('',r.status));
       return d;
     });
   }).then(function(d){
+    if(!d) return;
     applyAiConfig(d); S.aiConfig.loaded=true; S.aiTest=null;
     toast(includeKey?'密钥已安全更新':'模型已更新');
   }).catch(function(e){
+    if(!LOGIN.authenticated) return;
     S.aiConfig.error=(e&&e.message)||aiConfigError('',0); toast(S.aiConfig.error);
-  }).then(function(){ S.aiConfig.saving=false; render(); });
+  }).then(function(){ if(!LOGIN.authenticated) return; S.aiConfig.saving=false; render(); });
 }
 function stripFence(t){ return String(t).replace(/\u0060\u0060\u0060(json)?/g,'').trim(); }
 
@@ -1163,7 +1184,20 @@ function renderNav(){
   var hp=document.querySelector('.helper'); if(hp) hp.style.display=S.helper?'':'none';
 }
 function renderTop(){
-  var m=META[S.page], me=MB[S.me];
+  var m=META[S.page], me=MB[S.me]||{n:'当前用户',r:'已登录'};
+  var canSwitch=workstationFeatures().identitySwitch;
+  var identityControl=canSwitch?j([
+    '<div class="me"><button data-act="menu" style="display:flex;align-items:center;gap:9px">',av(me.n,1),
+      '<span style="text-align:left"><span class="nm">',esc(me.n),'</span><br><span class="rl">',esc(me.r),'</span></span>',ic('down',14),'</button>',
+      S.menu?('<div class="menu"><div class="hd">切换身份查看工作台</div>'+MEMBERS.map(function(x){
+        return '<button data-act="setme" data-id="'+x.id+'">'+av(x.n)+'<span style="flex:1;text-align:left">'+esc(x.n)+'</span><span class="tag t-n">'+esc(x.r)+'</span></button>';
+      }).join('')+'<div class="sep"></div><button class="logout" data-act="logout">退出登录</button></div>'):'',
+    '</div>'
+  ]):j([
+    '<div class="me" style="padding:0 4px">',av(me.n,1),
+      '<span style="text-align:left"><span class="nm">',esc(me.n),'</span><br><span class="rl">',esc(me.r),'</span></span>',
+      '<button class="link" data-act="logout" style="margin-left:4px">退出</button></div>'
+  ]);
   el('top').innerHTML=j([
     '<div class="ttl"><h1>',m[0],'</h1><p>',m[1],'</p></div>',
     '<div class="grow"></div>',
@@ -1174,13 +1208,7 @@ function renderTop(){
       S.cmenu?('<div class="menu" style="width:210px"><div class="hd">创建</div>'+
         [['new-project','proj','新建项目'],['new-task','task','新建任务'],['new-member','user','添加成员'],['new-file','file','上传文档'],['sched','ai','AI 调度目标']].map(function(x){
           return '<button data-act="go" data-page="'+x[0]+'">'+ic(x[1],16,'#2563eb')+'<span style="flex:1;text-align:left">'+x[2]+'</span></button>'; }).join('')+'</div>'):'',
-    '</div>',
-    '<div class="me"><button data-act="menu" style="display:flex;align-items:center;gap:9px">',av(me.n,1),
-      '<span style="text-align:left"><span class="nm">',esc(me.n),'</span><br><span class="rl">',esc(me.r),'</span></span>',ic('down',14),'</button>',
-      S.menu?('<div class="menu"><div class="hd">切换身份查看工作台</div>'+MEMBERS.map(function(x){
-        return '<button data-act="setme" data-id="'+x.id+'">'+av(x.n)+'<span style="flex:1;text-align:left">'+esc(x.n)+'</span><span class="tag t-n">'+esc(x.r)+'</span></button>';
-      }).join('')+'<div class="sep"></div><button class="logout" data-act="logout">退出登录</button></div>'):'',
-    '</div>'
+    '</div>',identityControl
   ]);
 }
 function kpi(o){
@@ -2042,6 +2070,7 @@ function viewKb(){
 function viewSet(){
   var c=S.aiConfig;
   var fileMode=location.protocol==='file:';
+  var demoTools=WORKSTATION_RUNTIME.dataMode==='demo'&&workstationFeatures().demoReset;
   var locked=fileMode||!c.canManage||c.saving;
   var disabled=locked?' disabled':'';
   var status=c.loading?'读取中':(c.keyConfigured?'已配置':'未配置');
@@ -2102,7 +2131,8 @@ function viewSet(){
       '<p style="margin:6px 0 0;font-size:11.5px;color:var(--sub);line-height:1.7">模型密钥由服务器统一管理；当前演示任务和调度参数仍保存在本机浏览器。</p>',
     '</div>',
     '<button class="btn soft" style="width:100%;justify-content:center;margin-top:14px" data-act="save-schedule">保存调度参数</button>',
-    '<button class="btn ghost" style="width:100%;justify-content:center;margin-top:9px" data-act="reset">重置演示数据</button>',
+    (demoTools?'<button class="btn ghost" style="width:100%;justify-content:center;margin-top:9px" data-act="reset">重置演示数据</button>':''),
+    (demoTools?'<button class="btn ghost" style="width:100%;justify-content:center;margin-top:9px;color:var(--risk);border-color:#fecaca" data-act="clear-demo">清除演示数据</button>':''),
   '</div></div></div>']);
 }
 
@@ -2118,6 +2148,38 @@ function rebuildLookups(){
   MEMBERS.forEach(function(member){ MB[member.id]=member; });
   Object.keys(PB).forEach(function(key){ delete PB[key]; });
   PROJECTS.forEach(function(project){ PB[project.id]=project; });
+}
+function replaceArray(target,rows){
+  target.length=0;
+  rows.forEach(function(row){ target.push(cloneGatewayValue(row)); });
+}
+function emptyDemoBusinessData(){
+  S.tasks=[]; S.customers=[]; S.activities=[]; S.decisions=[]; S.agents=[]; S.runs=[]; S.reqs=[]; S.payroll={}; S.appr=[];
+  S.chat=[]; S.chain=[]; S.chainOut=[]; S.agentOut=''; S.agentIn={};
+  MEMBERS.length=0; PROJECTS.length=0; KB.length=0; DEPTS.length=0; rebuildLookups();
+  S.sel.task=null; S.sel.wbs=null; S.curProj=null; S.curAgent=null; S.curCustomer=null; S.curActivity=null;
+  S.demoCleared=true;
+}
+function clearDemoData(){
+  try{
+    localStorage.removeItem(QXY_DEMO_DATA_KEY);
+    localStorage.removeItem(QXY_LEGACY_DATA_KEY);
+    localStorage.setItem(QXY_DEMO_CLEARED_KEY,'1');
+  }catch(e){}
+  emptyDemoBusinessData();
+  render();
+}
+function resetDemoData(){
+  try{ localStorage.removeItem(QXY_DEMO_CLEARED_KEY); }catch(e){}
+  replaceArray(MEMBERS,INITIAL_MEMBERS); replaceArray(PROJECTS,INITIAL_PROJECTS);
+  replaceArray(KB,INITIAL_KB); replaceArray(DEPTS,INITIAL_DEPTS); rebuildLookups();
+  S.tasks=seedTasks().map(normalizeTask); S.customers=seedCustomers(); S.activities=seedActivities();
+  S.decisions=seedDecisions(); S.agents=seedAgents(); S.runs=[]; S.reqs=[]; S.payroll=seedPayroll(); S.appr=seedAppr();
+  S.chat=[]; S.chain=[]; S.chainOut=[]; S.agentOut=''; S.agentIn={};
+  S.sch={goal:'',deadline:fmt(addD(today(),45)),budget:30,must:'',busy:false,err:'',tasks:null,plans:null,pick:'A',from:'',issued:false};
+  S.f.meScope='todo'; S.f.meTab='all'; S.f.payMonth=''; S.f.payFocus=''; S.sel.task=null; S.sel.wbs=null;
+  S.curProj=null; S.curAgent=null; S.curCustomer=null; S.curActivity=null; S.form=blankForm();
+  S.demoCleared=false; S.page='me'; save(); render();
 }
 var PCATS=['AI研发','产品开发','市场活动','内部管理','数据治理','基础设施'];
 var KCATS=['公司制度','业务流程','SOP模板','产品资料','培训资料'];
@@ -3141,11 +3203,26 @@ var VIEWS={dash:viewDash,proj:viewProj,sched:viewSched,task:viewTask,me:viewMe,e
   'new-member':viewNewMember,'new-project':viewNewProject,'new-file':viewNewFile,'new-task':viewNewTask,
   'new-customer':viewNewCustomer,'new-activity':viewNewActivity,
   'new-agent':viewNewAgent, agent:viewAgentRun, project:viewProject, search:viewSearch};
+function renderDemoCleared(){
+  el('nav').innerHTML=''; el('top').innerHTML='';
+  var hp=document.querySelector('.helper'); if(hp) hp.style.display='none';
+  el('view').innerHTML=j([
+    '<div class="fade" style="min-height:70vh;display:grid;place-items:center">',
+      '<div class="card" style="max-width:560px;text-align:center;padding:38px 34px">',
+        '<div style="width:58px;height:58px;margin:0 auto 16px;border-radius:18px;background:var(--brand-s);display:grid;place-items:center;color:var(--brand)">',ic('file',28),'</div>',
+        '<h2 style="margin:0 0 8px">演示数据已清除</h2>',
+        '<p style="margin:0;color:var(--sub);line-height:1.8">当前浏览器中的 QuantXY 演示业务数据已安全清空。登录状态和服务器模型配置未受影响。</p>',
+        (workstationFeatures().demoReset?'<button class="btn" style="margin:22px auto 0" data-act="restore-demo">恢复演示数据</button>':''),
+      '</div>',
+    '</div>'
+  ]);
+}
 function render(){
   if(!authState()){ renderLogin(); return; }
   var gate=el('loginGate'), app=document.querySelector('.app');
   if(gate){ gate.hidden=true; gate.innerHTML=''; }
   if(app) app.classList.remove('auth-hidden');
+  if(S.demoCleared){ renderDemoCleared(); return; }
   renderNav(); renderTop();
   el('view').innerHTML=(VIEWS[S.page]||viewDash)()+modalHTML();
   var cb=el('chatBox'); if(cb) cb.scrollTop=cb.scrollHeight;
@@ -3338,6 +3415,7 @@ document.addEventListener('click',function(e){
   else if(a==='menu'){ S.menu=!S.menu; render(); }
   else if(a==='logout'){ logoutDemo(); }
   else if(a==='setme'){
+    if(!workstationFeatures().identitySwitch){ S.menu=false; render(); return; }
     S.me=t.getAttribute('data-id'); S.menu=false; S.page='me';
     S.f.meScope='todo'; S.f.meTab='all'; S.f.payMonth=''; S.f.payFocus='';
     S.sel.task=null; S.curProj=null; render();
@@ -3405,8 +3483,13 @@ document.addEventListener('click',function(e){
     S.cfg.riskLine=parseInt(el('cfgRl').value,10)||20;
     save(); toast('调度参数已保存'); render();
   }
-  else if(a==='reset'){ S.tasks=seedTasks(); S.sch={goal:'',deadline:fmt(addD(today(),45)),budget:30,must:'',busy:false,err:'',tasks:null,plans:null,pick:'A',from:'',issued:false};
-    save(); toast('已重置为演示数据'); S.page='dash'; render(); }
+  else if(a==='clear-demo'){
+    ask('清除演示数据？','只清除当前浏览器中的 QuantXY 演示业务数据，不影响登录状态和服务器模型配置。','确认清除',function(){
+      S.confirm=null; WORKSTATION_GATEWAY.clearDemoData();
+    },true);
+  }
+  else if(a==='reset'){ WORKSTATION_GATEWAY.resetDemoData(); toast('演示数据已重置'); }
+  else if(a==='restore-demo'){ WORKSTATION_GATEWAY.resetDemoData(); toast('演示数据已恢复'); }
 });
 /* 文件选择 / 拖拽 */
 document.addEventListener('click',function(e){
@@ -3473,41 +3556,47 @@ document.addEventListener('keydown',function(e){
 });
 
 /* ---------------- 启动 ---------------- */
-var saved=load();
+var demoClearedAtStartup=false;
+try{ demoClearedAtStartup=localStorage.getItem(QXY_DEMO_CLEARED_KEY)==='1'; }catch(e){}
+var saved=demoClearedAtStartup?null:load();
 var legacyAiSecret=false;
 var migratedLegacy=LOADED_DATA_SOURCE==='legacy';
 var legacyDataPresent=false;
 try{ legacyDataPresent=localStorage.getItem(QXY_LEGACY_DATA_KEY)!=null; }catch(e){}
-if(saved&&saved.cfg){
-  ['apiKey','proxy','keyCleared'].forEach(function(k){
-    if(Object.prototype.hasOwnProperty.call(saved.cfg,k)){ delete saved.cfg[k]; legacyAiSecret=true; }
-  });
-  ['workday','parallel','riskLine'].forEach(function(k){ if(saved.cfg[k]!=null) S.cfg[k]=saved.cfg[k]; });
+if(demoClearedAtStartup){
+  emptyDemoBusinessData();
+}else{
+  if(saved&&saved.cfg){
+    ['apiKey','proxy','keyCleared'].forEach(function(k){
+      if(Object.prototype.hasOwnProperty.call(saved.cfg,k)){ delete saved.cfg[k]; legacyAiSecret=true; }
+    });
+    ['workday','parallel','riskLine'].forEach(function(k){ if(saved.cfg[k]!=null) S.cfg[k]=saved.cfg[k]; });
+  }
+  S.cfg.provider='deepseek'; S.cfg.endpoint='/api/ai/chat';
+  if(saved&&saved.members&&saved.members.length){
+    MEMBERS.length=0; saved.members.forEach(function(m){ MEMBERS.push(m); });
+  }
+  if(saved&&saved.projects&&saved.projects.length){
+    PROJECTS.length=0; saved.projects.forEach(function(x){ PROJECTS.push(x); });
+  }
+  rebuildLookups();
+  S.tasks=((saved&&saved.tasks&&saved.tasks.length)?saved.tasks:seedTasks()).map(normalizeTask);
+  S.customers=(saved&&saved.customers&&saved.customers.length)?saved.customers:seedCustomers();
+  S.activities=(saved&&saved.activities&&saved.activities.length)?saved.activities:seedActivities();
+  S.decisions=(saved&&saved.decisions&&saved.decisions.length)?saved.decisions:seedDecisions();
+  S.payroll=(saved&&saved.payroll)||seedPayroll();
+  if(saved&&saved.kb&&saved.kb.length){ KB.length=0; saved.kb.forEach(function(k){ KB.push(k); }); }
+  S.agents=(saved&&saved.agents&&saved.agents.length)?saved.agents:seedAgents();
+  S.runs=(saved&&saved.runs)?saved.runs:[];
+  S.reqs=(saved&&saved.reqs)?saved.reqs:[];
+  if(saved&&saved.depts&&saved.depts.length){ DEPTS.length=0; saved.depts.forEach(function(d){ DEPTS.push(d); }); }
+  normalize();
+  var safeV2Ready=LOADED_DATA_SOURCE==='v2'&&!legacyAiSecret;
+  if(legacyAiSecret||migratedLegacy) safeV2Ready=save();
+  if(legacyDataPresent&&safeV2Ready){ try{ localStorage.removeItem(QXY_LEGACY_DATA_KEY); }catch(e){} }
+  S.appr=seedAppr();
 }
-S.cfg.provider='deepseek'; S.cfg.endpoint='/api/ai/chat';
-if(saved&&saved.members&&saved.members.length){
-  MEMBERS.length=0; saved.members.forEach(function(m){ MEMBERS.push(m); });
-}
-if(saved&&saved.projects&&saved.projects.length){
-  PROJECTS.length=0; saved.projects.forEach(function(x){ PROJECTS.push(x); });
-}
-rebuildLookups();
-S.tasks=((saved&&saved.tasks&&saved.tasks.length)?saved.tasks:seedTasks()).map(normalizeTask);
-S.customers=(saved&&saved.customers&&saved.customers.length)?saved.customers:seedCustomers();
-S.activities=(saved&&saved.activities&&saved.activities.length)?saved.activities:seedActivities();
-S.decisions=(saved&&saved.decisions&&saved.decisions.length)?saved.decisions:seedDecisions();
-S.payroll=(saved&&saved.payroll)||seedPayroll();
-if(saved&&saved.kb&&saved.kb.length){ KB.length=0; saved.kb.forEach(function(k){ KB.push(k); }); }
-S.agents=(saved&&saved.agents&&saved.agents.length)?saved.agents:seedAgents();
-S.runs=(saved&&saved.runs)?saved.runs:[];
-S.reqs=(saved&&saved.reqs)?saved.reqs:[];
-if(saved&&saved.depts&&saved.depts.length){ DEPTS.length=0; saved.depts.forEach(function(d){ DEPTS.push(d); }); }
-normalize();
-var safeV2Ready=LOADED_DATA_SOURCE==='v2'&&!legacyAiSecret;
-if(legacyAiSecret||migratedLegacy) safeV2Ready=save();
-if(legacyDataPresent&&safeV2Ready){ try{ localStorage.removeItem(QXY_LEGACY_DATA_KEY); }catch(e){} }
 S.form=blankForm();
-S.appr=seedAppr();
 renderBrand();
 bootstrapDemoSession();
 return {S:S, render:render, schedule:schedule, makePlans:makePlans,gateway:WORKSTATION_GATEWAY};
