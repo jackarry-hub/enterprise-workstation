@@ -344,7 +344,8 @@ function fmt(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDat
 function md(d){ return pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
 function diffD(a,b){ return Math.round((b-a)/86400000); }
 function uid(p){ return p+Math.random().toString(36).slice(2,7); }
-var WORKSTATION_RUNTIME={authMode:'demo',dataMode:'demo'};
+var WORKSTATION_RUNTIME=window.QUANTXY_WORKSTATION_RUNTIME||{authMode:'demo',dataMode:'demo'};
+function isDemoRuntime(){ return WORKSTATION_RUNTIME.authMode==='demo'&&WORKSTATION_RUNTIME.dataMode==='demo'; }
 var QXY_DEMO_DATA_KEY='qxy.workstation.demo.v2';
 var QXY_DEMO_CLEARED_KEY='qxy.workstation.demo.cleared';
 var QXY_LEGACY_DATA_KEY='qxy';
@@ -375,6 +376,7 @@ function load(){
 }
 function defaultReviewer(task){
   var project=PB[task.p], candidate=project&&project.own;
+  if(!isDemoRuntime()) return task.createdBy||S.me||task.own||'';
   return candidate&&candidate!==task.own?candidate:'m14';
 }
 function normalizeTask(task){
@@ -395,6 +397,7 @@ function normalizeTask(task){
   item.reviewedAt=item.reviewedAt||'';
   item.reviewNote=item.reviewNote||'';
   item.timeline=Array.isArray(item.timeline)?item.timeline:[];
+  item.revision=Math.max(0,Math.floor(Number(item.revision)||0));
   return item;
 }
 function stamp(){ var d=new Date(); return fmt(d)+' '+pad(d.getHours())+':'+pad(d.getMinutes()); }
@@ -408,11 +411,31 @@ function addTimeline(task,actorId,action,note){
   task.timeline=Array.isArray(task.timeline)?task.timeline:[];
   task.timeline.push({actor:actorId,action:action,note:note||'',at:stamp()});
 }
+function bumpTaskRevision(task){ task.revision=Math.max(0,Math.floor(Number(task.revision)||0))+1; }
+function saveTaskRevision(input,revision){
+  input=input||{};
+  if(!authState()||!S.me||!MB[S.me]) throw new Error('unauthorized');
+  var task=findTask(input.id);
+  if(S.me!==task.createdBy&&S.me!==task.reviewer) throw new Error('forbidden');
+  var expected=Number(revision), current=Math.max(0,Math.floor(Number(task.revision)||0));
+  if(!Number.isInteger(expected)||expected!==current) throw new Error('revision_conflict');
+  var allowed={id:1,n:1,description:1,ac:1,pri:1,s:1,e:1};
+  Object.keys(input).forEach(function(key){ if(!allowed[key]) throw new Error('protected_field:'+key); });
+  var changes={};
+  if(input.n!=null){ var name=String(input.n).trim(); if(!name) throw new Error('task_name_required'); changes.n=name; }
+  if(input.description!=null) changes.description=String(input.description).trim();
+  if(input.ac!=null) changes.ac=String(input.ac).trim();
+  if(input.pri!=null){ if(['P0','P1','P2'].indexOf(input.pri)<0) throw new Error('invalid_priority'); changes.pri=input.pri; }
+  if(input.s!=null) changes.s=String(input.s).trim();
+  if(input.e!=null) changes.e=String(input.e).trim();
+  Object.keys(changes).forEach(function(key){ task[key]=changes[key]; });
+  bumpTaskRevision(task); save(); return cloneGatewayValue(task);
+}
 function claimTask(taskId,actorId){
   var task=findTask(taskId); requireActor(actorId,task.own);
   if(task.st!=='待处理') throw new Error('invalid_status');
   task.st='进行中'; task.acceptedAt=stamp(); task.pr=Math.max(1,task.pr||0);
-  addTimeline(task,actorId,'领取任务',''); save(); return task;
+  addTimeline(task,actorId,'领取任务',''); bumpTaskRevision(task); save(); return task;
 }
 function updateTaskExecution(taskId,actorId,input){
   var task=findTask(taskId); input=input||{};
@@ -420,7 +443,7 @@ function updateTaskExecution(taskId,actorId,input){
   if(task.st!=='进行中') throw new Error('invalid_status');
   if(!isFinite(progress)||progress<0||progress>100) throw new Error('invalid_progress');
   task.pr=progress; task.blocker=String(input.blocker||'').trim(); task.nextStep=String(input.nextStep||'').trim();
-  addTimeline(task,actorId,'更新执行','进度 '+progress+'%'+(task.blocker?'；阻塞：'+task.blocker:'')); save(); return task;
+  addTimeline(task,actorId,'更新执行','进度 '+progress+'%'+(task.blocker?'；阻塞：'+task.blocker:'')); bumpTaskRevision(task); save(); return task;
 }
 function submitTaskResult(taskId,actorId,input){
   var task=findTask(taskId); input=input||{};
@@ -431,7 +454,7 @@ function submitTaskResult(taskId,actorId,input){
   if(task.st!=='进行中') throw new Error('invalid_status');
   if(!text||(!link&&!files.length)) throw new Error('result_required');
   task.resultText=text; task.resultLink=link; task.resultFiles=files; task.submittedAt=stamp(); task.st='待验收';
-  addTimeline(task,actorId,'提交验收',text); save(); return task;
+  addTimeline(task,actorId,'提交验收',text); bumpTaskRevision(task); save(); return task;
 }
 function reviewTaskResult(taskId,actorId,input){
   var task=findTask(taskId); input=input||{};
@@ -442,14 +465,14 @@ function reviewTaskResult(taskId,actorId,input){
   if(decision==='reject'&&!note) throw new Error('review_note_required');
   task.reviewNote=note; task.reviewedAt=stamp(); task.st=decision==='pass'?'已完成':'进行中';
   if(decision==='pass') task.pr=100;
-  addTimeline(task,actorId,decision==='pass'?'验收通过':'驳回修改',note); save(); return task;
+  addTimeline(task,actorId,decision==='pass'?'验收通过':'驳回修改',note); bumpTaskRevision(task); save(); return task;
 }
 function reopenTask(taskId,actorId,note){
   var task=findTask(taskId);
   if(actorId!==task.reviewer&&actorId!==task.createdBy) throw new Error('forbidden');
   if(task.st!=='已完成') throw new Error('invalid_status');
   task.st='进行中'; task.pr=Math.min(95,task.pr);
-  addTimeline(task,actorId,'重新打开',String(note||'').trim()); save(); return task;
+  addTimeline(task,actorId,'重新打开',String(note||'').trim()); bumpTaskRevision(task); save(); return task;
 }
 function toast(t){ var n=el('toast'); n.textContent=t; n.className='toast on'; clearTimeout(n._t); n._t=setTimeout(function(){ n.className='toast'; },2400); }
 
@@ -549,6 +572,7 @@ function renderLogin(){
   ]);
 }
 function submitLogin(){
+  if(!isDemoRuntime()){ S.serviceError='真实身份登录未配置，请从飞书工作台重新进入'; render(); return; }
   if(LOGIN.busy) return;
   var u=el('loginUser'), p=el('loginPass');
   LOGIN.user=u?u.value.trim():LOGIN.user.trim();
@@ -581,6 +605,12 @@ function submitLogin(){
     });
 }
 function logoutDemo(){
+  if(!isDemoRuntime()){
+    LOGIN.authenticated=false; LOGIN.checked=true; S.menu=false; S.serviceError='真实身份会话已退出，请从飞书工作台重新进入';
+    render();
+    if(typeof WORKSTATION_GATEWAY.logout==='function') Promise.resolve(WORKSTATION_GATEWAY.logout()).catch(function(){});
+    return;
+  }
   LOGIN.memory=false; LOGIN.authenticated=false; LOGIN.checked=true; LOGIN.pass=''; LOGIN.error=''; LOGIN.busy=false;
   try{ sessionStorage.removeItem(QXY_AUTH_KEY); }catch(e){}
   try{ localStorage.removeItem(QXY_AUTH_KEY); }catch(e){}
@@ -589,6 +619,16 @@ function logoutDemo(){
   if(location.protocol!=='file:') fetch('/api/demo-auth/logout',{method:'POST',credentials:'same-origin'}).catch(function(){});
 }
 function bootstrapDemoSession(){
+  if(!isDemoRuntime()){
+    if(WORKSTATION_GATEWAY.serviceUnavailable){ S.serviceError='真实数据服务未配置'; render(); return; }
+    try{
+      var session=WORKSTATION_GATEWAY.getSession();
+      if(!session||session.authenticated!==true||!session.memberId){ S.serviceError='真实身份会话不可用，请从飞书工作台重新进入'; render(); return; }
+      LOGIN.checked=true; LOGIN.authenticated=true; S.me=session.memberId; S.serviceError=''; render();
+      S.aiConfig.loaded=false; loadAiConfig(true);
+    }catch(e){ S.serviceError='真实数据服务不可用'; render(); }
+    return;
+  }
   if(location.protocol==='file:'){
     LOGIN.checked=true; render(); loadAiConfig(false); return;
   }
@@ -778,13 +818,30 @@ var S = {
         tasks:null, plans:null, pick:'A', from:'', issued:false },
   chat:[], chatBusy:false, cmenu:false, form:null,
   f:{ projCat:'all', projSt:'all', projQ:'', taskQ:'', taskOwn:'all', taskPri:'all', taskSt:'all',
-      meScope:'todo', meTab:'all', payMonth:'', payFocus:'', kbQ:'', kbCat:'all', orgQ:'', orgDept:'all', agentDept:'all', agentQ:'', agentTab:'dir',
+      meScope:'todo', meTab:'all', payMonth:'', payFocus:'', kbQ:'', kbCat:'all', orgQ:'', orgDept:'all', agentDept:'all', agentQ:'', agentTab:'dir', agentVis:'all',
       dashTab:'进行中', insightG:'日', gq:'', customerQ:'', customerSt:'all', activitySt:'all', decisionTab:'待我决策' },
   confirm:null, editId:null, deptMgr:false, curProj:null, curAgent:null, curCustomer:null, curActivity:null,
   agents:[], runs:[], agentIn:{}, agentOut:'', agentBusy:false,
   chain:[], chainIn:'', chainOut:[], chainBusy:false, chainStep:0, reqs:[],
-  appr:null, demoCleared:false
+  appr:null, demoCleared:false, serviceError:''
 };
+function defaultRuntimeTabs(){ return {proj:'all',task:'all',kb:'week'}; }
+function defaultRuntimeFilters(){ return {
+  projCat:'all',projSt:'all',projQ:'',taskQ:'',taskOwn:'all',taskPri:'all',taskSt:'all',
+  meScope:'todo',meTab:'all',payMonth:'',payFocus:'',kbQ:'',kbCat:'all',orgQ:'',orgDept:'all',agentDept:'all',agentQ:'',agentTab:'dir',agentVis:'all',
+  dashTab:'进行中',insightG:'日',gq:'',customerQ:'',customerSt:'all',activitySt:'all',decisionTab:'待我决策'
+}; }
+function defaultRuntimeSchedule(){ return {
+  goal:'',deadline:fmt(addD(today(),45)),budget:30,must:'',busy:false,err:'',tasks:null,plans:null,pick:'A',from:'',issued:false
+}; }
+function resetRuntimeUiState(page){
+  S.page=page||'me'; S.menu=false; S.cmenu=false; S.confirm=null; S.editId=null; S.deptMgr=false; S.helper=true;
+  S.tab=defaultRuntimeTabs(); S.f=defaultRuntimeFilters(); S.sch=defaultRuntimeSchedule(); S.sel={task:null,wbs:null};
+  S.curProj=null; S.curAgent=null; S.curCustomer=null; S.curActivity=null;
+  S.chat=[]; S.chatBusy=false; S.agentIn={}; S.agentOut=''; S.agentBusy=false;
+  S.chain=[]; S.chainIn=''; S.chainOut=[]; S.chainBusy=false; S.chainStep=0;
+  S.aiKeyDraft=''; S.showKey=false; S.aiTest=null; S.form=blankForm();
+}
 
 var PAYROLL_BASE={m1:22000,m2:24000,m3:30000,m4:23000,m5:21000,m6:22000,m7:19000,
   m8:28000,m9:18000,m10:16500,m11:19000,m12:20000,m13:18000,m14:45000};
@@ -863,6 +920,7 @@ function createDemoGateway(){
     loadMyTask:function(memberId,taskId){ return cloneGatewayValue(S.tasks.filter(function(task){ return task.id===taskId&&(task.own===memberId||task.createdBy===memberId||task.reviewer===memberId); })[0]||null); },
     listMyProjects:function(memberId){ return cloneGatewayValue(PROJECTS.filter(function(project){ return project.own===memberId||S.tasks.some(function(task){ return task.p===project.id&&task.own===memberId; }); })); },
     loadPayroll:function(memberId){ return cloneGatewayValue(S.payroll[memberId]||[]); },
+    saveTask:saveTaskRevision,
     claimTask:claimTask,
     updateTaskExecution:updateTaskExecution,
     submitTaskResult:submitTaskResult,
@@ -872,14 +930,36 @@ function createDemoGateway(){
     resetDemoData:resetDemoData
   };
 }
-var WORKSTATION_GATEWAY=createDemoGateway();
+var SERVER_GATEWAY_METHODS=['getSession','loadBootstrap','loadMyDashboard','listMyTasks','loadMyTask','listMyProjects','loadPayroll',
+  'saveTask','claimTask','updateTaskExecution','submitTaskResult','reviewTaskResult','reopenTask'];
+function isCompliantServerAdapter(adapter){
+  return !!adapter&&SERVER_GATEWAY_METHODS.every(function(method){ return typeof adapter[method]==='function'; });
+}
+function createUnavailableGateway(){
+  function unavailable(){ throw new Error('real_data_service_unavailable'); }
+  return {
+    serviceUnavailable:true,
+    getSession:function(){ return {authenticated:false,authMode:WORKSTATION_RUNTIME.authMode,dataMode:WORKSTATION_RUNTIME.dataMode,memberId:null,permissions:[]}; },
+    loadBootstrap:function(){ return {mode:'unavailable',session:this.getSession(),members:[],projects:[],tasks:[],payroll:{},features:{identitySwitch:false,demoReset:false}}; },
+    loadMyDashboard:function(){ return {tasks:[],must:[],projects:[],payroll:null,reminders:[]}; },
+    listMyTasks:function(){ return []; }, loadMyTask:function(){ return null; }, listMyProjects:function(){ return []; }, loadPayroll:function(){ return []; },
+    saveTask:unavailable, claimTask:unavailable, updateTaskExecution:unavailable, submitTaskResult:unavailable,
+    reviewTaskResult:unavailable, reopenTask:unavailable
+  };
+}
+function resolveWorkstationGateway(){
+  if(isDemoRuntime()) return createDemoGateway();
+  var adapter=window.QUANTXY_WORKSTATION_SERVER_ADAPTER;
+  return isCompliantServerAdapter(adapter)?adapter:createUnavailableGateway();
+}
+var WORKSTATION_GATEWAY=resolveWorkstationGateway();
 function workstationFeatures(){
   try{
     var bootstrap=WORKSTATION_GATEWAY.loadBootstrap();
     var session=bootstrap&&bootstrap.session||{}, features=bootstrap&&bootstrap.features||{};
     return {
-      identitySwitch:session.authMode==='demo'&&session.dataMode==='demo'&&features.identitySwitch===true,
-      demoReset:session.dataMode==='demo'&&features.demoReset===true
+      identitySwitch:isDemoRuntime()&&session.authMode==='demo'&&session.dataMode==='demo'&&features.identitySwitch===true,
+      demoReset:isDemoRuntime()&&session.dataMode==='demo'&&features.demoReset===true
     };
   }catch(e){ return {identitySwitch:false,demoReset:false}; }
 }
@@ -2155,10 +2235,8 @@ function replaceArray(target,rows){
 }
 function emptyDemoBusinessData(){
   S.tasks=[]; S.customers=[]; S.activities=[]; S.decisions=[]; S.agents=[]; S.runs=[]; S.reqs=[]; S.payroll={}; S.appr=[];
-  S.chat=[]; S.chain=[]; S.chainOut=[]; S.agentOut=''; S.agentIn={};
   MEMBERS.length=0; PROJECTS.length=0; KB.length=0; DEPTS.length=0; rebuildLookups();
-  S.sel.task=null; S.sel.wbs=null; S.curProj=null; S.curAgent=null; S.curCustomer=null; S.curActivity=null;
-  S.demoCleared=true;
+  resetRuntimeUiState('me'); S.demoCleared=true;
 }
 function clearDemoData(){
   try{
@@ -2175,11 +2253,26 @@ function resetDemoData(){
   replaceArray(KB,INITIAL_KB); replaceArray(DEPTS,INITIAL_DEPTS); rebuildLookups();
   S.tasks=seedTasks().map(normalizeTask); S.customers=seedCustomers(); S.activities=seedActivities();
   S.decisions=seedDecisions(); S.agents=seedAgents(); S.runs=[]; S.reqs=[]; S.payroll=seedPayroll(); S.appr=seedAppr();
-  S.chat=[]; S.chain=[]; S.chainOut=[]; S.agentOut=''; S.agentIn={};
-  S.sch={goal:'',deadline:fmt(addD(today(),45)),budget:30,must:'',busy:false,err:'',tasks:null,plans:null,pick:'A',from:'',issued:false};
-  S.f.meScope='todo'; S.f.meTab='all'; S.f.payMonth=''; S.f.payFocus=''; S.sel.task=null; S.sel.wbs=null;
-  S.curProj=null; S.curAgent=null; S.curCustomer=null; S.curActivity=null; S.form=blankForm();
-  S.demoCleared=false; S.page='me'; save(); render();
+  resetRuntimeUiState('me'); S.demoCleared=false; S.serviceError=''; save(); render();
+}
+function hydrateServerBootstrap(bootstrap){
+  if(!bootstrap||!bootstrap.session||!bootstrap.session.memberId) throw new Error('invalid_server_bootstrap');
+  replaceArray(MEMBERS,Array.isArray(bootstrap.members)?bootstrap.members:[]);
+  replaceArray(PROJECTS,Array.isArray(bootstrap.projects)?bootstrap.projects:[]);
+  replaceArray(KB,Array.isArray(bootstrap.kb)?bootstrap.kb:[]);
+  replaceArray(DEPTS,Array.isArray(bootstrap.depts)?bootstrap.depts:[]);
+  rebuildLookups();
+  S.me=bootstrap.session.memberId;
+  S.tasks=(Array.isArray(bootstrap.tasks)?cloneGatewayValue(bootstrap.tasks):[]).map(normalizeTask);
+  S.customers=Array.isArray(bootstrap.customers)?cloneGatewayValue(bootstrap.customers):[];
+  S.activities=Array.isArray(bootstrap.activities)?cloneGatewayValue(bootstrap.activities):[];
+  S.decisions=Array.isArray(bootstrap.decisions)?cloneGatewayValue(bootstrap.decisions):[];
+  S.agents=Array.isArray(bootstrap.agents)?cloneGatewayValue(bootstrap.agents):[];
+  S.runs=Array.isArray(bootstrap.runs)?cloneGatewayValue(bootstrap.runs):[];
+  S.reqs=Array.isArray(bootstrap.reqs)?cloneGatewayValue(bootstrap.reqs):[];
+  S.payroll=bootstrap.payroll&&typeof bootstrap.payroll==='object'?cloneGatewayValue(bootstrap.payroll):{};
+  S.appr=Array.isArray(bootstrap.appr)?cloneGatewayValue(bootstrap.appr):[];
+  resetRuntimeUiState('me'); S.demoCleared=false; S.serviceError=''; normalize();
 }
 var PCATS=['AI研发','产品开发','市场活动','内部管理','数据治理','基础设施'];
 var KCATS=['公司制度','业务流程','SOP模板','产品资料','培训资料'];
@@ -3203,6 +3296,21 @@ var VIEWS={dash:viewDash,proj:viewProj,sched:viewSched,task:viewTask,me:viewMe,e
   'new-member':viewNewMember,'new-project':viewNewProject,'new-file':viewNewFile,'new-task':viewNewTask,
   'new-customer':viewNewCustomer,'new-activity':viewNewActivity,
   'new-agent':viewNewAgent, agent:viewAgentRun, project:viewProject, search:viewSearch};
+function renderServiceUnavailable(){
+  var gate=el('loginGate'), app=document.querySelector('.app');
+  if(gate){ gate.hidden=true; gate.innerHTML=''; }
+  if(app) app.classList.remove('auth-hidden');
+  el('nav').innerHTML=''; el('top').innerHTML='';
+  var hp=document.querySelector('.helper'); if(hp) hp.style.display='none';
+  el('view').innerHTML=j([
+    '<div class="fade" style="min-height:70vh;display:grid;place-items:center">',
+      '<div class="card" style="max-width:560px;text-align:center;padding:38px 34px">',
+        '<h2 style="margin:0 0 8px">真实数据服务不可用</h2>',
+        '<p style="margin:0;color:var(--sub);line-height:1.8">',esc(S.serviceError||'真实数据服务未配置'),'。系统已停止加载演示数据，请联系管理员完成飞书身份与服务端数据适配。</p>',
+      '</div>',
+    '</div>'
+  ]);
+}
 function renderDemoCleared(){
   el('nav').innerHTML=''; el('top').innerHTML='';
   var hp=document.querySelector('.helper'); if(hp) hp.style.display='none';
@@ -3218,6 +3326,7 @@ function renderDemoCleared(){
   ]);
 }
 function render(){
+  if(S.serviceError){ renderServiceUnavailable(); return; }
   if(!authState()){ renderLogin(); return; }
   var gate=el('loginGate'), app=document.querySelector('.app');
   if(gate){ gate.hidden=true; gate.innerHTML=''; }
@@ -3557,49 +3666,56 @@ document.addEventListener('keydown',function(e){
 
 /* ---------------- 启动 ---------------- */
 var demoClearedAtStartup=false;
-try{ demoClearedAtStartup=localStorage.getItem(QXY_DEMO_CLEARED_KEY)==='1'; }catch(e){}
-var saved=demoClearedAtStartup?null:load();
-var legacyAiSecret=false;
-var migratedLegacy=LOADED_DATA_SOURCE==='legacy';
-var legacyDataPresent=false;
-try{ legacyDataPresent=localStorage.getItem(QXY_LEGACY_DATA_KEY)!=null; }catch(e){}
-if(demoClearedAtStartup){
-  emptyDemoBusinessData();
+var saved=null, legacyAiSecret=false, migratedLegacy=false, legacyDataPresent=false;
+if(!isDemoRuntime()){
+  emptyDemoBusinessData(); S.demoCleared=false;
+  if(WORKSTATION_GATEWAY.serviceUnavailable){ S.serviceError='真实数据服务未配置'; }
+  else{
+    try{ hydrateServerBootstrap(WORKSTATION_GATEWAY.loadBootstrap()); }
+    catch(e){ S.serviceError='真实数据服务不可用'; }
+  }
 }else{
-  if(saved&&saved.cfg){
-    ['apiKey','proxy','keyCleared'].forEach(function(k){
-      if(Object.prototype.hasOwnProperty.call(saved.cfg,k)){ delete saved.cfg[k]; legacyAiSecret=true; }
-    });
-    ['workday','parallel','riskLine'].forEach(function(k){ if(saved.cfg[k]!=null) S.cfg[k]=saved.cfg[k]; });
+  try{ demoClearedAtStartup=localStorage.getItem(QXY_DEMO_CLEARED_KEY)==='1'; }catch(e){}
+  saved=demoClearedAtStartup?null:load(); migratedLegacy=LOADED_DATA_SOURCE==='legacy';
+  try{ legacyDataPresent=localStorage.getItem(QXY_LEGACY_DATA_KEY)!=null; }catch(e){}
+  if(demoClearedAtStartup){
+    emptyDemoBusinessData();
+  }else{
+    if(saved&&saved.cfg){
+      ['apiKey','proxy','keyCleared'].forEach(function(k){
+        if(Object.prototype.hasOwnProperty.call(saved.cfg,k)){ delete saved.cfg[k]; legacyAiSecret=true; }
+      });
+      ['workday','parallel','riskLine'].forEach(function(k){ if(saved.cfg[k]!=null) S.cfg[k]=saved.cfg[k]; });
+    }
+    S.cfg.provider='deepseek'; S.cfg.endpoint='/api/ai/chat';
+    if(saved&&saved.members&&saved.members.length){
+      MEMBERS.length=0; saved.members.forEach(function(m){ MEMBERS.push(m); });
+    }
+    if(saved&&saved.projects&&saved.projects.length){
+      PROJECTS.length=0; saved.projects.forEach(function(x){ PROJECTS.push(x); });
+    }
+    rebuildLookups();
+    S.tasks=((saved&&saved.tasks&&saved.tasks.length)?saved.tasks:seedTasks()).map(normalizeTask);
+    S.customers=(saved&&saved.customers&&saved.customers.length)?saved.customers:seedCustomers();
+    S.activities=(saved&&saved.activities&&saved.activities.length)?saved.activities:seedActivities();
+    S.decisions=(saved&&saved.decisions&&saved.decisions.length)?saved.decisions:seedDecisions();
+    S.payroll=(saved&&saved.payroll)||seedPayroll();
+    if(saved&&saved.kb&&saved.kb.length){ KB.length=0; saved.kb.forEach(function(k){ KB.push(k); }); }
+    S.agents=(saved&&saved.agents&&saved.agents.length)?saved.agents:seedAgents();
+    S.runs=(saved&&saved.runs)?saved.runs:[];
+    S.reqs=(saved&&saved.reqs)?saved.reqs:[];
+    if(saved&&saved.depts&&saved.depts.length){ DEPTS.length=0; saved.depts.forEach(function(d){ DEPTS.push(d); }); }
+    normalize();
+    var safeV2Ready=LOADED_DATA_SOURCE==='v2'&&!legacyAiSecret;
+    if(legacyAiSecret||migratedLegacy) safeV2Ready=save();
+    if(legacyDataPresent&&safeV2Ready){ try{ localStorage.removeItem(QXY_LEGACY_DATA_KEY); }catch(e){} }
+    S.appr=seedAppr();
   }
-  S.cfg.provider='deepseek'; S.cfg.endpoint='/api/ai/chat';
-  if(saved&&saved.members&&saved.members.length){
-    MEMBERS.length=0; saved.members.forEach(function(m){ MEMBERS.push(m); });
-  }
-  if(saved&&saved.projects&&saved.projects.length){
-    PROJECTS.length=0; saved.projects.forEach(function(x){ PROJECTS.push(x); });
-  }
-  rebuildLookups();
-  S.tasks=((saved&&saved.tasks&&saved.tasks.length)?saved.tasks:seedTasks()).map(normalizeTask);
-  S.customers=(saved&&saved.customers&&saved.customers.length)?saved.customers:seedCustomers();
-  S.activities=(saved&&saved.activities&&saved.activities.length)?saved.activities:seedActivities();
-  S.decisions=(saved&&saved.decisions&&saved.decisions.length)?saved.decisions:seedDecisions();
-  S.payroll=(saved&&saved.payroll)||seedPayroll();
-  if(saved&&saved.kb&&saved.kb.length){ KB.length=0; saved.kb.forEach(function(k){ KB.push(k); }); }
-  S.agents=(saved&&saved.agents&&saved.agents.length)?saved.agents:seedAgents();
-  S.runs=(saved&&saved.runs)?saved.runs:[];
-  S.reqs=(saved&&saved.reqs)?saved.reqs:[];
-  if(saved&&saved.depts&&saved.depts.length){ DEPTS.length=0; saved.depts.forEach(function(d){ DEPTS.push(d); }); }
-  normalize();
-  var safeV2Ready=LOADED_DATA_SOURCE==='v2'&&!legacyAiSecret;
-  if(legacyAiSecret||migratedLegacy) safeV2Ready=save();
-  if(legacyDataPresent&&safeV2Ready){ try{ localStorage.removeItem(QXY_LEGACY_DATA_KEY); }catch(e){} }
-  S.appr=seedAppr();
 }
 S.form=blankForm();
 renderBrand();
 bootstrapDemoSession();
-return {S:S, render:render, schedule:schedule, makePlans:makePlans,gateway:WORKSTATION_GATEWAY};
+return {S:S, render:render, schedule:schedule, makePlans:makePlans,gateway:WORKSTATION_GATEWAY,runtime:WORKSTATION_RUNTIME};
 })();
 </script>
 </body>

@@ -265,6 +265,7 @@ test("reserves Feishu cutover without activating a fake server adapter", async (
     "loadMyTask",
     "listMyProjects",
     "loadPayroll",
+    "saveTask",
     "clearDemoData",
     "resetDemoData",
     "submitTaskResult",
@@ -277,4 +278,8 @@ test("reserves Feishu cutover without activating a fake server adapter", async (
     html,
     /NEXT_PUBLIC_FEISHU|FEISHU_APP_SECRET|user_access_token|authorization_code/,
   );
+  assert.match(html, /window\.QUANTXY_WORKSTATION_RUNTIME/);
+  assert.match(html, /window\.QUANTXY_WORKSTATION_SERVER_ADAPTER/);
+  assert.match(html, /if\(isDemoRuntime\(\)\) return createDemoGateway\(\)/);
+  assert.doesNotMatch(html, /var WORKSTATION_GATEWAY=createDemoGateway\(\)/);
 });

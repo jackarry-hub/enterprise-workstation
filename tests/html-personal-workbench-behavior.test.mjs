@@ -41,6 +41,10 @@ async function openWorkbench(seedStorage) {
   return dom;
 }
 
+async function readRealModeHtml() {
+  return readFile(htmlPath, "utf8");
+}
+
 function response(ok, body, status = ok ? 200 : 400) {
   const text = JSON.stringify(body);
   return { ok, status, json: async () => body, text: async () => text };
@@ -211,6 +215,8 @@ test("runs claim, execution, submission, rejection, and acceptance in order", as
   const gateway = dom.window.Q.gateway;
   const task = dom.window.Q.S.tasks.find((item) => item.st === "待处理" && item.own !== item.reviewer);
   assert.ok(task);
+  assert.equal(task.revision, 0);
+  const initialRevision = task.revision;
   assert.throws(() => gateway.claimTask(task.id, "m14"), /forbidden/);
   gateway.claimTask(task.id, task.own);
   gateway.updateTaskExecution(task.id, task.own, { progress: 60, blocker: "等待接口", nextStep: "完成联调" });
@@ -228,10 +234,12 @@ test("runs claim, execution, submission, rejection, and acceptance in order", as
   assert.equal(task.st, "进行中");
   assert.equal(task.pr, 95);
   assert.equal(task.timeline.at(-1).action, "重新打开");
+  assert.equal(task.revision, initialRevision + 7);
   const persisted = JSON.parse(dom.window.localStorage.getItem("qxy.workstation.demo.v2"));
   const persistedTask = persisted.tasks.find((item) => item.id === task.id);
   assert.equal(persistedTask.st, "进行中");
   assert.equal(persistedTask.timeline.at(-1).note, "补充回归验证");
+  assert.equal(persistedTask.revision, initialRevision + 7);
   dom.window.close();
 });
 
@@ -252,12 +260,87 @@ test("validates task result and review input", async () => {
   dom.window.close();
 });
 
-test("does not expose or honor legacy task mutation bypasses", async () => {
+test("saves only whitelisted task fields with actor authorization and optimistic revision locking", async () => {
   const dom = await openWorkbench();
   try {
     const { gateway, S } = dom.window.Q;
-    assert.equal(gateway.saveTask, undefined);
+    assert.equal(typeof gateway.saveTask, "function");
+    const task = S.tasks.find((item) => item.st === "待处理" && item.createdBy !== item.own);
+    S.me = task.createdBy;
+    const before = {
+      status: task.st,
+      owner: task.own,
+      reviewer: task.reviewer,
+      createdBy: task.createdBy,
+      progress: task.pr,
+      timeline: JSON.stringify(task.timeline),
+      revision: task.revision,
+    };
 
+    const saved = gateway.saveTask(
+      { id: task.id, n: "安全更新后的任务", description: "更新任务说明", ac: "更新验收标准", pri: "P2" },
+      before.revision,
+    );
+    assert.equal(saved.revision, before.revision + 1);
+    assert.equal(task.revision, before.revision + 1);
+    assert.equal(task.n, "安全更新后的任务");
+    assert.equal(task.description, "更新任务说明");
+    assert.equal(task.ac, "更新验收标准");
+    assert.equal(task.pri, "P2");
+    assert.equal(task.st, before.status);
+    assert.equal(task.own, before.owner);
+    assert.equal(task.reviewer, before.reviewer);
+    assert.equal(task.createdBy, before.createdBy);
+    assert.equal(task.pr, before.progress);
+    assert.equal(JSON.stringify(task.timeline), before.timeline);
+
+    assert.throws(
+      () => gateway.saveTask({ id: task.id, description: "过期写入" }, before.revision),
+      /revision_conflict/,
+    );
+    for (const protectedPatch of [
+      { st: "已完成" },
+      { own: S.me },
+      { reviewer: S.me },
+      { createdBy: S.me },
+      { timeline: [] },
+      { pr: 100 },
+      { revision: 999 },
+    ]) {
+      assert.throws(
+        () => gateway.saveTask({ id: task.id, ...protectedPatch }, task.revision),
+        /protected_field/,
+      );
+    }
+
+    const beforeInvalidName = task.n;
+    const beforeInvalidRevision = task.revision;
+    assert.throws(
+      () => gateway.saveTask({ id: task.id, n: "不应部分写入", pri: "P9" }, task.revision),
+      /invalid_priority/,
+    );
+    assert.equal(task.n, beforeInvalidName);
+    assert.equal(task.revision, beforeInvalidRevision);
+
+    S.me = S.me === "m7" ? "m8" : "m7";
+    assert.throws(
+      () => gateway.saveTask({ id: task.id, description: "越权写入" }, task.revision),
+      /forbidden/,
+    );
+    assert.equal(task.st, before.status);
+    assert.equal(task.own, before.owner);
+    assert.equal(task.reviewer, before.reviewer);
+    assert.equal(task.createdBy, before.createdBy);
+    assert.equal(JSON.stringify(task.timeline), before.timeline);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("does not honor legacy task mutation action bypasses", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S } = dom.window.Q;
     const task = S.tasks.find((item) => item.st === "待处理");
     const before = {
       status: task.st,
@@ -777,6 +860,183 @@ test("returns to login when updating the AI configuration gets a 401", async () 
     });
     assert.ok(dom.window.document.querySelector('[data-act="login-submit"]'));
     assert.equal(dom.window.Q.S.aiConfig.saving, false);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("fails closed without demo data or demo auth when real mode has no server adapter", async () => {
+  const html = await readRealModeHtml();
+  const requests = [];
+  const dom = new JSDOM(html, {
+    url: "http://127.0.0.1:3011/quantxy-ai-workbench-fused.html",
+    runScripts: "dangerously",
+    pretendToBeVisual: true,
+    beforeParse(window) {
+      window.QUANTXY_WORKSTATION_RUNTIME = { authMode: "feishu", dataMode: "server" };
+      window.fetch = async (url) => {
+        requests.push(String(url));
+        return response(false, { error: "unexpected_request" }, 404);
+      };
+    },
+  });
+  try {
+    await waitFor(() => dom.window.Q);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.deepEqual(Array.from(dom.window.Q.S.tasks), []);
+    assert.deepEqual(Object.keys(dom.window.Q.S.payroll), []);
+    assert.match(dom.window.document.querySelector("#view").textContent, /真实数据服务.*未配置|真实数据服务不可用/);
+    assert.equal(dom.window.document.querySelector('[data-act="setme"]'), null);
+    assert.equal(requests.includes("/api/demo-auth/session"), false);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("uses an injected server adapter for real session and business data without touching demo auth", async () => {
+  const html = await readRealModeHtml();
+  const requests = [];
+  const serverTask = {
+    id: "server-task-1",
+    n: "飞书真实任务",
+    p: "server-project-1",
+    own: "server-user-1",
+    createdBy: "server-user-1",
+    reviewer: "server-user-1",
+    st: "待处理",
+    revision: 7,
+    e: "2026-08-30",
+    timeline: [],
+  };
+  const session = {
+    authenticated: true,
+    authMode: "feishu",
+    dataMode: "server",
+    memberId: "server-user-1",
+    permissions: ["task.execute", "payroll.read.self"],
+  };
+  const dom = new JSDOM(html, {
+    url: "http://127.0.0.1:3011/quantxy-ai-workbench-fused.html",
+    runScripts: "dangerously",
+    pretendToBeVisual: true,
+    beforeParse(window) {
+      window.QUANTXY_WORKSTATION_RUNTIME = { authMode: "feishu", dataMode: "server" };
+      const members = [{ id: "server-user-1", n: "飞书用户", r: "产品经理", dept: "产品中心", lv: 3 }];
+      const projects = [{ id: "server-project-1", n: "服务端项目", own: "server-user-1", st: "进行中" }];
+      const payroll = { "server-user-1": [] };
+      window.QUANTXY_WORKSTATION_SERVER_ADAPTER = {
+        getSession: () => session,
+        loadBootstrap: () => ({
+          mode: "server",
+          session,
+          members,
+          projects,
+          tasks: [serverTask],
+          payroll,
+          features: { identitySwitch: false, demoReset: false },
+        }),
+        loadMyDashboard: () => ({ tasks: [serverTask], must: [serverTask], projects, payroll: null, reminders: [] }),
+        listMyTasks: () => [serverTask],
+        loadMyTask: () => serverTask,
+        listMyProjects: () => projects,
+        loadPayroll: () => [],
+        saveTask: () => serverTask,
+        claimTask: () => serverTask,
+        updateTaskExecution: () => serverTask,
+        submitTaskResult: () => serverTask,
+        reviewTaskResult: () => serverTask,
+        reopenTask: () => serverTask,
+        clearDemoData: () => undefined,
+        resetDemoData: () => undefined,
+      };
+      window.fetch = async (url) => {
+        requests.push(String(url));
+        if (String(url) === "/api/ai/config") {
+          return response(true, {
+            provider: "deepseek",
+            apiBaseUrl: "https://api.deepseek.com",
+            model: "deepseek-v4-flash",
+            keyConfigured: false,
+            keyHint: null,
+            updatedAt: null,
+            canManage: false,
+          });
+        }
+        return response(false, { error: "unexpected_request" }, 404);
+      };
+    },
+  });
+  try {
+    await waitFor(() => dom.window.Q?.S.me === "server-user-1");
+    assert.deepEqual(dom.window.Q.S.tasks.map((task) => task.id), ["server-task-1"]);
+    assert.equal(dom.window.Q.gateway.getSession().authMode, "feishu");
+    dom.window.Q.S.page = "me";
+    dom.window.Q.render();
+    assert.match(dom.window.document.querySelector("#view").textContent, /飞书真实任务/);
+    assert.doesNotMatch(dom.window.document.querySelector("#view").textContent, /量子计算平台接口设计评审/);
+    assert.equal(dom.window.document.querySelector('[data-act="setme"]'), null);
+    assert.equal(requests.includes("/api/demo-auth/session"), false);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("clears stale navigation filters and detail selections for clear reset and restore", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S, gateway } = dom.window.Q;
+    const dirtyUi = () => {
+      S.page = "project";
+      S.tab = { proj: "风险", task: "已完成", kb: "month" };
+      for (const key of Object.keys(S.f)) S.f[key] = "stale";
+      S.sch = { goal: "旧目标", deadline: "2099-12-31", budget: 999, must: "旧约束", busy: true, err: "旧错误", tasks: [{}], plans: [{}], pick: "C", from: "旧来源", issued: true };
+      S.sel = { task: "old-task", wbs: "old-wbs" };
+      S.curProj = "old-project";
+      S.curAgent = "old-agent";
+      S.curCustomer = "old-customer";
+      S.curActivity = "old-activity";
+      S.editId = "old-edit";
+      S.menu = true;
+      S.cmenu = true;
+      S.confirm = { t: "old" };
+      S.deptMgr = true;
+    };
+    const assertCleanUi = () => {
+      assert.equal(S.page, "me");
+      assert.deepEqual(JSON.parse(JSON.stringify(S.tab)), { proj: "all", task: "all", kb: "week" });
+      assert.deepEqual(JSON.parse(JSON.stringify(S.f)), {
+        projCat: "all", projSt: "all", projQ: "", taskQ: "", taskOwn: "all", taskPri: "all", taskSt: "all",
+        meScope: "todo", meTab: "all", payMonth: "", payFocus: "", kbQ: "", kbCat: "all", orgQ: "", orgDept: "all", agentDept: "all", agentQ: "", agentTab: "dir", agentVis: "all",
+        dashTab: "进行中", insightG: "日", gq: "", customerQ: "", customerSt: "all", activitySt: "all", decisionTab: "待我决策",
+      });
+      assert.equal(S.sch.goal, "");
+      assert.equal(S.sch.budget, 30);
+      assert.equal(S.sch.must, "");
+      assert.equal(S.sch.busy, false);
+      assert.equal(S.sch.tasks, null);
+      assert.equal(S.sch.plans, null);
+      assert.equal(S.sch.pick, "A");
+      assert.equal(S.sch.issued, false);
+      assert.deepEqual(JSON.parse(JSON.stringify(S.sel)), { task: null, wbs: null });
+      for (const value of [S.curProj, S.curAgent, S.curCustomer, S.curActivity, S.editId, S.confirm]) {
+        assert.equal(value, null);
+      }
+      assert.equal(S.menu, false);
+      assert.equal(S.cmenu, false);
+      assert.equal(S.deptMgr, false);
+    };
+
+    dirtyUi();
+    gateway.clearDemoData();
+    assertCleanUi();
+
+    dirtyUi();
+    gateway.resetDemoData();
+    assertCleanUi();
+
+    dirtyUi();
+    gateway.resetDemoData();
+    assertCleanUi();
   } finally {
     dom.window.close();
   }
