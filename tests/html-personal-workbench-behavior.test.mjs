@@ -432,3 +432,23 @@ test("renders explicit empty personal states without borrowing another identity'
     dom.window.close();
   }
 });
+
+test("executes a pending task from the rendered detail controls", async () => {
+  const dom = await openWorkbench();
+  try {
+    const task = dom.window.Q.S.tasks.find((item) => item.st === "待处理");
+    dom.window.Q.S.me = task.own;
+    dom.window.Q.S.sel.task = task.id;
+    dom.window.Q.S.page = "execution";
+    dom.window.Q.render();
+    dom.window.document.querySelector('[data-act="task-claim"]').click();
+    const progress = dom.window.document.querySelector("#execProgress");
+    progress.value = "45";
+    dom.window.document.querySelector('[data-act="task-save-progress"]').click();
+    assert.equal(task.st, "进行中");
+    assert.equal(task.pr, 45);
+    assert.match(dom.window.document.querySelector("#view").textContent, /45%/);
+  } finally {
+    dom.window.close();
+  }
+});

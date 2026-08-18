@@ -1682,6 +1682,97 @@ function viewMe(){
   '</div>']);
 }
 
+/* ---------------- 页面：任务执行详情 ---------------- */
+function fieldValue(id){ var node=el(id); return node?node.value.trim():''; }
+function readExecutionInput(){ return {progress:Number(fieldValue('execProgress')),blocker:fieldValue('execBlocker'),nextStep:fieldValue('execNextStep')}; }
+function readResultInput(){ return {resultText:fieldValue('execResultText'),resultLink:fieldValue('execResultLink'),resultFiles:fieldValue('execResultFiles').split(/\r?\n/).map(function(v){ return v.trim(); }).filter(Boolean)}; }
+function taskError(error){
+  var code=String(error&&error.message||error);
+  return {forbidden:'当前身份没有此操作权限',invalid_status:'当前任务状态不允许此操作',invalid_progress:'进度必须在 0 到 100 之间',result_required:'请填写成果说明，并提供成果链接或文件名称',review_note_required:'驳回时必须填写验收意见',invalid_decision:'验收决定无效',task_not_found:'任务不存在'}[code]||'任务操作失败';
+}
+function viewExecution(){
+  var task=WORKSTATION_GATEWAY.loadMyTask(S.me,S.sel.task);
+  if(!task){
+    return '<div class="card fade"><div class="bd empty" style="padding:48px 20px">'+
+      '<div style="font-size:15px;font-weight:650;color:var(--ink);margin-bottom:8px">任务不存在或当前身份无权查看</div>'+
+      '<div style="margin-bottom:18px">请返回个人工作台，重新选择当前身份可访问的任务。</div>'+
+      '<button class="btn soft" style="margin:0 auto" data-act="go" data-page="me">返回个人工作台</button></div></div>';
+  }
+  var project=PB[task.p]||{}, owner=MB[task.own]||{}, creator=MB[task.createdBy]||{}, reviewer=MB[task.reviewer]||{};
+  var isOwner=S.me===task.own, canReview=S.me===task.reviewer||S.me===task.createdBy;
+  var safeLink=/^https?:\/\//i.test(task.resultLink||'')?task.resultLink:'';
+  var timeline=(task.timeline||[]).slice().reverse();
+  var actionPanel='';
+  if(isOwner&&task.st==='待处理'){
+    actionPanel='<div class="card"><div class="hd"><h3>开始执行</h3></div><div class="bd"><p class="hint" style="margin:0 0 14px">领取后任务进入“进行中”，即可更新进度并提交成果。</p><button class="btn" data-act="task-claim">'+ic('bolt',15)+'领取任务</button></div></div>';
+  }else if(isOwner&&task.st==='进行中'){
+    actionPanel=j([
+      '<div class="card"><div class="hd"><h3>更新执行进度</h3></div><div class="bd">',
+        '<label class="field"><span>当前进度（0-100）</span><input class="inp" id="execProgress" type="number" min="0" max="100" value="',esc(task.pr),'" inputmode="numeric"></label>',
+        '<label class="field"><span>阻塞原因</span><textarea class="ta" id="execBlocker" placeholder="没有阻塞可留空">',esc(task.blocker||''),'</textarea></label>',
+        '<label class="field"><span>下一步动作</span><textarea class="ta" id="execNextStep" placeholder="写清下一步准备推进什么">',esc(task.nextStep||''),'</textarea></label>',
+        '<button class="btn soft" data-act="task-save-progress">',ic('ok',15),'保存执行进度</button>',
+      '</div></div>',
+      '<div class="card"><div class="hd"><h3>提交成果</h3><div class="grow"></div><span class="tag t-v">提交后待验收</span></div><div class="bd">',
+        '<label class="field"><span>成果说明</span><textarea class="ta" id="execResultText" placeholder="说明已完成的内容与验收要点">',esc(task.resultText||''),'</textarea></label>',
+        '<label class="field"><span>成果链接</span><input class="inp" id="execResultLink" value="',esc(task.resultLink||''),'" placeholder="https://example.com/result"></label>',
+        '<label class="field"><span>成果文件名称（每行一个）</span><textarea class="ta" id="execResultFiles" placeholder="验收报告.pdf&#10;交付清单.xlsx">',esc((task.resultFiles||[]).join('\n')),'</textarea></label>',
+        '<p class="hint">这里只记录文件名称或链接，不上传二进制文件。</p>',
+        '<button class="btn" data-act="task-submit">',ic('send',15),'提交负责人验收</button>',
+      '</div></div>'
+    ]);
+  }else if(canReview&&task.st==='待验收'){
+    actionPanel=j(['<div class="card"><div class="hd"><h3>负责人验收</h3><div class="grow"></div><span class="tag t-v">待验收</span></div><div class="bd">',
+      '<label class="field"><span>验收意见</span><textarea class="ta" id="execReviewNote" placeholder="通过可选填，驳回必须说明修改要求"></textarea></label>',
+      '<div style="display:flex;gap:9px"><button class="btn ghost" style="color:var(--risk)" data-act="task-reject">驳回修改</button><button class="btn" data-act="task-pass">',ic('ok',15),'验收通过</button></div>',
+    '</div></div>']);
+  }else if(canReview&&task.st==='已完成'){
+    actionPanel=j(['<div class="card"><div class="hd"><h3>重新打开任务</h3></div><div class="bd">',
+      '<label class="field"><span>重开说明</span><textarea class="ta" id="execReviewNote" placeholder="说明为什么需要重新执行"></textarea></label>',
+      '<button class="btn ghost" data-act="task-reopen">重新打开</button>',
+    '</div></div>']);
+  }else{
+    actionPanel='<div class="card"><div class="bd"><div class="empty">当前身份在此状态下没有待执行操作</div></div></div>';
+  }
+  return j([
+    '<div class="fade"><div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:16px">',
+      '<button class="btn ghost" data-act="go" data-page="me">← 返回个人工作台</button>',
+      '<div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap"><h2 style="font-size:20px;margin:0">',esc(task.n),'</h2>',stTag(task.st),priTag(task.pri),'</div>',
+      '<p style="margin:5px 0 0;color:var(--mut);font-size:12.5px">',esc(project.n||'未关联项目'),' · 任务编号 ',esc(task.id),' · 截止 ',esc(task.e||'未设置'),'</p></div>',
+    '</div>',
+    '<div class="grid" style="grid-template-columns:minmax(0,1.35fr) minmax(310px,.65fr);align-items:start">',
+      '<div style="display:flex;flex-direction:column;gap:16px">',
+        '<div class="card"><div class="hd"><h3>任务信息</h3><div class="grow"></div><b style="font-size:13px">',Number(task.pr||0),'%</b></div><div class="bd">',
+          '<div class="bar" style="margin-bottom:17px"><i style="width:',Math.max(0,Math.min(100,Number(task.pr||0))),'%"></i></div>',
+          '<div class="grid" style="grid-template-columns:1fr 1fr;gap:0 24px">',
+            [['执行人',owner.n||'未指定'],['任务发起人',creator.n||'未指定'],['负责人 / 验收人',reviewer.n||'未指定'],['计划周期',(task.s||'未设置')+' 至 '+(task.e||'未设置')],['领取时间',task.acceptedAt||'尚未领取'],['提交时间',task.submittedAt||'尚未提交']].map(function(row){
+              return '<div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line2);font-size:12.5px"><span style="color:var(--mut)">'+row[0]+'</span><b style="text-align:right">'+esc(row[1])+'</b></div>';
+            }).join(''),
+          '</div>',
+          '<div style="margin-top:16px"><div style="font-size:12px;color:var(--mut);margin-bottom:6px">任务说明</div><p style="margin:0;padding:11px 12px;border-radius:10px;background:#f8faff;line-height:1.75">',esc(task.description||'未补充任务说明'),'</p></div>',
+          '<div style="margin-top:14px"><div style="font-size:12px;color:var(--mut);margin-bottom:6px">验收标准</div><p style="margin:0;padding:11px 12px;border-radius:10px;background:#f8faff;line-height:1.75">',esc(task.ac||'未补充验收标准'),'</p></div>',
+          '<div class="grid" style="grid-template-columns:1fr 1fr;margin-top:14px">',
+            '<div><div style="font-size:12px;color:var(--mut);margin-bottom:6px">阻塞原因</div><p style="margin:0;line-height:1.7">',esc(task.blocker||'暂无阻塞'),'</p></div>',
+            '<div><div style="font-size:12px;color:var(--mut);margin-bottom:6px">下一步动作</div><p style="margin:0;line-height:1.7">',esc(task.nextStep||'尚未填写'),'</p></div>',
+          '</div>',
+        '</div></div>',
+        '<div class="card"><div class="hd"><h3>成果信息</h3><div class="grow"></div>',task.submittedAt?'<span class="sm">提交于 '+esc(task.submittedAt)+'</span>':'','</div><div class="bd">',
+          '<div style="font-size:12px;color:var(--mut);margin-bottom:6px">成果说明</div><p style="margin:0 0 14px;line-height:1.75">',esc(task.resultText||'尚未提交成果'),'</p>',
+          '<div style="font-size:12px;color:var(--mut);margin-bottom:6px">成果链接</div>',
+          safeLink?'<a class="link" href="'+esc(safeLink)+'" target="_blank" rel="noopener noreferrer">'+esc(task.resultLink)+'</a>':'<span style="color:var(--sub)">'+esc(task.resultLink||'暂无成果链接')+'</span>',
+          '<div style="font-size:12px;color:var(--mut);margin:14px 0 6px">成果文件</div>',
+          (task.resultFiles||[]).length?(task.resultFiles||[]).map(function(name){ return '<span class="tag t-n" style="margin:0 6px 6px 0">'+ic('file',12)+esc(name)+'</span>'; }).join(''):'<span style="color:var(--sub)">暂无成果文件</span>',
+          '<div style="font-size:12px;color:var(--mut);margin:14px 0 6px">验收意见</div><p style="margin:0;line-height:1.75">',esc(task.reviewNote||'尚无验收意见'),'</p>',
+        '</div></div>',
+        '<div class="card"><div class="hd"><h3>执行记录</h3><div class="grow"></div><span class="tag t-n">',timeline.length,'</span></div><div class="bd" style="padding-top:6px">',
+          timeline.length?timeline.map(function(row){ var actor=MB[row.actor]||{}; return '<div style="display:flex;gap:11px;padding:11px 0;border-bottom:1px solid var(--line2)"><span style="width:30px;height:30px;border-radius:9px;background:var(--brand-s);display:grid;place-items:center;flex:0 0 auto">'+ic('clock',14,'#2563eb')+'</span><div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b>'+esc(row.action||'任务更新')+'</b><span style="font-size:11.5px;color:var(--mut)">'+esc(actor.n||'系统')+' · '+esc(row.at||'')+'</span></div>'+(row.note?'<p style="margin:4px 0 0;color:var(--sub);line-height:1.65">'+esc(row.note)+'</p>':'')+'</div></div>'; }).join(''):'<div class="empty">暂无执行记录</div>',
+        '</div></div>',
+      '</div>',
+      '<div style="display:flex;flex-direction:column;gap:16px">',actionPanel,'</div>',
+    '</div></div>'
+  ]);
+}
+
 /* ---------------- 页面：AI 助理 ---------------- */
 function viewAssistant(){
   var hist=[['Q2 经营分析报告草稿','请帮我生成一份 Q2 经营分析报告，包含…','10:28'],
@@ -3021,7 +3112,7 @@ function viewDecisions(){
 }
 
 /* ---------------- 路由 ---------------- */
-var VIEWS={dash:viewDash,proj:viewProj,sched:viewSched,task:viewTask,me:viewMe,assistant:viewAssistant,
+var VIEWS={dash:viewDash,proj:viewProj,sched:viewSched,task:viewTask,me:viewMe,execution:viewExecution,assistant:viewAssistant,
   customers:viewCustomers,activities:viewActivities,decisions:viewDecisions,
   insight:viewInsight,kb:viewKb,flow:viewAgents,fin:viewFin,org:viewOrg,set:viewSet,
   'new-member':viewNewMember,'new-project':viewNewProject,'new-file':viewNewFile,'new-task':viewNewTask,
@@ -3242,6 +3333,30 @@ document.addEventListener('click',function(e){
   }
   else if(a==='open-execution'){
     S.sel.task=t.getAttribute('data-id'); S.page='execution'; render();
+  }
+  else if(a==='task-claim'){
+    try{ WORKSTATION_GATEWAY.claimTask(S.sel.task,S.me); render(); toast('任务已领取，可以开始执行'); }
+    catch(error){ toast(taskError(error)); }
+  }
+  else if(a==='task-save-progress'){
+    try{ WORKSTATION_GATEWAY.updateTaskExecution(S.sel.task,S.me,readExecutionInput()); render(); toast('执行进度已保存'); }
+    catch(error){ toast(taskError(error)); }
+  }
+  else if(a==='task-submit'){
+    try{ WORKSTATION_GATEWAY.submitTaskResult(S.sel.task,S.me,readResultInput()); render(); toast('成果已提交，等待负责人验收'); }
+    catch(error){ toast(taskError(error)); }
+  }
+  else if(a==='task-pass'){
+    try{ WORKSTATION_GATEWAY.reviewTaskResult(S.sel.task,S.me,{decision:'pass',note:fieldValue('execReviewNote')}); render(); toast('任务验收通过'); }
+    catch(error){ toast(taskError(error)); }
+  }
+  else if(a==='task-reject'){
+    try{ WORKSTATION_GATEWAY.reviewTaskResult(S.sel.task,S.me,{decision:'reject',note:fieldValue('execReviewNote')}); render(); toast('任务已驳回修改'); }
+    catch(error){ toast(taskError(error)); }
+  }
+  else if(a==='task-reopen'){
+    try{ WORKSTATION_GATEWAY.reopenTask(S.sel.task,S.me,fieldValue('execReviewNote')); render(); toast('任务已重新打开'); }
+    catch(error){ toast(taskError(error)); }
   }
   else if(a==='open-my-project'){
     S.curProj=t.getAttribute('data-id'); S.page='project'; render();

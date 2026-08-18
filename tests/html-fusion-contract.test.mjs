@@ -210,3 +210,17 @@ test("renders the complete clickable personal workbench", async () => {
     assert.match(html, new RegExp(`data-act="${action}"`));
   }
 });
+
+test("registers the personal execution detail and closed-loop controls", async () => {
+  const html = await readFusionHtml();
+  assert.match(html, /execution:\s*viewExecution/);
+  for (const fn of ["viewExecution", "readExecutionInput", "readResultInput"]) {
+    assert.match(html, new RegExp(`function ${fn}\\(`));
+  }
+  for (const action of ["task-claim", "task-save-progress", "task-submit", "task-pass", "task-reject", "task-reopen"]) {
+    assert.match(html, new RegExp(`data-act="${action}"`));
+  }
+  for (const label of ["任务说明", "验收标准", "阻塞原因", "成果说明", "成果链接", "执行记录"]) {
+    assert.match(html, new RegExp(label));
+  }
+});
