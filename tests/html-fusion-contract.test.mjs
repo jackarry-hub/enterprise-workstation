@@ -130,7 +130,7 @@ test("keeps authentication separate from identity and business data", async () =
   assert.match(html, /data-act="logout"/);
   assert.match(html, /data-act="setme"/);
   assert.match(html, /切换身份查看工作台/);
-  assert.match(html, /localStorage\.setItem\('qxy'/);
+  assert.match(html, /localStorage\.setItem\(QXY_DEMO_DATA_KEY/);
   assert.doesNotMatch(html, /localStorage\.removeItem\('qxy'\)/);
 });
 
@@ -179,4 +179,24 @@ test("uses the original demo login UI with a server session on HTTP", async () =
   assert.match(html, /location\.protocol==='file:'/);
   assert.match(html, /data-act="login-submit"/);
   assert.match(html, /data-act="setme"/);
+});
+
+test("defines a replaceable personal workbench data gateway", async () => {
+  const html = await readFusionHtml();
+  for (const token of [
+    "WORKSTATION_RUNTIME",
+    "authMode:'demo'",
+    "dataMode:'demo'",
+    "function createDemoGateway(",
+    "loadMyDashboard",
+    "listMyTasks",
+    "loadMyTask",
+    "listMyProjects",
+    "loadPayroll",
+    "gateway:WORKSTATION_GATEWAY",
+  ]) {
+    assert.match(html, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  assert.match(html, /var QXY_DEMO_DATA_KEY='qxy\.workstation\.demo\.v2'/);
+  assert.doesNotMatch(html, /createServerGateway\(\)/);
 });

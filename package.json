@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "npm run test:unit && npm run test:html",
     "test:unit": "vitest run --exclude \"scripts/phase1/**/*.test.mjs\" --exclude \"scripts/phase2/**/*.test.mjs\" --exclude \"tests/html-*.test.mjs\" --exclude \".worktrees/**\"",
-    "test:html": "node --test tests/html-fusion-contract.test.mjs tests/html-demo-login-behavior.test.mjs",
+    "test:html": "node --test tests/html-fusion-contract.test.mjs tests/html-demo-login-behavior.test.mjs tests/html-personal-workbench-behavior.test.mjs",
     "test:watch": "vitest --exclude \"scripts/phase1/**/*.test.mjs\" --exclude \"scripts/phase2/**/*.test.mjs\" --exclude \"tests/html-*.test.mjs\" --exclude \".worktrees/**\"",
     "test:e2e": "playwright test",
     "db:start": "npx supabase start",

@@ -344,8 +344,52 @@ function fmt(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDat
 function md(d){ return pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
 function diffD(a,b){ return Math.round((b-a)/86400000); }
 function uid(p){ return p+Math.random().toString(36).slice(2,7); }
-function save(){ try{ localStorage.setItem('qxy', JSON.stringify({tasks:S.tasks,cfg:S.cfg,members:MEMBERS,projects:PROJECTS,kb:KB,agents:S.agents,runs:S.runs.slice(0,40),depts:DEPTS,reqs:S.reqs,customers:S.customers,activities:S.activities,decisions:S.decisions})); }catch(e){} }
-function load(){ try{ var r=localStorage.getItem('qxy'); return r?JSON.parse(r):null; }catch(e){ return null; } }
+var WORKSTATION_RUNTIME={authMode:'demo',dataMode:'demo'};
+var QXY_DEMO_DATA_KEY='qxy.workstation.demo.v2';
+var QXY_DEMO_CLEARED_KEY='qxy.workstation.demo.cleared';
+var QXY_LEGACY_DATA_KEY='qxy';
+
+function demoSnapshot(){
+  return {tasks:S.tasks,cfg:S.cfg,members:MEMBERS,projects:PROJECTS,kb:KB,
+    agents:S.agents,runs:S.runs.slice(0,40),depts:DEPTS,reqs:S.reqs,
+    customers:S.customers,activities:S.activities,decisions:S.decisions,
+    payroll:S.payroll};
+}
+function save(){
+  try{ localStorage.setItem(QXY_DEMO_DATA_KEY,JSON.stringify(demoSnapshot())); }catch(e){}
+}
+function load(){
+  try{
+    var current=localStorage.getItem(QXY_DEMO_DATA_KEY);
+    if(current) return JSON.parse(current);
+    var legacy=localStorage.getItem(QXY_LEGACY_DATA_KEY);
+    return legacy?JSON.parse(legacy):null;
+  }catch(e){ return null; }
+}
+function defaultReviewer(task){
+  var project=PB[task.p], candidate=project&&project.own;
+  return candidate&&candidate!==task.own?candidate:'m14';
+}
+function normalizeTask(task){
+  var item=task||{}, reviewer=item.reviewer||defaultReviewer(item);
+  item.st=item.st==='待审核'?'待验收':(item.st||'待处理');
+  item.createdBy=item.createdBy||reviewer;
+  item.reviewer=reviewer;
+  item.description=item.description||item.n||'';
+  item.ac=item.ac||'成果满足任务说明并由验收人确认';
+  item.pr=Math.max(0,Math.min(100,Number(item.pr||(item.st==='已完成'?100:0))));
+  item.blocker=item.blocker||'';
+  item.nextStep=item.nextStep||'';
+  item.resultText=item.resultText||'';
+  item.resultLink=item.resultLink||'';
+  item.resultFiles=Array.isArray(item.resultFiles)?item.resultFiles:[];
+  item.acceptedAt=item.acceptedAt||'';
+  item.submittedAt=item.submittedAt||'';
+  item.reviewedAt=item.reviewedAt||'';
+  item.reviewNote=item.reviewNote||'';
+  item.timeline=Array.isArray(item.timeline)?item.timeline:[];
+  return item;
+}
 function toast(t){ var n=el('toast'); n.textContent=t; n.className='toast on'; clearTimeout(n._t); n._t=setTimeout(function(){ n.className='toast'; },2400); }
 
 /* SVG 图标（内联，无图标库依赖） */
@@ -658,7 +702,7 @@ var KB = [
 /* ---------------- 全局状态 ---------------- */
 var S = {
   page:'dash', me:'m14', menu:false, helper:true,
-  tasks:[], proj:PROJECTS, customers:[], activities:[], decisions:[],
+  tasks:[], proj:PROJECTS, customers:[], activities:[], decisions:[], payroll:{},
   tab:{proj:'all', task:'all', kb:'week'},
   sel:{task:null, wbs:null},
   cfg:{ provider:'deepseek', endpoint:'/api/ai/chat',
@@ -680,6 +724,59 @@ var S = {
   chain:[], chainIn:'', chainOut:[], chainBusy:false, chainStep:0, reqs:[],
   appr:null
 };
+
+var PAYROLL_BASE={m1:22000,m2:24000,m3:30000,m4:23000,m5:21000,m6:22000,m7:19000,
+  m8:28000,m9:18000,m10:16500,m11:19000,m12:20000,m13:18000,m14:45000};
+function payrollMonth(offset){
+  var d=new Date(); d.setDate(1); d.setMonth(d.getMonth()+offset);
+  return d.getFullYear()+'-'+pad(d.getMonth()+1);
+}
+function seedPayroll(){
+  var out={};
+  MEMBERS.forEach(function(member,index){
+    var base=PAYROLL_BASE[member.id]||18000;
+    out[member.id]=[-2,-1,0].map(function(offset,monthIndex){
+      var performance=1800+((index+monthIndex)%5)*600;
+      var projectBonus=((index+monthIndex)%4)*900;
+      var otherBonus=(index+monthIndex)%3===0?500:0;
+      var social=Math.round(base*0.105);
+      var tax=Math.max(0,Math.round((base+performance+projectBonus+otherBonus-social-5000)*0.08));
+      var otherDeduction=0;
+      var gross=base+performance+projectBonus+otherBonus;
+      var deductions=social+tax+otherDeduction;
+      return {month:payrollMonth(offset),base:base,performance:performance,
+        projectBonus:projectBonus,otherBonus:otherBonus,social:social,tax:tax,
+        otherDeduction:otherDeduction,gross:gross,deductions:deductions,
+        net:gross-deductions,status:offset<0?'已发放':'待发放',payDate:offset<0?payrollMonth(offset)+'-10':''};
+    }).reverse();
+  });
+  return out;
+}
+function copyPayrollRow(row){
+  var copy={}; Object.keys(row).forEach(function(key){ copy[key]=row[key]; }); return copy;
+}
+function personalTasks(memberId,scope,filter){
+  var rows=S.tasks.filter(function(task){ return scope==='created'?task.createdBy===memberId:task.own===memberId; });
+  if(filter&&filter!=='all') rows=rows.filter(function(task){ return task.st===filter; });
+  return rows;
+}
+function personalDashboard(memberId){
+  var tasks=personalTasks(memberId,'todo','all'), payroll=(S.payroll[memberId]||[])[0]||null;
+  return {tasks:tasks,must:tasks.filter(function(task){ return task.st!=='已完成'; }).slice(0,6),
+    projects:PROJECTS.filter(function(project){ return project.own===memberId; }).slice(0,4),payroll:payroll,reminders:[]};
+}
+function createDemoGateway(){
+  return {
+    getSession:function(){ return {authMode:'demo',dataMode:'demo',memberId:S.me,permissions:['task.execute','payroll.read.self']}; },
+    loadBootstrap:function(){ return {mode:'demo',session:this.getSession(),members:MEMBERS,projects:PROJECTS,tasks:S.tasks,payroll:S.payroll,features:{identitySwitch:true,demoReset:true}}; },
+    loadMyDashboard:function(memberId){ return personalDashboard(memberId); },
+    listMyTasks:function(memberId,scope,filter){ return personalTasks(memberId,scope,filter); },
+    loadMyTask:function(memberId,taskId){ return S.tasks.filter(function(task){ return task.id===taskId&&(task.own===memberId||task.createdBy===memberId||task.reviewer===memberId); })[0]||null; },
+    listMyProjects:function(memberId){ return PROJECTS.filter(function(project){ return project.own===memberId||S.tasks.some(function(task){ return task.p===project.id&&task.own===memberId; }); }); },
+    loadPayroll:function(memberId){ return (S.payroll[memberId]||[]).map(copyPayrollRow); }
+  };
+}
+var WORKSTATION_GATEWAY=createDemoGateway();
 
 /* ---------------- 调度引擎 ---------------- */
 /* 1) 拓扑排序 */
@@ -1849,6 +1946,16 @@ function viewSet(){
 
 /* ---------------- 创建类页面（成员 / 项目 / 文档 / 任务） ---------------- */
 var DEPTS=['管理层','产品中心','研发中心','数据中心','质量中心','运维中心','市场部','销售部','客服部','财务部','法务部','人力资源','行政部'];
+var INITIAL_MEMBERS=JSON.parse(JSON.stringify(MEMBERS));
+var INITIAL_PROJECTS=JSON.parse(JSON.stringify(PROJECTS));
+var INITIAL_KB=JSON.parse(JSON.stringify(KB));
+var INITIAL_DEPTS=JSON.parse(JSON.stringify(DEPTS));
+function rebuildLookups(){
+  Object.keys(MB).forEach(function(key){ delete MB[key]; });
+  MEMBERS.forEach(function(member){ MB[member.id]=member; });
+  Object.keys(PB).forEach(function(key){ delete PB[key]; });
+  PROJECTS.forEach(function(project){ PB[project.id]=project; });
+}
 var PCATS=['AI研发','产品开发','市场活动','内部管理','数据治理','基础设施'];
 var KCATS=['公司制度','业务流程','SOP模板','产品资料','培训资料'];
 var SKILLS=['需求分析','系统架构','Java','Go','Vue','React','TypeScript','数据建模','LLM应用','自动化测试','性能优化','交互设计','视觉设计','K8s','CI/CD','增长运营','数据分析','项目管理'];
@@ -3162,10 +3269,8 @@ document.addEventListener('keydown',function(e){
 /* ---------------- 启动 ---------------- */
 var saved=load();
 var legacyAiSecret=false;
-S.tasks=(saved&&saved.tasks&&saved.tasks.length)?saved.tasks:seedTasks();
-S.customers=(saved&&saved.customers&&saved.customers.length)?saved.customers:seedCustomers();
-S.activities=(saved&&saved.activities&&saved.activities.length)?saved.activities:seedActivities();
-S.decisions=(saved&&saved.decisions&&saved.decisions.length)?saved.decisions:seedDecisions();
+var migratedLegacy=false;
+try{ migratedLegacy=!!saved&&!localStorage.getItem(QXY_DEMO_DATA_KEY)&&!!localStorage.getItem(QXY_LEGACY_DATA_KEY); }catch(e){}
 if(saved&&saved.cfg){
   ['apiKey','proxy','keyCleared'].forEach(function(k){
     if(Object.prototype.hasOwnProperty.call(saved.cfg,k)){ delete saved.cfg[k]; legacyAiSecret=true; }
@@ -3174,25 +3279,29 @@ if(saved&&saved.cfg){
 }
 S.cfg.provider='deepseek'; S.cfg.endpoint='/api/ai/chat';
 if(saved&&saved.members&&saved.members.length){
-  MEMBERS.length=0; Object.keys(MB).forEach(function(k){ delete MB[k]; });
-  saved.members.forEach(function(m){ MEMBERS.push(m); MB[m.id]=m; });
+  MEMBERS.length=0; saved.members.forEach(function(m){ MEMBERS.push(m); });
 }
 if(saved&&saved.projects&&saved.projects.length){
-  PROJECTS.length=0; Object.keys(PB).forEach(function(k){ delete PB[k]; });
-  saved.projects.forEach(function(x){ PROJECTS.push(x); PB[x.id]=x; });
+  PROJECTS.length=0; saved.projects.forEach(function(x){ PROJECTS.push(x); });
 }
+rebuildLookups();
+S.tasks=((saved&&saved.tasks&&saved.tasks.length)?saved.tasks:seedTasks()).map(normalizeTask);
+S.customers=(saved&&saved.customers&&saved.customers.length)?saved.customers:seedCustomers();
+S.activities=(saved&&saved.activities&&saved.activities.length)?saved.activities:seedActivities();
+S.decisions=(saved&&saved.decisions&&saved.decisions.length)?saved.decisions:seedDecisions();
+S.payroll=(saved&&saved.payroll)||seedPayroll();
 if(saved&&saved.kb&&saved.kb.length){ KB.length=0; saved.kb.forEach(function(k){ KB.push(k); }); }
 S.agents=(saved&&saved.agents&&saved.agents.length)?saved.agents:seedAgents();
 S.runs=(saved&&saved.runs)?saved.runs:[];
 S.reqs=(saved&&saved.reqs)?saved.reqs:[];
 if(saved&&saved.depts&&saved.depts.length){ DEPTS.length=0; saved.depts.forEach(function(d){ DEPTS.push(d); }); }
 normalize();
-if(legacyAiSecret) save();
+if(legacyAiSecret||migratedLegacy) save();
 S.form=blankForm();
 S.appr=seedAppr();
 renderBrand();
 bootstrapDemoSession();
-return {S:S, render:render, schedule:schedule, makePlans:makePlans};
+return {S:S, render:render, schedule:schedule, makePlans:makePlans,gateway:WORKSTATION_GATEWAY};
 })();
 </script>
 </body>
