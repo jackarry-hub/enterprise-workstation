@@ -200,3 +200,13 @@ test("defines a replaceable personal workbench data gateway", async () => {
   assert.match(html, /var QXY_DEMO_DATA_KEY='qxy\.workstation\.demo\.v2'/);
   assert.doesNotMatch(html, /createServerGateway\(\)/);
 });
+
+test("renders the complete clickable personal workbench", async () => {
+  const html = await readFusionHtml();
+  for (const label of ["今日必须处理", "我的待办", "我发起的", "我的项目", "个人收入", "执行提醒"]) {
+    assert.match(html, new RegExp(label));
+  }
+  for (const action of ["my-task-filter", "open-execution", "open-my-project", "open-income"]) {
+    assert.match(html, new RegExp(`data-act="${action}"`));
+  }
+});

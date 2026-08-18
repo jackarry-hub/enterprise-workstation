@@ -778,7 +778,7 @@ var S = {
         tasks:null, plans:null, pick:'A', from:'', issued:false },
   chat:[], chatBusy:false, cmenu:false, form:null,
   f:{ projCat:'all', projSt:'all', projQ:'', taskQ:'', taskOwn:'all', taskPri:'all', taskSt:'all',
-      meTab:'all', kbQ:'', kbCat:'all', orgQ:'', orgDept:'all', agentDept:'all', agentQ:'', agentTab:'dir',
+      meScope:'todo', meTab:'all', payMonth:'', kbQ:'', kbCat:'all', orgQ:'', orgDept:'all', agentDept:'all', agentQ:'', agentTab:'dir',
       dashTab:'进行中', insightG:'日', gq:'', customerQ:'', customerSt:'all', activitySt:'all', decisionTab:'待我决策' },
   confirm:null, editId:null, deptMgr:false, curProj:null, curAgent:null, curCustomer:null, curActivity:null,
   agents:[], runs:[], agentIn:{}, agentOut:'', agentBusy:false,
@@ -813,15 +813,27 @@ function seedPayroll(){
   });
   return out;
 }
+function payrollMoney(value){ return '¥ '+num(value,0); }
+function isOverdue(task){ return task.st!=='已完成'&&diffD(today(),new Date(task.e))<0; }
+function taskUrgency(task){
+  if(isOverdue(task)) return 0;
+  if(task.blocker) return 1;
+  if(task.st==='待验收') return 2;
+  if(task.pri==='P0') return 3;
+  return 4+Math.max(0,diffD(today(),new Date(task.e)));
+}
 function personalTasks(memberId,scope,filter){
   var rows=S.tasks.filter(function(task){ return scope==='created'?task.createdBy===memberId:task.own===memberId; });
-  if(filter&&filter!=='all') rows=rows.filter(function(task){ return task.st===filter; });
-  return rows;
+  if(filter==='已逾期') rows=rows.filter(isOverdue);
+  else if(filter&&filter!=='all') rows=rows.filter(function(task){ return task.st===filter; });
+  return rows.sort(function(a,b){ return taskUrgency(a)-taskUrgency(b); });
 }
 function personalDashboard(memberId){
   var tasks=personalTasks(memberId,'todo','all'), payroll=(S.payroll[memberId]||[])[0]||null;
+  var reviews=S.tasks.filter(function(task){ return task.reviewer===memberId&&task.own!==memberId&&task.st==='待验收'; });
   return {tasks:tasks,must:tasks.filter(function(task){ return task.st!=='已完成'; }).slice(0,6),
-    projects:PROJECTS.filter(function(project){ return project.own===memberId; }).slice(0,4),payroll:payroll,reminders:[]};
+    projects:WORKSTATION_GATEWAY.listMyProjects(memberId).slice(0,4),payroll:payroll,
+    reminders:tasks.filter(function(task){ return isOverdue(task)||task.blocker||task.st==='待验收'; }).concat(reviews).sort(function(a,b){ return taskUrgency(a)-taskUrgency(b); }).slice(0,5)};
 }
 function cloneGatewayValue(value){
   if(value==null||typeof value!=='object') return value;
@@ -1111,6 +1123,7 @@ var META={
   activities:['活动推进','从策划到复盘，贯通阶段、任务与关键节点'],
   decisions:['业务决策中心','聚合费用、采购、合同、项目与验收决策'],
   me:['员工工作台','今天要完成什么，一屏看清'],
+  execution:['任务执行详情','按领取、执行、提交与验收闭环推进任务'],
   assistant:['AI 助理','您的专属 AI 生产力伙伴，助您更快决策与执行'],
   insight:['数据洞察','洞察数据趋势，驱动业务增长'],
   kb:['知识中心','沉淀企业知识资产，激发组织智慧'],
@@ -1163,7 +1176,7 @@ function kpi(o){
     spark(o.s,o.c,120,32),'</div></div>']);
 }
 function stTag(st){
-  var m={'进行中':'t-b','已完成':'t-g','待处理':'t-n','待验收':'t-v','风险':'t-o','已延期':'t-r'};
+  var m={'进行中':'t-b','已完成':'t-g','待处理':'t-n','待验收':'t-v','风险':'t-o','已延期':'t-r','已逾期':'t-r'};
   return '<span class="tag '+(m[st]||'t-n')+'">'+st+'</span>';
 }
 function priTag(p){ return '<span class="tag '+(p==='P0'?'t-r':p==='P1'?'t-o':'t-n')+'">'+(p==='P0'?'高优先级':p==='P1'?'中优先级':'低优先级')+'</span>'; }
@@ -1612,86 +1625,59 @@ function viewTask(){
 
 /* ---------------- 页面：员工工作台 ---------------- */
 function viewMe(){
-  var me=MB[S.me], t0=today();
-  var boss=me.r==='企业决策人';
-  var mine=boss
-    ? S.tasks.filter(function(t){ return t.own===S.me || t.st==='待验收' || (PB[t.p]&&PB[t.p].own===S.me); })
-    : S.tasks.filter(function(t){ return t.own===S.me; });
-  var doing=mine.filter(function(t){ return t.st==='进行中'; }).length;
-  var done=mine.filter(function(t){ return t.st==='已完成'; }).length;
-  var late=mine.filter(function(t){ return t.st!=='已完成' && diffD(t0,new Date(t.e))<0; }).length;
-  var wait=mine.filter(function(t){ return t.st==='待验收'; }).length;
-  var pct=mine.length?Math.round(done/mine.length*100):0;
-  var wk=[62,80,95,110,90,40,30];
+  var me=MB[S.me], dashboard=WORKSTATION_GATEWAY.loadMyDashboard(S.me);
+  var scope=S.f.meScope||'todo', status=S.f.meTab||'all';
+  var tasks=WORKSTATION_GATEWAY.listMyTasks(S.me,scope,status);
+  var projects=WORKSTATION_GATEWAY.listMyProjects(S.me);
+  var payroll=WORKSTATION_GATEWAY.loadPayroll(S.me)[0]||null;
+  var statuses=[['待处理','待处理','#94a3b8','t-n'],['进行中','进行中','#2563eb','t-b'],['待验收','待验收','#7c3aed','t-v'],['已逾期','已逾期','#ef4444','t-r']];
+  function taskRow(task,compact){
+    var project=PB[task.p], overdue=isOverdue(task);
+    return '<button data-act="open-execution" data-id="'+task.id+'" style="width:100%;display:flex;align-items:center;gap:10px;padding:'+(compact?'10px 0':'12px 0')+';text-align:left;border-bottom:1px solid var(--line2)">'+
+      '<span style="width:30px;height:30px;border-radius:9px;background:'+(overdue?'var(--risk-s)':'var(--brand-s)')+';display:grid;place-items:center;flex:0 0 auto">'+ic(overdue?'warn':'task',15,overdue?'#ef4444':'#2563eb')+'</span>'+
+      '<span style="flex:1;min-width:0"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(task.n)+'</b><span style="font-size:11.5px;color:var(--mut)">'+esc(project?project.n:'未关联项目')+' · 截止 '+esc(task.e)+'</span></span>'+priTag(task.pri)+(overdue?stTag('已逾期'):stTag(task.st))+'</button>';
+  }
   return j([
-  '<div class="grid fade" style="grid-template-columns:1.5fr 1fr 1fr 1fr 1.2fr">',
-    '<div class="card" style="background:linear-gradient(120deg,#eef3ff,#f6f4ff);border-color:#e2e9fb"><div class="bd">',
-      '<h2 style="margin:0;font-size:20px">欢迎回来，',esc(me.n),' 👋</h2>',
-      '<p style="margin:8px 0 0;font-size:12.5px;color:var(--sub);line-height:1.7">'+
-        (boss?'给 AI 一个目标，它会拆解、定人、定时，<br>你只需要在这里把关结果。':'今天是高效执行的一天，<br>让我们一起推动目标前进！')+'</p>',
-      '<div style="display:flex;gap:26px;margin-top:18px">',
-        (boss?[[doing,'团队进行中'],[wait,'待我审批'],[late,'已逾期']]:[[doing,'进行中任务'],[wait,'待交付物'],[late,'待确认事项']]).map(function(x){
-          return '<div><div style="font-size:24px;font-weight:650">'+x[0]+'</div><div style="font-size:11.5px;color:var(--mut)">'+x[1]+'</div></div>';
-        }).join(''),
-      '</div>',
-      '<button class="link" style="margin-top:14px" data-act="go" data-page="task">查看我的全部任务 →</button>',
+  '<div class="card fade" style="background:linear-gradient(120deg,#eef3ff,#f7f5ff);border-color:#e2e9fb"><div class="bd" style="display:flex;align-items:center;gap:16px">',
+    av(me.n,1),'<div><h2 style="margin:0;font-size:20px">',esc(me.n),'的个人执行工作台</h2><p style="margin:4px 0 0;color:var(--sub);font-size:12.5px">',esc(me.dept),' · ',esc(me.r),' · 数据仅展示当前身份</p></div>',
+    '<div class="grow"></div><span class="tag t-b">今日 ',fmt(today()),'</span>',
+  '</div></div>',
+
+  '<div class="grid" style="grid-template-columns:repeat(4,1fr);margin-top:16px">',statuses.map(function(item){
+    var count=personalTasks(S.me,'todo',item[0]).length;
+    return '<button class="card kpi" data-act="my-task-filter" data-scope="todo" data-status="'+item[0]+'" style="display:block;text-align:left;width:100%"><div class="t"><span>'+item[1]+'</span><span class="ico" style="background:'+item[2]+'18">'+ic(item[0]==='已逾期'?'warn':'task',17,item[2])+'</span></div><div class="v">'+count+'<small> 项</small></div><div class="f"><em>点击查看对应任务</em></div></button>';
+  }).join(''),'</div>',
+
+  '<div class="grid" style="grid-template-columns:1.35fr 1fr;margin-top:16px">',
+    '<div class="card"><div class="hd"><h3>今日必须处理</h3><div class="grow"></div><span class="tag t-o">'+dashboard.must.length+'</span></div><div class="bd" style="padding-top:4px">',
+      dashboard.must.length?dashboard.must.map(function(task){ return taskRow(task,false); }).join(''):'<div class="empty">今日没有必须处理的事项</div>',
     '</div></div>',
-    '<div class="card"><div class="hd"><h3>我的任务</h3></div><div class="bd" style="padding-top:8px">',
-      [['进行中',doing,'t-b'],['已完成',done,'t-g'],['已延期',late,'t-r'],['待确认',wait,'t-v']].map(function(x){
-        return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:9px;background:#f9fbff;margin-bottom:7px">'+
-          '<span class="tag '+x[2]+'">'+x[0]+'</span><span style="flex:1"></span><b>'+x[1]+'</b></div>';
-      }).join(''),
-    '</div></div>',
-    '<div class="card"><div class="hd"><h3>今日进度</h3></div><div class="bd" style="display:grid;place-items:center;padding-top:4px">',
-      ring(pct,'#2563eb',126,'完成度'),
-      '<div style="font-size:11.5px;color:var(--mut);margin-top:8px">已完成 '+done+'　总计划 '+mine.length+'</div>',
-    '</div></div>',
-    '<div class="card"><div class="hd"><h3>待交付</h3></div><div class="bd" style="display:grid;place-items:center;padding-top:4px">',
-      ring(Math.min(99,wait*33),'#f59e0b',126,'项'),
-      '<div style="font-size:11.5px;color:var(--mut);margin-top:8px">本周内 '+wait+'　下周 1　逾期 '+late+'</div>',
-    '</div></div>',
-    '<div class="card"><div class="hd"><h3>协作消息</h3><div class="grow"></div><button class="link">全部 ›</button></div><div class="bd" style="padding-top:6px">',
-      [['张雪','@'+me.n+' 请确认《智能客服升级…','10:20'],['王磊','已更新项目进度，请查收','09:58'],['产品团队','新功能需求评审已通过','09:30'],['系统通知','你的任务《数据看板优化》已延期','08:45']].map(function(x){
-        return '<div style="display:flex;gap:9px;align-items:center;padding:7px 0">'+av(x[0])+'<div style="flex:1;min-width:0"><b style="font-size:12.5px">'+x[0]+'</b>'+
-          '<div style="font-size:11.5px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+x[1]+'</div></div>'+
-          '<span style="font-size:11px;color:var(--mut)">'+x[2]+'</span></div>';
-      }).join(''),
+    '<div class="card"><div class="hd"><h3>执行提醒</h3><div class="grow"></div><span class="sm">逾期 · 阻塞 · 待验收</span></div><div class="bd" style="padding-top:4px">',
+      dashboard.reminders.length?dashboard.reminders.map(function(task){
+        var note=isOverdue(task)?'已逾期':task.blocker?('阻塞：'+task.blocker):'等待负责人验收';
+        return '<button data-act="open-execution" data-id="'+task.id+'" style="width:100%;display:flex;gap:9px;align-items:center;padding:10px 0;text-align:left;border-bottom:1px solid var(--line2)">'+ic('bell',15,isOverdue(task)?'#ef4444':'#f59e0b')+'<span style="flex:1;min-width:0"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(task.n)+'</b><span style="font-size:11.5px;color:var(--mut)">'+esc(note)+'</span></span>'+stTag(isOverdue(task)?'已逾期':task.st)+'</button>';
+      }).join(''):'<div class="empty">当前身份暂无执行提醒</div>',
     '</div></div>',
   '</div>',
 
-  '<div class="grid" style="grid-template-columns:1fr 1.6fr 1.1fr 1.1fr;margin-top:16px">',
-    '<div class="card"><div class="hd"><h3>快捷操作</h3></div><div class="bd" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;text-align:center">',
-      [['plus','创建任务','new-task'],['proj','创建项目','new-project'],['book','上传文档','new-file'],['user','添加成员','new-member'],
-       ['ai','AI 调度','sched'],['ok','发起审批','task'],['chart','新建汇报','insight'],['dash','数据看板','insight']].map(function(x){
-        return '<button data-act="go" data-page="'+x[2]+'"><span style="width:38px;height:38px;border-radius:11px;background:var(--brand-s);display:grid;place-items:center;margin:0 auto 6px">'+ic(x[0],18,'#2563eb')+'</span>'+
-          '<span style="font-size:11.5px;color:var(--sub)">'+x[1]+'</span></button>';
-      }).join(''),
+  '<div class="card" style="margin-top:16px"><div class="hd" style="gap:8px"><h3 style="margin-right:8px">个人任务</h3>',
+    '<button class="chip '+(scope==='todo'?'on':'')+'" data-act="my-task-filter" data-scope="todo" data-status="'+status+'">我的待办</button>',
+    '<button class="chip '+(scope==='created'?'on':'')+'" data-act="my-task-filter" data-scope="created" data-status="'+status+'">我发起的</button>',
+    '<div class="grow"></div><div class="chips">',['all','待处理','进行中','待验收','已完成','已逾期'].map(function(value){
+      return '<button class="chip '+(status===value?'on':'')+'" data-act="my-task-filter" data-scope="'+scope+'" data-status="'+value+'">'+(value==='all'?'全部':value)+'</button>';
+    }).join(''),'</div></div><div class="bd" style="padding-top:4px;max-height:390px;overflow:auto">',
+      tasks.length?tasks.map(function(task){ return taskRow(task,false); }).join(''):'<div class="empty">当前身份暂无任务</div>',
+  '</div></div>',
+
+  '<div class="grid" style="grid-template-columns:1.35fr 1fr;margin-top:16px">',
+    '<div class="card"><div class="hd"><h3>我的项目</h3><div class="grow"></div><span class="tag t-n">'+projects.length+'</span></div><div class="bd" style="padding-top:4px">',
+      projects.length?projects.slice(0,6).map(function(project){
+        var mine=personalTasks(S.me,'todo','all').filter(function(task){ return task.p===project.id; });
+        return '<button data-act="open-my-project" data-id="'+project.id+'" style="width:100%;display:flex;align-items:center;gap:11px;padding:12px 0;text-align:left;border-bottom:1px solid var(--line2)"><span style="width:34px;height:34px;border-radius:10px;background:var(--brand-s);display:grid;place-items:center">'+ic('proj',17,'#2563eb')+'</span><span style="flex:1"><b style="display:block">'+esc(project.n)+'</b><span style="font-size:11.5px;color:var(--mut)">'+mine.length+' 个我的任务 · '+esc(project.cat)+'</span></span>'+stTag(project.st)+'</button>';
+      }).join(''):'<div class="empty">当前身份暂无项目</div>',
     '</div></div>',
-    '<div class="card"><div class="hd"><h3>'+(boss?'待我处理与把关':'我的任务列表')+'</h3><div class="grow"></div>',
-      '<div class="chips">'+['all','进行中','待处理','待验收','已完成'].map(function(v){
-        return '<button class="chip '+(S.f.meTab===v?'on':'')+'" data-act="set" data-k="meTab" data-v="'+v+'">'+(v==='all'?'全部':v)+'</button>'; }).join('')+'</div></div>',
-      '<div class="bd" style="padding-top:4px;max-height:290px;overflow:auto">',
-      (function(){ if(S.f.meTab!=='all') mine=mine.filter(function(t){ return t.st===S.f.meTab; }); return ''; })(),
-      mine.length? '<table><tbody>'+mine.map(function(t){
-        var left=diffD(t0,new Date(t.e));
-        return '<tr style="cursor:pointer"><td style="width:20px"><span title="状态只可在任务详情按流程更新" style="display:inline-block;width:15px;height:15px;border-radius:4px;border:1.6px solid '+(t.st==='已完成'?'var(--ok)':'var(--line)')+';background:'+(t.st==='已完成'?'var(--ok)':'#fff')+'"></span></td>'+
-          '<td data-act="pick-task-go" data-id="'+t.id+'"><b style="font-weight:600;'+(t.st==='已完成'?'color:var(--mut);text-decoration:line-through':'')+'">'+esc(t.n)+'</b></td>'+
-          '<td style="font-size:11.5px;color:var(--mut)">'+esc(PB[t.p]?PB[t.p].n:'—')+'</td>'+
-          '<td>'+stTag(t.st)+'</td><td style="font-size:12px;color:'+(left<0?'var(--risk)':'var(--sub)')+'">'+md(new Date(t.e))+'</td>'+
-          '<td>'+priTag(t.pri)+'</td></tr>';
-      }).join('')+'</tbody></table>' : '<div class="empty">'+(boss?'当前没有需要你把关的事项。去 AI 调度中心给团队下一个目标。':'当前身份暂无任务，等待 AI 调度下发')+'</div>',
-    '</div></div>',
-    '<div class="card"><div class="hd"><h3>'+(boss?'今日重点把关':'今日优先')+'</h3></div><div class="bd" style="padding-top:6px">',
-      mine.filter(function(t){ return t.st!=='已完成'; }).slice(0,5).map(function(t,i){
-        return '<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line2)">'+
-          '<b style="color:var(--mut);font-size:12px">'+pad(i+1)+'</b><span style="flex:1;font-size:12.5px">'+esc(t.n)+'</span>'+
-          '<span class="tag '+(t.pri==='P0'?'t-r':'t-o')+'">'+(t.pri==='P0'?'高':'中')+'</span>'+
-          '<span style="font-size:11px;color:var(--mut)">'+md(new Date(t.e))+'</span></div>';
-      }).join('')||'<div class="empty">今天没有待办</div>',
-    '</div></div>',
-    '<div class="card"><div class="hd"><h3>个人工作负载</h3><div class="grow"></div><span class="sm">本周</span></div><div class="bd">',
-      lines([{d:wk,c:'#2563eb'}],['周一','周二','周三','周四','周五','周六','周日'],420,190,function(v){ return Math.round(v)+'%'; }),
-      '<div style="font-size:11.5px;color:var(--mut);text-align:right">合理负载区间 60% - 100%</div>',
+    '<div class="card"><div class="hd"><h3>个人收入</h3><div class="grow"></div><span class="sm">仅本人可见</span></div><div class="bd">',
+      payroll?'<button data-act="open-income" data-month="'+payroll.month+'" style="width:100%;padding:18px;border-radius:12px;background:linear-gradient(120deg,var(--brand-s),var(--violet-s));text-align:left"><span style="display:block;font-size:12px;color:var(--sub)">'+esc(payroll.month)+' 实发工资</span><b style="display:block;font-size:28px;margin:5px 0;color:var(--brand-d)">'+payrollMoney(payroll.net)+'</b><span style="font-size:11.5px;color:var(--mut)">应发 '+payrollMoney(payroll.gross)+' · 扣款 '+payrollMoney(payroll.deductions)+' · 点击查看明细</span></button>':'<div class="empty">当前身份暂无工资记录</div>',
     '</div></div>',
   '</div>']);
 }
@@ -3237,7 +3223,11 @@ document.addEventListener('click',function(e){
   else if(a==='modal-ok'){ var fn=S.confirm&&S.confirm.fn; if(fn) fn(); else { S.confirm=null; render(); } }
   else if(a==='menu'){ S.menu=!S.menu; render(); }
   else if(a==='logout'){ logoutDemo(); }
-  else if(a==='setme'){ S.me=t.getAttribute('data-id'); S.menu=false; S.page='me'; render(); }
+  else if(a==='setme'){
+    S.me=t.getAttribute('data-id'); S.menu=false; S.page='me';
+    S.f.meScope='todo'; S.f.meTab='all'; S.f.payMonth='';
+    S.sel.task=null; S.curProj=null; render();
+  }
   else if(a==='hide-helper'){ S.helper=false; renderNav(); }
   else if(a==='tab'){ S.tab[t.getAttribute('data-k')]=t.getAttribute('data-v'); render(); }
   else if(a==='gen'){ genPlan(); }
@@ -3245,7 +3235,21 @@ document.addEventListener('click',function(e){
   else if(a==='pick-wbs'){ S.sel.wbs=t.getAttribute('data-id'); render(); }
   else if(a==='issue'){ issue(); }
   else if(a==='pick-task'){ S.sel.task=t.getAttribute('data-id'); render(); }
-  else if(a==='pick-task-go'){ S.sel.task=t.getAttribute('data-id'); S.page='task'; render(); }
+  else if(a==='my-task-filter'){
+    S.f.meScope=t.getAttribute('data-scope')||'todo';
+    S.f.meTab=t.getAttribute('data-status')||'all';
+    S.page='me'; render();
+  }
+  else if(a==='open-execution'){
+    S.sel.task=t.getAttribute('data-id'); S.page='execution'; render();
+  }
+  else if(a==='open-my-project'){
+    S.curProj=t.getAttribute('data-id'); S.page='project'; render();
+  }
+  else if(a==='open-income'){
+    S.f.payMonth=t.getAttribute('data-month')||''; S.page='fin'; render();
+  }
+  else if(a==='pick-task-go'){ S.sel.task=t.getAttribute('data-id'); S.page='execution'; render(); }
   else if(a==='goal-go'){ var gb=el('goalBox'); S.sch.goal=gb?gb.value.trim():''; S.page='sched'; render();
     if(S.sch.goal) setTimeout(genPlan,60); }
   else if(a==='chat'){ sendChat(); }

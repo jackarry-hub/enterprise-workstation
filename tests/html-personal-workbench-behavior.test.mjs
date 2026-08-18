@@ -317,3 +317,118 @@ test("renders the normalized pending acceptance status on task surfaces", async 
     dom.window.close();
   }
 });
+
+test("changes all personal workbench collections with the selected identity", async () => {
+  const dom = await openWorkbench();
+  try {
+    dom.window.Q.S.me = "m1";
+    dom.window.Q.S.page = "me";
+    dom.window.Q.render();
+    const firstTasks = dom.window.Q.gateway.listMyTasks("m1", "todo", "all");
+    const firstProjects = dom.window.Q.gateway.listMyProjects("m1");
+    const firstPayroll = dom.window.Q.gateway.loadPayroll("m1");
+    assert.ok(firstTasks.every((task) => task.own === "m1"));
+
+    dom.window.Q.S.me = "m2";
+    dom.window.Q.render();
+    const secondTasks = dom.window.Q.gateway.listMyTasks("m2", "todo", "all");
+    const secondProjects = dom.window.Q.gateway.listMyProjects("m2");
+    const secondPayroll = dom.window.Q.gateway.loadPayroll("m2");
+    assert.ok(secondTasks.every((task) => task.own === "m2"));
+    assert.notDeepEqual(firstTasks.map((task) => task.id), secondTasks.map((task) => task.id));
+    assert.notDeepEqual(firstProjects.map((project) => project.id), secondProjects.map((project) => project.id));
+    assert.notDeepEqual(firstPayroll, secondPayroll);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("routes clickable workbench records to their exact destination", async () => {
+  const dom = await openWorkbench();
+  try {
+    dom.window.Q.S.me = "m1";
+    dom.window.Q.S.page = "me";
+    dom.window.Q.render();
+    const taskButton = dom.window.document.querySelector('[data-act="open-execution"]');
+    assert.ok(taskButton);
+    const taskId = taskButton.getAttribute("data-id");
+    taskButton.click();
+    assert.equal(dom.window.Q.S.page, "execution");
+    assert.equal(dom.window.Q.S.sel.task, taskId);
+    assert.match(dom.window.document.getElementById("top").textContent, /任务执行详情/);
+
+    dom.window.Q.S.page = "me";
+    dom.window.Q.render();
+    const projectButton = dom.window.document.querySelector('[data-act="open-my-project"]');
+    assert.ok(projectButton);
+    const projectId = projectButton.getAttribute("data-id");
+    projectButton.click();
+    assert.equal(dom.window.Q.S.page, "project");
+    assert.equal(dom.window.Q.S.curProj, projectId);
+
+    dom.window.Q.S.page = "me";
+    dom.window.Q.render();
+    const incomeButton = dom.window.document.querySelector('[data-act="open-income"]');
+    assert.ok(incomeButton);
+    const month = incomeButton.getAttribute("data-month");
+    incomeButton.click();
+    assert.equal(dom.window.Q.S.page, "fin");
+    assert.equal(dom.window.Q.S.f.payMonth, month);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("resets personal filters and stale record selections when identity changes", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S } = dom.window.Q;
+    S.me = "m1";
+    S.page = "me";
+    S.f.meScope = "created";
+    S.f.meTab = "已完成";
+    S.f.payMonth = "2026-07";
+    S.sel.task = "t1";
+    S.curProj = "p1";
+    dom.window.Q.render();
+
+    S.menu = true;
+    dom.window.Q.render();
+    const switchButton = dom.window.document.querySelector('[data-act="setme"][data-id="m2"]');
+    assert.ok(switchButton);
+    switchButton.click();
+
+    assert.equal(S.me, "m2");
+    assert.equal(S.page, "me");
+    assert.equal(S.f.meScope, "todo");
+    assert.equal(S.f.meTab, "all");
+    assert.equal(S.f.payMonth, "");
+    assert.equal(S.sel.task, null);
+    assert.equal(S.curProj, null);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("renders explicit empty personal states without borrowing another identity's data", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S } = dom.window.Q;
+    S.me = "m1";
+    S.page = "me";
+    S.tasks = S.tasks.filter((task) => task.own !== "m1" && task.createdBy !== "m1");
+    S.proj.length = 0;
+    S.payroll.m1 = [];
+    dom.window.Q.render();
+
+    const personalView = dom.window.document.getElementById("view").textContent;
+    assert.match(personalView, /今日没有必须处理的事项/);
+    assert.match(personalView, /当前身份暂无任务/);
+    assert.match(personalView, /当前身份暂无项目/);
+    assert.match(personalView, /当前身份暂无工资记录/);
+    assert.match(personalView, /当前身份暂无执行提醒/);
+    assert.equal(dom.window.document.querySelector('[data-act="open-execution"]'), null);
+  } finally {
+    dom.window.close();
+  }
+});
