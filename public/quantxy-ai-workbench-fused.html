@@ -821,6 +821,13 @@ function payrollRow(memberId,month){
   rows.forEach(function(row){ if(row.month===month) selected=row; });
   return selected||rows[0]||null;
 }
+function payrollTotals(row){
+  row=row||{};
+  var social=Number(row.socialSecurity!=null?row.socialSecurity:row.social||0);
+  var gross=Number(row.base||0)+Number(row.performance||0)+Number(row.projectBonus||0)+Number(row.otherBonus||0);
+  var deductions=social+Number(row.tax||0)+Number(row.otherDeduction||0);
+  return {gross:gross,deductions:deductions,net:gross-deductions,social:social};
+}
 function isOverdue(task){ return task.st!=='已完成'&&diffD(today(),new Date(task.e))<0; }
 function taskUrgency(task){
   if(isOverdue(task)) return 0;
@@ -1636,7 +1643,7 @@ function viewMe(){
   var scope=S.f.meScope||'todo', status=S.f.meTab||'all';
   var tasks=WORKSTATION_GATEWAY.listMyTasks(S.me,scope,status);
   var projects=WORKSTATION_GATEWAY.listMyProjects(S.me);
-  var payroll=WORKSTATION_GATEWAY.loadPayroll(S.me)[0]||null;
+  var payroll=payrollRow(S.me,''), payrollSummary=payrollTotals(payroll);
   var statuses=[['待处理','待处理','#94a3b8','t-n'],['进行中','进行中','#2563eb','t-b'],['待验收','待验收','#7c3aed','t-v'],['已逾期','已逾期','#ef4444','t-r']];
   function taskRow(task,compact){
     var project=PB[task.p], overdue=isOverdue(task);
@@ -1684,7 +1691,7 @@ function viewMe(){
       }).join(''):'<div class="empty">当前身份暂无项目</div>',
     '</div></div>',
     '<div class="card"><div class="hd"><h3>个人收入</h3><div class="grow"></div><span class="sm">仅本人可见</span></div><div class="bd">',
-      payroll?'<button data-act="open-income" data-month="'+payroll.month+'" style="width:100%;padding:18px;border-radius:12px;background:linear-gradient(120deg,var(--brand-s),var(--violet-s));text-align:left"><span style="display:block;font-size:12px;color:var(--sub)">'+esc(payroll.month)+' 实发工资</span><b style="display:block;font-size:28px;margin:5px 0;color:var(--brand-d)">'+payrollMoney(payroll.net)+'</b><span style="font-size:11.5px;color:var(--mut)">应发 '+payrollMoney(payroll.gross)+' · 扣款 '+payrollMoney(payroll.deductions)+' · 点击查看明细</span></button>':'<div class="empty">当前身份暂无工资记录</div>',
+      payroll?'<button data-act="open-income" data-month="'+payroll.month+'" style="width:100%;padding:18px;border-radius:12px;background:linear-gradient(120deg,var(--brand-s),var(--violet-s));text-align:left"><span style="display:block;font-size:12px;color:var(--sub)">'+esc(payroll.month)+' 实发工资</span><b style="display:block;font-size:28px;margin:5px 0;color:var(--brand-d)">'+payrollMoney(payrollSummary.net)+'</b><span style="font-size:11.5px;color:var(--mut)">应发 '+payrollMoney(payrollSummary.gross)+' · 扣款 '+payrollMoney(payrollSummary.deductions)+' · 点击查看明细</span></button>':'<div class="empty">当前身份暂无工资记录</div>',
     '</div></div>',
   '</div>']);
 }
@@ -1941,9 +1948,8 @@ function viewFin(){
     return '<div class="card fade"><div class="hd"><h3>我的薪酬</h3></div><div class="empty">当前身份暂无工资记录</div></div>';
   }
   var selected=payrollRow(S.me,S.f.payMonth);
-  var gross=Number(selected.base||0)+Number(selected.performance||0)+Number(selected.projectBonus||0)+Number(selected.otherBonus||0);
-  var deductions=Number(selected.social||0)+Number(selected.tax||0)+Number(selected.otherDeduction||0);
-  var net=gross-deductions;
+  var selectedTotals=payrollTotals(selected);
+  var gross=selectedTotals.gross, deductions=selectedTotals.deductions, net=selectedTotals.net;
   var focusValues={net:net,gross:gross,performance:Number(selected.performance||0),projectBonus:Number(selected.projectBonus||0)};
   var focusLabels={net:'实发工资',gross:'应发工资',performance:'绩效奖金',projectBonus:'项目奖金'};
   var cards=[
@@ -1954,7 +1960,7 @@ function viewFin(){
   ];
   var details=[
     ['基本工资',selected.base],['绩效奖金',selected.performance],['项目奖金',selected.projectBonus],['其他奖励',selected.otherBonus],
-    ['社保公积金',-Number(selected.social||0)],['个人所得税',-Number(selected.tax||0)],['其他扣款',-Number(selected.otherDeduction||0)],
+    ['社保公积金',-selectedTotals.social],['个人所得税',-Number(selected.tax||0)],['其他扣款',-Number(selected.otherDeduction||0)],
     ['应发工资',gross],['扣款合计',-deductions],['实发工资',net]
   ];
   return j([
@@ -1975,10 +1981,9 @@ function viewFin(){
         '</tbody></table></div></div>',
       '<div class="card"><div class="hd"><h3>最近月份工资记录</h3><div class="grow"></div><span class="sm">仅显示当前身份</span></div><div class="bd"><table><thead><tr><th>月份</th><th>实发工资</th><th>状态</th><th>发放日期</th></tr></thead><tbody>',
         rows.map(function(row){
-          var rowGross=Number(row.base||0)+Number(row.performance||0)+Number(row.projectBonus||0)+Number(row.otherBonus||0);
-          var rowDeductions=Number(row.social||0)+Number(row.tax||0)+Number(row.otherDeduction||0);
+          var rowTotals=payrollTotals(row);
           var active=row.month===selected.month;
-          return '<tr data-act="payroll-month" data-month="'+esc(row.month)+'" style="cursor:pointer;background:'+(active?'var(--brand-s)':'transparent')+'"><td><b>'+esc(row.month)+'</b></td><td>'+payrollMoney(rowGross-rowDeductions)+'</td><td><span class="tag '+(row.status==='已发放'?'t-g':'t-o')+'">'+esc(row.status||'待确认')+'</span></td><td>'+esc(row.payDate||'待定')+'</td></tr>';
+          return '<tr style="background:'+(active?'var(--brand-s)':'transparent')+'"><td><button class="link" data-act="payroll-month" data-month="'+esc(row.month)+'" style="width:100%;text-align:left"><b>'+esc(row.month)+'</b></button></td><td>'+payrollMoney(rowTotals.net)+'</td><td><span class="tag '+(row.status==='已发放'?'t-g':'t-o')+'">'+esc(row.status||'待确认')+'</span></td><td>'+esc(row.payDate||'待定')+'</td></tr>';
         }).join(''),
         '</tbody></table></div></div>',
     '</div>'

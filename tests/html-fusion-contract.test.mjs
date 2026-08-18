@@ -249,4 +249,6 @@ test("replaces corporate finance with personal salary and bonus detail", async (
   }
   assert.match(source, /data-act="payroll-month"/);
   assert.match(source, /data-act="payroll-focus"/);
+  assert.match(source, /<button[^>]*data-act="payroll-month"/);
+  assert.doesNotMatch(source, /<tr[^>]*data-act="payroll-month"/);
 });

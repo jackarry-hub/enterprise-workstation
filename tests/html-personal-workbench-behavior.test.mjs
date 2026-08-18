@@ -555,3 +555,89 @@ test("renders a safe empty payroll state for the selected identity", async () =>
     dom.window.close();
   }
 });
+
+test("uses the true latest recomputed payroll on both personal workbench and finance", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S } = dom.window.Q;
+    S.me = "m1";
+    S.payroll.m1 = [
+      {
+        month: "2026-05",
+        base: 10000,
+        performance: 500,
+        projectBonus: 200,
+        otherBonus: 100,
+        social: 1000,
+        tax: 300,
+        otherDeduction: 50,
+        gross: 1,
+        deductions: 2,
+        net: 3,
+        status: "已发放",
+        payDate: "2026-05-10",
+      },
+      {
+        month: "2026-09",
+        base: 20000,
+        performance: 1200,
+        projectBonus: 700,
+        otherBonus: 100,
+        social: 2100,
+        tax: 800,
+        otherDeduction: 200,
+        gross: 111,
+        deductions: 222,
+        net: 333,
+        status: "待发放",
+        payDate: "",
+      },
+    ];
+
+    S.page = "me";
+    dom.window.Q.render();
+    const personalText = dom.window.document.querySelector("#view").textContent;
+    for (const expected of ["2026-09", "22,000", "3,100", "18,900"]) {
+      assert.match(personalText, new RegExp(expected));
+    }
+    assert.doesNotMatch(personalText, /333/);
+
+    S.page = "fin";
+    dom.window.Q.render();
+    const financeText = dom.window.document.querySelector("#view").textContent;
+    for (const expected of ["2026-09", "22,000", "3,100", "18,900"]) {
+      assert.match(financeText, new RegExp(expected));
+    }
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("renders each payroll month as one native focusable button with one click action", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S, gateway } = dom.window.Q;
+    S.me = "m1";
+    S.page = "fin";
+    dom.window.Q.render();
+    const targetMonth = gateway.loadPayroll("m1")[1].month;
+    const control = dom.window.document.querySelector(
+      `button[data-act="payroll-month"][data-month="${targetMonth}"]`,
+    );
+    assert.ok(control);
+    assert.equal(control.hasAttribute("role"), false);
+    assert.equal(control.hasAttribute("tabindex"), false);
+    control.focus();
+    assert.equal(dom.window.document.activeElement, control);
+
+    let clickCount = 0;
+    control.addEventListener("click", () => {
+      clickCount += 1;
+    });
+    control.click();
+    assert.equal(clickCount, 1);
+    assert.equal(S.f.payMonth, targetMonth);
+  } finally {
+    dom.window.close();
+  }
+});
