@@ -16,6 +16,12 @@ const envExample = readFileSync(
   resolve(process.cwd(), ".env.example"),
   "utf8",
 );
+const notificationDeploymentPlaceholders = {
+  NEXT_PUBLIC_APP_URL: "https://workstation.example.com",
+  FEISHU_APP_ID: "cli_your_feishu_app_id",
+  FEISHU_APP_SECRET: "your_server_only_feishu_app_secret",
+  SUPABASE_SERVICE_ROLE_KEY: "your_server_only_supabase_service_role_key",
+} as const;
 const env: FeishuTaskNotificationEnv = {
   appId: "cli_test",
   appSecret: "app-secret",
@@ -40,24 +46,113 @@ function responseWithHangingBody() {
   return response;
 }
 
+function envAssignments(source: string) {
+  return source.split(/\r?\n/).flatMap((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return [];
+
+    const assignment = trimmed.match(
+      /^(?:export\s+)?([A-Z][A-Z0-9_]*)\s*=(.*)$/,
+    );
+    if (!assignment) return [];
+
+    return [{
+      name: assignment[1],
+      value: assignment[2].trim(),
+    }];
+  });
+}
+
+function expectNotificationDeploymentEnvContract(source: string) {
+  const assignments = envAssignments(source);
+
+  for (const [name, approvedValue] of Object.entries(
+    notificationDeploymentPlaceholders,
+  )) {
+    const matchingAssignments = assignments.filter(
+      (assignment) => assignment.name === name,
+    );
+
+    expect(
+      matchingAssignments,
+      `${name} must have exactly one non-comment assignment`,
+    ).toHaveLength(1);
+    expect(
+      matchingAssignments[0].value,
+      `${name} must use its approved placeholder value`,
+    ).toBe(approvedValue);
+  }
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
 
 describe("Feishu task notification environment", () => {
   it("documents every notification setting with an obvious placeholder", () => {
-    expect(envExample).toMatch(
-      /^NEXT_PUBLIC_APP_URL=https:\/\/workstation\.example\.com$/m,
+    expectNotificationDeploymentEnvContract(envExample);
+  });
+
+  it.each([
+    [
+      "FEISHU_APP_SECRET",
+      "fake_test_only_A1b2C3d4E5f6G7h8J9k0L1m2N3p4Q5r6",
+    ],
+    [
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "fake_test_only_Z9y8X7w6V5u4T3s2R1q0P9n8M7l6K5j4",
+    ],
+  ])("rejects a second real-like %s assignment", (name, fakeValue) => {
+    const mutatedEnv = `${envExample.trimEnd()}\n${name}=${fakeValue}\n`;
+
+    expect(() => expectNotificationDeploymentEnvContract(mutatedEnv)).toThrow();
+  });
+
+  it.each([
+    ["an empty secret", "FEISHU_APP_SECRET", ""],
+    [
+      "a fake JWT-like value",
+      "FEISHU_APP_SECRET",
+      "eyJmYWtlIjp0cnVlfQ.eyJ0ZXN0Ijoib25seSJ9.fake_signature",
+    ],
+    [
+      "a fake sk-prefixed value",
+      "FEISHU_APP_SECRET",
+      "sk-fake_test_only_0123456789abcdef",
+    ],
+    [
+      "a fake high-entropy value",
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "fake_test_only_aB3dE5fG7hJ9kL2mN4pQ6rS8tV0xYz1A",
+    ],
+    [
+      "an unapproved production-shaped domain",
+      "NEXT_PUBLIC_APP_URL",
+      "https://workstation.example.net",
+    ],
+    [
+      "an unapproved secret placeholder",
+      "FEISHU_APP_SECRET",
+      "fake_unapproved_secret_for_test_only",
+    ],
+  ])("rejects %s", (_case, name, fakeValue) => {
+    const mutatedEnv = envExample.replace(
+      new RegExp(`^${name}=.*$`, "m"),
+      `${name}=${fakeValue}`,
     );
-    expect(envExample).toMatch(
-      /^FEISHU_APP_ID=cli_your_feishu_app_id$/m,
-    );
-    expect(envExample).toMatch(
-      /^FEISHU_APP_SECRET=your_server_only_feishu_app_secret$/m,
-    );
-    expect(envExample).toMatch(
-      /^SUPABASE_SERVICE_ROLE_KEY=your_server_only_supabase_service_role_key$/m,
-    );
+
+    expect(() => expectNotificationDeploymentEnvContract(mutatedEnv)).toThrow();
+  });
+
+  it("ignores comments and unrelated placeholder assignments", () => {
+    const mutatedEnv = [
+      envExample.trimEnd(),
+      "# FEISHU_APP_SECRET=fake_commented_test_value",
+      "UNRELATED_PLACEHOLDER=your_unrelated_placeholder",
+      "",
+    ].join("\n");
+
+    expect(() => expectNotificationDeploymentEnvContract(mutatedEnv)).not.toThrow();
   });
 
   it("describes the app URL as the employee-accessible deployment origin for task deep links", () => {
