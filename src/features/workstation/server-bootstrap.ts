@@ -46,6 +46,9 @@ export type WorkstationTaskRow = {
   resultSummary?: string | null;
   resultLink?: string | null;
   resultFiles?: readonly string[] | null;
+  acceptedAt?: string | null;
+  submittedAt?: string | null;
+  reviewedAt?: string | null;
 };
 
 export type WorkstationSalaryRow = {
@@ -172,6 +175,9 @@ export function buildServerBootstrap(
       resultText: task.resultSummary ?? "",
       resultLink: task.resultLink ?? "",
       resultFiles: task.resultFiles ? [...task.resultFiles] : [],
+      acceptedAt: task.acceptedAt ?? "",
+      submittedAt: task.submittedAt ?? "",
+      reviewedAt: task.reviewedAt ?? "",
       timeline: [],
       src: "飞书工作站",
       dep: [],

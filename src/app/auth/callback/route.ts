@@ -1,4 +1,9 @@
-import { isPublicAuthPath, getSafeReturnPath, parseWorkspaceAccess } from "@/features/auth/workspace-access";
+import {
+  FORMAL_WORKSTATION_PATH,
+  getSafeReturnPath,
+  isPublicAuthPath,
+  parseWorkspaceAccess,
+} from "@/features/auth/workspace-access";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 export type IdentityClaimResult =
@@ -21,9 +26,9 @@ type PublicAccessReason =
   | "configuration_error";
 
 export type AuthCallbackDependencies = {
-  exchangeCode: (code: string) => Promise<boolean>;
+  exchangeCode: (code: string) => Promise<string | null>;
   claimIdentity: () => Promise<unknown>;
-  loadSession: () => Promise<{ landingPath: string } | null>;
+  loadSession: (authUserId: string) => Promise<{ landingPath: string } | null>;
   signOut: () => Promise<void>;
 };
 
@@ -91,7 +96,8 @@ async function handleAuthCallback(
   }
 
   try {
-    if (!await dependencies.exchangeCode(codes[0])) {
+    const authUserId = await dependencies.exchangeCode(codes[0]);
+    if (!authUserId) {
       return rejectCallback(url, "auth_error", dependencies.signOut);
     }
 
@@ -101,14 +107,14 @@ async function handleAuthCallback(
       return rejectCallback(url, publicReason, dependencies.signOut);
     }
 
-    const session = await dependencies.loadSession();
+    const session = await dependencies.loadSession(authUserId);
     if (!session) {
       return rejectCallback(url, "identity_error", dependencies.signOut);
     }
 
     return callbackRedirect(
       url,
-      safeNextPath(url) ?? session.landingPath,
+      safeNextPath(url) ?? FORMAL_WORKSTATION_PATH,
     );
   } catch {
     return rejectCallback(url, "auth_error", dependencies.signOut);
@@ -129,8 +135,11 @@ async function handleGet(request: Request) {
 
   return handleAuthCallback(request, {
     exchangeCode: async (code) => {
-      const { error } = await supabase.auth.exchangeCodeForSession(code);
-      return !error;
+      const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+      const authUserId = data.user?.id;
+      return !error && typeof authUserId === "string" && authUserId
+        ? authUserId
+        : null;
     },
     claimIdentity: async () => {
       const { data, error } = await supabase.rpc("claim_current_identity");
@@ -139,18 +148,12 @@ async function handleGet(request: Request) {
       }
       return data;
     },
-    loadSession: async () => {
-      const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
-      if (claimsError) throw new Error("登录状态无效");
-
-      const subject = claimsData?.claims?.sub;
-      if (typeof subject !== "string" || !subject) return null;
-
+    loadSession: async (authUserId) => {
       const { data, error } = await supabase.rpc("current_workspace_access");
       if (error) throw new Error("工作身份读取失败");
 
       const session = parseWorkspaceAccess(data);
-      return session?.authUserId === subject ? session : null;
+      return session?.authUserId === authUserId ? session : null;
     },
     signOut: async () => {
       await supabase.auth.signOut({ scope: "local" });

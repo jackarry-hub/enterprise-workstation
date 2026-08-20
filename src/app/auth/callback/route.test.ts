@@ -13,7 +13,7 @@ function dependencies(
   overrides: Partial<AuthCallbackDependencies> = {},
 ): AuthCallbackDependencies {
   return {
-    exchangeCode: async () => true,
+    exchangeCode: async () => "auth-user-id",
     claimIdentity: async () => "active",
     loadSession: async () => ({ landingPath: "/execution" }),
     signOut: async () => undefined,
@@ -22,8 +22,8 @@ function dependencies(
 }
 
 describe("handleAuthCallback", () => {
-  it("exchanges one code and redirects an active identity to its landing page", async () => {
-    const exchangeCode = vi.fn(async () => true);
+  it("exchanges one code and redirects an active identity to the formal fused workstation", async () => {
+    const exchangeCode = vi.fn(async () => "auth-user-id");
     const response = await handleAuthCallback(
       new Request(`${callbackOrigin}/auth/callback?code=one-time-code`),
       dependencies({ exchangeCode }),
@@ -32,7 +32,23 @@ describe("handleAuthCallback", () => {
     expect(exchangeCode).toHaveBeenCalledOnce();
     expect(exchangeCode).toHaveBeenCalledWith("one-time-code");
     expect(response.headers.get("location")).toBe(
-      `${callbackOrigin}/execution`,
+      `${callbackOrigin}/quantxy-ai-workbench-fused.html?formal=1`,
+    );
+  });
+
+  it("loads workspace access for the user returned by the code exchange", async () => {
+    const loadSession = vi.fn(async (authUserId: string) =>
+      authUserId === "auth-user-id" ? { landingPath: "/execution" } : null,
+    );
+    const response = await handleAuthCallback(
+      new Request(`${callbackOrigin}/auth/callback?code=one-time-code`),
+      dependencies({ loadSession }),
+    );
+
+    expect(loadSession).toHaveBeenCalledOnce();
+    expect(loadSession).toHaveBeenCalledWith("auth-user-id");
+    expect(response.headers.get("location")).toBe(
+      `${callbackOrigin}/quantxy-ai-workbench-fused.html?formal=1`,
     );
   });
 
@@ -72,7 +88,7 @@ describe("handleAuthCallback", () => {
     `${callbackOrigin}/auth/callback`,
     `${callbackOrigin}/auth/callback?code=first&code=second`,
   ])("rejects a callback without exactly one code: %s", async (url) => {
-    const exchangeCode = vi.fn(async () => true);
+    const exchangeCode = vi.fn(async () => "auth-user-id");
     const signOut = vi.fn(async () => undefined);
     const response = await handleAuthCallback(
       new Request(url),
@@ -90,7 +106,7 @@ describe("handleAuthCallback", () => {
     const signOut = vi.fn(async () => undefined);
     const response = await handleAuthCallback(
       new Request(`${callbackOrigin}/auth/callback?code=expired`),
-      dependencies({ exchangeCode: async () => false, signOut }),
+      dependencies({ exchangeCode: async () => null, signOut }),
     );
 
     expect(signOut).toHaveBeenCalledOnce();
@@ -138,7 +154,7 @@ describe("handleAuthCallback", () => {
     );
 
     expect(response.headers.get("location")).toBe(
-      `${callbackOrigin}/execution`,
+      `${callbackOrigin}/quantxy-ai-workbench-fused.html?formal=1`,
     );
   });
 

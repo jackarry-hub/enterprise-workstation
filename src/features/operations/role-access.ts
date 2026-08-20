@@ -1,6 +1,7 @@
 import type { WorkspaceRole } from "@/features/auth/workspace-session-types";
 
 const sharedWorkspaceRoutes = [
+  "/",
   "/help",
   "/notifications",
   "/tasks",

@@ -98,6 +98,9 @@ function publicTask(row: Record<string, unknown>) {
     resultLink: String(row.result_link ?? ""),
     resultFiles: Array.isArray(row.result_files) ? row.result_files : [],
     reviewNote: String(row.review_note ?? ""),
+    acceptedAt: String(row.accepted_at ?? ""),
+    submittedAt: String(row.submitted_at ?? ""),
+    reviewedAt: String(row.reviewed_at ?? ""),
   };
 }
 
@@ -120,8 +123,8 @@ export const defaultWorkstationTaskDependencies: WorkstationTaskDependencies = {
     let changes: Record<string, unknown>;
 
     if (input.action === "claim") {
-      if (current.assignee_member_id !== null || !["backlog", "todo"].includes(current.status)) throw new Error("forbidden");
-      changes = { assignee_member_id: input.actorMemberId, status: "in_progress", start_date: now.slice(0, 10) };
+      if (!isAssignee || !["backlog", "todo"].includes(current.status)) throw new Error("forbidden");
+      changes = { status: "in_progress", accepted_at: now };
     } else if (input.action === "progress") {
       if (!isAssignee || current.status !== "in_progress") throw new Error("forbidden");
       changes = { progress: input.progress, blocker: input.blocker || null, next_step: input.nextStep ?? "" };
@@ -159,9 +162,9 @@ export const defaultWorkstationTaskDependencies: WorkstationTaskDependencies = {
       .eq("public_id", input.taskId)
       .eq("status", expectedStatus)
       .is("deleted_at", null);
-    if (input.action === "claim") update = update.is("assignee_member_id", null);
+    if (input.action === "claim") update = update.eq("assignee_member_id", current.assignee_member_id);
     const { data, error } = await update
-      .select("public_id, assignee_member_id, status, progress, blocker, next_step, result_summary, result_link, result_files, review_note")
+      .select("public_id, assignee_member_id, status, progress, blocker, next_step, result_summary, result_link, result_files, review_note, accepted_at, submitted_at, reviewed_at")
       .single();
     if (error || !data) throw new Error("task_update_failed");
     return publicTask(data as Record<string, unknown>);
@@ -192,7 +195,14 @@ export function createWorkstationTaskHandler(
         ...mutation,
       });
       return NextResponse.json({ task });
-    } catch {
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "task_update_failed";
+      if (code === "task_not_found") {
+        return NextResponse.json({ error: code }, { status: 404 });
+      }
+      if (code === "forbidden") {
+        return NextResponse.json({ error: code }, { status: 403 });
+      }
       return NextResponse.json({ error: "task_update_failed" }, { status: 409 });
     }
   };

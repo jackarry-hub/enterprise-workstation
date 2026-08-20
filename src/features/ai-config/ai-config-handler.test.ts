@@ -19,6 +19,20 @@ const existing: AiConfigRecord = {
   updated_at: "2026-08-17T12:00:00.000Z",
   updated_by: executiveWorkspaceSession.authUserId,
 };
+const employeeWorkspaceSession = {
+  ...executiveWorkspaceSession,
+  roleCodes: ["employee" as const],
+  permissionCodes: ["task.execute" as const],
+  primaryRole: "employee" as const,
+  landingPath: "/execution",
+  isAdmin: false,
+  actor: {
+    ...executiveWorkspaceSession.actor,
+    role: "employee" as const,
+    roleLabel: "普通员工",
+    landingPath: "/execution",
+  },
+};
 
 function deps(record: AiConfigRecord | null = existing) {
   let saved: AiConfigRecord | null = null;
@@ -70,7 +84,17 @@ describe("AI configuration handlers", () => {
     expect(JSON.stringify(body)).not.toContain("stored-iv");
   });
 
-  it("forbids configuration updates from non-managers", async () => {
+  it("marks the model configuration as manageable for an active internal employee", async () => {
+    const response = await handleGetAiConfig({
+      ...deps().value,
+      session: employeeWorkspaceSession,
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ canManage: true });
+  });
+
+  it("allows an active internal employee to update the shared model configuration", async () => {
     const fixture = deps();
     const response = await handlePutAiConfig(
       new Request("https://workspace.test/api/ai/config", {
@@ -79,15 +103,28 @@ describe("AI configuration handlers", () => {
       }),
       {
         ...fixture.value,
-        session: {
-          ...executiveWorkspaceSession,
-          primaryRole: "employee",
-          isAdmin: false,
-        },
+        session: employeeWorkspaceSession,
       },
     );
 
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(200);
+    expect(fixture.saved()).toMatchObject({
+      model_name: "deepseek-chat",
+      updated_by: employeeWorkspaceSession.authUserId,
+    });
+  });
+
+  it("still rejects configuration updates without an internal workspace session", async () => {
+    const fixture = deps();
+    const response = await handlePutAiConfig(
+      new Request("https://workspace.test/api/ai/config", {
+        method: "PUT",
+        body: JSON.stringify({ model: "deepseek-chat" }),
+      }),
+      { ...fixture.value, session: null },
+    );
+
+    expect(response.status).toBe(401);
     expect(fixture.saved()).toBeNull();
   });
 

@@ -258,7 +258,8 @@ test("uses clear scoped employee copy and accessible shell controls", async () =
   assert.match(html, /reviewScope\?'待我验收':'我的任务'/);
   assert.match(html, /领取任务并开始执行/);
   assert.match(html, /领取后开始处理，完成后提交负责人验收。/);
-  assert.match(html, /aria-label="通知，12 条未读"/);
+  assert.match(html, /data-act="notifications"/);
+  assert.match(html, /aria-label="通知，',notices\.length,' 条待处理"/);
   assert.match(html, /data-page-heading/);
 });
 

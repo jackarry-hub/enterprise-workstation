@@ -1,7 +1,17 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import type { ComponentPropsWithoutRef } from "react";
+import { describe, expect, it, vi } from "vitest";
 
 import { LoginCard } from "@/features/auth/login-card";
+
+vi.mock("next/link", () => ({
+  default: ({
+    prefetch,
+    ...props
+  }: ComponentPropsWithoutRef<"a"> & { prefetch?: boolean }) => (
+    <a data-next-link="true" data-prefetch={String(prefetch)} {...props} />
+  ),
+}));
 
 describe("LoginCard", () => {
   it("shows exactly one clear Feishu login action", () => {
@@ -14,6 +24,7 @@ describe("LoginCard", () => {
       screen.getByRole("link", { name: "使用飞书登录" }),
     ).toBeVisible();
     expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.getByRole("link")).not.toHaveAttribute("data-next-link");
     expect(screen.queryByLabelText(/邮箱|密码/)).not.toBeInTheDocument();
     expect(screen.getByText("仅限量子星河内部员工使用")).toBeVisible();
   });

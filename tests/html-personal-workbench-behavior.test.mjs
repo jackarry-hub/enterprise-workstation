@@ -1185,6 +1185,7 @@ test("fails closed without demo data or demo auth when real mode has no server a
 test("uses an injected server adapter for real session and business data without touching demo auth", async () => {
   const html = await readRealModeHtml();
   const requests = [];
+  let logoutCalls = 0;
   const serverTask = {
     id: "server-task-1",
     n: "飞书真实任务",
@@ -1235,6 +1236,7 @@ test("uses an injected server adapter for real session and business data without
         submitTaskResult: () => serverTask,
         reviewTaskResult: () => serverTask,
         reopenTask: () => serverTask,
+        logout: async () => { logoutCalls += 1; },
         clearDemoData: () => undefined,
         resetDemoData: () => undefined,
       };
@@ -1248,7 +1250,7 @@ test("uses an injected server adapter for real session and business data without
             keyConfigured: false,
             keyHint: null,
             updatedAt: null,
-            canManage: false,
+            canManage: true,
           });
         }
         return response(false, { error: "unexpected_request" }, 404);
@@ -1257,6 +1259,7 @@ test("uses an injected server adapter for real session and business data without
   });
   try {
     await waitFor(() => dom.window.Q?.S.me === "server-user-1");
+    await waitFor(() => dom.window.Q?.S.aiConfig.loaded && dom.window.Q.S.aiConfig.canManage);
     assert.deepEqual(dom.window.Q.S.tasks.map((task) => task.id), ["server-task-1"]);
     assert.equal(dom.window.Q.gateway.getSession().authMode, "feishu");
     dom.window.Q.S.page = "me";
@@ -1265,6 +1268,143 @@ test("uses an injected server adapter for real session and business data without
     assert.doesNotMatch(dom.window.document.querySelector("#view").textContent, /量子计算平台接口设计评审/);
     assert.equal(dom.window.document.querySelector('[data-act="setme"]'), null);
     assert.equal(requests.includes("/api/demo-auth/session"), false);
+    assert.match(dom.window.document.querySelector("#nav").textContent, /系统设置/);
+    dom.window.Q.S.page = "set";
+    dom.window.Q.render();
+    assert.equal(dom.window.document.querySelector("#cfgModel").disabled, false);
+    assert.equal(dom.window.document.querySelector("#cfgNewKey").disabled, false);
+    assert.equal(dom.window.document.querySelector('[data-act="update-ai-key"]').disabled, false);
+    assert.equal(dom.window.document.querySelector("#cfgWd").disabled, true);
+    assert.equal(dom.window.document.querySelector('[data-act="save-schedule"]').disabled, true);
+    assert.match(dom.window.document.querySelector("#view").textContent, /所有已登录内部成员均可更换模型和更新密钥/);
+    dom.window.document.querySelector('[data-act="logout"]').click();
+    await waitFor(() => logoutCalls === 1);
+    assert.equal(dom.window.Q.S.serviceError, "");
+    assert.doesNotMatch(
+      dom.window.document.querySelector("#view").textContent,
+      /真实数据服务不可用|真实身份会话已退出/,
+    );
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("dispatches an approved AI schedule to the selected real project", async () => {
+  const html = await readRealModeHtml();
+  const createdInputs = [];
+  const memberId = "m7";
+  const projectId = "11111111-1111-4111-8111-111111111111";
+  const session = {
+    authenticated: true,
+    authMode: "feishu",
+    dataMode: "server",
+    memberId,
+    permissions: ["task.manage", "task.execute"],
+  };
+  const members = [{ id: memberId, n: "张云帆", r: "产品经理", dept: "产品中心", lv: 3, sk: "产品设计" }];
+  const projects = [{ id: projectId, n: "真实项目", own: memberId, st: "进行中", cat: "企业项目" }];
+  const dom = new JSDOM(html, {
+    url: "http://127.0.0.1:3011/quantxy-ai-workbench-fused.html?formal=1",
+    runScripts: "dangerously",
+    pretendToBeVisual: true,
+    beforeParse(window) {
+      window.scrollTo = () => {};
+      window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+      window.QUANTXY_WORKSTATION_RUNTIME = { authMode: "feishu", dataMode: "server" };
+      window.QUANTXY_WORKSTATION_SERVER_ADAPTER = {
+        getSession: () => session,
+        loadBootstrap: () => ({
+          mode: "server",
+          session,
+          members,
+          projects,
+          tasks: [],
+          payroll: { [memberId]: [] },
+          features: { identitySwitch: false, demoReset: false },
+        }),
+        loadMyDashboard: () => ({ tasks: [], must: [], projects, payroll: null, reminders: [] }),
+        listMyTasks: () => [],
+        loadMyTask: () => null,
+        listMyProjects: () => projects,
+        loadPayroll: () => [],
+        saveTask: () => null,
+        claimTask: () => null,
+        updateTaskExecution: () => null,
+        submitTaskResult: () => null,
+        reviewTaskResult: () => null,
+        reopenTask: () => null,
+        createTask: async (input) => {
+          createdInputs.push(input);
+          return {
+            id: "22222222-2222-4222-8222-222222222222",
+            n: input.title,
+            p: input.projectId,
+            own: input.assigneeMemberId,
+            createdBy: memberId,
+            reviewer: memberId,
+            pri: input.priority,
+            st: "待处理",
+            s: "2026-08-19",
+            e: input.dueDate,
+            pr: 0,
+            description: input.description,
+            ac: input.acceptanceCriteria,
+            timeline: [],
+          };
+        },
+      };
+      window.fetch = async (url) => String(url) === "/api/ai/config"
+        ? response(true, { provider: "deepseek", apiBaseUrl: "https://api.deepseek.com", model: "deepseek-v4-flash", keyConfigured: true, canManage: true })
+        : response(false, {}, 404);
+    },
+  });
+  try {
+    await waitFor(() => dom.window.Q?.S.me === memberId);
+    const { S } = dom.window.Q;
+    S.sch = {
+      goal: "完成飞书团队协作上线",
+      deadline: "2026-08-31",
+      budget: 30,
+      must: "按期验收",
+      busy: false,
+      err: "",
+      projectId: "",
+      tasks: [{ id: "schedule-task-1", n: "完成任务领取联调", ph: "联调", role: "产品经理", days: 2, pri: "P1", ac: "员工可以领取并提交" }],
+      plans: [{
+        k: "A", name: "均衡方案", map: { "schedule-task-1": { own: memberId, s: 0, e: 1, dur: 2, crit: true } },
+        heads: 1, peak: 1, days: 2, end: "2026-08-21", cost: 2000, util: 50, inten: 70,
+        tag: "测试方案", score: { speed: 90, cost: 90, risk: 90 },
+      }],
+      pick: "A",
+      from: "测试",
+      issued: false,
+      issuing: false,
+    };
+    S.page = "sched";
+    dom.window.Q.render();
+    const projectSelect = dom.window.document.querySelector("#schProject");
+    projectSelect.value = projectId;
+    projectSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    assert.equal(S.sch.projectId, projectId);
+    dom.window.document.querySelector('[data-act="issue"]').click();
+
+    await waitFor(() => createdInputs.length === 1 && S.sch.issued === true);
+    const expectedDue = new Date();
+    expectedDue.setHours(0, 0, 0, 0);
+    expectedDue.setDate(expectedDue.getDate() + 1);
+    const expectedDueDate = `${expectedDue.getFullYear()}-${String(expectedDue.getMonth() + 1).padStart(2, "0")}-${String(expectedDue.getDate()).padStart(2, "0")}`;
+    assert.deepEqual(JSON.parse(JSON.stringify(createdInputs[0])), {
+      projectId,
+      assigneeMemberId: memberId,
+      title: "完成任务领取联调",
+      description: "完成飞书团队协作上线",
+      acceptanceCriteria: "员工可以领取并提交",
+      dueDate: expectedDueDate,
+      priority: "P1",
+    });
+    assert.equal(S.tasks.length, 1);
+    assert.equal(S.tasks[0].p, projectId);
+    assert.doesNotMatch(dom.window.document.querySelector("#toast").textContent, /真实数据写接口未配置/);
   } finally {
     dom.window.close();
   }
@@ -1359,6 +1499,7 @@ test("rejects legacy browser writes in real mode without mutating server state o
 
     S.page = "set";
     dom.window.Q.render();
+    assert.equal(dom.window.document.querySelector('[data-act="save-schedule"]').disabled, true);
     dom.window.document.querySelector("#cfgWd").value = "6";
     dom.window.document.querySelector("#cfgPl").value = "8";
     dom.window.document.querySelector("#cfgRl").value = "35";
@@ -1380,7 +1521,7 @@ test("rejects legacy browser writes in real mode without mutating server state o
     dom.window.document.querySelector('[data-act="f-customer"]').click();
     messages.push(toastText());
 
-    assert.deepEqual(messages, Array(messages.length).fill("真实数据写接口未配置"));
+    assert.deepEqual(messages, ["", ...Array(messages.length - 1).fill("真实数据写接口未配置")]);
     assert.deepEqual(adapterCalls, { clear: 0, reset: 0, claim: 0 });
     assert.deepEqual(JSON.parse(JSON.stringify(S.tasks)), initialTasks);
     assert.deepEqual(JSON.parse(JSON.stringify(S.customers)), initialCustomers);
@@ -1415,6 +1556,7 @@ test("clears stale navigation filters and detail selections for clear reset and 
       S.editId = "old-edit";
       S.menu = true;
       S.cmenu = true;
+      S.topPanel = "old";
       S.confirm = { t: "old" };
       S.deptMgr = true;
     };
@@ -1423,8 +1565,8 @@ test("clears stale navigation filters and detail selections for clear reset and 
       assert.deepEqual(JSON.parse(JSON.stringify(S.tab)), { proj: "all", task: "all", kb: "week" });
       assert.deepEqual(JSON.parse(JSON.stringify(S.f)), {
         projCat: "all", projSt: "all", projQ: "", taskQ: "", taskOwn: "all", taskPri: "all", taskSt: "all",
-        meScope: "todo", meTab: "all", payMonth: "", payFocus: "", kbQ: "", kbCat: "all", orgQ: "", orgDept: "all", agentDept: "all", agentQ: "", agentTab: "dir", agentVis: "all",
-        dashTab: "进行中", insightG: "日", gq: "", customerQ: "", customerSt: "all", activitySt: "all", decisionTab: "待我决策",
+        meScope: "todo", meTab: "all", payMonth: "", payFocus: "", kbQ: "", kbCat: "all", kbAdvanced: "0", kbRecommend: "0", orgQ: "", orgDept: "all", agentDept: "all", agentQ: "", agentTab: "dir", agentVis: "all",
+        dashTab: "进行中", dateDays: "30", insightG: "日", insightScope: "全部业务", insightCompare: "前一周期", insightLine: "全部", insightChannel: "全部", insightRegion: "全部", gq: "", customerQ: "", customerSt: "all", activitySt: "all", decisionTab: "待我决策",
       });
       assert.equal(S.sch.goal, "");
       assert.equal(S.sch.budget, 30);
@@ -1440,6 +1582,7 @@ test("clears stale navigation filters and detail selections for clear reset and 
       }
       assert.equal(S.menu, false);
       assert.equal(S.cmenu, false);
+      assert.equal(S.topPanel, null);
       assert.equal(S.deptMgr, false);
     };
 
@@ -1880,6 +2023,105 @@ test("deletes an unreferenced non-only member and keeps the app renderable", asy
       assert.doesNotThrow(() => dom.window.Q.render(), `${page} should render after member deletion`);
       assert.ok(dom.window.document.querySelector("#view").textContent.trim().length > 0);
     }
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("gives every enabled workbench button an owned click action", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S } = dom.window.Q;
+    const pages = [
+      "dash", "proj", "sched", "task", "me", "assistant", "customers",
+      "activities", "decisions", "insight", "kb", "flow", "fin", "org", "set",
+    ];
+    const deadButtons = [];
+
+    for (const page of pages) {
+      S.page = page;
+      dom.window.Q.render();
+      for (const button of dom.window.document.querySelectorAll("button:not([disabled])")) {
+        if (button.closest("[data-act]")) continue;
+        deadButtons.push(`${page}: ${button.textContent.replace(/\s+/g, " ").trim() || button.getAttribute("aria-label") || "未命名按钮"}`);
+      }
+    }
+
+    assert.deepEqual(deadButtons, []);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("opens the date range menu and applies a selected range", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S } = dom.window.Q;
+    S.page = "me";
+    dom.window.Q.render();
+
+    const trigger = dom.window.document.querySelector('[data-act="date-range"]');
+    assert.ok(trigger);
+    trigger.click();
+    const sevenDays = dom.window.document.querySelector('[data-act="date-preset"][data-days="7"]');
+    assert.ok(sevenDays);
+    sevenDays.click();
+
+    assert.equal(S.f.dateDays, "7");
+    assert.match(dom.window.document.querySelector('[data-act="date-range"]').textContent, /2026-|~/);
+    assert.match(dom.window.document.querySelector("#toast").textContent, /最近 7 天/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("opens identity-scoped notifications and routes a task notification to execution", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S } = dom.window.Q;
+    S.me = "m1";
+    S.page = "me";
+    dom.window.Q.render();
+
+    const trigger = dom.window.document.querySelector('[data-act="notifications"]');
+    assert.ok(trigger);
+    trigger.click();
+    const taskNotice = dom.window.document.querySelector('[data-notification-task][data-act="open-execution"]');
+    assert.ok(taskNotice);
+    const taskId = taskNotice.getAttribute("data-id");
+    taskNotice.click();
+
+    assert.equal(S.page, "execution");
+    assert.equal(S.sel.task, taskId);
+    assert.ok(dom.window.document.querySelector('[data-act="task-claim"]'));
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("makes insight and knowledge utility controls produce visible state changes", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S } = dom.window.Q;
+
+    S.page = "insight";
+    S.f.insightG = "月";
+    dom.window.Q.render();
+    dom.window.document.querySelector('[data-act="insight-reset"]').click();
+    assert.equal(S.f.insightG, "日");
+    dom.window.document.querySelector('[data-act="insight-region"]').click();
+    assert.match(S.confirm?.t || "", /区域经营详情/);
+    dom.window.document.querySelector('[data-act="modal-cancel"]').click();
+
+    S.page = "kb";
+    dom.window.Q.render();
+    const initialRecommendation = dom.window.document.querySelector("[data-kb-recommendation]").textContent;
+    dom.window.document.querySelector('[data-act="kb-hot"]').click();
+    assert.ok(S.f.kbQ);
+    dom.window.document.querySelector('[data-act="kb-refresh"]').click();
+    assert.notEqual(dom.window.document.querySelector("[data-kb-recommendation]").textContent, initialRecommendation);
+    dom.window.document.querySelector('[data-act="kb-open-source"]').click();
+    assert.match(S.confirm?.t || "", /知识原文/);
   } finally {
     dom.window.close();
   }

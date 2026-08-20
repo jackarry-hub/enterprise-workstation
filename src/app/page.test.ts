@@ -39,6 +39,8 @@ describe("Home", () => {
       landingPath: "/execution",
     });
 
-    await expect(Home()).rejects.toThrow("NEXT_REDIRECT:/execution");
+    await expect(Home()).rejects.toThrow(
+      "NEXT_REDIRECT:/quantxy-ai-workbench-fused.html?formal=1",
+    );
   });
 });

@@ -51,7 +51,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
         .is("deleted_at", null)
         .order("updated_at", { ascending: false }),
       client.from("tasks")
-        .select("public_id, project_id, title, description, assignee_member_id, reporter_member_id, status, priority, start_date, due_date, progress, acceptance_criteria, blocker, review_note, next_step, result_summary, result_link, result_files")
+        .select("public_id, project_id, title, description, assignee_member_id, reporter_member_id, status, priority, start_date, due_date, progress, acceptance_criteria, blocker, review_note, next_step, result_summary, result_link, result_files, accepted_at, submitted_at, reviewed_at")
         .is("deleted_at", null)
         .order("updated_at", { ascending: false }),
       client.from("salary")
@@ -114,6 +114,9 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
           resultFiles: Array.isArray(row.result_files)
             ? row.result_files.filter((item): item is string => typeof item === "string")
             : [],
+          acceptedAt: row.accepted_at,
+          submittedAt: row.submitted_at,
+          reviewedAt: row.reviewed_at,
         })),
         salary: (salaryResult.data ?? []).map((row) => ({
           payrollMonth: row.payroll_month,

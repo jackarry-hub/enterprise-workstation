@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import {
+  FORMAL_WORKSTATION_PATH,
   getSafeReturnPath,
   getWorkspaceAccessFailureReason,
   isPublicAuthPath,
@@ -78,7 +79,7 @@ export async function middleware(request: NextRequest) {
   }
 
   if (!canRoleAccessPath(session.primaryRole, pathname)) {
-    const destination = new URL(session.landingPath, request.url);
+    const destination = new URL(FORMAL_WORKSTATION_PATH, request.url);
     destination.searchParams.set("notice", "no_access");
     return redirectWithRefreshedCookies(response, destination);
   }

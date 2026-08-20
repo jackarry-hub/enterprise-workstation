@@ -164,6 +164,12 @@ a{color:inherit;text-decoration:none}
 .bell{position:relative;width:38px;height:38px;border-radius:10px;background:#fff;border:1px solid var(--line);display:grid;place-items:center}
 .bell i{position:absolute;top:-6px;right:-6px;background:var(--risk);color:#fff;font-size:10px;font-style:normal;
   min-width:17px;height:17px;border-radius:9px;display:grid;place-items:center;padding:0 4px;border:2px solid var(--bg)}
+.top-tool{position:relative;display:flex;align-items:center}
+.top-popover{right:0;top:46px;width:290px;max-height:360px}
+.top-popover .notice{align-items:flex-start;padding:10px 9px}
+.top-popover .notice b{display:block;font-size:12.5px;text-align:left}
+.top-popover .notice span{display:block;font-size:11px;color:var(--mut);margin-top:3px;text-align:left}
+.top-popover .empty{padding:18px 10px;font-size:12px}
 .btn{background:var(--brand);color:#fff;padding:10px 15px;border-radius:10px;font-size:13px;display:flex;align-items:center;gap:7px;
   box-shadow:0 8px 18px rgba(37,99,235,.25)}
 .btn.ghost{background:#fff;color:var(--sub);border:1px solid var(--line);box-shadow:none}
@@ -687,9 +693,10 @@ function submitLogin(){
 }
 function logoutDemo(){
   if(!isDemoRuntime()){
-    LOGIN.authenticated=false; LOGIN.checked=true; S.menu=false; S.serviceError='真实身份会话已退出，请从飞书工作台重新进入';
-    render();
-    if(typeof WORKSTATION_GATEWAY.logout==='function') Promise.resolve(WORKSTATION_GATEWAY.logout()).catch(function(){});
+    S.menu=false;
+    if(typeof WORKSTATION_GATEWAY.logout==='function'){
+      Promise.resolve(WORKSTATION_GATEWAY.logout()).catch(function(){ window.location.assign('/login'); });
+    }else window.location.assign('/login');
     return;
   }
   LOGIN.memory=false; LOGIN.authenticated=false; LOGIN.checked=true; LOGIN.pass=''; LOGIN.error=''; LOGIN.busy=false;
@@ -883,7 +890,7 @@ var KB = [
 
 /* ---------------- 全局状态 ---------------- */
 var S = {
-  page:'dash', me:'m14', menu:false, mobileNav:false, mobileTaskFocus:false, helper:true,
+  page:'dash', me:'m14', menu:false, topPanel:null, mobileNav:false, mobileTaskFocus:false, helper:true,
   tasks:[], proj:PROJECTS, customers:[], activities:[], decisions:[], payroll:{},
   tab:{proj:'all', task:'all', kb:'week'},
   sel:{task:null, wbs:null},
@@ -896,11 +903,11 @@ var S = {
   aiKeyDraft:'', showKey:false,
   aiTest:null,
   sch:{ goal:'', deadline:fmt(addD(today(),45)), budget:30, must:'', busy:false, err:'',
-        tasks:null, plans:null, pick:'A', from:'', issued:false },
+        projectId:'', tasks:null, plans:null, pick:'A', from:'', issued:false, issuing:false },
   chat:[], chatBusy:false, cmenu:false, form:null,
   f:{ projCat:'all', projSt:'all', projQ:'', taskQ:'', taskOwn:'all', taskPri:'all', taskSt:'all',
-      meScope:'todo', meTab:'all', payMonth:'', payFocus:'', kbQ:'', kbCat:'all', orgQ:'', orgDept:'all', agentDept:'all', agentQ:'', agentTab:'dir', agentVis:'all',
-      dashTab:'进行中', insightG:'日', gq:'', customerQ:'', customerSt:'all', activitySt:'all', decisionTab:'待我决策' },
+      meScope:'todo', meTab:'all', payMonth:'', payFocus:'', kbQ:'', kbCat:'all', kbAdvanced:'0', kbRecommend:'0', orgQ:'', orgDept:'all', agentDept:'all', agentQ:'', agentTab:'dir', agentVis:'all',
+      dashTab:'进行中', dateDays:'30', insightG:'日', insightScope:'全部业务', insightCompare:'前一周期', insightLine:'全部', insightChannel:'全部', insightRegion:'全部', gq:'', customerQ:'', customerSt:'all', activitySt:'all', decisionTab:'待我决策' },
   confirm:null, editId:null, deptMgr:false, curProj:null, curAgent:null, curCustomer:null, curActivity:null,
   agents:[], runs:[], agentIn:{}, agentOut:'', agentBusy:false,
   chain:[], chainIn:'', chainOut:[], chainBusy:false, chainStep:0, reqs:[],
@@ -909,14 +916,14 @@ var S = {
 function defaultRuntimeTabs(){ return {proj:'all',task:'all',kb:'week'}; }
 function defaultRuntimeFilters(){ return {
   projCat:'all',projSt:'all',projQ:'',taskQ:'',taskOwn:'all',taskPri:'all',taskSt:'all',
-  meScope:'todo',meTab:'all',payMonth:'',payFocus:'',kbQ:'',kbCat:'all',orgQ:'',orgDept:'all',agentDept:'all',agentQ:'',agentTab:'dir',agentVis:'all',
-  dashTab:'进行中',insightG:'日',gq:'',customerQ:'',customerSt:'all',activitySt:'all',decisionTab:'待我决策'
+  meScope:'todo',meTab:'all',payMonth:'',payFocus:'',kbQ:'',kbCat:'all',kbAdvanced:'0',kbRecommend:'0',orgQ:'',orgDept:'all',agentDept:'all',agentQ:'',agentTab:'dir',agentVis:'all',
+  dashTab:'进行中',dateDays:'30',insightG:'日',insightScope:'全部业务',insightCompare:'前一周期',insightLine:'全部',insightChannel:'全部',insightRegion:'全部',gq:'',customerQ:'',customerSt:'all',activitySt:'all',decisionTab:'待我决策'
 }; }
 function defaultRuntimeSchedule(){ return {
-  goal:'',deadline:fmt(addD(today(),45)),budget:30,must:'',busy:false,err:'',tasks:null,plans:null,pick:'A',from:'',issued:false
+  goal:'',deadline:fmt(addD(today(),45)),budget:30,must:'',busy:false,err:'',projectId:'',tasks:null,plans:null,pick:'A',from:'',issued:false,issuing:false
 }; }
 function resetRuntimeUiState(page){
-  S.page=page||'me'; S.menu=false; S.cmenu=false; S.confirm=null; S.editId=null; S.deptMgr=false; S.helper=true;
+  S.page=page||'me'; S.menu=false; S.cmenu=false; S.topPanel=null; S.confirm=null; S.editId=null; S.deptMgr=false; S.helper=true;
   S.tab=defaultRuntimeTabs(); S.f=defaultRuntimeFilters(); S.sch=defaultRuntimeSchedule(); S.sel={task:null,wbs:null};
   S.curProj=null; S.curAgent=null; S.curCustomer=null; S.curActivity=null;
   S.chat=[]; S.chatBusy=false; S.agentIn={}; S.agentOut=''; S.agentBusy=false;
@@ -1038,6 +1045,9 @@ function createServerGateway(adapter){
       ?function(){ return adapter[method].apply(adapter,arguments); }
       :function(){ throw new Error('real_write_not_configured'); };
   });
+  if(typeof adapter.logout==='function'){
+    gateway.logout=function(){ return adapter.logout(); };
+  }
   return gateway;
 }
 function createUnavailableGateway(){
@@ -1220,7 +1230,7 @@ function diagnose(e){
     return '暂时无法连接服务器端模型服务，请稍后重试或联系管理员检查部署状态。';
   if(/\b401\b|unauthorized/i.test(m)) return '登录状态已失效，请重新登录后再试。';
   if(/\b403\b|forbidden/i.test(m)) return '当前账号没有模型配置权限。';
-  if(/ai_not_configured/i.test(m)) return '尚未配置模型密钥，请由企业决策人或管理员在系统设置中更新。';
+  if(/ai_not_configured/i.test(m)) return '尚未配置模型密钥，请由任一已登录的内部人员在系统设置中更新。';
   if(/upstream_auth_failed/i.test(m)) return '模型密钥验证失败，请由管理员更新密钥。';
   if(/\b402\b|Insufficient Balance|balance/i.test(m))
     return '账户余额不足（402），到 DeepSeek 平台充值后即可恢复。';
@@ -1354,7 +1364,7 @@ function formalPageAllowed(page){
   if(page==='dash') return hasWorkstationPermission('dashboard.read');
   if(page==='sched') return hasWorkstationPermission('task.manage');
   if(page==='org') return hasWorkstationPermission('organization.manage');
-  if(page==='set') return hasWorkstationPermission('organization.manage');
+  if(page==='set') return true;
   return false;
 }
 var META={
@@ -1399,11 +1409,24 @@ function renderNav(){
   nav.innerHTML=core+'<button class="mobile-more '+(!MOBILE_CORE[S.page]&&S.page!=='execution'?'on':'')+'" data-act="mobile-nav-more" aria-expanded="'+(S.mobileNav?'true':'false')+'">'+ic('down',18)+'<span>'+(S.mobileNav?'收起':'更多')+'</span></button><div class="mobile-more-panel" aria-label="更多功能">'+extra+'</div>';
   var hp=document.querySelector('.helper'); if(hp) hp.style.display=S.helper?'':'none';
 }
+function topNotifications(){
+  var items=[];
+  S.tasks.forEach(function(task){
+    if(task.own===S.me&&isOverdue(task)) items.push({task:task,label:'任务已逾期',tone:'t-r'});
+    else if(task.reviewer===S.me&&task.st==='待验收') items.push({task:task,label:'等待你验收',tone:'t-v'});
+    else if(task.own===S.me&&task.st==='待处理') items.push({task:task,label:'等待领取执行',tone:'t-o'});
+  });
+  return items.slice(0,8);
+}
 function renderTop(){
   var isMobile=isMobileShell();
   var m=(S.page==='me'&&S.mobileTaskFocus)?['我的任务','只看当前身份的执行事项']:(S.page==='me'&&isMobile?['工作台','今天要完成什么，一屏看清']:META[S.page]), me=MB[S.me]||{n:'当前用户',r:'已登录'};
   var canSwitch=workstationFeatures().identitySwitch;
   var employeePage=S.page==='me'||S.page==='execution'||S.page==='fin';
+  var dateDays=parseInt(S.f.dateDays,10)||30;
+  var dateStart=fmt(addD(today(),-(dateDays-1)));
+  var dateEnd=fmt(today());
+  var notices=topNotifications();
   var quickItems=isDemoRuntime()
     ?[['new-project','proj','新建项目'],['new-task','task','新建任务'],['new-member','user','添加成员'],['new-file','file','上传文档'],['sched','ai','AI 调度目标']]
     :(hasWorkstationPermission('task.manage')?[['new-task','task','新建任务']]:[]);
@@ -1425,13 +1448,29 @@ function renderTop(){
       return '<button data-act="go" data-page="'+x[0]+'">'+ic(x[1],16,'#2563eb')+'<span style="flex:1;text-align:left">'+x[2]+'</span></button>'; }).join('')+'</div>'):'',
     '</div>'
   ]):'';
+  var dateControl=j([
+    '<div class="top-tool"><button class="pill" data-act="date-range" aria-haspopup="menu" aria-expanded="',S.topPanel==='date'?'true':'false','">',
+      ic('cal',15),dateStart,' ~ ',dateEnd,ic('down',14),'</button>',
+      S.topPanel==='date'?j(['<div class="menu top-popover" role="menu"><div class="hd">选择时间范围</div>',
+        [['7','最近 7 天'],['30','最近 30 天'],['90','最近 90 天']].map(function(item){
+          return '<button data-act="date-preset" data-days="'+item[0]+'" class="'+(String(dateDays)===item[0]?'on':'')+'">'+item[1]+'</button>';
+        }).join(''),'</div>']):'',
+    '</div>'
+  ]);
+  var notificationControl=j([
+    '<div class="top-tool"><button class="bell" data-act="notifications" aria-haspopup="menu" aria-expanded="',S.topPanel==='notifications'?'true':'false','" aria-label="通知，',notices.length,' 条待处理">',ic('bell',18),notices.length?'<i>'+notices.length+'</i>':'','</button>',
+      S.topPanel==='notifications'?j(['<div class="menu top-popover" role="menu"><div class="hd">我的执行提醒</div>',
+        notices.length?notices.map(function(item){
+          return '<button class="notice" data-notification-task data-act="open-execution" data-id="'+attr(item.task.id)+'"><span class="tag '+item.tone+'">'+item.label+'</span><span style="flex:1"><b>'+esc(item.task.n)+'</b><span>截止 '+esc(item.task.e||'待安排')+'</span></span></button>';
+        }).join(''):'<div class="empty">当前没有待处理提醒</div>','</div>']):'',
+    '</div>'
+  ]);
   el('top').className='top'+(employeePage?' employee-top':'');
   el('top').innerHTML=j([
     '<div class="ttl"><h1>',m[0],'</h1><p>',m[1],'</p></div>',
     '<div class="grow"></div>',
     '<div class="search">',ic('search',16),'<input data-q="gq" value="',esc(S.f.gq||''),'" placeholder="搜索项目、任务、客户、活动、成员、文档、Agent…"></div>',
-    '<div class="pill">',ic('cal',15),fmt(addD(today(),-30)),' ~ ',fmt(today()),ic('down',14),'</div>',
-    '<button class="bell" aria-label="通知，12 条未读">',ic('bell',18),'<i>12</i></button>',
+    dateControl,notificationControl,
     quickControl,identityControl
   ]);
 }
@@ -1582,6 +1621,10 @@ function viewSched(){
   /* 头部：目标与约束 */
   var left = j([
    '<div class="card"><div class="hd">',ic('target',18,'#2563eb'),'<h3>战略目标与约束</h3></div><div class="bd" style="padding-top:12px">',
+    '<label class="field">下发到项目</label>',
+    '<select class="sel" id="schProject" style="width:100%;margin-bottom:12px"><option value="">请选择真实项目</option>',
+      PROJECTS.map(function(project){ return '<option value="'+attr(project.id)+'"'+(sc.projectId===project.id?' selected':'')+'>'+esc(project.n)+'</option>'; }).join(''),
+    '</select>',
     '<label class="field">战略目标</label>',
     '<textarea class="ta" id="schGoal" placeholder="例如：在 Q4 前完成 AI 客服 2.0 上线，把人工工单率降到 30% 以下">',esc(sc.goal),'</textarea>',
     '<div class="grid" style="grid-template-columns:1fr 1fr;margin-top:12px">',
@@ -1612,7 +1655,7 @@ function viewSched(){
 
   /* 调度清单 */
   var list = j(['<div class="card"><div class="hd">',ic('task',18,'#2563eb'),'<h3>任务调度清单</h3><div class="grow"></div>',
-    ts&&pl?'<button class="btn soft" data-act="issue">'+ic('send',15)+'下发任务</button>':'','</div>',
+    ts&&pl?'<button class="btn soft" data-act="issue" '+(sc.issuing?'disabled':'')+'>'+ic('send',15)+(sc.issuing?'下发中…':'下发任务')+'</button>':'','</div>',
     '<div class="bd" style="padding-top:6px;max-height:330px;overflow:auto">',
     ts&&pl? '<table><thead><tr><th>任务名称</th><th>负责人</th><th>计划开始</th><th>计划结束</th><th>优先级</th></tr></thead><tbody>'+
       ts.map(function(t){ var m=pl.map[t.id]; if(!m) return '';
@@ -1707,7 +1750,7 @@ function viewSched(){
             return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="width:26px;font-size:11.5px;color:var(--sub)">'+s[0]+'</span>'+
               '<div class="bar" style="flex:1"><i style="width:'+s[1]+'%;background:'+s[2]+'"></i></div><b style="font-size:11px;width:30px;text-align:right">'+s[1]+'%</b></div>';
           }).join('')+
-          '<button class="btn '+(sc.pick===p.k?'':'ghost')+'" style="width:100%;justify-content:center;margin-top:8px">'+(sc.pick===p.k?'当前方案':'选择方案')+'</button></div>';
+          '<button class="btn '+(sc.pick===p.k?'':'ghost')+'" data-act="pick-plan" data-k="'+p.k+'" style="width:100%;justify-content:center;margin-top:8px">'+(sc.pick===p.k?'当前方案':'选择方案')+'</button></div>';
       }).join(''),
     '</div></div>',
 
@@ -1726,7 +1769,7 @@ function viewSched(){
   '<div class="card" style="margin-top:16px"><div class="hd">',ic('cal',18,'#2563eb'),'<h3>排期甘特图</h3><div class="grow"></div>',
     '<span class="sm">起始 ',fmt(today()),'　·　橙红条为关键路径</span></div><div class="bd">',ganttOf(ts,pl),'</div></div>',
 
-  sc.issued?'':'<div style="position:sticky;bottom:14px;display:flex;justify-content:center;margin-top:16px"><button class="btn" style="padding:13px 26px" data-act="issue">'+ic('send',16)+'确认方案并下发 '+ts.length+' 项任务</button></div>'
+  sc.issued?'':'<div style="position:sticky;bottom:14px;display:flex;justify-content:center;margin-top:16px"><button class="btn" style="padding:13px 26px" data-act="issue" '+(sc.issuing?'disabled':'')+'>'+ic('send',16)+(sc.issuing?'正在下发…':'确认方案并下发 '+ts.length+' 项任务')+'</button></div>'
   ]);
 }
 
@@ -1784,7 +1827,7 @@ function viewProj(){
             '<div style="font-size:11px;color:var(--mut)">'+fmt(addD(today(),m[2]))+'</div></div></div>';
         }).join(''),
       '</div></div>',
-      '<div class="card"><div class="hd"><h3>风险提醒</h3><div class="grow"></div><button class="link">查看全部 ›</button></div><div class="bd" style="padding-top:8px">',
+      '<div class="card"><div class="hd"><h3>风险提醒</h3><div class="grow"></div><button class="link" data-act="project-risks">查看全部 ›</button></div><div class="bd" style="padding-top:8px">',
         [['星河智能体平台升级项目','关键依赖项延迟，可能影响整体进度','高风险','t-r'],
          ['AI 算法模型优化','模型训练资源不足，进度滞后','中风险','t-o'],
          ['量子数据中台建设','数据源接入异常，需及时处理','中风险','t-o']].map(function(r){
@@ -1981,7 +2024,7 @@ function readExecutionInput(){ return {progress:Number(fieldValue('execProgress'
 function readResultInput(){ return {resultText:fieldValue('execResultText'),resultLink:fieldValue('execResultLink'),resultFiles:fieldValue('execResultFiles').split(/\r?\n/).map(function(v){ return v.trim(); }).filter(Boolean)}; }
 function taskError(error){
   var code=String(error&&error.message||error);
-  return {real_write_not_configured:'真实数据写接口未配置',real_data_service_unavailable:'真实数据写接口未配置',forbidden:'当前身份没有此操作权限',invalid_status:'当前任务状态不允许此操作',invalid_progress:'进度必须在 0 到 100 之间',result_required:'请填写成果说明，并提供成果链接或文件名称',review_note_required:'驳回时必须填写验收意见',invalid_decision:'验收决定无效',task_not_found:'任务不存在'}[code]||'任务操作失败';
+  return {real_write_not_configured:'真实数据写接口未配置',real_data_service_unavailable:'真实数据写接口未配置',forbidden:'当前身份没有此操作权限',invalid_status:'当前任务状态不允许此操作',invalid_progress:'进度必须在 0 到 100 之间',result_required:'请填写成果说明，并提供成果链接或文件名称',review_note_required:'驳回时必须填写验收意见',invalid_decision:'验收决定无效',task_not_found:'任务不存在',task_update_failed:'任务已变化，请刷新后重试',task_create_failed:'任务下发失败，请检查项目和成员权限'}[code]||'任务操作失败';
 }
 function mergeTaskMutation(task){
   if(!task||!task.id) return;
@@ -2155,6 +2198,14 @@ function viewAssistant(){
 }
 
 /* ---------------- 页面：数据洞察 ---------------- */
+var INSIGHT_FILTERS={
+  insightScope:['全部业务','项目','客户','任务'],
+  insightG:['日','周','月'],
+  insightCompare:['前一周期','去年同期','不对比'],
+  insightLine:['全部','产品','交付','市场'],
+  insightChannel:['全部','直销渠道','合作伙伴','线上广告'],
+  insightRegion:['全部','华东区','华南区','华北区']
+};
 function viewInsight(){
   var G=S.f.insightG||'日', N=G==='日'?28:G==='周'?12:6, STEP=G==='日'?1:G==='周'?7:30;
   var lab=[],rev=[],ord=[],up=[],i;
@@ -2164,11 +2215,15 @@ function viewInsight(){
   var chn=[{n:'直销渠道',v:42.6,c:'#2563eb',r:'42.6%　¥ 3,678万'},{n:'合作伙伴',v:28.3,c:'#10b981',r:'28.3%　¥ 2,447万'},
     {n:'线上广告',v:17.8,c:'#f59e0b',r:'17.8%　¥ 1,539万'},{n:'内容营销',v:7.6,c:'#7c3aed',r:'7.6%　¥ 656万'},{n:'其他渠道',v:3.7,c:'#94a3b8',r:'3.7%　¥ 322万'}];
   var reg=[['华东区',2346.72,15.6],['华南区',1978.35,12.4],['华北区',1256.86,9.8],['西南区',944.23,8.3],['华中区',785.42,6.7],['西北区',512.60,4.3],['东北区',321.23,3.1]];
+  var filterLabels=[
+    ['insightScope','数据范围：',''],['insightG','时间粒度：按',''],['insightCompare','对比周期：',''],
+    ['insightLine','业务线：',''],['insightChannel','渠道来源：',''],['insightRegion','区域：','']
+  ];
   return j([
   '<div class="card fade"><div class="bd" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">',
-    ['数据范围：全部业务','时间粒度：按日','对比周期：前一周期','业务线：全部','渠道来源：全部','区域：全部'].map(function(x){
-      return '<span class="pill">'+x+' '+ic('down',13)+'</span>'; }).join(''),
-    '<div class="grow"></div><button class="btn ghost">重置</button><button class="btn">筛选</button>',
+    filterLabels.map(function(item){
+      return '<button class="pill" data-act="insight-cycle" data-k="'+item[0]+'">'+item[1]+esc(S.f[item[0]]||INSIGHT_FILTERS[item[0]][0])+' '+ic('down',13)+'</button>'; }).join(''),
+    '<div class="grow"></div><button class="btn ghost" data-act="insight-reset">重置</button><button class="btn" data-act="insight-apply">筛选</button>',
   '</div></div>',
 
   '<div class="grid" style="grid-template-columns:1.6fr 1fr 1fr;margin-top:16px">',
@@ -2201,14 +2256,14 @@ function viewInsight(){
     '<div class="card"><div class="hd"><h3>渠道贡献</h3><div class="grow"></div><span class="sm">按营收金额</span></div><div class="bd" style="display:flex;gap:14px;align-items:center">',
       donut(chn,150,'8,642','总营收(万)'),'<div style="flex:1">'+legend(chn)+'</div>',
     '</div></div>',
-    '<div class="card"><div class="hd"><h3>区域经营</h3><div class="grow"></div><button class="link">查看详情 ›</button></div><div class="bd" style="padding-top:6px">',
+    '<div class="card"><div class="hd"><h3>区域经营</h3><div class="grow"></div><button class="link" data-act="insight-region">查看详情 ›</button></div><div class="bd" style="padding-top:6px">',
       '<table><thead><tr><th>区域</th><th>营收（万元）</th><th style="width:120px">占比</th><th>同比</th></tr></thead><tbody>',
       reg.map(function(r){
         return '<tr><td>'+r[0]+'</td><td style="font-variant-numeric:tabular-nums">'+num(r[1],2)+'</td>'+
           '<td><div class="bar"><i style="width:'+(r[1]/2346.72*100).toFixed(0)+'%"></i></div></td>'+
           '<td><span class="up">↑ '+r[2]+'%</span></td></tr>'; }).join(''),
       '</tbody></table></div></div>',
-    '<div class="card"><div class="hd">'+ic('warn',17,'#f59e0b')+'<h3>AI 异常预警</h3><div class="grow"></div><button class="link">全部预警 ›</button></div><div class="bd" style="padding-top:6px">',
+    '<div class="card"><div class="hd">'+ic('warn',17,'#f59e0b')+'<h3>AI 异常预警</h3><div class="grow"></div><button class="link" data-act="insight-alerts">全部预警 ›</button></div><div class="bd" style="padding-top:6px">',
       [['华南区营收环比下降 23.6%','华南区在 06-22 出现营收大幅下降，低于异常阈值 20%。','高风险','t-r','10:32'],
        ['支付转化率异常波动','支付转化率在 06-25 波动超过阈值范围（±30%）。','中风险','t-o','09:47'],
        ['广告渠道 ROI 下降明显','线上广告渠道 ROI 连续 3 天下降超过 15%。','低风险','t-n','08:21']].map(function(x){
@@ -2227,7 +2282,7 @@ function viewInsight(){
      ['异常重点关注','华南区营收异常下降，建议尽快排查原因。','#ef4444']].map(function(x){
       return '<div style="padding:12px;border:1px solid var(--line);border-radius:12px"><div style="display:flex;gap:7px;align-items:center">'+ic('target',15,x[2])+'<b style="font-size:12.5px">'+x[0]+'</b></div>'+
         '<p style="margin:6px 0 10px;font-size:11.5px;color:var(--sub);line-height:1.65">'+x[1]+'</p>'+spark([20,26,24,32,30,38,42,40,48,52,50,58],x[2],200,34)+
-        '<button class="link">查看详情 ›</button></div>'; }).join(''),
+        '<button class="link" data-act="insight-detail" data-title="'+attr(x[0])+'" data-detail="'+attr(x[1])+'">查看详情 ›</button></div>'; }).join(''),
   '</div></div>']);
 }
 
@@ -2286,20 +2341,27 @@ function viewFin(){
 /* ---------------- 页面：知识中心 ---------------- */
 function viewKb(){
   var cats=[['公司制度',140,'#2563eb'],['业务流程',186,'#10b981'],['SOP模板',232,'#f59e0b'],['产品资料',98,'#7c3aed'],['培训资料',75,'#38bdf8']];
+  var recommendations=[
+    ['为什么需要建立知识库？','知识库能够集中沉淀企业知识资产，提升复用效率，降低沟通成本，并帮助新员工快速上手。','数字化转型白皮书 2025'],
+    ['如何设计高效的 SOP 流程？','先明确流程目标和责任人，再定义输入、输出、验收标准与异常处理，最后通过版本管理持续优化。','企业流程管理指南'],
+    ['项目交付验收标准有哪些？','验收标准应覆盖功能结果、质量指标、交付材料、责任签字和问题关闭条件，避免只验进度不验成果。','项目交付验收规范']
+  ];
+  var recommendation=recommendations[(parseInt(S.f.kbRecommend,10)||0)%recommendations.length];
   return j([
   '<div class="grid fade" style="grid-template-columns:1.4fr 1fr">',
     '<div class="card"><div class="hd"><h3>搜索知识库</h3></div><div class="bd" style="padding-top:10px">',
       '<div style="display:flex;gap:9px"><div class="search" style="flex:1;width:auto">'+ic('search',16)+'<input data-q="kbQ" value="'+esc(S.f.kbQ||'')+'" placeholder="输入关键词，搜索知识库中的内容"></div>'+
-      '<button class="btn">搜索</button><button class="btn ghost">高级搜索</button>'+
+      '<button class="btn" data-act="kb-search">搜索</button><button class="btn ghost" data-act="kb-advanced">'+(S.f.kbAdvanced==='1'?'收起高级搜索':'高级搜索')+'</button>'+
       '<button class="btn" data-act="go" data-page="new-file">'+ic('plus',15)+'上传文档</button></div>',
       '<div style="display:flex;gap:9px;align-items:center;margin-top:12px"><span style="font-size:12px;color:var(--mut)">热门搜索：</span><div class="chips">'+
-      ['项目管理制度','SOP模板','客户管理流程','OKR','指标体系','安全规范'].map(function(c){ return '<span class="chip">'+c+'</span>'; }).join('')+'</div></div>',
+      ['项目管理制度','SOP模板','客户管理流程','OKR','指标体系','安全规范'].map(function(c){ return '<button class="chip" data-act="kb-hot" data-v="'+attr(c)+'">'+c+'</button>'; }).join('')+'</div></div>',
+      S.f.kbAdvanced==='1'?'<div class="chips" style="margin-top:12px"><span class="hint">按分类：</span><button class="chip '+(S.f.kbCat==='all'?'on':'')+'" data-act="set" data-k="kbCat" data-v="all">全部</button>'+cats.map(function(c){ return '<button class="chip '+(S.f.kbCat===c[0]?'on':'')+'" data-act="set" data-k="kbCat" data-v="'+attr(c[0])+'">'+c[0]+'</button>'; }).join('')+'</div>':'',
     '</div></div>',
-    '<div class="card"><div class="hd"><h3>分类导航</h3><div class="grow"></div><button class="link">全部分类 ›</button></div><div class="bd" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;text-align:center">',
+    '<div class="card"><div class="hd"><h3>分类导航</h3><div class="grow"></div><button class="link" data-act="kb-all">全部分类 ›</button></div><div class="bd" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;text-align:center">',
       cats.map(function(c){
         var on=S.f.kbCat===c[0];
-        return '<div style="padding:12px 6px;border:1.5px solid '+(on?'var(--brand)':'var(--line)')+';border-radius:12px;cursor:pointer;background:'+(on?'var(--brand-s)':'#fff')+'" data-act="set" data-k="kbCat" data-v="'+c[0]+'"><span style="width:34px;height:34px;border-radius:10px;background:#f4f7fd;display:grid;place-items:center;margin:0 auto 7px">'+ic('file',17,c[2])+'</span>'+
-          '<b style="font-size:12.5px">'+c[0]+'</b><div style="font-size:11px;color:var(--mut);margin-top:2px">'+KB.filter(function(k){ return k.c===c[0]; }).length+' 篇本地</div></div>'; }).join(''),
+        return '<button style="padding:12px 6px;width:100%;border:1.5px solid '+(on?'var(--brand)':'var(--line)')+';border-radius:12px;cursor:pointer;background:'+(on?'var(--brand-s)':'#fff')+'" data-act="set" data-k="kbCat" data-v="'+attr(c[0])+'"><span style="width:34px;height:34px;border-radius:10px;background:#f4f7fd;display:grid;place-items:center;margin:0 auto 7px">'+ic('file',17,c[2])+'</span>'+
+          '<b style="font-size:12.5px">'+c[0]+'</b><span style="display:block;font-size:11px;color:var(--mut);margin-top:2px">'+KB.filter(function(k){ return k.c===c[0]; }).length+' 篇本地</span></button>'; }).join(''),
     '</div></div>',
   '</div>',
   '<div class="grid" style="grid-template-columns:1fr 1fr 1fr;margin-top:16px">',
@@ -2315,10 +2377,10 @@ function viewKb(){
           '<span style="font-size:11px;color:var(--mut)">'+k.v+'</span>'+
           '<button class="link" style="color:var(--risk)" data-act="del-doc" data-i="'+i+'">删除</button></div>'; }).join(''),
     '</div></div>',
-    '<div class="card"><div class="hd">'+ic('ai',17,'#7c3aed')+'<h3>AI 摘要推荐</h3><div class="grow"></div><button class="link">换一换</button></div><div class="bd" style="padding-top:8px">',
-      '<div style="padding:14px;border-radius:12px;background:#f9fbff"><b style="font-size:13.5px;color:var(--brand-d)">为什么需要建立知识库？</b>',
-      '<p style="margin:8px 0 12px;font-size:12px;color:var(--sub);line-height:1.75">知识库是企业知识资产的集中沉淀与管理平台，能够提升知识复用效率，降低沟通成本，促进新员工快速上手，保障业务连续性，支撑组织决策与创新。</p>',
-      '<div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:11px;color:var(--mut)">来源：数字化转型白皮书 2025</span><button class="btn ghost" style="padding:6px 12px">查看原文</button></div></div>',
+    '<div class="card"><div class="hd">'+ic('ai',17,'#7c3aed')+'<h3>AI 摘要推荐</h3><div class="grow"></div><button class="link" data-act="kb-refresh">换一换</button></div><div class="bd" style="padding-top:8px">',
+      '<div data-kb-recommendation style="padding:14px;border-radius:12px;background:#f9fbff"><b style="font-size:13.5px;color:var(--brand-d)">'+esc(recommendation[0])+'</b>',
+      '<p style="margin:8px 0 12px;font-size:12px;color:var(--sub);line-height:1.75">'+esc(recommendation[1])+'</p>',
+      '<div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:11px;color:var(--mut)">来源：'+esc(recommendation[2])+'</span><button class="btn ghost" data-act="kb-open-source" data-title="'+attr(recommendation[0])+'" data-source="'+attr(recommendation[2])+'" style="padding:6px 12px">查看原文</button></div></div>',
       '<div class="chips" style="margin-top:12px">'+['如何设计高效的SOP流程？','信息安全管理的核心要点','项目交付验收标准有哪些？'].map(function(c){ return '<span class="chip">'+c+'</span>'; }).join('')+'</div>',
     '</div></div>',
     '<div class="card"><div class="hd"><h3>知识贡献者排行</h3><div class="grow"></div><span class="sm">本月</span></div><div class="bd" style="padding-top:6px">',
@@ -2336,6 +2398,8 @@ function viewSet(){
   var c=S.aiConfig;
   var fileMode=location.protocol==='file:';
   var demoTools=WORKSTATION_RUNTIME.dataMode==='demo'&&workstationFeatures().demoReset;
+  var canManageSchedule=isDemoRuntime()||hasWorkstationPermission('organization.manage');
+  var scheduleDisabled=canManageSchedule?'':' disabled';
   var locked=fileMode||!c.canManage||c.saving;
   var disabled=locked?' disabled':'';
   var status=c.loading?'读取中':(c.keyConfigured?'已配置':'未配置');
@@ -2384,18 +2448,19 @@ function viewSet(){
       '<p style="margin:5px 0 0;font-size:11.5px;color:var(--sub);line-height:1.7">'+esc(S.aiTest.msg)+'</p></div>' : ''),
     (c.error?'<div style="margin-top:12px;padding:11px 12px;border-radius:10px;background:var(--risk-s);color:#c62828;font-size:12px">'+esc(c.error)+
       ' <button class="link" data-act="reload-ai-config">重新读取</button></div>':''),
-    (!c.canManage&&!c.loading?'<p class="hint">仅企业决策人或管理员可以更换模型和更新密钥。</p>':''),
+    (!c.loading?'<p class="hint">'+(c.canManage?'当前阶段：所有已登录内部成员均可更换模型和更新密钥。':'当前登录身份不可更新模型配置，请重新登录或联系管理员。')+'</p>':''),
     '<p style="margin:12px 0 0;font-size:11.5px;color:var(--mut);line-height:1.7">密钥提交后只在服务器加密保存；页面不会回显、不会写入浏览器存储，也不会随网页源码发布。</p>',
   '</div></div>',
   '<div class="card"><div class="hd">'+ic('set',18,'#7c3aed')+'<h3>调度参数</h3></div><div class="bd" style="padding-top:12px">',
-    '<label class="field">每周工作日</label><input class="inp" id="cfgWd" type="number" value="',S.cfg.workday,'">',
-    '<label class="field" style="margin-top:12px">同角色最大并行人数（默认方案）</label><input class="inp" id="cfgPl" type="number" value="',S.cfg.parallel,'">',
-    '<label class="field" style="margin-top:12px">风险预警阈值（%）</label><input class="inp" id="cfgRl" type="number" value="',S.cfg.riskLine,'">',
+    '<label class="field">每周工作日</label><input class="inp" id="cfgWd" type="number" value="',S.cfg.workday,'"'+scheduleDisabled+'>',
+    '<label class="field" style="margin-top:12px">同角色最大并行人数（默认方案）</label><input class="inp" id="cfgPl" type="number" value="',S.cfg.parallel,'"'+scheduleDisabled+'>',
+    '<label class="field" style="margin-top:12px">风险预警阈值（%）</label><input class="inp" id="cfgRl" type="number" value="',S.cfg.riskLine,'"'+scheduleDisabled+'>',
     '<div style="margin-top:16px;padding:12px;border-radius:11px;background:#f9fbff">',
       '<b style="font-size:12.5px">数据说明</b>',
       '<p style="margin:6px 0 0;font-size:11.5px;color:var(--sub);line-height:1.7">模型密钥由服务器统一管理；当前演示任务和调度参数仍保存在本机浏览器。</p>',
     '</div>',
-    '<button class="btn soft" style="width:100%;justify-content:center;margin-top:14px" data-act="save-schedule">保存调度参数</button>',
+    '<button class="btn soft" style="width:100%;justify-content:center;margin-top:14px" data-act="save-schedule"'+scheduleDisabled+'>保存调度参数</button>',
+    (!canManageSchedule?'<p class="hint">调度参数仅组织管理员可调整。</p>':''),
     (demoTools?'<button class="btn ghost" style="width:100%;justify-content:center;margin-top:9px" data-act="reset">重置演示数据</button>':''),
     (demoTools?'<button class="btn ghost" style="width:100%;justify-content:center;margin-top:9px;color:var(--risk);border-color:#fecaca" data-act="clear-demo">清除演示数据</button>':''),
   '</div></div></div>']);
@@ -3625,11 +3690,36 @@ function render(){
 
 /* ---------------- 交互 ---------------- */
 function issue(){
-  var sc=S.sch, pl=sc.plans.filter(function(p){ return p.k===sc.pick; })[0];
+  var sc=S.sch, pl=sc.plans&&sc.plans.filter(function(p){ return p.k===sc.pick; })[0];
+  if(!pl||!sc.tasks){ toast('请先生成并选择调度方案'); return; }
+  var projectId=sc.projectId||(isDemoRuntime()?'p1':'');
+  if(!projectId){ toast('请先选择任务所属项目'); return; }
   var base=today(), n=0;
+  if(!isDemoRuntime()){
+    if(sc.issuing) return;
+    var inputs=sc.tasks.map(function(t){
+      var m=pl.map[t.id]; if(!m) return null;
+      return {projectId:projectId,assigneeMemberId:m.own,title:t.n,description:sc.goal,
+        acceptanceCriteria:t.ac,dueDate:fmt(addD(base,m.e)),priority:t.pri};
+    }).filter(Boolean);
+    if(!inputs.length){ toast('当前方案没有可下发的任务'); return; }
+    sc.issuing=true; render();
+    Promise.all(inputs.map(function(input){
+      return Promise.resolve().then(function(){ return WORKSTATION_GATEWAY.createTask(input); });
+    })).then(function(tasks){
+      tasks.forEach(function(task){
+        if(task&&task.id&&!S.tasks.some(function(row){ return row.id===task.id; })) S.tasks.unshift(normalizeTask(task));
+      });
+      sc.issuing=false; sc.issued=true; S.page='task'; render();
+      toast('已下发 '+tasks.length+' 项任务，成员可在个人工作台领取执行');
+    }).catch(function(error){
+      sc.issuing=false; render(); toast(taskError(error));
+    });
+    return;
+  }
   sc.tasks.forEach(function(t){
     var m=pl.map[t.id]; if(!m) return;
-    S.tasks.unshift(normalizeTask({ id:'T'+Math.floor(Math.random()*9000+1000), n:t.n, p:'p1', own:m.own, role:t.role,
+    S.tasks.unshift(normalizeTask({ id:'T'+Math.floor(Math.random()*9000+1000), n:t.n, p:projectId, own:m.own, role:t.role,
       pri:t.pri, st:'待处理', s:fmt(addD(base,m.s)), e:fmt(addD(base,m.e)), src:'AI调度', dep:[], ac:t.ac,
       createdBy:S.me, reviewer:S.me, description:t.n,
       timeline:[{actor:S.me,action:'下发任务',note:'AI 调度',at:stamp()}] }));
@@ -3640,9 +3730,9 @@ function issue(){
   S.page='task'; render();
 }
 function genPlan(){
-  var g=el('schGoal'), dl=el('schDL'), bd=el('schBudget'), ms=el('schMust');
+  var g=el('schGoal'), dl=el('schDL'), bd=el('schBudget'), ms=el('schMust'), pj=el('schProject');
   S.sch.goal=g?g.value.trim():''; S.sch.deadline=dl?dl.value:S.sch.deadline;
-  S.sch.budget=bd?(parseFloat(bd.value)||30):30; S.sch.must=ms?ms.value.trim():'';
+  S.sch.budget=bd?(parseFloat(bd.value)||30):30; S.sch.must=ms?ms.value.trim():''; S.sch.projectId=pj?pj.value:S.sch.projectId;
   if(!S.sch.goal){ toast('请先填写战略目标'); return; }
   S.sch.busy=true; S.sch.err=''; S.sch.issued=false; render();
   function finish(tasks,from){
@@ -3666,7 +3756,7 @@ function sendChat(text){
   var msgs=S.chat.slice(-8).map(function(m){ return {role:m.r==='u'?'user':'assistant',content:m.t}; });
   aiCall({model:S.cfg.model,max_tokens:1000,system:sys,messages:msgs})
     .then(function(d){ var x=aiText(d)||'（未获取到模型回复）'; S.chat.push({r:'a',t:x}); })
-    .catch(function(){ S.chat.push({r:'a',t:'当前未连接到模型服务。请由企业决策人或管理员在「系统设置 → 大模型接入」中更新密钥后重试。\n在未接入模型时，AI 调度中心依然可以用内置引擎完成目标拆解与排期。'}); })
+    .catch(function(){ S.chat.push({r:'a',t:'当前未连接到模型服务。请由任一已登录的内部人员在「系统设置 → 大模型接入」中更新密钥后重试。\n在未接入模型时，AI 调度中心依然可以用内置引擎完成目标拆解与排期。'}); })
     .then(function(){ S.chatBusy=false; render(); });
 }
 var REAL_WRITE_BLOCKED_ACTIONS={
@@ -3674,7 +3764,7 @@ var REAL_WRITE_BLOCKED_ACTIONS={
   'appr':1,'decision-pass':1,'decision-reject':1,'del-proj':1,'del-task':1,'del-doc':1,
   'dept-add':1,'dept-del':1,'del-member':1,'run-agent':1,'chain-run':1,
   'req-apply':1,'req-ok':1,'req-no':1,'perm-dept':1,'perm-revoke':1,
-  'issue':1,'save-schedule':1,'clear-demo':1,'reset':1,'restore-demo':1,'modal-ok':1
+  'save-schedule':1,'clear-demo':1,'reset':1,'restore-demo':1,'modal-ok':1
 };
 function rejectLegacyWriteInRealMode(action){
   if(isDemoRuntime()||!REAL_WRITE_BLOCKED_ACTIONS[action]) return false;
@@ -3714,7 +3804,7 @@ document.addEventListener('click',function(e){
   if(!t){
     var closeMobileNav=S.mobileNav;
     if(closeMobileNav) S.mobileNav=false;
-    if(S.menu||S.cmenu){ S.menu=false; S.cmenu=false; render(); }
+    if(S.menu||S.cmenu||S.topPanel){ S.menu=false; S.cmenu=false; S.topPanel=null; render(); }
     else if(closeMobileNav) renderNav();
     return;
   }
@@ -3722,6 +3812,7 @@ document.addEventListener('click',function(e){
   if(rejectLegacyWriteInRealMode(a)) return;
   if(a!=='menu'&&S.menu) S.menu=false;
   if(a!=='cmenu'&&S.cmenu) S.cmenu=false;
+  if(a!=='date-range'&&a!=='notifications'&&S.topPanel) S.topPanel=null;
   if(a==='login-toggle'){ LOGIN.show=!LOGIN.show; renderLogin(); }
   else if(a==='login-submit'){ submitLogin(); }
   else if(a==='go'){ if(S.page.indexOf('new-')===0){ syncForm(); if(S.editId){ S.editId=null; S.form=blankForm(); } }
@@ -3734,7 +3825,13 @@ document.addEventListener('click',function(e){
     var moreControl=el('nav')&&el('nav').querySelector('[data-act="mobile-nav-more"]');
     if(moreControl) moreControl.focus();
   }
-  else if(a==='cmenu'){ S.cmenu=!S.cmenu; render(); }
+  else if(a==='cmenu'){ S.topPanel=null; S.cmenu=!S.cmenu; render(); }
+  else if(a==='date-range'){ S.menu=false; S.cmenu=false; S.topPanel=S.topPanel==='date'?null:'date'; render(); }
+  else if(a==='notifications'){ S.menu=false; S.cmenu=false; S.topPanel=S.topPanel==='notifications'?null:'notifications'; render(); }
+  else if(a==='date-preset'){
+    S.f.dateDays=t.getAttribute('data-days')||'30'; S.topPanel=null; render();
+    toast('已切换到最近 '+S.f.dateDays+' 天');
+  }
   else if(a==='sync-directory'){ syncFormalDirectory(); }
   else if(a==='salary-save'){ saveFormalPayroll(); }
   else if(a==='f-member'){ createMember(); }
@@ -3752,6 +3849,38 @@ document.addEventListener('click',function(e){
   else if(a==='f-auto'){ syncForm(); S.form.project.auto=Number(S.form.project.auto)?0:1; render(); }
   else if(a==='f-rmfile'){ syncForm(); S.form.file.files.splice(parseInt(t.getAttribute('data-i'),10),1); render(); }
   else if(a==='set'){ S.f[t.getAttribute('data-k')]=t.getAttribute('data-v'); render(); }
+  else if(a==='project-risks'){ S.f.projSt='风险'; render(); toast('已筛选全部风险项目'); }
+  else if(a==='insight-cycle'){
+    var insightKey=t.getAttribute('data-k'), insightOptions=INSIGHT_FILTERS[insightKey]||[];
+    var insightIndex=insightOptions.indexOf(S.f[insightKey]);
+    S.f[insightKey]=insightOptions[(insightIndex+1)%insightOptions.length]||insightOptions[0];
+    render(); toast('已切换筛选条件');
+  }
+  else if(a==='insight-reset'){
+    S.f.insightScope='全部业务'; S.f.insightG='日'; S.f.insightCompare='前一周期';
+    S.f.insightLine='全部'; S.f.insightChannel='全部'; S.f.insightRegion='全部';
+    render(); toast('洞察筛选已重置');
+  }
+  else if(a==='insight-apply'){ render(); toast('已应用当前洞察筛选'); }
+  else if(a==='insight-region'){
+    ask('区域经营详情','华东区营收领先，华南区增长承压；建议优先检查华南区渠道转化与重点客户推进情况。','知道了',function(){ S.confirm=null; render(); });
+  }
+  else if(a==='insight-alerts'){
+    ask('AI 异常预警','当前共 3 条预警：华南区营收下降、支付转化率波动、广告渠道 ROI 连续下降。','知道了',function(){ S.confirm=null; render(); });
+  }
+  else if(a==='insight-detail'){
+    ask(t.getAttribute('data-title')||'关键洞察',t.getAttribute('data-detail')||'暂无更多说明。','知道了',function(){ S.confirm=null; render(); });
+  }
+  else if(a==='kb-search'){
+    render(); toast((S.f.kbQ||'').trim()?'已显示知识库搜索结果':'请输入关键词后搜索');
+  }
+  else if(a==='kb-advanced'){ S.f.kbAdvanced=S.f.kbAdvanced==='1'?'0':'1'; render(); }
+  else if(a==='kb-hot'){ S.f.kbQ=t.getAttribute('data-v')||''; render(); toast('已搜索「'+S.f.kbQ+'」'); }
+  else if(a==='kb-all'){ S.f.kbCat='all'; render(); toast('已显示全部知识分类'); }
+  else if(a==='kb-refresh'){ S.f.kbRecommend=String((parseInt(S.f.kbRecommend,10)||0)+1); render(); }
+  else if(a==='kb-open-source'){
+    ask('知识原文：'+(t.getAttribute('data-title')||''),'来源：'+(t.getAttribute('data-source')||'企业知识库')+'。当前演示版展示摘要，正式文档接入后可在此打开完整原文。','知道了',function(){ S.confirm=null; render(); });
+  }
   else if(a==='appr'){ var ai=parseInt(t.getAttribute('data-i'),10), pass=t.getAttribute('data-v')==='1';
     var item=S.appr[ai]; S.appr.splice(ai,1); render(); toast((pass?'已通过：':'已驳回：')+item[1]); }
   else if(a==='open-proj'){ S.curProj=t.getAttribute('data-id'); S.page='project'; render(); }
@@ -3767,7 +3896,7 @@ document.addEventListener('click',function(e){
     if(decision){ decision.st='已完成'; decision.result=a==='decision-pass'?'已通过':'已驳回'; save(); render(); toast(decision.result+'：'+decision.n); } }
   else if(a==='del-proj'){ delProject(t.getAttribute('data-id')); }
   else if(a==='proj-goal'){ var pj=PB[t.getAttribute('data-id')];
-    S.sch.goal='围绕项目「'+pj.n+'」达成交付目标'; S.sch.tasks=null; S.sch.plans=null; S.page='sched'; render(); }
+    S.sch.goal='围绕项目「'+pj.n+'」达成交付目标'; S.sch.projectId=pj.id; S.sch.tasks=null; S.sch.plans=null; S.page='sched'; render(); }
   else if(a==='del-task'){ var tid=t.getAttribute('data-id');
     var tk=S.tasks.filter(function(x){ return x.id===tid; })[0];
     ask('删除任务？','「'+(tk?tk.n:'')+'」将被永久删除，此操作不可撤销。','确认删除',function(){
@@ -3862,7 +3991,7 @@ document.addEventListener('click',function(e){
   else if(a==='save-ai-model'){ updateAiConfig(false); }
   else if(a==='modal-cancel'){ S.confirm=null; render(); }
   else if(a==='modal-ok'){ var fn=S.confirm&&S.confirm.fn; if(fn) fn(); else { S.confirm=null; render(); } }
-  else if(a==='menu'){ S.menu=!S.menu; render(); }
+  else if(a==='menu'){ S.topPanel=null; S.menu=!S.menu; render(); }
   else if(a==='logout'){ logoutDemo(); }
   else if(a==='setme'){
     if(!workstationFeatures().identitySwitch){ S.menu=false; render(); return; }
@@ -3977,6 +4106,7 @@ document.addEventListener('input',function(e){
 document.addEventListener('change',function(e){
   var loginKey=e.target.getAttribute&&e.target.getAttribute('data-login');
   if(loginKey==='remember'){ LOGIN.remember=!!e.target.checked; return; }
+  if(e.target.id==='schProject'){ S.sch.projectId=e.target.value; return; }
   var pm=e.target.getAttribute&&e.target.getAttribute('data-perm');
   var lm=e.target.getAttribute&&e.target.getAttribute('data-lv');
   var dm=e.target.getAttribute&&e.target.getAttribute('data-dept');

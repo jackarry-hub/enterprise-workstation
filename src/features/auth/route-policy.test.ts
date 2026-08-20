@@ -233,6 +233,26 @@ describe("workspace middleware", () => {
   );
 
   it.each(roleCases)(
+    "allows the %s role to enter through the formal fused workstation home",
+    async (_workspaceRole, databaseRole) => {
+      refreshedSession({ data: accessRow(databaseRole) });
+
+      const rootResponse = await middleware(
+        new NextRequest("https://brain.example/"),
+      );
+      refreshedSession({ data: accessRow(databaseRole) });
+      const fusedResponse = await middleware(
+        new NextRequest(
+          "https://brain.example/quantxy-ai-workbench-fused.html?formal=1",
+        ),
+      );
+
+      expect(rootResponse.headers.get("location")).toBeNull();
+      expect(fusedResponse.headers.get("location")).toBeNull();
+    },
+  );
+
+  it.each(roleCases)(
     "allows the %s role to use tasks and the legacy attendance redirect route",
     async (_workspaceRole, databaseRole) => {
       refreshedSession({ data: accessRow(databaseRole) });
@@ -257,7 +277,7 @@ describe("workspace middleware", () => {
     );
 
     expect(response.headers.get("location")).toBe(
-      "https://brain.example/execution?notice=no_access",
+      "https://brain.example/quantxy-ai-workbench-fused.html?formal=1&notice=no_access",
     );
   });
 

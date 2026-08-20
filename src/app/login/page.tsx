@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { LoginCard } from "@/features/auth/login-card";
 import {
+  FORMAL_WORKSTATION_PATH,
   getSafeReturnPath,
   isPublicAuthPath,
 } from "@/features/auth/workspace-access";
@@ -21,7 +22,7 @@ export default async function LoginPage({
   } catch {
     sessionLookupFailed = true;
   }
-  if (session) redirect(session.landingPath);
+  if (session) redirect(FORMAL_WORKSTATION_PATH);
 
   const { error, next } = await searchParams;
   const safeNext = typeof next === "string" ? getSafeReturnPath(next) : null;

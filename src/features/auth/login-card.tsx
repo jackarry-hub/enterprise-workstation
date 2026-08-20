@@ -1,5 +1,4 @@
 import Image from "next/image";
-import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -55,9 +54,9 @@ export function LoginCard({
         </p>
       ) : null}
       <Button asChild size="lg" className="mt-6 w-full">
-        <Link href={loginHref}>
+        <a href={loginHref}>
           使用飞书登录
-        </Link>
+        </a>
       </Button>
       <p className="mt-4 text-center text-xs text-muted-foreground">
         登录后将按你的企业身份进入对应岗位工作台。

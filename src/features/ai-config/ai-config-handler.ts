@@ -65,7 +65,7 @@ export async function handlePutAiConfig(
 }
 
 function canManage(session: WorkspaceSession) {
-  return session.primaryRole === "executive" || session.isAdmin;
+  return session.member.status === "active";
 }
 
 function isValidApiKey(value: unknown): value is string {
