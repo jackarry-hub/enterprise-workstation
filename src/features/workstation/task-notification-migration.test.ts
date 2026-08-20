@@ -5,6 +5,12 @@ const sql = readFileSync(
   "supabase/migrations/202608200001_feishu_task_notifications.sql",
   "utf8",
 );
+const authorizedSelectPolicy =
+  sql.match(/create policy task_notifications_authorized_select[\s\S]*?\n\);/i)?.[0] ?? "";
+const recordDeliveryFunction =
+  sql.match(
+    /create or replace function public\.record_task_notification_delivery[\s\S]*?\$\$;/i,
+  )?.[0] ?? "";
 
 describe("Feishu task notification migration", () => {
   it("creates a tenant-scoped idempotent delivery queue", () => {
@@ -33,6 +39,24 @@ describe("Feishu task notification migration", () => {
     );
   });
 
+  it("defines the named authenticated SELECT policy", () => {
+    expect(authorizedSelectPolicy).toMatch(
+      /create policy task_notifications_authorized_select\s+on public\.task_notifications\s+for select to authenticated\s+using/i,
+    );
+  });
+
+  it("scopes notification reads to the same-organization task", () => {
+    expect(authorizedSelectPolicy).toMatch(
+      /from public\.tasks task[\s\S]*task\.id = task_notifications\.task_id[\s\S]*task\.organization_id = task_notifications\.organization_id/i,
+    );
+  });
+
+  it("delegates notification visibility to project authorization", () => {
+    expect(authorizedSelectPolicy).toMatch(
+      /public\.can_view_project\(task\.project_id\)/i,
+    );
+  });
+
   it("keeps delivery result writes service-role-only and atomic", () => {
     expect(sql).toMatch(
       /revoke all on function public\.record_task_notification_delivery\(uuid,uuid,uuid,text,text,text\)[\s\S]*from public, anon, authenticated/i,
@@ -40,15 +64,25 @@ describe("Feishu task notification migration", () => {
     expect(sql).toMatch(
       /grant execute on function public\.record_task_notification_delivery\(uuid,uuid,uuid,text,text,text\)[\s\S]*to service_role/i,
     );
-    expect(sql).toMatch(/attempt_count = notification\.attempt_count \+ 1/i);
-    expect(sql).toMatch(
+    expect(recordDeliveryFunction).toMatch(
+      /attempt_count = notification\.attempt_count \+ 1/i,
+    );
+    expect(recordDeliveryFunction).toMatch(
       /feishu_message_id = case when p_status = 'sent' then p_feishu_message_id else null end/i,
     );
-    expect(sql).toMatch(
+    expect(recordDeliveryFunction).toMatch(
       /last_error_code = case when p_status = 'failed' then p_last_error_code else null end/i,
     );
-    expect(sql).toMatch(
+    expect(recordDeliveryFunction).toMatch(
       /sent_at = case when p_status = 'sent' then now\(\) else notification\.sent_at end/i,
     );
+  });
+
+  it("writes the requested delivery status", () => {
+    expect(recordDeliveryFunction).toMatch(/status = p_status/i);
+  });
+
+  it("timestamps every handled delivery attempt", () => {
+    expect(recordDeliveryFunction).toMatch(/last_attempt_at = now\(\)/i);
   });
 });
