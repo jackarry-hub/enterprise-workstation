@@ -22,7 +22,10 @@
   function safeNotification(value) {
     var notification = value && typeof value === "object" ? value : {};
     var errorCode = typeof notification.errorCode === "string"
-      && notificationErrorCodes[notification.errorCode]
+      && Object.prototype.hasOwnProperty.call(
+        notificationErrorCodes,
+        notification.errorCode,
+      )
       ? notification.errorCode
       : "";
     if (errorCode === "delivery_unconfirmed" || errorCode === "queue_unavailable") {

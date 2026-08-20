@@ -11,6 +11,8 @@ test("loads the formal employee session and sends task updates without trusting 
     "utf8",
   );
   const requests = [];
+  const inheritedErrorCodes = ["constructor", "toString", "__proto__"];
+  const encodedTaskId = "task%2Fpart%3Fquery%23fragment%20%E7%A9%BA%E6%A0%BC%20%E4%B8%AD%E6%96%87";
   const bootstrap = {
     session: { authenticated: true, authMode: "feishu", dataMode: "server", memberId: "m7", permissions: ["task.manage"] },
     members: [{ id: "m7", n: "张云帆" }],
@@ -33,6 +35,24 @@ test("loads the formal employee session and sends task updates without trusting 
     }
     if (String(url) === "/api/workstation/tasks" && init.method === "POST") {
       const input = JSON.parse(init.body);
+      const inheritedErrorCode = inheritedErrorCodes.find((code) => (
+        input.title === `原型键 ${code}`
+      ));
+      if (inheritedErrorCode) {
+        return response(true, {
+          task: {
+            ...bootstrap.tasks[0],
+            id: `created-${inheritedErrorCode}`,
+            n: input.title,
+            pr: 0,
+          },
+          notification: {
+            status: "failed",
+            errorCode: inheritedErrorCode,
+            provider_error: "raw provider response",
+          },
+        });
+      }
       const queueUnavailable = input.title === "队列不可用任务";
       return response(true, {
         task: {
@@ -59,6 +79,19 @@ test("loads the formal employee session and sends task updates without trusting 
         notification: {
           status: "unavailable",
           errorCode: "queue_unavailable",
+        },
+      });
+    }
+    if (String(url) === `/api/workstation/tasks/${encodedTaskId}/notify`) {
+      return response(true, { notification: { status: "sent" } });
+    }
+    const inheritedRetry = /^\/api\/workstation\/tasks\/retry-(constructor|toString|__proto__)\/notify$/.exec(String(url));
+    if (inheritedRetry) {
+      return response(true, {
+        notification: {
+          status: "failed",
+          errorCode: inheritedRetry[1],
+          provider_error: "raw provider response",
         },
       });
     }
@@ -126,6 +159,31 @@ test("loads the formal employee session and sends task updates without trusting 
     status: "failed",
     errorCode: "queue_unavailable",
   });
+  const specialTaskId = "task/part?query#fragment 空格 中文";
+  await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.retryTaskNotification(specialTaskId);
+  const encodedRetryRequest = requests.find(({ url }) => (
+    url === `/api/workstation/tasks/${encodedTaskId}/notify`
+  ));
+  assert.equal(encodedRetryRequest.init.method, "POST");
+  assert.equal(encodedRetryRequest.init.credentials, "same-origin");
+  for (const inheritedErrorCode of inheritedErrorCodes) {
+    const unsafeCreate = await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.createTask({
+      projectId: "p1",
+      assigneeMemberId: "m7",
+      title: `原型键 ${inheritedErrorCode}`,
+    });
+    assert.deepEqual(JSON.parse(JSON.stringify(unsafeCreate.notification)), {
+      status: "failed",
+      errorCode: "send_failed",
+    });
+    const unsafeRetry = await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.retryTaskNotification(
+      `retry-${inheritedErrorCode}`,
+    );
+    assert.deepEqual(JSON.parse(JSON.stringify(unsafeRetry)), {
+      status: "failed",
+      errorCode: "send_failed",
+    });
+  }
   await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.savePayroll({
     memberId: "m7",
     month: "2026-08",
