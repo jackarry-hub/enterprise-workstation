@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { getWorkspaceSession } from "@/features/auth/workspace-session";
+import {
+  dispatchTaskAssignedNotification,
+  type TaskNotificationScope,
+} from "@/features/workstation/task-notification";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -8,6 +12,8 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const PRIORITIES = { P0: "urgent", P1: "high", P2: "medium" } as const;
 
 type TaskCreateSession = {
+  tenantId: string;
+  organization: { id: string };
   member: { id: number };
   permissionCodes: readonly string[];
 };
@@ -26,6 +32,9 @@ type TaskCreateInput = {
 export type WorkstationTaskCreateDependencies = {
   loadSession: () => Promise<TaskCreateSession | null>;
   createTask: (input: TaskCreateInput) => Promise<unknown>;
+  notifyTask: (
+    scope: TaskNotificationScope,
+  ) => ReturnType<typeof dispatchTaskAssignedNotification>;
 };
 
 function text(value: unknown, maximum: number, required = false) {
@@ -69,6 +78,7 @@ const publicPriorities = { urgent: "P0", high: "P1", medium: "P2" } as const;
 
 export const defaultWorkstationTaskCreateDependencies: WorkstationTaskCreateDependencies = {
   loadSession: getWorkspaceSession,
+  notifyTask: dispatchTaskAssignedNotification,
   async createTask(input) {
     const client = await getSupabaseServerClient();
     const { data, error } = await client.rpc("create_current_project_task_v2", {
@@ -123,11 +133,17 @@ export function createWorkstationTaskCreateHandler(
     catch { return NextResponse.json({ error: "invalid_request" }, { status: 400 }); }
     const input = parseTaskCreate(body);
     if (!input) return NextResponse.json({ error: "invalid_request" }, { status: 400 });
+    let task: unknown;
     try {
-      const task = await dependencies.createTask({ actorMemberId: session.member.id, ...input });
-      return NextResponse.json({ task }, { status: 201 });
+      task = await dependencies.createTask({ actorMemberId: session.member.id, ...input });
     } catch {
       return NextResponse.json({ error: "task_create_failed" }, { status: 409 });
     }
+    const notification = await dependencies.notifyTask({
+      tenantId: session.tenantId,
+      organizationId: session.organization.id,
+      taskId: String((task as { id: unknown }).id),
+    }).catch(() => ({ status: "failed" as const, errorCode: "send_failed" as const }));
+    return NextResponse.json({ task, notification }, { status: 201 });
   };
 }
