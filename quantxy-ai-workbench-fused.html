@@ -911,7 +911,8 @@ var S = {
   confirm:null, editId:null, deptMgr:false, curProj:null, curAgent:null, curCustomer:null, curActivity:null,
   agents:[], runs:[], agentIn:{}, agentOut:'', agentBusy:false,
   chain:[], chainIn:'', chainOut:[], chainBusy:false, chainStep:0, reqs:[],
-  appr:null, demoCleared:false, serviceError:'', directorySyncBusy:false, payrollSaving:false
+  appr:null, demoCleared:false, serviceError:'', directorySyncBusy:false, payrollSaving:false,
+  notificationRetryBusy:false
 };
 function defaultRuntimeTabs(){ return {proj:'all',task:'all',kb:'week'}; }
 function defaultRuntimeFilters(){ return {
@@ -928,7 +929,7 @@ function resetRuntimeUiState(page){
   S.curProj=null; S.curAgent=null; S.curCustomer=null; S.curActivity=null;
   S.chat=[]; S.chatBusy=false; S.agentIn={}; S.agentOut=''; S.agentBusy=false;
   S.chain=[]; S.chainIn=''; S.chainOut=[]; S.chainBusy=false; S.chainStep=0;
-  S.aiKeyDraft=''; S.showKey=false; S.aiTest=null; S.form=blankForm();
+  S.aiKeyDraft=''; S.showKey=false; S.aiTest=null; S.notificationRetryBusy=false; S.form=blankForm();
 }
 
 var PAYROLL_BASE={m1:22000,m2:24000,m3:30000,m4:23000,m5:21000,m6:22000,m7:19000,
@@ -1020,7 +1021,7 @@ function createDemoGateway(){
 }
 var SERVER_GATEWAY_READ_METHODS=['getSession','loadBootstrap','loadMyDashboard','listMyTasks','loadMyTask','listMyProjects','loadPayroll'];
 var SERVER_GATEWAY_WRITE_METHODS=['saveTask','claimTask','updateTaskExecution','submitTaskResult','reviewTaskResult','reopenTask'];
-var SERVER_GATEWAY_MANAGE_METHODS=['syncDirectory','createTask','savePayroll'];
+var SERVER_GATEWAY_MANAGE_METHODS=['syncDirectory','createTask','retryTaskNotification','savePayroll'];
 function isCompliantServerAdapter(adapter){
   return !!adapter&&SERVER_GATEWAY_READ_METHODS.every(function(method){ return typeof adapter[method]==='function'; });
 }
@@ -1060,7 +1061,7 @@ function createUnavailableGateway(){
     listMyTasks:function(){ return []; }, loadMyTask:function(){ return null; }, listMyProjects:function(){ return []; }, loadPayroll:function(){ return []; },
     saveTask:unavailable, claimTask:unavailable, updateTaskExecution:unavailable, submitTaskResult:unavailable,
     reviewTaskResult:unavailable, reopenTask:unavailable, syncDirectory:unavailable,
-    createTask:unavailable, savePayroll:unavailable
+    createTask:unavailable, retryTaskNotification:unavailable, savePayroll:unavailable
   };
 }
 function resolveWorkstationGateway(){
@@ -1076,6 +1077,16 @@ function workstationSession(){
 function hasWorkstationPermission(code){
   var permissions=workstationSession().permissions||[];
   return permissions.indexOf(code)>=0;
+}
+var TASK_UUID_PATTERN=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function applyTaskDeepLink(){
+  if(isDemoRuntime()) return '';
+  var params=new URLSearchParams(window.location.search), values=params.getAll('task');
+  if(values.length!==1||!TASK_UUID_PATTERN.test(values[0])) return '';
+  if(WORKSTATION_GATEWAY.loadMyTask(S.me,values[0])){
+    S.sel.task=values[0]; S.page='execution'; return '';
+  }
+  S.sel.task=null; S.page='me'; return '任务不存在或当前账号无权查看';
 }
 function workstationFeatures(){
   try{
@@ -2039,19 +2050,56 @@ function runTaskMutation(operation,message){
     }else{ mergeTaskMutation(result); render(); toast(message); }
   }catch(error){ toast(taskError(error)); }
 }
+function taskNotificationStatus(notification){
+  var status=notification&&notification.status;
+  return {sent:'飞书通知已送达',failed:'飞书通知暂未送达',unavailable:'未同步飞书身份',pending:'飞书通知发送中'}[status]||'飞书通知状态待确认';
+}
+function taskCreationNotice(task){
+  var status=task&&task.notification&&task.notification.status;
+  return {sent:'任务已创建，飞书通知已送达',failed:'任务已创建，飞书通知暂未送达',unavailable:'任务已创建，请先同步该员工的飞书身份',pending:'任务已创建，飞书通知正在发送'}[status]||'任务已创建，飞书通知正在发送';
+}
+function retryNotificationNotice(notification){
+  var status=notification&&notification.status;
+  return {sent:'飞书通知已送达',failed:'飞书通知暂未送达',unavailable:'请先同步该员工的飞书身份',pending:'飞书通知正在发送'}[status]||'飞书通知暂未送达';
+}
+function mergeTaskNotification(taskId,notification){
+  var safe=notification&&typeof notification==='object'?notification:{status:'failed',errorCode:'send_failed'};
+  for(var i=0;i<S.tasks.length;i++) if(S.tasks[i].id===taskId){ S.tasks[i].notification=safe; break; }
+  return safe;
+}
+function retryTaskNotification(){
+  if(S.notificationRetryBusy||!hasWorkstationPermission('task.manage')) return;
+  var task=S.tasks.filter(function(row){ return row.id===S.sel.task; })[0];
+  var status=task&&task.notification&&task.notification.status;
+  if(!task||(status!=='failed'&&status!=='unavailable')) return;
+  S.notificationRetryBusy=true; render();
+  Promise.resolve().then(function(){ return WORKSTATION_GATEWAY.retryTaskNotification(task.id); }).then(function(notification){
+    var safe=mergeTaskNotification(task.id,notification);
+    S.notificationRetryBusy=false; render(); toast(retryNotificationNotice(safe));
+  }).catch(function(){
+    var safe=mergeTaskNotification(task.id,{status:'failed',errorCode:'send_failed'});
+    S.notificationRetryBusy=false; render(); toast(retryNotificationNotice(safe));
+  });
+}
 function viewExecution(){
-  var task=WORKSTATION_GATEWAY.loadMyTask(S.me,S.sel.task);
-  if(!task){
+  var accessibleTask=WORKSTATION_GATEWAY.loadMyTask(S.me,S.sel.task);
+  if(!accessibleTask){
     return '<div class="card fade"><div class="bd empty" style="padding:48px 20px">'+
       '<div style="font-size:15px;font-weight:650;color:var(--ink);margin-bottom:8px">任务不存在或当前身份无权查看</div>'+
       '<div style="margin-bottom:18px">请返回个人工作台，重新选择当前身份可访问的任务。</div>'+
       '<button class="btn soft" style="margin:0 auto" data-act="go" data-page="me">返回个人工作台</button></div></div>';
   }
+  var task=S.tasks.filter(function(row){ return row.id===accessibleTask.id; })[0]||accessibleTask;
   var project=PB[task.p]||{}, owner=MB[task.own]||{}, creator=MB[task.createdBy]||{}, reviewer=MB[task.reviewer]||{};
   var isOwner=S.me===task.own, canReview=S.me===task.reviewer||S.me===task.createdBy;
   var nextAction=task.nextStep||(isOwner&&task.st==='待处理'?'领取任务并开始执行':isOwner&&task.st==='进行中'?'补充下一步动作':task.st==='待验收'?'等待负责人验收':task.st==='已完成'?'任务已完成':'等待任务更新');
   var safeLink=/^https?:\/\//i.test(task.resultLink||'')?task.resultLink:'';
-  var timeline=(task.timeline||[]).slice().reverse();
+  var timeline=(task.timeline||[]).slice().reverse(), notification=task.notification||{status:'pending',errorCode:''};
+  var canRetryNotification=hasWorkstationPermission('task.manage')&&(notification.status==='failed'||notification.status==='unavailable');
+  var notificationRow=isDemoRuntime()?'':j(['<div data-task-notification-status style="display:flex;align-items:center;gap:9px;min-height:34px;margin:0 0 17px;padding:8px 10px;border-radius:10px;background:#f8faff;font-size:12px">',
+    '<span style="color:var(--mut)">飞书通知</span><b style="flex:1">',esc(taskNotificationStatus(notification)),'</b>',
+    canRetryNotification?'<button class="link" data-act="retry-task-notification"'+(S.notificationRetryBusy?' disabled':'')+'>'+(S.notificationRetryBusy?'正在发送':'重发飞书通知')+'</button>':'',
+  '</div>']);
   var actionPanel='';
   if(isOwner&&task.st==='待处理'){
     actionPanel='<div class="card"><div class="hd"><h3>开始执行</h3></div><div class="bd"><p class="hint" style="margin:0 0 14px">领取后开始处理，完成后提交负责人验收。</p><button class="btn" data-act="task-claim">'+ic('bolt',15)+'领取任务</button></div></div>';
@@ -2094,6 +2142,7 @@ function viewExecution(){
       '<div class="execution-detail" style="display:flex;flex-direction:column;gap:16px">',
         '<div class="card"><div class="hd"><h3>任务信息</h3><div class="grow"></div><b style="font-size:13px">',Number(task.pr||0),'%</b></div><div class="bd">',
           '<div class="bar" style="margin-bottom:17px"><i style="width:',Math.max(0,Math.min(100,Number(task.pr||0))),'%"></i></div>',
+          notificationRow,
           '<div class="grid" style="grid-template-columns:1fr 1fr;gap:0 24px">',
             [['执行人',owner.n||'未指定'],['任务发起人',creator.n||'未指定'],['负责人 / 验收人',reviewer.n||'未指定'],['计划周期',(task.s||'未设置')+' 至 '+(task.e||'未设置')],['领取时间',task.acceptedAt||'尚未领取'],['提交时间',task.submittedAt||'尚未提交']].map(function(row){
               return '<div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line2);font-size:12.5px"><span style="color:var(--mut)">'+row[0]+'</span><b style="text-align:right">'+esc(row[1])+'</b></div>';
@@ -2805,7 +2854,7 @@ function createTask(){
       task.role=(MB[task.own]||{}).r||'成员';
       S.tasks.unshift(normalizeTask(task));
       S.form.task=blankForm().task; S.page='task'; render();
-      toast('任务已创建并指派给 '+((MB[task.own]||{}).n||'同事'));
+      toast(taskCreationNotice(task));
     }).catch(function(){ toast('任务创建失败，请确认负责人已同步到飞书组织'); });
     return;
   }
@@ -4033,6 +4082,7 @@ document.addEventListener('click',function(e){
   else if(a==='task-reopen'){
     runTaskMutation(function(){ return WORKSTATION_GATEWAY.reopenTask(S.sel.task,S.me,fieldValue('execReviewNote')); },'任务已重新打开');
   }
+  else if(a==='retry-task-notification'){ retryTaskNotification(); }
   else if(a==='open-my-project'){
     S.curProj=t.getAttribute('data-id'); S.page='project'; render();
   }
@@ -4154,13 +4204,13 @@ window.addEventListener('resize',syncMobileShell);
 
 /* ---------------- 启动 ---------------- */
 function startWorkstation(){
-  var demoClearedAtStartup=false;
+  var demoClearedAtStartup=false, startupNotice='';
   var saved=null, legacyAiSecret=false, migratedLegacy=false, legacyDataPresent=false;
   if(!isDemoRuntime()){
     emptyDemoBusinessData(); S.demoCleared=false;
     if(WORKSTATION_GATEWAY.serviceUnavailable){ S.serviceError='真实数据服务未配置'; }
     else{
-      try{ hydrateServerBootstrap(WORKSTATION_GATEWAY.loadBootstrap()); }
+      try{ hydrateServerBootstrap(WORKSTATION_GATEWAY.loadBootstrap()); startupNotice=applyTaskDeepLink(); }
       catch(e){ S.serviceError='真实数据服务不可用'; }
     }
   }else{
@@ -4200,6 +4250,7 @@ function startWorkstation(){
   S.form=blankForm();
   renderBrand();
   bootstrapDemoSession();
+  if(startupNotice) setTimeout(function(){ toast(startupNotice); },0);
 }
 if(!isDemoRuntime()&&window.QUANTXY_WORKSTATION_SERVER_ADAPTER&&typeof window.QUANTXY_WORKSTATION_SERVER_ADAPTER.ready==='function'){
   window.QUANTXY_WORKSTATION_SERVER_ADAPTER.ready().then(startWorkstation).catch(function(){

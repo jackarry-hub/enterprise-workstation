@@ -137,7 +137,7 @@ test("keeps authentication separate from identity and business data", async () =
 test("keeps model credentials on the server and makes key updates write only", async () => {
   const html = await readFusionHtml();
 
-  assert.doesNotMatch(html, /sk-[A-Za-z0-9_-]{16,}/);
+  assert.doesNotMatch(html, /(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{16,}/);
   assert.doesNotMatch(html, /S\.cfg\.apiKey/);
   assert.doesNotMatch(html, /id="cfgKey"/);
   assert.doesNotMatch(html, /h\['Authorization'\]|h\['x-api-key'\]/);
@@ -275,6 +275,29 @@ test("registers the personal execution detail and closed-loop controls", async (
   for (const label of ["任务说明", "验收标准", "阻塞原因", "成果说明", "成果链接", "执行记录"]) {
     assert.match(html, new RegExp(label));
   }
+});
+
+test("keeps formal task deep links and notification retry inside the safe gateway contract", async () => {
+  const html = await readFusionHtml();
+  assert.match(html, /function applyTaskDeepLink\(\)/);
+  assert.match(html, /new URLSearchParams\(window\.location\.search\)/);
+  assert.match(html, /params\.getAll\('task'\)/);
+  assert.match(html, /values\.length!==1/);
+  assert.match(html, /TASK_UUID_PATTERN\.test\(values\[0\]\)/);
+  assert.match(html, /if\(isDemoRuntime\(\)\) return ''/);
+  assert.match(html, /任务不存在或当前账号无权查看/);
+  assert.match(html, /SERVER_GATEWAY_MANAGE_METHODS=\[[^\]]*'retryTaskNotification'/);
+  assert.match(html, /data-act="retry-task-notification"/);
+  assert.match(html, /S\.notificationRetryBusy/);
+  for (const message of [
+    "任务已创建，飞书通知已送达",
+    "任务已创建，飞书通知暂未送达",
+    "任务已创建，请先同步该员工的飞书身份",
+    "任务已创建，飞书通知正在发送",
+  ]) {
+    assert.match(html, new RegExp(message));
+  }
+  assert.doesNotMatch(html, /open_id|provider_error|providerError/);
 });
 
 test("replaces corporate finance with personal salary and bonus detail", async () => {

@@ -6,10 +6,10 @@ import { JSDOM } from "jsdom";
 
 const htmlPath = path.join(process.cwd(), "quantxy-ai-workbench-fused.html");
 
-async function openWorkbench(seedStorage, setupWindow) {
+async function openWorkbench(seedStorage, setupWindow, url = "http://127.0.0.1:3011/quantxy-ai-workbench-fused.html") {
   const html = await readFile(htmlPath, "utf8");
   const dom = new JSDOM(html, {
-    url: "http://127.0.0.1:3011/quantxy-ai-workbench-fused.html",
+    url,
     runScripts: "dangerously",
     pretendToBeVisual: true,
     beforeParse(window) {
@@ -67,6 +67,123 @@ async function waitFor(read) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error("Timed out waiting for workbench state");
+}
+
+async function openFormalWorkbench(url, bootstrap, adapterOverrides = {}) {
+  const html = await readRealModeHtml();
+  const tasks = bootstrap.tasks || [];
+  const projects = bootstrap.projects || [];
+  const session = bootstrap.session;
+  const adapter = {
+    ready: async () => bootstrap,
+    getSession: () => session,
+    loadBootstrap: () => bootstrap,
+    loadMyDashboard: (memberId) => ({
+      tasks: tasks.filter((task) => task.own === memberId),
+      must: tasks.filter((task) => task.own === memberId),
+      projects,
+      payroll: null,
+      reminders: [],
+    }),
+    listMyTasks: (memberId) => tasks.filter((task) => task.own === memberId),
+    loadMyTask: (memberId, taskId) => {
+      const canManage = session.permissions.includes("task.manage");
+      return tasks.find((task) => task.id === taskId && (
+        canManage
+        || task.own === memberId
+        || task.createdBy === memberId
+        || task.reviewer === memberId
+      )) || null;
+    },
+    listMyProjects: () => projects,
+    loadPayroll: () => [],
+    saveTask: async () => null,
+    claimTask: async () => null,
+    updateTaskExecution: async () => null,
+    submitTaskResult: async () => null,
+    reviewTaskResult: async () => null,
+    reopenTask: async () => null,
+    syncDirectory: async () => ({}),
+    createTask: async () => null,
+    retryTaskNotification: async () => ({ status: "sent", errorCode: "" }),
+    savePayroll: async () => ({}),
+    ...adapterOverrides,
+  };
+  const dom = new JSDOM(html, {
+    url,
+    runScripts: "dangerously",
+    pretendToBeVisual: true,
+    beforeParse(window) {
+      window.scrollTo = () => {};
+      window.matchMedia = (query) => ({
+        matches: false,
+        media: query,
+        addEventListener() {},
+        removeEventListener() {},
+        addListener() {},
+        removeListener() {},
+      });
+      window.QUANTXY_WORKSTATION_RUNTIME = { authMode: "feishu", dataMode: "server" };
+      window.QUANTXY_WORKSTATION_SERVER_ADAPTER = adapter;
+      window.fetch = async (requestUrl) => String(requestUrl) === "/api/ai/config"
+        ? response(true, {
+          provider: "deepseek",
+          apiBaseUrl: "https://api.deepseek.com",
+          model: "deepseek-v4-flash",
+          keyConfigured: false,
+          keyHint: null,
+          updatedAt: null,
+          canManage: true,
+        })
+        : response(false, { error: "unexpected_request" }, 404);
+    },
+  });
+  await waitFor(() => dom.window.Q?.S.me === session.memberId && dom.window.Q.S.aiConfig.loaded);
+  return dom;
+}
+
+function formalBootstrap({
+  memberId = "77777777-7777-4777-8777-777777777777",
+  taskId = "11111111-1111-4111-8111-111111111111",
+  ownerId = memberId,
+  permissions = ["task.execute", "payroll.read.self"],
+  notification = { status: "failed", errorCode: "send_failed" },
+} = {}) {
+  const projectId = "22222222-2222-4222-8222-222222222222";
+  return {
+    mode: "server",
+    session: {
+      authenticated: true,
+      authMode: "feishu",
+      dataMode: "server",
+      memberId,
+      permissions,
+    },
+    members: [
+      { id: memberId, n: "当前员工", r: "产品经理", dept: "产品中心", lv: 3 },
+      { id: ownerId, n: "任务执行人", r: "产品经理", dept: "产品中心", lv: 3 },
+    ].filter((member, index, rows) => rows.findIndex((row) => row.id === member.id) === index),
+    projects: [{ id: projectId, n: "正式项目", own: memberId, st: "进行中", cat: "企业项目" }],
+    tasks: [{
+      id: taskId,
+      n: "飞书深链任务",
+      p: projectId,
+      own: ownerId,
+      createdBy: ownerId,
+      reviewer: ownerId,
+      pri: "P1",
+      st: "待处理",
+      s: "2026-08-20",
+      e: "2026-08-25",
+      pr: 0,
+      description: "从飞书进入工作台处理任务",
+      ac: "仅当前可见员工可以打开",
+      timeline: [],
+      notification,
+    }],
+    payroll: { [memberId]: [] },
+    features: { identitySwitch: false, demoReset: false },
+  };
 }
 
 test("migrates legacy tasks to the execution schema without losing records", async () => {
@@ -2122,6 +2239,199 @@ test("makes insight and knowledge utility controls produce visible state changes
     assert.notEqual(dom.window.document.querySelector("[data-kb-recommendation]").textContent, initialRecommendation);
     dom.window.document.querySelector('[data-act="kb-open-source"]').click();
     assert.match(S.confirm?.t || "", /知识原文/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("opens one authorized UUID task from a formal deep link", async () => {
+  const taskId = "11111111-1111-4111-8111-111111111111";
+  const dom = await openFormalWorkbench(
+    `http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1&task=${taskId}`,
+    formalBootstrap({ taskId }),
+  );
+  try {
+    assert.equal(dom.window.Q.S.page, "execution");
+    assert.equal(dom.window.Q.S.sel.task, taskId);
+    assert.match(dom.window.document.querySelector("#view").textContent, /飞书深链任务/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("ignores invalid or repeated formal task parameters", async () => {
+  for (const suffix of [
+    "task=not-a-uuid",
+    "task=11111111-1111-4111-8111-111111111111&task=11111111-1111-4111-8111-111111111111",
+  ]) {
+    const dom = await openFormalWorkbench(
+      `http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1&${suffix}`,
+      formalBootstrap(),
+    );
+    try {
+      assert.equal(dom.window.Q.S.page, "me");
+      assert.equal(dom.window.Q.S.sel.task, null);
+    } finally {
+      dom.window.close();
+    }
+  }
+});
+
+test("ignores task deep links in demo runtime", async () => {
+  const dom = await openWorkbench(
+    undefined,
+    undefined,
+    "http://127.0.0.1:3011/quantxy-ai-workbench-fused.html?task=11111111-1111-4111-8111-111111111111",
+  );
+  try {
+    assert.notEqual(dom.window.Q.S.page, "execution");
+    assert.equal(dom.window.Q.S.sel.task, null);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("returns an unauthorized formal task deep link to the personal workbench without disclosure", async () => {
+  const taskId = "11111111-1111-4111-8111-111111111111";
+  const dom = await openFormalWorkbench(
+    `http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1&task=${taskId}`,
+    formalBootstrap({
+      taskId,
+      ownerId: "88888888-8888-4888-8888-888888888888",
+    }),
+  );
+  try {
+    await waitFor(() => dom.window.document.querySelector("#toast")?.textContent === "任务不存在或当前账号无权查看");
+    assert.equal(dom.window.Q.S.page, "me");
+    assert.equal(dom.window.Q.S.sel.task, null);
+    assert.doesNotMatch(dom.window.document.querySelector("#view").textContent, /飞书深链任务/);
+    assert.equal(dom.window.document.querySelector("#toast").textContent, "任务不存在或当前账号无权查看");
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("shows the exact safe Feishu delivery feedback after formal task creation", async () => {
+  const messages = {
+    sent: "任务已创建，飞书通知已送达",
+    failed: "任务已创建，飞书通知暂未送达",
+    unavailable: "任务已创建，请先同步该员工的飞书身份",
+    pending: "任务已创建，飞书通知正在发送",
+  };
+  const bootstrap = formalBootstrap({ permissions: ["task.manage"] });
+  let nextStatus = "sent";
+  let createdCount = 0;
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+    {
+      createTask: async (input) => ({
+        id: `33333333-3333-4333-8333-${String(++createdCount).padStart(12, "0")}`,
+        n: input.title,
+        p: input.projectId,
+        own: input.assigneeMemberId,
+        createdBy: bootstrap.session.memberId,
+        reviewer: bootstrap.session.memberId,
+        pri: input.priority,
+        st: "待处理",
+        s: "2026-08-20",
+        e: input.dueDate,
+        pr: 0,
+        description: input.description,
+        ac: input.acceptanceCriteria,
+        timeline: [],
+        notification: { status: nextStatus, errorCode: nextStatus === "failed" ? "send_failed" : "" },
+      }),
+    },
+  );
+  try {
+    for (const [status, expected] of Object.entries(messages)) {
+      nextStatus = status;
+      dom.window.Q.S.form.task = {
+        n: `通知状态 ${status}`,
+        proj: bootstrap.projects[0].id,
+        own: bootstrap.session.memberId,
+        pri: "P1",
+        s: "2026-08-20",
+        e: "2026-08-25",
+        ac: "员工收到任务并可以领取",
+        sub: "",
+      };
+      dom.window.Q.S.page = "new-task";
+      dom.window.Q.render();
+      dom.window.document.querySelector('[data-act="f-task"]').click();
+      await waitFor(() => dom.window.document.querySelector("#toast")?.textContent === expected);
+      assert.equal(dom.window.document.querySelector("#toast").textContent, expected);
+    }
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("keeps notification retry manager-only and prevents duplicate clicks while pending", async () => {
+  const managerBootstrap = formalBootstrap({ permissions: ["task.manage"] });
+  let retryCalls = 0;
+  let finishRetry;
+  const retryResult = new Promise((resolve) => { finishRetry = resolve; });
+  const managerDom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1&task=11111111-1111-4111-8111-111111111111",
+    managerBootstrap,
+    {
+      retryTaskNotification: () => {
+        retryCalls += 1;
+        return retryResult;
+      },
+    },
+  );
+  try {
+    const retryButton = managerDom.window.document.querySelector('[data-act="retry-task-notification"]');
+    assert.ok(retryButton);
+    assert.equal(retryButton.textContent.trim(), "重发飞书通知");
+    assert.match(managerDom.window.document.querySelector("#view").textContent, /飞书通知暂未送达/);
+    retryButton.click();
+    assert.equal(managerDom.window.Q.S.notificationRetryBusy, true);
+    await waitFor(() => retryCalls === 1);
+    assert.equal(retryCalls, 1);
+    assert.ok(!managerDom.window.document.querySelector('[data-act="retry-task-notification"]')
+      || managerDom.window.document.querySelector('[data-act="retry-task-notification"]').disabled);
+    finishRetry({ status: "sent", errorCode: "" });
+    await waitFor(() => managerDom.window.Q.S.tasks[0].notification?.status === "sent");
+    assert.equal(managerDom.window.Q.S.notificationRetryBusy, false);
+    assert.match(managerDom.window.document.querySelector("#view").textContent, /飞书通知已送达/);
+    assert.equal(managerDom.window.document.querySelector('[data-act="retry-task-notification"]'), null);
+    assert.equal(managerDom.window.document.querySelector("#toast").textContent, "飞书通知已送达");
+  } finally {
+    managerDom.window.close();
+  }
+
+  const employeeDom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1&task=11111111-1111-4111-8111-111111111111",
+    formalBootstrap(),
+  );
+  try {
+    assert.match(employeeDom.window.document.querySelector("#view").textContent, /飞书通知暂未送达/);
+    assert.equal(employeeDom.window.document.querySelector('[data-act="retry-task-notification"]'), null);
+  } finally {
+    employeeDom.window.close();
+  }
+});
+
+test("keeps a safe failed notification state when retry rejects", async () => {
+  const bootstrap = formalBootstrap({ permissions: ["task.manage"] });
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1&task=11111111-1111-4111-8111-111111111111",
+    bootstrap,
+    { retryTaskNotification: async () => { throw new Error("raw provider failure"); } },
+  );
+  try {
+    dom.window.document.querySelector('[data-act="retry-task-notification"]').click();
+    await waitFor(() => dom.window.Q.S.notificationRetryBusy === false
+      && dom.window.document.querySelector("#toast")?.textContent === "飞书通知暂未送达");
+    assert.deepEqual(JSON.parse(JSON.stringify(dom.window.Q.S.tasks[0].notification)), {
+      status: "failed",
+      errorCode: "send_failed",
+    });
+    assert.doesNotMatch(dom.window.document.querySelector("#view").textContent, /provider|raw|send_failed|open_id/);
   } finally {
     dom.window.close();
   }
