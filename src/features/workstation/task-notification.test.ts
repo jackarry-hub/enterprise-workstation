@@ -58,6 +58,14 @@ const messageInput = {
   acceptanceCriteria: "Owner approves the result",
 };
 
+function deferred<T>() {
+  let resolve: (value: T | PromiseLike<T>) => void = () => undefined;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
 beforeEach(() => {
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", " service-role-secret ");
   externalDependencies.createClient.mockReset();
@@ -86,6 +94,101 @@ afterEach(() => {
 });
 
 describe("task notification delivery state", () => {
+  it("coalesces concurrent deliveries for the same task scope", async () => {
+    const pendingSend = deferred<{ messageId: string }>();
+    const loadContext = vi.fn().mockResolvedValue(context);
+    const sendMessage = vi.fn().mockReturnValue(pendingSend.promise);
+    const recordResult = vi.fn().mockResolvedValue(undefined);
+    const dispatch = createTaskNotificationDispatcher({
+      loadContext,
+      sendMessage,
+      recordResult,
+    });
+
+    const first = dispatch(scope);
+    const second = dispatch({ ...scope });
+    await Promise.resolve();
+    pendingSend.resolve({ messageId: "om_concurrent" });
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { status: "sent" },
+      { status: "sent" },
+    ]);
+    expect(loadContext).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(recordResult).toHaveBeenCalledTimes(1);
+    expect(recordResult).toHaveBeenCalledWith(scope, notificationId, {
+      status: "sent",
+      messageId: "om_concurrent",
+    });
+  });
+
+  it("allows different task scopes to deliver concurrently", async () => {
+    const otherScope = {
+      ...scope,
+      taskId: "55555555-5555-4555-8555-555555555555",
+    };
+    const pendingSend = deferred<{ messageId: string }>();
+    const loadContext = vi.fn().mockImplementation(
+      async (loadedScope: typeof scope) => ({
+        ...context,
+        notificationId: loadedScope.taskId === scope.taskId
+          ? notificationId
+          : "66666666-6666-4666-8666-666666666666",
+        taskId: loadedScope.taskId,
+      }),
+    );
+    const sendMessage = vi.fn().mockReturnValue(pendingSend.promise);
+    const recordResult = vi.fn().mockResolvedValue(undefined);
+    const dispatch = createTaskNotificationDispatcher({
+      loadContext,
+      sendMessage,
+      recordResult,
+    });
+
+    const first = dispatch(scope);
+    const second = dispatch(otherScope);
+    await Promise.resolve();
+
+    expect(loadContext).toHaveBeenCalledTimes(2);
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(sendMessage.mock.calls.map(([input]) => input.taskId)).toEqual([
+      scope.taskId,
+      otherScope.taskId,
+    ]);
+
+    pendingSend.resolve({ messageId: "om_parallel" });
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { status: "sent" },
+      { status: "sent" },
+    ]);
+    expect(recordResult).toHaveBeenCalledTimes(2);
+  });
+
+  it("loads fresh state after an operation for the scope settles", async () => {
+    const pendingSend = deferred<{ messageId: string }>();
+    const loadContext = vi.fn()
+      .mockResolvedValueOnce(context)
+      .mockResolvedValueOnce({ ...context, status: "sent" });
+    const sendMessage = vi.fn().mockReturnValue(pendingSend.promise);
+    const recordResult = vi.fn().mockResolvedValue(undefined);
+    const dispatch = createTaskNotificationDispatcher({
+      loadContext,
+      sendMessage,
+      recordResult,
+    });
+
+    const first = dispatch(scope);
+    await Promise.resolve();
+    pendingSend.resolve({ messageId: "om_settled" });
+    await expect(first).resolves.toEqual({ status: "sent" });
+    await expect(dispatch(scope)).resolves.toEqual({ status: "sent" });
+
+    expect(loadContext).toHaveBeenCalledTimes(2);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(recordResult).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     [null, false],
     [{ ...context, recipientOpenId: null }, true],

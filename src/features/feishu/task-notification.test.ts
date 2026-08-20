@@ -16,6 +16,10 @@ const envExample = readFileSync(
   resolve(process.cwd(), ".env.example"),
   "utf8",
 );
+const deploymentGuide = readFileSync(
+  resolve(process.cwd(), "docs/deployment/phase1-supabase-feishu.md"),
+  "utf8",
+);
 const notificationDeploymentPlaceholders = {
   NEXT_PUBLIC_APP_URL: "https://workstation.example.com",
   FEISHU_APP_ID: "cli_your_feishu_app_id",
@@ -91,6 +95,37 @@ afterEach(() => {
 describe("Feishu task notification environment", () => {
   it("documents every notification setting with an obvious placeholder", () => {
     expectNotificationDeploymentEnvContract(envExample);
+  });
+
+  it("keeps the authoritative deployment cutover in acceptance-safe order", () => {
+    const orderedMarkers = [
+      "### A. 飞书能力配置（不向全员开放）",
+      "### B. 部署代码、HTTPS APP URL 与运行时秘密",
+      "### C. 应用数据库迁移",
+      "### D. 限定测试范围",
+      "### E. 指定员工验收",
+      "### F. 验收后扩大全员",
+    ];
+    const markerIndexes = orderedMarkers.map((marker) =>
+      deploymentGuide.indexOf(marker)
+    );
+
+    expect(markerIndexes.every((index) => index >= 0)).toBe(true);
+    expect(markerIndexes).toEqual([...markerIndexes].sort((a, b) => a - b));
+
+    const testScopeSection = deploymentGuide.slice(
+      markerIndexes[3],
+      markerIndexes[4],
+    );
+    expect(testScopeSection).toContain("真实消息发送必须先发布版本");
+    expect(testScopeSection).toContain("指定测试员工");
+    expect(deploymentGuide.slice(0, markerIndexes[4])).not.toContain(
+      "应用可用范围覆盖所有会接收任务的员工",
+    );
+
+    const expandAllSection = deploymentGuide.slice(markerIndexes[5]);
+    expect(expandAllSection).toContain("应用可用范围");
+    expect(expandAllSection).toContain("所有会接收任务的员工");
   });
 
   it.each([

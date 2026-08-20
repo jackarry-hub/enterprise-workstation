@@ -116,8 +116,12 @@ export function createTaskNotificationDispatcher(
   dependencies: TaskNotificationDependencies,
 ) {
   const unconfirmedDeliveries = new Map<string, string>();
+  const inFlightOperations = new Map<
+    string,
+    Promise<TaskNotificationResult>
+  >();
 
-  return async function dispatch(
+  async function performDispatch(
     scope: TaskNotificationScope,
   ): Promise<TaskNotificationResult> {
     let context: TaskNotificationContext | null;
@@ -219,6 +223,26 @@ export function createTaskNotificationDispatcher(
         errorCode: "delivery_unconfirmed",
       };
     }
+  }
+
+  return function dispatch(
+    scope: TaskNotificationScope,
+  ): Promise<TaskNotificationResult> {
+    const inFlightKey = [
+      scope.tenantId,
+      scope.organizationId,
+      scope.taskId,
+    ].join(":");
+    const existingOperation = inFlightOperations.get(inFlightKey);
+    if (existingOperation) return existingOperation;
+
+    const operation = performDispatch(scope).finally(() => {
+      if (inFlightOperations.get(inFlightKey) === operation) {
+        inFlightOperations.delete(inFlightKey);
+      }
+    });
+    inFlightOperations.set(inFlightKey, operation);
+    return operation;
   };
 }
 
