@@ -139,11 +139,16 @@ export function createWorkstationTaskCreateHandler(
     } catch {
       return NextResponse.json({ error: "task_create_failed" }, { status: 409 });
     }
-    const notification = await dependencies.notifyTask({
-      tenantId: session.tenantId,
-      organizationId: session.organization.id,
-      taskId: String((task as { id: unknown }).id),
-    }).catch(() => ({ status: "failed" as const, errorCode: "send_failed" as const }));
+    let notification: Awaited<ReturnType<typeof dispatchTaskAssignedNotification>>;
+    try {
+      notification = await dependencies.notifyTask({
+        tenantId: session.tenantId,
+        organizationId: session.organization.id,
+        taskId: String((task as { id: unknown }).id),
+      });
+    } catch {
+      notification = { status: "failed", errorCode: "send_failed" };
+    }
     return NextResponse.json({ task, notification }, { status: 201 });
   };
 }

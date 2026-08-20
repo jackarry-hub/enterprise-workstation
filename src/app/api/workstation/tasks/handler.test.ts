@@ -156,6 +156,24 @@ describe("formal workstation task creation", () => {
     expect(JSON.stringify(body)).not.toContain(sensitiveMessage);
   });
 
+  it("keeps HTTP 201 when the notifier throws synchronously", async () => {
+    const handler = createWorkstationTaskCreateHandler({
+      loadSession: async () => managerSession,
+      createTask: vi.fn().mockResolvedValue(task),
+      notifyTask: vi.fn().mockImplementation(() => {
+        throw new Error("sensitive synchronous Feishu failure");
+      }),
+    });
+
+    const response = await handler(taskCreateRequest());
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({
+      task,
+      notification: { status: "failed", errorCode: "send_failed" },
+    });
+  });
+
   it("does not notify when task creation fails", async () => {
     const notifyTask = vi.fn();
     const handler = createWorkstationTaskCreateHandler({
