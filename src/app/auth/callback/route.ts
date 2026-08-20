@@ -4,6 +4,7 @@ import {
   isPublicAuthPath,
   parseWorkspaceAccess,
 } from "@/features/auth/workspace-access";
+import { getAuthRedirectOrigin } from "@/features/auth/auth-env";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 export type IdentityClaimResult =
@@ -58,7 +59,7 @@ function callbackRedirect(
   url: URL,
   pathname: string,
 ) {
-  return Response.redirect(new URL(pathname, url.origin));
+  return Response.redirect(new URL(pathname, getAuthRedirectOrigin(url)));
 }
 
 async function rejectCallback(

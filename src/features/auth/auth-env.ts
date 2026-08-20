@@ -31,6 +31,17 @@ export function getAuthEnv(env: AuthEnvSource = process.env): AuthEnv {
   return { appUrl: parsed.origin };
 }
 
+export function getAuthRedirectOrigin(
+  requestUrl: URL,
+  env: AuthEnvSource = process.env,
+) {
+  try {
+    return getAuthEnv(env).appUrl;
+  } catch {
+    return requestUrl.origin;
+  }
+}
+
 export function getLegacyFeishuAdapterTenantKey(
   env: AuthEnvSource = process.env,
 ) {

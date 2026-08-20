@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { getAuthRedirectOrigin } from "@/features/auth/auth-env";
 import { getOAuthStartUrl } from "@/features/auth/oauth-start";
 import { getSafeReturnPath, isPublicAuthPath } from "@/features/auth/workspace-access";
 
@@ -26,7 +27,10 @@ export function createOAuthStartHandler(dependencies: OAuthStartDependencies) {
       // Keep the employee-facing failure stable and free of provider details.
     }
     return NextResponse.redirect(
-      new URL("/access-pending?reason=auth_error", requestUrl),
+      new URL(
+        "/access-pending?reason=auth_error",
+        getAuthRedirectOrigin(requestUrl),
+      ),
     );
   };
 }

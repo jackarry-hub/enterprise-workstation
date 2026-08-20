@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   GET,
@@ -8,6 +8,10 @@ import {
 
 const callbackOrigin = "https://brain.quantxy.com";
 const { handleAuthCallback } = GET;
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 function dependencies(
   overrides: Partial<AuthCallbackDependencies> = {},
@@ -22,6 +26,19 @@ function dependencies(
 }
 
 describe("handleAuthCallback", () => {
+  it("uses the configured public origin when the reverse proxy exposes the container origin", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://work.quantumgalaxy.top");
+
+    const response = await handleAuthCallback(
+      new Request("http://0.0.0.0:3000/auth/callback?code=one-time-code"),
+      dependencies({ claimIdentity: async () => "not_provisioned" }),
+    );
+
+    expect(response.headers.get("location")).toBe(
+      "https://work.quantumgalaxy.top/access-pending?reason=not_provisioned",
+    );
+  });
+
   it("exchanges one code and redirects an active identity to the formal fused workstation", async () => {
     const exchangeCode = vi.fn(async () => "auth-user-id");
     const response = await handleAuthCallback(
