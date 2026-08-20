@@ -32,7 +32,35 @@ test("loads the formal employee session and sends task updates without trusting 
       return response(true, { status: "completed", employeeCount: 2 });
     }
     if (String(url) === "/api/workstation/tasks" && init.method === "POST") {
-      return response(true, { task: { ...bootstrap.tasks[0], id: "t2", n: "新任务", pr: 0 } });
+      const input = JSON.parse(init.body);
+      const queueUnavailable = input.title === "队列不可用任务";
+      return response(true, {
+        task: {
+          ...bootstrap.tasks[0],
+          id: queueUnavailable ? "t3" : "t2",
+          n: input.title,
+          pr: 0,
+        },
+        notification: queueUnavailable
+          ? { status: "unavailable", errorCode: "queue_unavailable" }
+          : { status: "unavailable", errorCode: "delivery_unconfirmed" },
+      });
+    }
+    if (String(url) === "/api/workstation/tasks/t1/notify") {
+      return response(true, {
+        notification: {
+          status: "unavailable",
+          errorCode: "delivery_unconfirmed",
+        },
+      });
+    }
+    if (String(url) === "/api/workstation/tasks/t2/notify") {
+      return response(true, {
+        notification: {
+          status: "unavailable",
+          errorCode: "queue_unavailable",
+        },
+      });
     }
     if (String(url) === "/api/workstation/payroll") {
       return response(true, { status: "saved" });
@@ -71,6 +99,33 @@ test("loads the formal employee session and sends task updates without trusting 
     title: "新任务",
   });
   assert.equal(created.id, "t2");
+  assert.deepEqual(JSON.parse(JSON.stringify(created.notification)), {
+    status: "failed",
+    errorCode: "delivery_unconfirmed",
+  });
+  const queueUnavailable = await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.createTask({
+    projectId: "p1",
+    assigneeMemberId: "m7",
+    title: "队列不可用任务",
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(queueUnavailable.notification)), {
+    status: "failed",
+    errorCode: "queue_unavailable",
+  });
+  assert.equal(
+    typeof dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.retryTaskNotification,
+    "function",
+  );
+  const deliveryUnconfirmed = await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.retryTaskNotification("t1");
+  const retryQueueUnavailable = await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.retryTaskNotification("t2");
+  assert.deepEqual(JSON.parse(JSON.stringify(deliveryUnconfirmed)), {
+    status: "failed",
+    errorCode: "delivery_unconfirmed",
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(retryQueueUnavailable)), {
+    status: "failed",
+    errorCode: "queue_unavailable",
+  });
   await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.savePayroll({
     memberId: "m7",
     month: "2026-08",
@@ -78,6 +133,13 @@ test("loads the formal employee session and sends task updates without trusting 
   assert.equal(requests.find(({ url }) => url === "/api/workstation/directory-sync").init.method, "POST");
   assert.equal(requests.find(({ url }) => url === "/api/workstation/tasks" && url !== "/api/workstation/tasks/t1").init.method, "POST");
   assert.equal(requests.find(({ url }) => url === "/api/workstation/payroll").init.method, "POST");
+  for (const taskId of ["t1", "t2"]) {
+    const notifyRequest = requests.find(({ url }) => (
+      url === `/api/workstation/tasks/${taskId}/notify`
+    ));
+    assert.equal(notifyRequest.init.method, "POST");
+    assert.equal(notifyRequest.init.credentials, "same-origin");
+  }
   dom.window.close();
 });
 

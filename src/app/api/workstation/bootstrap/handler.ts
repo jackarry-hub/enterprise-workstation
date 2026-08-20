@@ -45,13 +45,13 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       membersResult.data ?? [],
       session.member.id,
     );
-    const [projectsResult, tasksResult, salaryResult] = await Promise.all([
+    const [projectsResult, tasksResult, salaryResult, notificationsResult] = await Promise.all([
       client.from("projects")
         .select("id, public_id, name, owner_member_id, status, health, progress, priority, updated_at")
         .is("deleted_at", null)
         .order("updated_at", { ascending: false }),
       client.from("tasks")
-        .select("public_id, project_id, title, description, assignee_member_id, reporter_member_id, status, priority, start_date, due_date, progress, acceptance_criteria, blocker, review_note, next_step, result_summary, result_link, result_files, accepted_at, submitted_at, reviewed_at")
+        .select("id, public_id, project_id, title, description, assignee_member_id, reporter_member_id, status, priority, start_date, due_date, progress, acceptance_criteria, blocker, review_note, next_step, result_summary, result_link, result_files, accepted_at, submitted_at, reviewed_at")
         .is("deleted_at", null)
         .order("updated_at", { ascending: false }),
       client.from("salary")
@@ -59,11 +59,20 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
         .eq("employee_profile_id", employeeProfileId)
         .is("deleted_at", null)
         .order("payroll_month", { ascending: false }),
+      client.from("task_notifications")
+        .select("task_id, status, last_error_code"),
     ]);
 
-    const failed = [projectsResult, tasksResult, salaryResult]
+    const failed = [projectsResult, tasksResult, salaryResult, notificationsResult]
       .find((result) => result.error);
     if (failed?.error) throw failed.error;
+
+    const notificationByTask = new Map(
+      (notificationsResult.data ?? []).map((row) => [row.task_id, {
+        status: row.status,
+        errorCode: row.last_error_code ?? "",
+      }]),
+    );
 
     return buildServerBootstrap(
       {
@@ -117,6 +126,10 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
           acceptedAt: row.accepted_at,
           submittedAt: row.submitted_at,
           reviewedAt: row.reviewed_at,
+          notification: notificationByTask.get(row.id) ?? {
+            status: "unavailable",
+            errorCode: "recipient_unavailable",
+          },
         })),
         salary: (salaryResult.data ?? []).map((row) => ({
           payrollMonth: row.payroll_month,

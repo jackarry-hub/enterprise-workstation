@@ -10,6 +10,39 @@
     return value == null ? value : JSON.parse(JSON.stringify(value));
   }
 
+  var notificationErrorCodes = {
+    token_unavailable: true,
+    recipient_unavailable: true,
+    send_failed: true,
+    configuration_unavailable: true,
+    queue_unavailable: true,
+    delivery_unconfirmed: true,
+  };
+
+  function safeNotification(value) {
+    var notification = value && typeof value === "object" ? value : {};
+    var errorCode = typeof notification.errorCode === "string"
+      && notificationErrorCodes[notification.errorCode]
+      ? notification.errorCode
+      : "";
+    if (errorCode === "delivery_unconfirmed" || errorCode === "queue_unavailable") {
+      return { status: "failed", errorCode: errorCode };
+    }
+    if (errorCode === "recipient_unavailable") {
+      return { status: "unavailable", errorCode: errorCode };
+    }
+    if (notification.status === "pending" || notification.status === "sent") {
+      return { status: notification.status, errorCode: errorCode };
+    }
+    if (notification.status === "failed") {
+      return { status: "failed", errorCode: errorCode || "send_failed" };
+    }
+    return {
+      status: "unavailable",
+      errorCode: errorCode || "recipient_unavailable",
+    };
+  }
+
   function loginUrl() {
     return "/login?next=" + encodeURIComponent(
       window.location.pathname + window.location.search,
@@ -140,7 +173,19 @@
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(input || {}),
-      }).then(function (result) { return addTask(result.task); });
+      }).then(function (result) {
+        var task = addTask(result.task);
+        task.notification = safeNotification(result.notification);
+        return task;
+      });
+    },
+    retryTaskNotification: function (taskId) {
+      return request(
+        "/api/workstation/tasks/" + encodeURIComponent(taskId) + "/notify",
+        { method: "POST" },
+      ).then(function (result) {
+        return safeNotification(result.notification);
+      });
     },
     savePayroll: function (input) {
       return request("/api/workstation/payroll", {

@@ -49,6 +49,10 @@ export type WorkstationTaskRow = {
   acceptedAt?: string | null;
   submittedAt?: string | null;
   reviewedAt?: string | null;
+  notification: {
+    status: string;
+    errorCode: string;
+  };
 };
 
 export type WorkstationSalaryRow = {
@@ -103,6 +107,34 @@ const taskPriorities: Record<string, string> = {
   medium: "P2",
   low: "P2",
 };
+
+const notificationErrorCodes = new Set([
+  "token_unavailable",
+  "recipient_unavailable",
+  "send_failed",
+  "configuration_unavailable",
+  "queue_unavailable",
+  "delivery_unconfirmed",
+]);
+
+function publicTaskNotification(notification: WorkstationTaskRow["notification"]) {
+  const errorCode = notificationErrorCodes.has(notification.errorCode)
+    ? notification.errorCode
+    : "";
+  if (errorCode === "recipient_unavailable") {
+    return { status: "unavailable" as const, errorCode };
+  }
+  if (notification.status === "pending" || notification.status === "sent") {
+    return { status: notification.status, errorCode };
+  }
+  if (notification.status === "failed") {
+    return { status: "failed" as const, errorCode: errorCode || "send_failed" };
+  }
+  return {
+    status: "unavailable" as const,
+    errorCode: errorCode || "recipient_unavailable",
+  };
+}
 
 function memberId(value: number | null) {
   return value === null ? "" : `m${value}`;
@@ -178,6 +210,7 @@ export function buildServerBootstrap(
       acceptedAt: task.acceptedAt ?? "",
       submittedAt: task.submittedAt ?? "",
       reviewedAt: task.reviewedAt ?? "",
+      notification: publicTaskNotification(task.notification),
       timeline: [],
       src: "飞书工作站",
       dep: [],

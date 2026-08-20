@@ -1,11 +1,36 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createWorkstationBootstrapHandler,
+  defaultWorkstationBootstrapDependencies,
   numericProfileIdForMember,
 } from "@/app/api/workstation/bootstrap/handler";
+import { getSupabaseServerClient } from "@/lib/supabase/server";
+
+vi.mock("@/lib/supabase/server", () => ({
+  getSupabaseServerClient: vi.fn(),
+}));
+
+function query(result: { data: unknown[]; error: unknown }) {
+  const builder = {
+    select: vi.fn().mockReturnThis(),
+    is: vi.fn().mockReturnThis(),
+    in: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    order: vi.fn().mockReturnThis(),
+    then: <TResult1 = typeof result, TResult2 = never>(
+      onfulfilled?: ((value: typeof result) => TResult1 | PromiseLike<TResult1>) | null,
+      onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+    ) => Promise.resolve(result).then(onfulfilled, onrejected),
+  };
+  return builder;
+}
 
 describe("workstation bootstrap route", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("resolves salary by the numeric employee profile row, not the public UUID", () => {
     expect(numericProfileIdForMember([
       { id: 41, organization_member_id: 6 },
@@ -34,5 +59,139 @@ describe("workstation bootstrap route", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual(expected);
+  });
+
+  it("loads visible notification rows through the authenticated client and exposes only safe fields", async () => {
+    const members = query({
+      data: [{
+        id: 42,
+        organization_member_id: 7,
+        display_name: "张云帆",
+        job_title: "产品经理",
+        skills: ["prd"],
+        department: { name: "产品中心" },
+      }],
+      error: null,
+    });
+    const projects = query({
+      data: [{
+        id: 31,
+        public_id: "11111111-1111-4111-8111-111111111111",
+        name: "企业工作站",
+        owner_member_id: 7,
+        status: "active",
+        health: "on_track",
+        progress: 45,
+        priority: "high",
+        updated_at: "2026-08-18T08:00:00.000Z",
+      }],
+      error: null,
+    });
+    const tasks = query({
+      data: [
+        {
+          id: 9001,
+          public_id: "22222222-2222-4222-8222-222222222222",
+          project_id: 31,
+          title: "通知失败任务",
+          description: "安全映射",
+          assignee_member_id: 7,
+          reporter_member_id: 7,
+          status: "todo",
+          priority: "high",
+          start_date: null,
+          due_date: "2026-08-25",
+          progress: 0,
+          acceptance_criteria: "只暴露稳定状态",
+          blocker: null,
+          review_note: null,
+          next_step: null,
+          result_summary: null,
+          result_link: null,
+          result_files: [],
+          accepted_at: null,
+          submitted_at: null,
+          reviewed_at: null,
+        },
+        {
+          id: 9002,
+          public_id: "33333333-3333-4333-8333-333333333333",
+          project_id: 31,
+          title: "缺少队列行任务",
+          description: "安全默认值",
+          assignee_member_id: 7,
+          reporter_member_id: 7,
+          status: "todo",
+          priority: "medium",
+          start_date: null,
+          due_date: null,
+          progress: 0,
+          acceptance_criteria: "默认不可用",
+          blocker: null,
+          review_note: null,
+          next_step: null,
+          result_summary: null,
+          result_link: null,
+          result_files: [],
+          accepted_at: null,
+          submitted_at: null,
+          reviewed_at: null,
+        },
+      ],
+      error: null,
+    });
+    const salary = query({ data: [], error: null });
+    const notifications = query({
+      data: [{
+        task_id: 9001,
+        status: "failed",
+        last_error_code: "send_failed",
+        recipient_open_id: "ou_internal_secret",
+        tenant_access_token: "tenant-token-secret",
+        app_secret: "app-secret-value",
+        provider_error: "raw provider response",
+      }],
+      error: null,
+    });
+    const builders = { members, projects, tasks, salary, notifications };
+    const client = {
+      from: vi.fn((table: string) => {
+        if (table === "employee_profiles") return builders.members;
+        if (table === "projects") return builders.projects;
+        if (table === "tasks") return builders.tasks;
+        if (table === "salary") return builders.salary;
+        if (table === "task_notifications") return builders.notifications;
+        throw new Error(`unexpected table ${table}`);
+      }),
+    };
+    vi.mocked(getSupabaseServerClient).mockResolvedValue(client as never);
+
+    const bootstrap = await defaultWorkstationBootstrapDependencies.loadBootstrap({
+      member: { id: 7 },
+      profile: {
+        displayName: "张云帆",
+        departmentName: "产品中心",
+        jobTitle: "产品经理",
+        avatarUrl: null,
+      },
+      permissionCodes: ["task.manage"],
+    } as never) as { tasks: Array<Record<string, unknown>> };
+
+    expect(client.from).toHaveBeenCalledWith("task_notifications");
+    expect(notifications.select).toHaveBeenCalledWith(
+      "task_id, status, last_error_code",
+    );
+    expect(tasks.select).toHaveBeenCalledWith(expect.stringContaining("id, public_id"));
+    expect(bootstrap.tasks[0].notification).toEqual({
+      status: "failed",
+      errorCode: "send_failed",
+    });
+    expect(bootstrap.tasks[1].notification).toEqual({
+      status: "unavailable",
+      errorCode: "recipient_unavailable",
+    });
+    expect(JSON.stringify(bootstrap)).not.toMatch(
+      /task_id|9001|9002|open_id|tenant_access_token|app_secret|raw provider response/i,
+    );
   });
 });
