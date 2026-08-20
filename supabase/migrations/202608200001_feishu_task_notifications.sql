@@ -176,6 +176,8 @@ using (
   )
 );
 
+grant select on public.task_notifications to authenticated;
+
 revoke all on function public.get_task_notification_delivery_context(uuid,uuid,uuid)
   from public, anon, authenticated;
 grant execute on function public.get_task_notification_delivery_context(uuid,uuid,uuid)
