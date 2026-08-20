@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -9,6 +12,10 @@ import {
 } from "@/features/feishu/task-notification";
 
 const taskId = "11111111-1111-4111-8111-111111111111";
+const envExample = readFileSync(
+  resolve(process.cwd(), ".env.example"),
+  "utf8",
+);
 const env: FeishuTaskNotificationEnv = {
   appId: "cli_test",
   appSecret: "app-secret",
@@ -38,6 +45,30 @@ afterEach(() => {
 });
 
 describe("Feishu task notification environment", () => {
+  it("documents every notification setting with an obvious placeholder", () => {
+    expect(envExample).toMatch(
+      /^NEXT_PUBLIC_APP_URL=https:\/\/workstation\.example\.com$/m,
+    );
+    expect(envExample).toMatch(
+      /^FEISHU_APP_ID=cli_your_feishu_app_id$/m,
+    );
+    expect(envExample).toMatch(
+      /^FEISHU_APP_SECRET=your_server_only_feishu_app_secret$/m,
+    );
+    expect(envExample).toMatch(
+      /^SUPABASE_SERVICE_ROLE_KEY=your_server_only_supabase_service_role_key$/m,
+    );
+  });
+
+  it("describes the app URL as the employee-accessible deployment origin for task deep links", () => {
+    expect(envExample).toMatch(
+      /# .*员工.*浏览器.*访问.*最终部署 origin.*任务深链.*\r?\nNEXT_PUBLIC_APP_URL=https:\/\/workstation\.example\.com/m,
+    );
+    expect(envExample).not.toMatch(
+      /^NEXT_PUBLIC_APP_URL=https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\/?$/m,
+    );
+  });
+
   it.each([
     {},
     { FEISHU_APP_ID: "cli_test", FEISHU_APP_SECRET: "secret" },

@@ -22,15 +22,19 @@
 
 - [ ] 在飞书开放平台创建“企业自建应用”，所属企业选择量子星河。
 - [ ] 启用网页应用登录并申请读取基础身份信息所需权限。
+- [ ] 启用机器人能力，并申请 `im:message:send_as_bot` 权限。
 - [ ] 名单暂时没有 `union_id` 或 `open_id` 时，再申请读取企业邮箱所需权限；企业邮箱必须唯一，且只用于首次身份匹配。
 - [ ] 记录 App ID、App Secret 和飞书 `tenant_key`。
-- [ ] App Secret 只放服务器配置，不写入名单、文档、日志或前端代码。
+- [ ] 发布一个包含机器人能力和 `im:message:send_as_bot` 权限的新版本；每次权限或能力变化后都要重新发布版本。
+- [ ] 应用可用范围覆盖所有会接收任务的员工，并确认这些员工已经同步有效的飞书 `open_id`。
+- [ ] App ID 只由通知服务在服务器运行时读取；App Secret 只放服务器运行时配置，不写入名单、文档、日志、构建参数或前端代码。
 
-预期结果：应用可以发起网页授权，并且只能获取完成登录所需的最少身份信息。
+预期结果：应用可以发起网页授权，只获取完成登录所需的最少身份信息，并能以机器人身份向可用范围内、已有 `open_id` 的员工发送任务通知。
 
 ## 3. 准备可访问的 HTTPS 地址
 
-- [ ] 为联调准备 Supabase 能访问的 HTTPS 地址，并填写 `NEXT_PUBLIC_APP_URL`。
+- [ ] 生产环境将 `NEXT_PUBLIC_APP_URL` 设置为员工能从浏览器访问的最终部署 origin，例如 `https://workstation.example.com`；该值会在构建时嵌入，并用于生成飞书任务深链。
+- [ ] `NEXT_PUBLIC_APP_URL` 只填写 origin，不附带路径、查询参数或片段；更换正式域名后重新构建并部署应用。
 - [ ] 不要把 `127.0.0.1` 或 `localhost` 登记为真实云端联调地址。
 - [ ] 第一阶段可以使用受控的临时 HTTPS 测试域名转发到本机 3000 端口；第四阶段部署香港服务器后，再替换为正式域名。
 
@@ -47,7 +51,7 @@
 | Email optional | `true` |
 | PKCE enabled | `true` |
 
-App ID 和 App Secret 只填写在 Supabase 的自定义 Provider 配置中。当前 Next.js 服务端代码不读取这两个值，因此不要再把它们写入 `.env.local`；Client Secret 也不得出现在浏览器或日志中。
+用于登录的 Supabase 自定义 Provider 仍需填写 App ID 和 App Secret。任务通知服务还会在 Next.js 服务器运行时分别读取 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET`：App ID 是服务端运行时配置；App Secret 是仅服务端、仅运行时的秘密，不得添加 `NEXT_PUBLIC_` 前缀、作为镜像构建参数、发送到客户端或写入日志。
 
 预期结果：`custom:feishu` 已启用，飞书 App ID/App Secret 已分别配置为 Client ID/Client Secret，邮箱不是登录必填项，PKCE 默认开启。
 
@@ -76,13 +80,17 @@ App ID 和 App Secret 只填写在 Supabase 的自定义 Provider 配置中。�
 在项目根目录创建本地 `.env.local`。下面只填写自己的真实值，不要把文件提交 Git：
 
 ```dotenv
-NEXT_PUBLIC_APP_URL=https://phase1.example.invalid
+NEXT_PUBLIC_APP_URL=https://workstation.example.com
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=replace-with-publishable-key
-SUPABASE_SERVICE_ROLE_KEY=replace-with-service-role-key
+FEISHU_APP_ID=cli_your_feishu_app_id
+FEISHU_APP_SECRET=your_server_only_feishu_app_secret
+SUPABASE_SERVICE_ROLE_KEY=your_server_only_supabase_service_role_key
 FEISHU_TENANT_KEY=replace-with-feishu-tenant-key
 PHASE1_ROSTER_PATH=private/phase1-roster.json
 ```
+
+以上全部是明显的占位示例，不得复制任何真实密钥到文档或 Git。`NEXT_PUBLIC_APP_URL` 是客户端公开、构建时嵌入的最终部署 origin；`FEISHU_APP_ID` 由通知服务在服务器运行时读取。`FEISHU_APP_SECRET` 和 `SUPABASE_SERVICE_ROLE_KEY` 必须通过部署平台的服务器运行时秘密配置注入，不能添加 `NEXT_PUBLIC_` 前缀、不能用作镜像 build arg，也不能出现在客户端资源中。
 
 这里保留 `FEISHU_TENANT_KEY`，因为 `/api/auth/feishu/userinfo` 的服务器端适配器会用它拒绝其他飞书企业。它仍然只是飞书 Provider 标识，不是量子星河应用的 tenant slug 或数据库 `tenant_id`。
 
@@ -180,6 +188,15 @@ npm run phase1:provision
 ```
 
 相同名单可以重复执行；通用 `provision_employee_identity` 会按既有员工身份更新，不重复创建员工。工具只在本地管理员命令中使用 `service_role`，浏览器页面不会接触该密钥。
+
+### 6.5 启用任务通知并确认部署边界
+
+- [ ] 完成第 2 节的机器人能力、`im:message:send_as_bot` 权限、新版本发布和应用可用范围检查。
+- [ ] 确认每名任务接收人的员工身份已经同步有效的 `open_id`；只有邮箱或 `union_id`、尚无 `open_id` 的员工不能接收机器人任务消息。
+- [ ] 使用最终部署 origin 重新构建应用，并从员工浏览器确认任务深链可访问；不要把本地地址当作生产 origin。
+- [ ] 确认 App ID 只在服务器运行时使用，App Secret 和 `service_role` 只存在于服务器运行时秘密配置中。
+
+当前阶段只支持单个 Next.js 实例、低并发的请求内通知投递，不支持多实例并行消费或自动重试。`task_notifications` 记录投递状态，但当前还不是带跨实例 claim/lease 的完整 outbox worker；飞书已接收消息而数据库回写失败时会留下 `delivery_unconfirmed`，盲目重试可能产生重复消息。遇到该状态时先由管理员在飞书侧确认，再决定是否手动重试。扩大为多实例生产部署前，需要单独评审并补齐 outbox 并发领取、幂等和恢复机制；本阶段不扩展这些实现。
 
 ## 7. 五岗位和拒绝场景验收
 
