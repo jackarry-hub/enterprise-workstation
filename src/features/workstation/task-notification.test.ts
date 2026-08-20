@@ -127,19 +127,30 @@ describe("task notification delivery state", () => {
     },
   );
 
-  it("does not resend a notification already marked sent", async () => {
-    const sendMessage = vi.fn();
-    const recordResult = vi.fn();
-    const dispatch = createTaskNotificationDispatcher({
-      loadContext: vi.fn().mockResolvedValue({ ...context, status: "sent" }),
-      sendMessage,
-      recordResult,
-    });
+  it.each([null, "   "])(
+    "does not mutate or resend a sent notification without a recipient",
+    async (recipientOpenId) => {
+      const consoleError = vi.spyOn(console, "error").mockImplementation(
+        () => undefined,
+      );
+      const sendMessage = vi.fn();
+      const recordResult = vi.fn();
+      const dispatch = createTaskNotificationDispatcher({
+        loadContext: vi.fn().mockResolvedValue({
+          ...context,
+          recipientOpenId,
+          status: "sent",
+        }),
+        sendMessage,
+        recordResult,
+      });
 
-    await expect(dispatch(scope)).resolves.toEqual({ status: "sent" });
-    expect(sendMessage).not.toHaveBeenCalled();
-    expect(recordResult).not.toHaveBeenCalled();
-  });
+      await expect(dispatch(scope)).resolves.toEqual({ status: "sent" });
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(recordResult).not.toHaveBeenCalled();
+      expect(consoleError).not.toHaveBeenCalled();
+    },
+  );
 
   it("records the provider message ID after a successful attempt", async () => {
     const sendMessage = vi.fn().mockResolvedValue({ messageId: "om_123" });
@@ -156,6 +167,157 @@ describe("task notification delivery state", () => {
       status: "sent",
       messageId: "om_123",
     });
+  });
+
+  it("returns an unconfirmed result without a second record after delivery was sent", async () => {
+    const rawPersistenceError = "database response leaked after Feishu success";
+    const consoleError = vi.spyOn(console, "error").mockImplementation(
+      () => undefined,
+    );
+    const recordResult = vi.fn().mockRejectedValue(
+      new Error(rawPersistenceError),
+    );
+    const sendMessage = vi.fn().mockResolvedValue({ messageId: "om_123" });
+    const dispatch = createTaskNotificationDispatcher({
+      loadContext: vi.fn().mockResolvedValue(context),
+      sendMessage,
+      recordResult,
+    });
+
+    const result = await dispatch(scope);
+
+    expect(result).toEqual({
+      status: "unavailable",
+      errorCode: "delivery_unconfirmed",
+    });
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(recordResult).toHaveBeenCalledTimes(1);
+    expect(recordResult).toHaveBeenCalledWith(scope, notificationId, {
+      status: "sent",
+      messageId: "om_123",
+    });
+    expect(consoleError).toHaveBeenCalledWith({
+      taskId: scope.taskId,
+      notificationId,
+      attemptCount: 3,
+      errorCode: "delivery_unconfirmed",
+    });
+    expect(JSON.stringify([result, consoleError.mock.calls])).not.toContain(
+      rawPersistenceError,
+    );
+  });
+
+  it("reconciles an unconfirmed delivery without sending the message again", async () => {
+    const recordResult = vi.fn()
+      .mockRejectedValueOnce(new Error("first persistence response leaked"))
+      .mockResolvedValueOnce(undefined);
+    const sendMessage = vi.fn().mockResolvedValue({ messageId: "om_123" });
+    const dispatch = createTaskNotificationDispatcher({
+      loadContext: vi.fn().mockResolvedValue(context),
+      sendMessage,
+      recordResult,
+    });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(dispatch(scope)).resolves.toEqual({
+      status: "unavailable",
+      errorCode: "delivery_unconfirmed",
+    });
+    await expect(dispatch(scope)).resolves.toEqual({ status: "sent" });
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(recordResult).toHaveBeenCalledTimes(2);
+    expect(recordResult).toHaveBeenNthCalledWith(
+      2,
+      scope,
+      notificationId,
+      { status: "sent", messageId: "om_123" },
+    );
+  });
+
+  it("maps a context dependency failure to a stable queue result", async () => {
+    const rawContextError = "context row and database details leaked";
+    const sendMessage = vi.fn();
+    const recordResult = vi.fn();
+    const dispatch = createTaskNotificationDispatcher({
+      loadContext: vi.fn().mockRejectedValue(new Error(rawContextError)),
+      sendMessage,
+      recordResult,
+    });
+
+    const result = await dispatch(scope);
+
+    expect(result).toEqual({
+      status: "unavailable",
+      errorCode: "queue_unavailable",
+    });
+    expect(JSON.stringify(result)).not.toContain(rawContextError);
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(recordResult).not.toHaveBeenCalled();
+  });
+
+  it("maps a no-recipient recording failure to a stable queue result", async () => {
+    const rawRecordError = "recipient record database response leaked";
+    const consoleError = vi.spyOn(console, "error").mockImplementation(
+      () => undefined,
+    );
+    const recordResult = vi.fn().mockRejectedValue(new Error(rawRecordError));
+    const dispatch = createTaskNotificationDispatcher({
+      loadContext: vi.fn().mockResolvedValue({
+        ...context,
+        recipientOpenId: null,
+      }),
+      sendMessage: vi.fn(),
+      recordResult,
+    });
+
+    const result = await dispatch(scope);
+
+    expect(result).toEqual({
+      status: "unavailable",
+      errorCode: "queue_unavailable",
+    });
+    expect(recordResult).toHaveBeenCalledTimes(1);
+    expect(consoleError).toHaveBeenCalledWith({
+      taskId: scope.taskId,
+      notificationId,
+      attemptCount: 3,
+      errorCode: "queue_unavailable",
+    });
+    expect(JSON.stringify([result, consoleError.mock.calls])).not.toContain(
+      rawRecordError,
+    );
+  });
+
+  it("maps a failed-delivery recording failure without leaking either error", async () => {
+    const rawProviderError = "provider response body leaked";
+    const rawRecordError = "record RPC response leaked";
+    const consoleError = vi.spyOn(console, "error").mockImplementation(
+      () => undefined,
+    );
+    const recordResult = vi.fn().mockRejectedValue(new Error(rawRecordError));
+    const dispatch = createTaskNotificationDispatcher({
+      loadContext: vi.fn().mockResolvedValue(context),
+      sendMessage: vi.fn().mockRejectedValue(new Error(rawProviderError)),
+      recordResult,
+    });
+
+    const result = await dispatch(scope);
+
+    expect(result).toEqual({
+      status: "failed",
+      errorCode: "queue_unavailable",
+    });
+    expect(recordResult).toHaveBeenCalledTimes(1);
+    expect(consoleError).toHaveBeenCalledWith({
+      taskId: scope.taskId,
+      notificationId,
+      attemptCount: 3,
+      errorCode: "queue_unavailable",
+    });
+    const publicOutput = JSON.stringify([result, consoleError.mock.calls]);
+    expect(publicOutput).not.toContain(rawProviderError);
+    expect(publicOutput).not.toContain(rawRecordError);
   });
 
   it.each([
@@ -267,6 +429,127 @@ describe("default service-role delivery dependencies", () => {
         p_status: "sent",
         p_feishu_message_id: "om_123",
         p_last_error_code: null,
+      },
+    );
+  });
+
+  it.each([
+    ["missing service-role key", "missing-key"],
+    ["invalid Supabase configuration", "invalid-config"],
+  ])("maps %s to configuration_unavailable", async (_case, setup) => {
+    if (setup === "missing-key") {
+      vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    } else {
+      externalDependencies.getSupabaseEnv.mockImplementation(() => {
+        throw new Error("Supabase URL and secret details leaked");
+      });
+    }
+
+    const result = await dispatchTaskAssignedNotification(scope);
+
+    expect(result).toEqual({
+      status: "unavailable",
+      errorCode: "configuration_unavailable",
+    });
+    expect(JSON.stringify(result)).not.toContain("secret details leaked");
+    expect(externalDependencies.sendFeishuTaskNotification).not
+      .toHaveBeenCalled();
+  });
+
+  it("maps a context RPC error to queue_unavailable", async () => {
+    externalDependencies.rpc.mockResolvedValue({
+      data: null,
+      error: { message: "context database response leaked" },
+    });
+
+    const result = await dispatchTaskAssignedNotification(scope);
+
+    expect(result).toEqual({
+      status: "unavailable",
+      errorCode: "queue_unavailable",
+    });
+    expect(JSON.stringify(result)).not.toContain("database response leaked");
+    expect(externalDependencies.sendFeishuTaskNotification).not
+      .toHaveBeenCalled();
+  });
+
+  it("returns delivery_unconfirmed when the result RPC fails after sending", async () => {
+    const unconfirmedNotificationId =
+      "55555555-5555-4555-8555-555555555555";
+    const consoleError = vi.spyOn(console, "error").mockImplementation(
+      () => undefined,
+    );
+    externalDependencies.rpc
+      .mockResolvedValueOnce({
+        data: [{
+          notification_public_id: unconfirmedNotificationId,
+          task_public_id: scope.taskId,
+          recipient_open_id: "ou_employee",
+          task_title: "Complete directory integration",
+          project_name: "Enterprise workstation",
+          reporter_name: "Task owner",
+          priority: "high",
+          due_date: "2026-08-25",
+          acceptance_criteria: "Owner approves the result",
+          status: "pending",
+          attempt_count: 2,
+        }],
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: null,
+        error: { message: "result database response leaked" },
+      });
+    externalDependencies.sendFeishuTaskNotification.mockResolvedValue({
+      messageId: "om_123",
+    });
+
+    const result = await dispatchTaskAssignedNotification(scope);
+
+    expect(result).toEqual({
+      status: "unavailable",
+      errorCode: "delivery_unconfirmed",
+    });
+    expect(externalDependencies.sendFeishuTaskNotification).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(externalDependencies.rpc).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify([result, consoleError.mock.calls])).not.toContain(
+      "database response leaked",
+    );
+  });
+
+  it("maps a nullable due date to a concise card display value", async () => {
+    externalDependencies.rpc
+      .mockResolvedValueOnce({
+        data: [{
+          notification_public_id: notificationId,
+          task_public_id: scope.taskId,
+          recipient_open_id: "ou_employee",
+          task_title: "Complete directory integration",
+          project_name: "Enterprise workstation",
+          reporter_name: "Task owner",
+          priority: "high",
+          due_date: null,
+          acceptance_criteria: "Owner approves the result",
+          status: "pending",
+          attempt_count: 2,
+        }],
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: null, error: null });
+    externalDependencies.sendFeishuTaskNotification.mockResolvedValue({
+      messageId: "om_123",
+    });
+
+    await dispatchTaskAssignedNotification(scope);
+
+    expect(externalDependencies.sendFeishuTaskNotification).toHaveBeenCalledWith(
+      { ...messageInput, dueDate: "无截止日期" },
+      {
+        appId: "cli_test",
+        appSecret: "app-secret",
+        appUrl: "https://brain.example",
       },
     );
   });

@@ -17,7 +17,9 @@ export type TaskNotificationErrorCode =
   | "token_unavailable"
   | "recipient_unavailable"
   | "send_failed"
-  | "configuration_unavailable";
+  | "configuration_unavailable"
+  | "queue_unavailable"
+  | "delivery_unconfirmed";
 
 type TaskNotificationContext = Omit<
   FeishuTaskNotificationInput,
@@ -60,7 +62,7 @@ type TaskNotificationContextRow = {
   project_name: string;
   reporter_name: string;
   priority: string;
-  due_date: string;
+  due_date: string | null;
   acceptance_criteria: string;
   status: "pending" | "sent" | "failed";
   attempt_count: number;
@@ -73,6 +75,12 @@ function stableNotificationError(error: unknown): TaskNotificationErrorCode {
       || code === "recipient_unavailable"
     ? code
     : "send_failed";
+}
+
+function stableQueueError(error: unknown): TaskNotificationErrorCode {
+  return error instanceof Error && error.message === "configuration_unavailable"
+    ? "configuration_unavailable"
+    : "queue_unavailable";
 }
 
 function messageInput(
@@ -107,43 +115,109 @@ function logDeliveryFailure(
 export function createTaskNotificationDispatcher(
   dependencies: TaskNotificationDependencies,
 ) {
+  const unconfirmedDeliveries = new Map<string, string>();
+
   return async function dispatch(
     scope: TaskNotificationScope,
   ): Promise<TaskNotificationResult> {
-    const context = await dependencies.loadContext(scope);
-    const recipientOpenId = context?.recipientOpenId?.trim();
-    if (!context || !recipientOpenId) {
-      if (context) {
-        await dependencies.recordResult(scope, context.notificationId, {
-          status: "failed",
-          errorCode: "recipient_unavailable",
-        });
-        logDeliveryFailure(scope, context, "recipient_unavailable");
-      }
+    let context: TaskNotificationContext | null;
+    try {
+      context = await dependencies.loadContext(scope);
+    } catch (error) {
+      return {
+        status: "unavailable",
+        errorCode: stableQueueError(error),
+      };
+    }
+
+    if (!context) {
       return {
         status: "unavailable",
         errorCode: "recipient_unavailable",
       };
     }
-    if (context.status === "sent") return { status: "sent" };
+    const reconciliationKey = [
+      scope.tenantId,
+      scope.organizationId,
+      context.notificationId,
+    ].join(":");
+    if (context.status === "sent") {
+      unconfirmedDeliveries.delete(reconciliationKey);
+      return { status: "sent" };
+    }
 
+    const unconfirmedMessageId = unconfirmedDeliveries.get(reconciliationKey);
+    if (unconfirmedMessageId) {
+      try {
+        await dependencies.recordResult(scope, context.notificationId, {
+          status: "sent",
+          messageId: unconfirmedMessageId,
+        });
+        unconfirmedDeliveries.delete(reconciliationKey);
+        return { status: "sent" };
+      } catch {
+        logDeliveryFailure(scope, context, "delivery_unconfirmed");
+        return {
+          status: "unavailable",
+          errorCode: "delivery_unconfirmed",
+        };
+      }
+    }
+
+    const recipientOpenId = context.recipientOpenId?.trim();
+    if (!recipientOpenId) {
+      try {
+        await dependencies.recordResult(scope, context.notificationId, {
+          status: "failed",
+          errorCode: "recipient_unavailable",
+        });
+      } catch {
+        logDeliveryFailure(scope, context, "queue_unavailable");
+        return {
+          status: "unavailable",
+          errorCode: "queue_unavailable",
+        };
+      }
+      logDeliveryFailure(scope, context, "recipient_unavailable");
+      return {
+        status: "unavailable",
+        errorCode: "recipient_unavailable",
+      };
+    }
+
+    let result: { messageId: string };
     try {
-      const result = await dependencies.sendMessage(
+      result = await dependencies.sendMessage(
         messageInput(context, recipientOpenId),
       );
+    } catch (error) {
+      const errorCode = stableNotificationError(error);
+      try {
+        await dependencies.recordResult(scope, context.notificationId, {
+          status: "failed",
+          errorCode,
+        });
+      } catch {
+        logDeliveryFailure(scope, context, "queue_unavailable");
+        return { status: "failed", errorCode: "queue_unavailable" };
+      }
+      logDeliveryFailure(scope, context, errorCode);
+      return { status: "failed", errorCode };
+    }
+
+    try {
       await dependencies.recordResult(scope, context.notificationId, {
         status: "sent",
         messageId: result.messageId,
       });
       return { status: "sent" };
-    } catch (error) {
-      const errorCode = stableNotificationError(error);
-      await dependencies.recordResult(scope, context.notificationId, {
-        status: "failed",
-        errorCode,
-      });
-      logDeliveryFailure(scope, context, errorCode);
-      return { status: "failed", errorCode };
+    } catch {
+      unconfirmedDeliveries.set(reconciliationKey, result.messageId);
+      logDeliveryFailure(scope, context, "delivery_unconfirmed");
+      return {
+        status: "unavailable",
+        errorCode: "delivery_unconfirmed",
+      };
     }
   };
 }
@@ -193,7 +267,7 @@ const defaultTaskNotificationDependencies: TaskNotificationDependencies = {
       projectName: row.project_name,
       reporterName: row.reporter_name,
       priority: row.priority,
-      dueDate: row.due_date,
+      dueDate: row.due_date ?? "无截止日期",
       acceptanceCriteria: row.acceptance_criteria,
       status: row.status,
       attemptCount: row.attempt_count,
