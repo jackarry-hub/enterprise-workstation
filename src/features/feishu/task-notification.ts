@@ -73,7 +73,7 @@ function validatedEnv(env: FeishuTaskNotificationEnv) {
   return { appId, appSecret, appUrl: rootAppUrl(env.appUrl) };
 }
 
-async function fetchWithTimeout(
+async function fetchJsonWithTimeout(
   fetchImpl: FetchLike,
   input: RequestInfo | URL,
   init: RequestInit,
@@ -88,8 +88,16 @@ async function fetchWithTimeout(
   });
 
   try {
+    const request = (async () => {
+      const response = await fetchImpl(input, {
+        ...init,
+        signal: controller.signal,
+      });
+      const body = await responseBody(response);
+      return { response, body };
+    })();
     return await Promise.race([
-      fetchImpl(input, { ...init, signal: controller.signal }),
+      request,
       timeout,
     ]);
   } finally {
@@ -106,7 +114,7 @@ async function tenantAccessToken(
   fetchImpl: FetchLike,
 ) {
   try {
-    const response = await fetchWithTimeout(
+    const { response, body } = await fetchJsonWithTimeout(
       fetchImpl,
       `${FEISHU_API_ORIGIN}/open-apis/auth/v3/tenant_access_token/internal`,
       {
@@ -117,7 +125,6 @@ async function tenantAccessToken(
         body: JSON.stringify({ app_id: env.appId, app_secret: env.appSecret }),
       },
     );
-    const body = await responseBody(response);
     const token = nonEmptyText(body?.tenant_access_token);
     if (!response.ok || body?.code !== 0 || !token) {
       throw new Error("token_unavailable");
@@ -193,7 +200,7 @@ export async function sendFeishuTaskNotification(
   const token = await tenantAccessToken(notificationEnv, fetchImpl);
 
   try {
-    const response = await fetchWithTimeout(
+    const { response, body } = await fetchJsonWithTimeout(
       fetchImpl,
       `${FEISHU_API_ORIGIN}/open-apis/im/v1/messages?receive_id_type=open_id`,
       {
@@ -209,7 +216,6 @@ export async function sendFeishuTaskNotification(
         }),
       },
     );
-    const body = await responseBody(response);
     const data = jsonRecord(body?.data);
     const messageId = nonEmptyText(data?.message_id);
     if (!response.ok || body?.code !== 0 || !messageId) {

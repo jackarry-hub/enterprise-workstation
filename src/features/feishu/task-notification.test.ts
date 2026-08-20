@@ -25,6 +25,14 @@ const input: FeishuTaskNotificationInput = {
   acceptanceCriteria: "负责人验收通过",
 };
 
+function responseWithHangingBody() {
+  const response = new Response();
+  vi.spyOn(response, "json").mockImplementation(
+    () => new Promise<never>(() => undefined),
+  );
+  return response;
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -222,6 +230,30 @@ describe("Feishu task notification delivery", () => {
     expect(tokenSignal?.aborted).toBe(true);
   });
 
+  it("times out a hanging token response body as token_unavailable", async () => {
+    vi.useFakeTimers();
+    let tokenSignal: AbortSignal | undefined;
+    const fetchImpl = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
+      tokenSignal = init?.signal ?? undefined;
+      return Promise.resolve(responseWithHangingBody());
+    });
+
+    let outcome = "pending";
+    void sendFeishuTaskNotification(input, env, fetchImpl).then(
+      () => { outcome = "resolved"; },
+      (error: unknown) => {
+        outcome = error instanceof Error ? error.message : String(error);
+      },
+    );
+    await vi.advanceTimersByTimeAsync(7_999);
+    expect(tokenSignal?.aborted).toBe(false);
+    expect(outcome).toBe("pending");
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(outcome).toBe("token_unavailable");
+    expect(tokenSignal?.aborted).toBe(true);
+  });
+
   it("maps a send request timeout to send_failed and aborts at 8 seconds", async () => {
     vi.useFakeTimers();
     let messageSignal: AbortSignal | undefined;
@@ -242,6 +274,35 @@ describe("Feishu task notification delivery", () => {
     await vi.advanceTimersByTimeAsync(8_000);
 
     await rejection;
+    expect(messageSignal?.aborted).toBe(true);
+  });
+
+  it("times out a hanging send response body as send_failed", async () => {
+    vi.useFakeTimers();
+    let messageSignal: AbortSignal | undefined;
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(Response.json({
+        code: 0,
+        tenant_access_token: "tenant-token",
+      }))
+      .mockImplementationOnce((_url: RequestInfo | URL, init?: RequestInit) => {
+        messageSignal = init?.signal ?? undefined;
+        return Promise.resolve(responseWithHangingBody());
+      });
+
+    let outcome = "pending";
+    void sendFeishuTaskNotification(input, env, fetchImpl).then(
+      () => { outcome = "resolved"; },
+      (error: unknown) => {
+        outcome = error instanceof Error ? error.message : String(error);
+      },
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(messageSignal?.aborted).toBe(false);
+    expect(outcome).toBe("pending");
+    await vi.advanceTimersByTimeAsync(8_000);
+
+    expect(outcome).toBe("send_failed");
     expect(messageSignal?.aborted).toBe(true);
   });
 
