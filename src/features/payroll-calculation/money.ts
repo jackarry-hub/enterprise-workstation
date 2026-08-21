@@ -46,6 +46,28 @@ export function parseFractionRate(value: string): bigint {
     + BigInt(fraction.padEnd(6, "0"));
 }
 
+function requireNormalizedRate(partsPerMillion: bigint): void {
+  if (partsPerMillion < BigInt(0) || partsPerMillion > BigInt(1_000_000)) {
+    throw new Error("invalid_normalized_rate");
+  }
+}
+
+export function formatFractionRate(partsPerMillion: bigint): string {
+  requireNormalizedRate(partsPerMillion);
+  const whole = partsPerMillion / BigInt(1_000_000);
+  const fraction = String(partsPerMillion % BigInt(1_000_000)).padStart(6, "0");
+  return `${whole}.${fraction}`;
+}
+
+export function formatRatePercent(partsPerMillion: bigint): string {
+  requireNormalizedRate(partsPerMillion);
+  const whole = partsPerMillion / BigInt(10_000);
+  const fraction = String(partsPerMillion % BigInt(10_000))
+    .padStart(4, "0")
+    .replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : String(whole);
+}
+
 export function multiplyRate(
   cents: bigint,
   partsPerMillion: bigint,

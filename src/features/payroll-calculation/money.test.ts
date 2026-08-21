@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatMoney,
+  formatFractionRate,
+  formatRatePercent,
   multiplyRate,
   parseFractionRate,
   parseMoney,
@@ -29,6 +31,13 @@ describe("payroll decimal arithmetic", () => {
     expect(parseRate("100.0000")).toBe(BigInt(1000000));
     expect(parseFractionRate("0.105000")).toBe(BigInt(105000));
     expect(parseFractionRate("1.000000")).toBe(BigInt(1000000));
+  });
+
+  it("serializes normalized rates for the database and UI", () => {
+    expect(formatFractionRate(parseRate("8"))).toBe("0.080000");
+    expect(formatFractionRate(parseRate("100"))).toBe("1.000000");
+    expect(formatRatePercent(parseFractionRate("0.005000"))).toBe("0.5");
+    expect(formatRatePercent(parseFractionRate("1.000000"))).toBe("100");
   });
 
   it.each(["-0.1", "100.0001", "101", "1.00000.0"])(
