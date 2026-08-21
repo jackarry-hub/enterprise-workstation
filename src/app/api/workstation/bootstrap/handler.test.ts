@@ -294,4 +294,86 @@ describe("workstation bootstrap route", () => {
       /task_id|9001|9002|open_id|tenant_access_token|app_secret|raw provider response/i,
     );
   });
+
+  it("falls back to legacy salary columns when payroll calculation migration is not applied", async () => {
+    const members = query({
+      data: [{
+        id: 42,
+        organization_member_id: 7,
+        display_name: "Legacy User",
+        job_title: "Product Manager",
+        skills: [],
+        department: { name: "Product" },
+      }],
+      error: null,
+    });
+    const projects = query({ data: [], error: null });
+    const tasks = query({ data: [], error: null });
+    const detailedSalary = query({
+      data: [],
+      error: {
+        code: "42703",
+        message: "column salary.calculation_version does not exist",
+      },
+    });
+    const legacySalary = query({
+      data: [{
+        payroll_month: "2026-08-01",
+        base_salary: 4000,
+        bonus: 0,
+        social_security: 0,
+        individual_income_tax: 0,
+        other_deduction: 0,
+        deductions: 0,
+        net_salary: 4000,
+        status: "paid",
+        paid_at: null,
+      }],
+      error: null,
+    });
+    const notifications = query({ data: [], error: null });
+    const workProfiles = query({ data: [], error: null });
+    const employeeSkills = query({ data: [], error: null });
+    let salaryCalls = 0;
+    const client = {
+      from: vi.fn((table: string) => {
+        if (table === "employee_profiles") return members;
+        if (table === "projects") return projects;
+        if (table === "tasks") return tasks;
+        if (table === "salary") return salaryCalls++ === 0 ? detailedSalary : legacySalary;
+        if (table === "task_notifications") return notifications;
+        if (table === "employee_work_profiles") return workProfiles;
+        if (table === "employee_skills") return employeeSkills;
+        throw new Error(`unexpected table ${table}`);
+      }),
+    };
+    vi.mocked(getSupabaseServerClient).mockResolvedValue(client as never);
+
+    const bootstrap = await defaultWorkstationBootstrapDependencies.loadBootstrap({
+      member: { id: 7 },
+      profile: {
+        displayName: "Legacy User",
+        departmentName: "Product",
+        jobTitle: "Product Manager",
+        avatarUrl: null,
+      },
+      permissionCodes: ["salary.self"],
+    } as never) as {
+      payroll: Record<string, Array<Record<string, unknown>>>;
+    };
+
+    expect(detailedSalary.select).toHaveBeenCalledWith(
+      expect.stringContaining("calculation_version"),
+    );
+    expect(legacySalary.select).toHaveBeenCalledWith(
+      "payroll_month, base_salary, bonus, social_security, individual_income_tax, other_deduction, deductions, net_salary, status, paid_at",
+    );
+    expect(bootstrap.payroll.m7[0]).toMatchObject({
+      month: "2026-08",
+      gross: 4000,
+      deductions: 0,
+      net: 4000,
+      calculationVersion: "",
+    });
+  });
 });

@@ -6,6 +6,9 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 type BootstrapSession = Awaited<ReturnType<typeof getWorkspaceSession>>;
 
+const DETAILED_SALARY_SELECT = "payroll_month, base_salary, bonus, performance_bonus, project_bonus, other_bonus, other_income, gross_salary, social_base, housing_fund_base, pension_employee, medical_employee, unemployment_employee, housing_fund_employee, social_security, tax_exempt_income, special_additional_deduction, other_statutory_deduction, tax_relief, cumulative_taxable_income, individual_income_tax, other_deduction, manual_adjustment_reason, deductions, net_salary, calculation_version, status, paid_at";
+const LEGACY_SALARY_SELECT = "payroll_month, base_salary, bonus, social_security, individual_income_tax, other_deduction, deductions, net_salary, status, paid_at";
+
 export type WorkstationBootstrapDependencies = {
   loadSession: () => Promise<BootstrapSession | { member: { id: number } } | null>;
   loadBootstrap: (session: NonNullable<BootstrapSession>) => Promise<unknown>;
@@ -28,6 +31,52 @@ export function numericProfileIdForMember(
     throw new Error("employee_profile_not_found");
   }
   return Number(profile.id);
+}
+
+type SalaryQueryResult = {
+  data: readonly Record<string, unknown>[] | null;
+  error: unknown;
+};
+
+type SalaryQueryBuilder = {
+  eq: (column: string, value: unknown) => SalaryQueryBuilder;
+  is: (column: string, value: unknown) => SalaryQueryBuilder;
+  order: (column: string, options: { ascending: boolean }) => PromiseLike<SalaryQueryResult>;
+};
+
+type SalaryClient = {
+  from: (table: string) => {
+    select: (columns: string) => SalaryQueryBuilder;
+  };
+};
+
+function isMissingSalaryCalculationColumn(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown; details?: unknown };
+  const text = `${String(candidate.message ?? "")} ${String(candidate.details ?? "")}`;
+  return candidate.code === "42703"
+    || (/column/i.test(text) && /calculation_version|gross_salary|housing_fund_base|manual_adjustment_reason/i.test(text));
+}
+
+async function loadSalaryRows(
+  client: SalaryClient,
+  employeeProfileId: number,
+): Promise<SalaryQueryResult> {
+  const detailedResult = await client.from("salary")
+    .select(DETAILED_SALARY_SELECT)
+    .eq("employee_profile_id", employeeProfileId)
+    .is("deleted_at", null)
+    .order("payroll_month", { ascending: false });
+
+  if (!detailedResult.error || !isMissingSalaryCalculationColumn(detailedResult.error)) {
+    return detailedResult;
+  }
+
+  return client.from("salary")
+    .select(LEGACY_SALARY_SELECT)
+    .eq("employee_profile_id", employeeProfileId)
+    .is("deleted_at", null)
+    .order("payroll_month", { ascending: false });
 }
 
 export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDependencies = {
@@ -61,11 +110,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
         .select("id, public_id, project_id, title, description, assignee_member_id, reporter_member_id, status, priority, start_date, due_date, progress, acceptance_criteria, blocker, review_note, next_step, result_summary, result_link, result_files, accepted_at, submitted_at, reviewed_at, submission_count, rejection_count")
         .is("deleted_at", null)
         .order("updated_at", { ascending: false }),
-      client.from("salary")
-        .select("payroll_month, base_salary, bonus, performance_bonus, project_bonus, other_bonus, other_income, gross_salary, social_base, housing_fund_base, pension_employee, medical_employee, unemployment_employee, housing_fund_employee, social_security, tax_exempt_income, special_additional_deduction, other_statutory_deduction, tax_relief, cumulative_taxable_income, individual_income_tax, other_deduction, manual_adjustment_reason, deductions, net_salary, calculation_version, status, paid_at")
-        .eq("employee_profile_id", employeeProfileId)
-        .is("deleted_at", null)
-        .order("payroll_month", { ascending: false }),
+      loadSalaryRows(client as unknown as SalaryClient, employeeProfileId),
       client.from("task_notifications")
         .select("task_id, status, last_error_code"),
       client.from("employee_work_profiles")
@@ -193,8 +238,8 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
             errorCode: "recipient_unavailable",
           },
         })),
-        salary: (salaryResult.data ?? []).map((row) => ({
-          payrollMonth: row.payroll_month,
+        salary: ((salaryResult.data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+          payrollMonth: String(row.payroll_month),
           baseSalary: Number(row.base_salary),
           bonus: Number(row.bonus),
           performanceBonus: Number(row.performance_bonus),
@@ -226,8 +271,8 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
           calculationVersion: row.calculation_version
             ? String(row.calculation_version)
             : null,
-          status: row.status,
-          paidAt: row.paid_at,
+          status: String(row.status),
+          paidAt: typeof row.paid_at === "string" ? row.paid_at : null,
         })),
       },
     );
