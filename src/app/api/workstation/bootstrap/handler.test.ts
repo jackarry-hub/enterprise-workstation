@@ -140,7 +140,38 @@ describe("workstation bootstrap route", () => {
       ],
       error: null,
     });
-    const salary = query({ data: [], error: null });
+    const salary = query({
+      data: [{
+        payroll_month: "2026-08-01",
+        base_salary: 20000,
+        bonus: 5000,
+        performance_bonus: 1000,
+        project_bonus: 2000,
+        other_bonus: 2000,
+        other_income: 0,
+        gross_salary: 25000,
+        social_base: 20000,
+        housing_fund_base: 20000,
+        pension_employee: 1600,
+        medical_employee: 403,
+        unemployment_employee: 100,
+        housing_fund_employee: 1400,
+        social_security: 3503,
+        tax_exempt_income: 0,
+        special_additional_deduction: 0,
+        other_statutory_deduction: 0,
+        tax_relief: 0,
+        cumulative_taxable_income: 120000,
+        individual_income_tax: 620,
+        other_deduction: 0,
+        deductions: 4123,
+        net_salary: 20877,
+        calculation_version: "cn-cumulative-withholding-v1",
+        status: "processing",
+        paid_at: null,
+      }],
+      error: null,
+    });
     const notifications = query({
       data: [{
         task_id: 9001,
@@ -210,6 +241,7 @@ describe("workstation bootstrap route", () => {
     } as never) as {
       members: Array<Record<string, unknown>>;
       tasks: Array<Record<string, unknown>>;
+      payroll: Record<string, Array<Record<string, unknown>>>;
     };
 
     expect(client.from).toHaveBeenCalledWith("task_notifications");
@@ -219,6 +251,22 @@ describe("workstation bootstrap route", () => {
       "task_id, status, last_error_code",
     );
     expect(tasks.select).toHaveBeenCalledWith(expect.stringContaining("id, public_id"));
+    expect(salary.select).toHaveBeenCalledWith(
+      expect.stringContaining("calculation_version"),
+    );
+    expect(bootstrap.payroll.m7[0]).toMatchObject({
+      month: "2026-08",
+      grossSalary: 25000,
+      pensionEmployee: 1600,
+      medicalEmployee: 403,
+      unemploymentEmployee: 100,
+      housingFundEmployee: 1400,
+      social: 3503,
+      cumulativeTaxableIncome: 120000,
+      tax: 620,
+      net: 20877,
+      calculationVersion: "cn-cumulative-withholding-v1",
+    });
     expect(bootstrap.tasks[0].notification).toEqual({
       status: "failed",
       errorCode: "send_failed",

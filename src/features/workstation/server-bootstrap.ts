@@ -79,11 +79,25 @@ export type WorkstationSalaryRow = {
   performanceBonus?: number;
   projectBonus?: number;
   otherBonus?: number;
+  otherIncome?: number;
+  grossSalary?: number;
+  socialBase?: number;
+  housingFundBase?: number;
+  pensionEmployee?: number;
+  medicalEmployee?: number;
+  unemploymentEmployee?: number;
+  housingFundEmployee?: number;
   socialSecurity?: number;
+  taxExemptIncome?: number;
+  specialAdditionalDeduction?: number;
+  otherStatutoryDeduction?: number;
+  taxRelief?: number;
+  cumulativeTaxableIncome?: number;
   individualIncomeTax?: number;
   otherDeduction?: number;
   deductions: number;
   netSalary: number;
+  calculationVersion?: string | null;
   status: string;
   paidAt: string | null;
 };
@@ -324,12 +338,34 @@ export function buildServerBootstrap(
         performance: hasComponents ? Number(salary.performanceBonus) : Number(salary.bonus),
         projectBonus: Number(salary.projectBonus ?? 0),
         otherBonus: Number(salary.otherBonus ?? 0),
+        otherIncome: Number(salary.otherIncome ?? 0),
+        grossSalary: salary.calculationVersion
+          ? Number(salary.grossSalary ?? 0)
+          : Number(salary.baseSalary) + Number(salary.bonus),
+        socialBase: Number(salary.socialBase ?? 0),
+        housingFundBase: Number(salary.housingFundBase ?? 0),
+        pensionEmployee: Number(salary.pensionEmployee ?? 0),
+        medicalEmployee: Number(salary.medicalEmployee ?? 0),
+        unemploymentEmployee: Number(salary.unemploymentEmployee ?? 0),
+        housingFundEmployee: Number(salary.housingFundEmployee ?? 0),
         social: Number(salary.socialSecurity ?? 0),
+        taxExemptIncome: Number(salary.taxExemptIncome ?? 0),
+        specialAdditionalDeduction: Number(
+          salary.specialAdditionalDeduction ?? 0,
+        ),
+        otherStatutoryDeduction: Number(
+          salary.otherStatutoryDeduction ?? 0,
+        ),
+        taxRelief: Number(salary.taxRelief ?? 0),
+        cumulativeTaxableIncome: Number(salary.cumulativeTaxableIncome ?? 0),
         tax: Number(salary.individualIncomeTax ?? salary.deductions),
         otherDeduction: Number(salary.otherDeduction ?? 0),
-        gross: Number(salary.baseSalary) + Number(salary.bonus),
+        gross: salary.calculationVersion
+          ? Number(salary.grossSalary ?? 0)
+          : Number(salary.baseSalary) + Number(salary.bonus),
         deductions: Number(salary.deductions),
         net: Number(salary.netSalary),
+        calculationVersion: salary.calculationVersion ?? "",
         status: salary.status === "paid" ? "已发放" : "待发放",
         payDate: salary.paidAt?.slice(0, 10) ?? "",
       }); }),

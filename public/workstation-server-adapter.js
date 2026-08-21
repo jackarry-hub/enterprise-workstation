@@ -168,6 +168,16 @@
     loadPayroll: function (memberId) {
       return clone(requireBootstrap().payroll[memberId] || []);
     },
+    loadPayrollPolicy: function () {
+      return request("/api/workstation/payroll/policy", { method: "GET" });
+    },
+    previewPayroll: function (input) {
+      return request("/api/workstation/payroll/preview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input || {}),
+      });
+    },
     syncDirectory: function () {
       return request("/api/workstation/directory-sync", { method: "POST" });
     },
@@ -208,6 +218,18 @@
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(input || {}),
+      }).then(function (result) {
+        var data = requireBootstrap();
+        if (result.payroll && result.memberId === data.session.memberId) {
+          data.payroll[result.memberId] = [result.payroll]
+            .concat(data.payroll[result.memberId] || [])
+            .filter(function (row, index, rows) {
+              return rows.findIndex(function (candidate) {
+                return candidate.month === row.month;
+              }) === index;
+            });
+        }
+        return clone(result);
       });
     },
     saveWorkProfile: function (input) {
