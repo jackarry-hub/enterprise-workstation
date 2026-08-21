@@ -136,7 +136,11 @@ export function createWorkstationTaskCreateHandler(
     let task: unknown;
     try {
       task = await dependencies.createTask({ actorMemberId: session.member.id, ...input });
-    } catch {
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error
+        && error.code === "42501") {
+        return NextResponse.json({ error: "task_create_forbidden" }, { status: 403 });
+      }
       return NextResponse.json({ error: "task_create_failed" }, { status: 409 });
     }
     let notification: Awaited<ReturnType<typeof dispatchTaskAssignedNotification>>;

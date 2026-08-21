@@ -188,4 +188,22 @@ describe("formal workstation task creation", () => {
     await expect(response.json()).resolves.toEqual({ error: "task_create_failed" });
     expect(notifyTask).not.toHaveBeenCalled();
   });
+
+  it("returns forbidden when the database rejects task management scope", async () => {
+    const notifyTask = vi.fn();
+    const databaseError = Object.assign(new Error("sensitive database policy detail"), {
+      code: "42501",
+    });
+    const handler = createWorkstationTaskCreateHandler({
+      loadSession: async () => managerSession,
+      createTask: vi.fn().mockRejectedValue(databaseError),
+      notifyTask,
+    });
+
+    const response = await handler(taskCreateRequest());
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: "task_create_forbidden" });
+    expect(notifyTask).not.toHaveBeenCalled();
+  });
 });

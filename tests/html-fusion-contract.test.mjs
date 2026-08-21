@@ -358,3 +358,14 @@ test("reserves Feishu cutover without activating a fake server adapter", async (
   assert.match(html, /if\(isDemoRuntime\(\)\) return createDemoGateway\(\)/);
   assert.doesNotMatch(html, /var WORKSTATION_GATEWAY=createDemoGateway\(\)/);
 });
+
+test("formal task creation explains authorization failures without blaming Feishu sync", async () => {
+  const html = await readFusionHtml();
+
+  assert.match(html, /function taskCreateFailureMessage\(error\)/);
+  assert.match(html, /task_create_forbidden[\s\S]*当前账号没有任务下发权限/);
+  assert.doesNotMatch(
+    html,
+    /\.catch\(function\(\)\{ toast\('任务创建失败，请确认负责人已同步到飞书组织'\)/,
+  );
+});
