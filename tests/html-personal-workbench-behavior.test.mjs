@@ -296,6 +296,56 @@ test("activates payroll policy only after the example is confirmed", async () =>
   }
 });
 
+test("payroll summary cards open and focus the calculation detail", async () => {
+  const bootstrap = formalBootstrap({
+    memberId: "m7",
+    permissions: ["task.execute", "salary.self"],
+  });
+  bootstrap.payroll = {
+    m7: [{
+      month: "2026-08",
+      base: 100000,
+      performance: 0,
+      projectBonus: 0,
+      otherBonus: 0,
+      otherIncome: 0,
+      pensionEmployee: 0,
+      medicalEmployee: 0,
+      unemploymentEmployee: 0,
+      housingFundEmployee: 0,
+      social: 0,
+      tax: 0,
+      otherDeduction: 0,
+      gross: 100000,
+      deductions: 0,
+      net: 100000,
+      status: "待发放",
+      payDate: "",
+    }],
+  };
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+    { loadPayroll: (memberId) => bootstrap.payroll[memberId] || [] },
+  );
+  try {
+    const { S } = dom.window.Q;
+    S.page = "fin";
+    dom.window.Q.render();
+    let scrolled = false;
+    dom.window.HTMLElement.prototype.scrollIntoView = function scrollIntoView() {
+      if (this.id === "payrollDetailCard") scrolled = true;
+    };
+    await waitFor(() => dom.window.document.querySelector('[data-act="payroll-focus"][data-focus="deductions"]'));
+    dom.window.document.querySelector('[data-act="payroll-focus"][data-focus="deductions"]').click();
+    await waitFor(() => S.f.payFocus === "deductions" && S.payrollDetailsOpen);
+    await waitFor(() => scrolled);
+    assert.match(dom.window.document.querySelector("#view").textContent, /扣款合计明细/);
+  } finally {
+    dom.window.close();
+  }
+});
+
 function formalBootstrap({
   memberId = "77777777-7777-4777-8777-777777777777",
   taskId = "11111111-1111-4111-8111-111111111111",

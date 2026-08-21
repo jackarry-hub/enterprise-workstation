@@ -2472,7 +2472,7 @@ function viewFin(){
         }).join(''),
       '</div></div></div>',
     '<div class="grid" style="grid-template-columns:1fr 1.15fr;margin-top:16px">',
-      '<div class="card payroll-detail-card"><div class="hd"><h3>',esc(selected.month),' 薪酬明细</h3><div class="grow"></div>',
+      '<div class="card payroll-detail-card" id="payrollDetailCard"><div class="hd"><h3>',esc(selected.month),' 薪酬明细</h3><div class="grow"></div>',
         '<span class="tag '+(calculated?'t-g':'t-o')+'">'+(calculated?'系统核算':'历史手工记录')+'</span>',
         selected.status?'<span class="tag '+(selected.status==='已发放'?'t-g':'t-o')+'">'+esc(selected.status)+'</span>':'','</div><div class="bd">',
         '<button class="btn ghost payroll-details-toggle" style="min-height:44px" data-act="payroll-details-toggle" aria-expanded="'+(detailsExpanded?'true':'false')+'"><span>查看核算明细</span><span>'+(detailsExpanded?'收起':'展开')+'</span></button>',
@@ -3649,6 +3649,12 @@ function modalHTML(){
     '</div></div></div>';
 }
 function ask(t,m,ok,fn,danger){ S.confirm={t:t,m:m,ok:ok,fn:fn,danger:danger}; render(); }
+function scrollToPayrollDetail(){
+  setTimeout(function(){
+    var node=el('payrollDetailCard');
+    if(node&&node.scrollIntoView) node.scrollIntoView({behavior:'smooth',block:'start'});
+  },40);
+}
 
 
 /* ---------------- 待办审批（可操作） ---------------- */
@@ -4397,14 +4403,14 @@ document.addEventListener('click',function(e){
     S.curProj=t.getAttribute('data-id'); S.page='project'; render();
   }
   else if(a==='open-income'){
-    S.f.payMonth=t.getAttribute('data-month')||''; S.payrollDetailsOpen=false; S.page='fin'; render();
+    S.f.payMonth=t.getAttribute('data-month')||''; S.f.payFocus='net'; S.payrollDetailsOpen=true; S.page='fin'; render(); scrollToPayrollDetail();
   }
   else if(a==='payroll-month'){
-    S.f.payMonth=t.getAttribute('data-month')||''; S.f.payFocus=''; S.payrollDetailsOpen=false; render();
+    S.f.payMonth=t.getAttribute('data-month')||''; S.f.payFocus='net'; S.payrollDetailsOpen=true; render(); scrollToPayrollDetail();
   }
-  else if(a==='payroll-details-toggle'){ S.payrollDetailsOpen=!S.payrollDetailsOpen; render(); }
+  else if(a==='payroll-details-toggle'){ S.payrollDetailsOpen=!S.payrollDetailsOpen; render(); if(S.payrollDetailsOpen) scrollToPayrollDetail(); }
   else if(a==='payroll-focus'){
-    S.f.payFocus=t.getAttribute('data-focus')||''; render();
+    S.f.payFocus=t.getAttribute('data-focus')||''; S.payrollDetailsOpen=true; render(); scrollToPayrollDetail();
   }
   else if(a==='pick-task-go'){ S.sel.task=t.getAttribute('data-id'); S.page='execution'; render(); }
   else if(a==='goal-go'){ var gb=el('goalBox'); S.sch.goal=gb?gb.value.trim():''; S.page='sched'; render();
