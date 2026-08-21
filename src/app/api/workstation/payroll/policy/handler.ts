@@ -383,7 +383,8 @@ export const defaultPayrollPolicyDependencies: PayrollPolicyDependencies = {
   buildActivationExample: buildPayrollActivationExample,
   async savePolicy(input) {
     const client = await getSupabaseServerClient();
-    const { actorMemberId: _actorMemberId, ...payload } = input;
+    const payload: Partial<PayrollPolicyPersistenceInput> = { ...input };
+    delete payload.actorMemberId;
     const result = await client.rpc("save_payroll_policy_v1", {
       p_payload: payload,
     });

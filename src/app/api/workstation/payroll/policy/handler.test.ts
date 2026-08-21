@@ -113,9 +113,9 @@ describe("payroll policy API", () => {
   });
 
   it("returns UI percentages, version history, and a draft activation example", async () => {
-    const buildActivationExample = vi.fn(async (
-      _policy: PayrollPolicyPersistenceInput,
-    ) => activationExample("a".repeat(64)));
+    const buildActivationExample = vi.fn(async () => (
+      activationExample("a".repeat(64))
+    ));
     const handler = authorized({
       loadPolicies: async () => [
         draftPolicy,
