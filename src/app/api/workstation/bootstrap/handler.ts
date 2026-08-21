@@ -62,7 +62,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
         .is("deleted_at", null)
         .order("updated_at", { ascending: false }),
       client.from("salary")
-        .select("payroll_month, base_salary, bonus, performance_bonus, project_bonus, other_bonus, other_income, gross_salary, social_base, housing_fund_base, pension_employee, medical_employee, unemployment_employee, housing_fund_employee, social_security, tax_exempt_income, special_additional_deduction, other_statutory_deduction, tax_relief, cumulative_taxable_income, individual_income_tax, other_deduction, deductions, net_salary, calculation_version, status, paid_at")
+        .select("payroll_month, base_salary, bonus, performance_bonus, project_bonus, other_bonus, other_income, gross_salary, social_base, housing_fund_base, pension_employee, medical_employee, unemployment_employee, housing_fund_employee, social_security, tax_exempt_income, special_additional_deduction, other_statutory_deduction, tax_relief, cumulative_taxable_income, individual_income_tax, other_deduction, manual_adjustment_reason, deductions, net_salary, calculation_version, status, paid_at")
         .eq("employee_profile_id", employeeProfileId)
         .is("deleted_at", null)
         .order("payroll_month", { ascending: false }),
@@ -220,6 +220,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
           cumulativeTaxableIncome: Number(row.cumulative_taxable_income ?? 0),
           individualIncomeTax: Number(row.individual_income_tax),
           otherDeduction: Number(row.other_deduction),
+          manualAdjustmentReason: String(row.manual_adjustment_reason ?? ""),
           deductions: Number(row.deductions),
           netSalary: Number(row.net_salary),
           calculationVersion: row.calculation_version

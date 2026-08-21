@@ -163,7 +163,8 @@ describe("workstation bootstrap route", () => {
         tax_relief: 0,
         cumulative_taxable_income: 120000,
         individual_income_tax: 620,
-        other_deduction: 0,
+        other_deduction: 80,
+        manual_adjustment_reason: "补扣上月餐费",
         deductions: 4123,
         net_salary: 20877,
         calculation_version: "cn-cumulative-withholding-v1",
@@ -264,6 +265,7 @@ describe("workstation bootstrap route", () => {
       social: 3503,
       cumulativeTaxableIncome: 120000,
       tax: 620,
+      manualAdjustmentReason: "补扣上月餐费",
       net: 20877,
       calculationVersion: "cn-cumulative-withholding-v1",
     });

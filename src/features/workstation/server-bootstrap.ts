@@ -95,6 +95,7 @@ export type WorkstationSalaryRow = {
   cumulativeTaxableIncome?: number;
   individualIncomeTax?: number;
   otherDeduction?: number;
+  manualAdjustmentReason?: string;
   deductions: number;
   netSalary: number;
   calculationVersion?: string | null;
@@ -360,6 +361,7 @@ export function buildServerBootstrap(
         cumulativeTaxableIncome: Number(salary.cumulativeTaxableIncome ?? 0),
         tax: Number(salary.individualIncomeTax ?? salary.deductions),
         otherDeduction: Number(salary.otherDeduction ?? 0),
+        manualAdjustmentReason: salary.manualAdjustmentReason ?? "",
         gross: salary.calculationVersion
           ? Number(salary.grossSalary ?? 0)
           : Number(salary.baseSalary) + Number(salary.bonus),

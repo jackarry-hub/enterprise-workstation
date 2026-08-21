@@ -1217,6 +1217,121 @@ test("recomputes displayed payroll totals instead of trusting stored aggregate f
   }
 });
 
+test("shows the current employee calculated payslip without exposing another employee payroll", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S } = dom.window.Q;
+    S.me = "m1";
+    S.page = "fin";
+    S.payroll.m1 = [{
+      month: "2026-08",
+      base: 20000,
+      performance: 1000,
+      projectBonus: 2000,
+      otherBonus: 1500,
+      otherIncome: 500,
+      pensionEmployee: 1600,
+      medicalEmployee: 400,
+      unemploymentEmployee: 100,
+      housingFundEmployee: 1400,
+      social: 3500,
+      cumulativeTaxableIncome: 120000,
+      tax: 620,
+      otherDeduction: 80,
+      manualAdjustmentReason: "补扣上月餐费",
+      calculationVersion: "cn-cumulative-withholding-v1",
+      status: "已发放",
+      payDate: "2026-09-10",
+    }];
+    S.payroll.m2 = [{
+      month: "2026-08",
+      base: 999999,
+      performance: 0,
+      projectBonus: 0,
+      otherBonus: 0,
+      social: 0,
+      tax: 0,
+      otherDeduction: 0,
+      calculationVersion: "cn-cumulative-withholding-v1",
+    }];
+
+    dom.window.Q.render();
+    const view = dom.window.document.querySelector("#view").textContent;
+    for (const label of [
+      "应发工资",
+      "养老保险",
+      "医疗保险",
+      "失业保险",
+      "住房公积金",
+      "累计应纳税所得额",
+      "本期个人所得税",
+      "扣款合计",
+      "实发工资",
+      "补扣上月餐费",
+    ]) {
+      assert.match(view, new RegExp(label));
+    }
+    assert.doesNotMatch(view, /999,999/);
+    assert.doesNotMatch(view, /data-member-id/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("keeps payroll totals visible and collapses detailed items on compact mobile", async () => {
+  const dom = await openWorkbench();
+  try {
+    dom.window.matchMedia = (query) => ({
+      matches: query === "(max-width:680px)" || query === "(max-width:820px)",
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+    });
+    const { S } = dom.window.Q;
+    S.me = "m1";
+    S.page = "fin";
+    S.payroll.m1 = [{
+      month: "2026-08",
+      base: 20000,
+      performance: 1000,
+      projectBonus: 2000,
+      otherBonus: 2000,
+      pensionEmployee: 1600,
+      medicalEmployee: 400,
+      unemploymentEmployee: 100,
+      housingFundEmployee: 1400,
+      social: 3500,
+      cumulativeTaxableIncome: 120000,
+      tax: 620,
+      otherDeduction: 0,
+      calculationVersion: "cn-cumulative-withholding-v1",
+    }];
+
+    dom.window.Q.render();
+    const view = dom.window.document.querySelector("#view").textContent;
+    assert.match(view, /应发工资/);
+    assert.match(view, /扣款合计/);
+    assert.match(view, /实发工资/);
+    const toggle = dom.window.document.querySelector('[data-act="payroll-details-toggle"]');
+    const details = dom.window.document.querySelector("[data-payroll-details]");
+    assert.ok(toggle);
+    assert.ok(details);
+    assert.equal(toggle.getAttribute("aria-expanded"), "false");
+    assert.equal(details.hidden, true);
+    assert.ok(Number.parseInt(dom.window.getComputedStyle(toggle).minHeight, 10) >= 44);
+
+    toggle.click();
+    const expanded = dom.window.document.querySelector('[data-act="payroll-details-toggle"]');
+    const expandedDetails = dom.window.document.querySelector("[data-payroll-details]");
+    assert.equal(expanded.getAttribute("aria-expanded"), "true");
+    assert.equal(expandedDetails.hidden, false);
+  } finally {
+    dom.window.close();
+  }
+});
+
 test("renders a safe empty payroll state for the selected identity", async () => {
   const dom = await openWorkbench();
   try {
