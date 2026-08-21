@@ -69,7 +69,7 @@ async function waitFor(read) {
   throw new Error("Timed out waiting for workbench state");
 }
 
-async function openFormalWorkbench(url, bootstrap, adapterOverrides = {}) {
+async function openFormalWorkbench(url, bootstrap, adapterOverrides = {}, fetchOverride) {
   const html = await readRealModeHtml();
   const tasks = bootstrap.tasks || [];
   const projects = bootstrap.projects || [];
@@ -103,8 +103,10 @@ async function openFormalWorkbench(url, bootstrap, adapterOverrides = {}) {
     submitTaskResult: async () => null,
     reviewTaskResult: async () => null,
     reopenTask: async () => null,
+    saveWorkProfile: async () => null,
     syncDirectory: async () => ({}),
     createTask: async () => null,
+    createTasks: async () => [],
     retryTaskNotification: async () => ({ status: "sent", errorCode: "" }),
     savePayroll: async () => ({}),
     ...adapterOverrides,
@@ -125,7 +127,7 @@ async function openFormalWorkbench(url, bootstrap, adapterOverrides = {}) {
       });
       window.QUANTXY_WORKSTATION_RUNTIME = { authMode: "feishu", dataMode: "server" };
       window.QUANTXY_WORKSTATION_SERVER_ADAPTER = adapter;
-      window.fetch = async (requestUrl) => String(requestUrl) === "/api/ai/config"
+      window.fetch = async (requestUrl, init) => String(requestUrl) === "/api/ai/config"
         ? response(true, {
           provider: "deepseek",
           apiBaseUrl: "https://api.deepseek.com",
@@ -135,7 +137,9 @@ async function openFormalWorkbench(url, bootstrap, adapterOverrides = {}) {
           updatedAt: null,
           canManage: true,
         })
-        : response(false, { error: "unexpected_request" }, 404);
+        : fetchOverride
+          ? fetchOverride(requestUrl, init)
+          : response(false, { error: "unexpected_request" }, 404);
     },
   });
   await waitFor(() => dom.window.Q?.S.me === session.memberId && dom.window.Q.S.aiConfig.loaded);
@@ -610,7 +614,8 @@ test("keeps the four mobile destinations fixed while more opens only secondary m
     const panel = expandedNav.querySelector(".mobile-more-panel");
     assert.equal(expandedNav.classList.contains("expanded"), true);
     assert.ok(panel);
-    assert.equal(panel.querySelectorAll(".mobile-extra").length, 12);
+    assert.equal(panel.querySelectorAll(".mobile-extra").length, 13);
+    assert.ok(panel.querySelector('[data-page="profile"]'));
     assert.equal(expandedNav.querySelectorAll(":scope > .mobile-core").length, 3);
     assert.ok(expandedNav.querySelector(":scope > [data-act=\"mobile-nav-more\"]"));
     assert.equal(dom.window.document.activeElement?.getAttribute("data-act"), "mobile-nav-more");
@@ -1408,7 +1413,7 @@ test("uses an injected server adapter for real session and business data without
 
 test("dispatches an approved AI schedule to the selected real project", async () => {
   const html = await readRealModeHtml();
-  const createdInputs = [];
+  const createdBatches = [];
   const memberId = "m7";
   const projectId = "11111111-1111-4111-8111-111111111111";
   const session = {
@@ -1418,7 +1423,10 @@ test("dispatches an approved AI schedule to the selected real project", async ()
     memberId,
     permissions: ["task.manage", "task.execute"],
   };
-  const members = [{ id: memberId, n: "张云帆", r: "产品经理", dept: "产品中心", lv: 3, sk: "产品设计" }];
+  const members = [
+    { id: memberId, n: "张云帆", r: "产品经理", dept: "产品中心", lv: 3, sk: "产品设计" },
+    { id: "m8", n: "周凯", r: "算法工程师", dept: "研发中心", lv: 3, sk: "AI能力" },
+  ];
   const projects = [{ id: projectId, n: "真实项目", own: memberId, st: "进行中", cat: "企业项目" }];
   const dom = new JSDOM(html, {
     url: "http://127.0.0.1:3011/quantxy-ai-workbench-fused.html?formal=1",
@@ -1450,10 +1458,12 @@ test("dispatches an approved AI schedule to the selected real project", async ()
         submitTaskResult: () => null,
         reviewTaskResult: () => null,
         reopenTask: () => null,
-        createTask: async (input) => {
-          createdInputs.push(input);
-          return {
-            id: "22222222-2222-4222-8222-222222222222",
+        createTasks: async (inputs) => {
+          createdBatches.push(inputs);
+          return inputs.map((input, index) => ({
+            id: index === 0
+              ? "22222222-2222-4222-8222-222222222222"
+              : "33333333-3333-4333-8333-333333333333",
             n: input.title,
             p: input.projectId,
             own: input.assigneeMemberId,
@@ -1467,7 +1477,10 @@ test("dispatches an approved AI schedule to the selected real project", async ()
             description: input.description,
             ac: input.acceptanceCriteria,
             timeline: [],
-          };
+            notification: index === 0
+              ? { status: "sent", errorCode: "" }
+              : { status: "failed", errorCode: "recipient_unavailable" },
+          }));
         },
       };
       window.fetch = async (url) => String(url) === "/api/ai/config"
@@ -1486,10 +1499,16 @@ test("dispatches an approved AI schedule to the selected real project", async ()
       busy: false,
       err: "",
       projectId: "",
-      tasks: [{ id: "schedule-task-1", n: "完成任务领取联调", ph: "联调", role: "产品经理", days: 2, pri: "P1", ac: "员工可以领取并提交" }],
+      tasks: [
+        { id: "schedule-task-1", n: "完成任务领取联调", ph: "联调", role: "产品经理", days: 2, pri: "P1", ac: "员工可以领取并提交" },
+        { id: "schedule-task-2", n: "完成算法验收", ph: "联调", role: "算法工程师", days: 1, pri: "P0", ac: "负责人确认结果" },
+      ],
       plans: [{
-        k: "A", name: "均衡方案", map: { "schedule-task-1": { own: memberId, s: 0, e: 1, dur: 2, crit: true } },
-        heads: 1, peak: 1, days: 2, end: "2026-08-21", cost: 2000, util: 50, inten: 70,
+        k: "A", name: "均衡方案", map: {
+          "schedule-task-1": { own: memberId, s: 0, e: 1, dur: 2, crit: true },
+          "schedule-task-2": { own: "m8", s: 0, e: 2, dur: 1, crit: false },
+        },
+        heads: 2, peak: 2, days: 2, end: "2026-08-21", cost: 2000, util: 50, inten: 70,
         tag: "测试方案", score: { speed: 90, cost: 90, risk: 90 },
       }],
       pick: "A",
@@ -1505,12 +1524,12 @@ test("dispatches an approved AI schedule to the selected real project", async ()
     assert.equal(S.sch.projectId, projectId);
     dom.window.document.querySelector('[data-act="issue"]').click();
 
-    await waitFor(() => createdInputs.length === 1 && S.sch.issued === true);
+    await waitFor(() => createdBatches.length === 1 && S.sch.issued === true);
     const expectedDue = new Date();
     expectedDue.setHours(0, 0, 0, 0);
     expectedDue.setDate(expectedDue.getDate() + 1);
     const expectedDueDate = `${expectedDue.getFullYear()}-${String(expectedDue.getMonth() + 1).padStart(2, "0")}-${String(expectedDue.getDate()).padStart(2, "0")}`;
-    assert.deepEqual(JSON.parse(JSON.stringify(createdInputs[0])), {
+    assert.deepEqual(JSON.parse(JSON.stringify(createdBatches[0][0])), {
       projectId,
       assigneeMemberId: memberId,
       title: "完成任务领取联调",
@@ -1519,9 +1538,220 @@ test("dispatches an approved AI schedule to the selected real project", async ()
       dueDate: expectedDueDate,
       priority: "P1",
     });
-    assert.equal(S.tasks.length, 1);
+    assert.equal(createdBatches[0].length, 2);
+    assert.equal(createdBatches[0][1].assigneeMemberId, "m8");
+    assert.equal(S.tasks.length, 2);
     assert.equal(S.tasks[0].p, projectId);
-    assert.doesNotMatch(dom.window.document.querySelector("#toast").textContent, /真实数据写接口未配置/);
+    assert.equal(
+      dom.window.document.querySelector("#toast").textContent,
+      "已创建 2 项任务，飞书送达 1 项，未送达 1 项",
+    );
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("requests structured WBS output and keeps required employee skills", async () => {
+  const bootstrap = formalBootstrap({ permissions: ["task.manage"] });
+  let aiRequest;
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+    {},
+    async (url, init) => {
+      if (String(url) !== "/api/ai/chat") {
+        return response(false, { error: "unexpected_request" }, 404);
+      }
+      aiRequest = JSON.parse(String(init?.body));
+      return response(true, {
+        choices: [{
+          finish_reason: "stop",
+          message: {
+            content: JSON.stringify({
+              tasks: [{
+                id: "W1",
+                ph: "需求阶段",
+                n: "完成客户需求访谈",
+                role: "产品经理",
+                skills: ["需求分析", "客户访谈"],
+                days: 2,
+                dep: [],
+                pri: "P1",
+                ac: "提交访谈纪要并通过负责人验收",
+              }],
+            }),
+          },
+        }],
+      });
+    },
+  );
+
+  try {
+    dom.window.Q.S.page = "sched";
+    dom.window.Q.render();
+    dom.window.document.querySelector("#schGoal").value = "完成客户需求研究";
+    dom.window.document.querySelector('[data-act="gen"]').click();
+
+    await waitFor(() => dom.window.Q.S.sch.tasks?.[0]?.n === "完成客户需求访谈");
+    assert.equal(aiRequest.structured_output, true);
+    assert.equal(aiRequest.max_tokens, 2400);
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(dom.window.Q.S.sch.tasks[0].skills)),
+      ["需求分析", "客户访谈"],
+    );
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("lets the signed-in employee maintain a concise work profile", async () => {
+  const bootstrap = formalBootstrap();
+  bootstrap.members[0].workProfile = {
+    summary: "擅长需求拆解",
+    preferredTaskTypes: ["需求分析"],
+    growthGoals: ["AI产品设计"],
+    weeklyCapacityHours: 36,
+    verifiedSkills: [{ name: "产品规划", level: 5, yearsExperience: 4, verified: true }],
+    selfSkills: [{ name: "客户访谈", level: 4 }],
+    activeTaskCount: 2,
+    overdueTaskCount: 0,
+    completedTaskCount: 8,
+    onTimeRate: 96,
+    workloadPercent: 44,
+    updatedAt: "2026-08-21T02:00:00.000Z",
+  };
+  let savedInput;
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+    {
+      saveWorkProfile: async (input) => {
+        savedInput = input;
+        return { ...input, updatedAt: "2026-08-21T03:00:00.000Z" };
+      },
+    },
+  );
+
+  try {
+    dom.window.Q.S.page = "profile";
+    dom.window.Q.render();
+    assert.match(dom.window.document.querySelector("#view").textContent, /我的工作画像/);
+    assert.match(dom.window.document.querySelector("#view").textContent, /已验证技能/);
+    assert.match(dom.window.document.querySelector("#view").textContent, /岗位职能：产品经理/);
+    assert.match(dom.window.document.querySelector("#view").textContent, /来自飞书通讯录/);
+    assert.equal(dom.window.document.querySelector("#wpSummary").value, "擅长需求拆解");
+
+    dom.window.document.querySelector("#wpSummary").value = "擅长把复杂目标转成可验收任务";
+    dom.window.document.querySelector("#wpTypes").value = "需求分析，跨部门协作";
+    dom.window.document.querySelector("#wpGoals").value = "AI产品设计，项目管理";
+    dom.window.document.querySelector("#wpCapacity").value = "40";
+    dom.window.document.querySelector("#wpSkills").value = "客户访谈:5，数据分析:3";
+    dom.window.document.querySelector('[data-act="save-work-profile"]').click();
+
+    await waitFor(() => savedInput && dom.window.document.querySelector("#toast")?.textContent === "工作画像已更新");
+    assert.deepEqual(JSON.parse(JSON.stringify(savedInput)), {
+      summary: "擅长把复杂目标转成可验收任务",
+      preferredTaskTypes: ["需求分析", "跨部门协作"],
+      growthGoals: ["AI产品设计", "项目管理"],
+      weeklyCapacityHours: 40,
+      selfSkills: [
+        { name: "客户访谈", level: 5 },
+        { name: "数据分析", level: 3 },
+      ],
+    });
+    assert.equal(dom.window.document.querySelector("#wpSummary").value, "擅长把复杂目标转成可验收任务");
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("recommends the best employee with explainable skill and workload evidence", async () => {
+  const bootstrap = formalBootstrap({ permissions: ["task.manage"] });
+  bootstrap.members = [
+    {
+      id: "member-busy",
+      n: "高负荷同事",
+      r: "产品经理",
+      dept: "产品中心",
+      cap: 0.2,
+      sk: "需求分析",
+      workProfile: {
+        verifiedSkills: [{ name: "需求分析", level: 3, verified: true }],
+        selfSkills: [],
+        preferredTaskTypes: [],
+        growthGoals: [],
+        activeTaskCount: 5,
+        overdueTaskCount: 2,
+        completedTaskCount: 8,
+        onTimeRate: 62,
+        workloadPercent: 92,
+      },
+    },
+    {
+      id: "member-fit",
+      n: "匹配员工",
+      r: "产品经理",
+      dept: "产品中心",
+      cap: 0.85,
+      sk: "需求分析·客户访谈",
+      workProfile: {
+        verifiedSkills: [
+          { name: "需求分析", level: 5, verified: true },
+          { name: "客户访谈", level: 4, verified: true },
+        ],
+        selfSkills: [],
+        preferredTaskTypes: ["客户访谈"],
+        growthGoals: [],
+        activeTaskCount: 1,
+        overdueTaskCount: 0,
+        completedTaskCount: 18,
+        onTimeRate: 97,
+        firstPassRate: 94,
+        qualityScore: 96,
+        efficiencyScore: 91,
+        performanceSampleCount: 18,
+        workloadPercent: 28,
+      },
+    },
+  ];
+  bootstrap.session.memberId = "member-fit";
+  bootstrap.projects[0].own = "member-fit";
+  bootstrap.payroll = { "member-fit": [] };
+
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+
+  try {
+    const task = {
+      id: "W1",
+      ph: "需求阶段",
+      n: "完成客户需求访谈",
+      role: "产品经理",
+      skills: ["需求分析", "客户访谈"],
+      days: 2,
+      dep: [],
+      pri: "P1",
+      ac: "提交访谈纪要",
+    };
+    const plans = dom.window.Q.makePlans([task]);
+    assert.equal(plans[0].map.W1.own, "member-fit");
+
+    dom.window.Q.S.page = "sched";
+    dom.window.Q.S.sch.tasks = [task];
+    dom.window.Q.S.sch.plans = plans;
+    dom.window.Q.S.sch.pick = "A";
+    dom.window.Q.render();
+
+    const text = dom.window.document.querySelector("#view").textContent;
+    assert.match(text, /匹配员工/);
+    assert.match(text, /匹配技能：需求分析、客户访谈/);
+    assert.match(text, /当前负荷：28%/);
+    assert.match(text, /按时交付：97%/);
+    assert.match(text, /质量表现：96%/);
+    assert.match(text, /效率表现：91%/);
+    assert.match(text, /推荐理由/);
   } finally {
     dom.window.close();
   }

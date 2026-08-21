@@ -16,6 +16,8 @@ type ChatMessage = {
   content: string;
 };
 
+type JsonRecord = Record<string, unknown>;
+
 const limits = new Map<string, { count: number; resetAt: number }>();
 
 export async function handleAiChat(request: Request, deps: AiChatDeps) {
@@ -51,35 +53,49 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
   }
 
   try {
-    const upstream = await (deps.fetchImpl ?? fetch)(
-      "https://api.deepseek.com/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
+    const upstreamBody = JSON.stringify({
+      model: config.model_name,
+      messages: parsed.messages,
+      max_tokens: parsed.maxTokens,
+      ...(parsed.structuredOutput
+        ? {
+          response_format: { type: "json_object" },
+          thinking: { type: "disabled" },
+        }
+        : {}),
+    });
+    const attemptLimit = parsed.structuredOutput ? 2 : 1;
+    for (let attempt = 0; attempt < attemptLimit; attempt += 1) {
+      const upstream = await (deps.fetchImpl ?? fetch)(
+        "https://api.deepseek.com/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: upstreamBody,
+          signal: AbortSignal.timeout(45_000),
         },
-        body: JSON.stringify({
-          model: config.model_name,
-          messages: parsed.messages,
-          max_tokens: parsed.maxTokens,
-        }),
-        signal: AbortSignal.timeout(45_000),
-      },
-    );
+      );
 
-    if (upstream.status === 401 || upstream.status === 403) {
-      return json({ error: "upstream_auth_failed" }, 502);
-    }
-    if (!upstream.ok) return json({ error: "upstream_failed" }, 502);
+      if (upstream.status === 401 || upstream.status === 403) {
+        return json({ error: "upstream_auth_failed" }, 502);
+      }
+      if (!upstream.ok) return json({ error: "upstream_failed" }, 502);
 
-    let data: unknown;
-    try {
-      data = await upstream.json();
-    } catch {
-      return json({ error: "upstream_invalid_response" }, 502);
+      let data: unknown;
+      try {
+        data = await upstream.json();
+      } catch {
+        if (attempt + 1 < attemptLimit) continue;
+        return json({ error: "upstream_invalid_response" }, 502);
+      }
+      if (!parsed.structuredOutput || isValidStructuredResponse(data)) {
+        return json(data);
+      }
     }
-    return json(data);
+    return json({ error: "upstream_invalid_response" }, 502);
   } catch (error) {
     if (
       error instanceof DOMException
@@ -92,8 +108,8 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
 }
 
 async function parseChatRequest(request: Request): Promise<
-  | { error: string; status: number; messages?: never; maxTokens?: never }
-  | { messages: ChatMessage[]; maxTokens: number; error?: never; status?: never }
+  | { error: string; status: number; messages?: never; maxTokens?: never; structuredOutput?: never }
+  | { messages: ChatMessage[]; maxTokens: number; structuredOutput: boolean; error?: never; status?: never }
 > {
   const raw = await request.text();
   if (Buffer.byteLength(raw, "utf8") > 65_536) {
@@ -140,7 +156,37 @@ async function parseChatRequest(request: Request): Promise<
   if (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > 4_000) {
     return { error: "invalid_max_tokens", status: 400 };
   }
-  return { messages, maxTokens };
+  if (body.structured_output !== undefined && typeof body.structured_output !== "boolean") {
+    return { error: "invalid_structured_output", status: 400 };
+  }
+  return {
+    messages,
+    maxTokens,
+    structuredOutput: body.structured_output === true,
+  };
+}
+
+function jsonRecord(value: unknown): JsonRecord | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as JsonRecord
+    : null;
+}
+
+function isValidStructuredResponse(value: unknown) {
+  const response = jsonRecord(value);
+  const choices = response?.choices;
+  if (!Array.isArray(choices) || choices.length === 0) return false;
+  const choice = jsonRecord(choices[0]);
+  if (!choice || choice.finish_reason === "length") return false;
+  const message = jsonRecord(choice.message);
+  if (!message || typeof message.content !== "string" || !message.content.trim()) {
+    return false;
+  }
+  try {
+    return jsonRecord(JSON.parse(message.content)) !== null;
+  } catch {
+    return false;
+  }
 }
 
 function validText(value: unknown): value is string {

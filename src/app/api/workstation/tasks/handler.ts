@@ -11,14 +11,14 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const PRIORITIES = { P0: "urgent", P1: "high", P2: "medium" } as const;
 
-type TaskCreateSession = {
+export type TaskCreateSession = {
   tenantId: string;
   organization: { id: string };
   member: { id: number };
   permissionCodes: readonly string[];
 };
 
-type TaskCreateInput = {
+export type TaskCreateInput = {
   actorMemberId: number;
   projectId: string;
   assigneeMemberId: number;
@@ -52,7 +52,7 @@ function memberId(value: unknown) {
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
-function parseTaskCreate(value: unknown): Omit<TaskCreateInput, "actorMemberId"> | null {
+export function parseTaskCreate(value: unknown): Omit<TaskCreateInput, "actorMemberId"> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const body = value as Record<string, unknown>;
   const projectId = typeof body.projectId === "string" && UUID_PATTERN.test(body.projectId)

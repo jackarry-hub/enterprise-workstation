@@ -153,7 +153,37 @@ describe("workstation bootstrap route", () => {
       }],
       error: null,
     });
-    const builders = { members, projects, tasks, salary, notifications };
+    const workProfiles = query({
+      data: [{
+        employee_profile_id: 42,
+        summary: "擅长需求拆解",
+        preferred_task_types: ["需求分析"],
+        growth_goals: ["AI产品设计"],
+        weekly_capacity_hours: 36,
+        self_skills: [{ name: "客户访谈", level: 4 }],
+        updated_at: "2026-08-21T02:00:00.000Z",
+      }],
+      error: null,
+    });
+    const employeeSkills = query({
+      data: [{
+        employee_profile_id: 42,
+        proficiency_level: 5,
+        years_experience: 4,
+        verification_status: "verified",
+        skill: { name: "需求分析" },
+      }],
+      error: null,
+    });
+    const builders = {
+      members,
+      projects,
+      tasks,
+      salary,
+      notifications,
+      workProfiles,
+      employeeSkills,
+    };
     const client = {
       from: vi.fn((table: string) => {
         if (table === "employee_profiles") return builders.members;
@@ -161,6 +191,8 @@ describe("workstation bootstrap route", () => {
         if (table === "tasks") return builders.tasks;
         if (table === "salary") return builders.salary;
         if (table === "task_notifications") return builders.notifications;
+        if (table === "employee_work_profiles") return builders.workProfiles;
+        if (table === "employee_skills") return builders.employeeSkills;
         throw new Error(`unexpected table ${table}`);
       }),
     };
@@ -175,9 +207,14 @@ describe("workstation bootstrap route", () => {
         avatarUrl: null,
       },
       permissionCodes: ["task.manage"],
-    } as never) as { tasks: Array<Record<string, unknown>> };
+    } as never) as {
+      members: Array<Record<string, unknown>>;
+      tasks: Array<Record<string, unknown>>;
+    };
 
     expect(client.from).toHaveBeenCalledWith("task_notifications");
+    expect(client.from).toHaveBeenCalledWith("employee_work_profiles");
+    expect(client.from).toHaveBeenCalledWith("employee_skills");
     expect(notifications.select).toHaveBeenCalledWith(
       "task_id, status, last_error_code",
     );
@@ -189,6 +226,19 @@ describe("workstation bootstrap route", () => {
     expect(bootstrap.tasks[1].notification).toEqual({
       status: "unavailable",
       errorCode: "recipient_unavailable",
+    });
+    expect(bootstrap.members[0].workProfile).toMatchObject({
+      summary: "擅长需求拆解",
+      preferredTaskTypes: ["需求分析"],
+      growthGoals: ["AI产品设计"],
+      weeklyCapacityHours: 36,
+      verifiedSkills: [{
+        name: "需求分析",
+        level: 5,
+        yearsExperience: 4,
+        verified: true,
+      }],
+      selfSkills: [{ name: "客户访谈", level: 4 }],
     });
     expect(JSON.stringify(bootstrap)).not.toMatch(
       /task_id|9001|9002|open_id|tenant_access_token|app_secret|raw provider response/i,

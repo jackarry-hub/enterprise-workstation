@@ -9,10 +9,25 @@ type SessionInput = {
 
 export type WorkstationMemberRow = {
   id: number;
+  profileId?: number;
   displayName: string;
   departmentName: string;
   jobTitle: string;
   skills: readonly string[];
+  verifiedSkills?: readonly {
+    name: string;
+    level: number | null;
+    yearsExperience: number | null;
+    verified: boolean;
+  }[];
+  workProfile?: {
+    summary: string;
+    preferredTaskTypes: readonly string[];
+    growthGoals: readonly string[];
+    weeklyCapacityHours: number;
+    selfSkills: readonly { name: string; level: number }[];
+    updatedAt: string;
+  } | null;
 };
 
 export type WorkstationProjectRow = {
@@ -49,6 +64,8 @@ export type WorkstationTaskRow = {
   acceptedAt?: string | null;
   submittedAt?: string | null;
   reviewedAt?: string | null;
+  submissionCount?: number;
+  rejectionCount?: number;
   notification: {
     status: string;
     errorCode: string;
@@ -144,6 +161,74 @@ function month(value: string) {
   return value.slice(0, 7);
 }
 
+function uniqueSkillNames(member: WorkstationMemberRow) {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  const candidates = [
+    ...(member.verifiedSkills ?? []).map((skill) => skill.name),
+    ...(member.workProfile?.selfSkills ?? []).map((skill) => skill.name),
+    ...member.skills,
+  ];
+  for (const candidate of candidates) {
+    const name = candidate.trim();
+    const key = name.toLocaleLowerCase("zh-CN");
+    if (name && !seen.has(key)) {
+      seen.add(key);
+      names.push(name);
+    }
+  }
+  return names;
+}
+
+function workEvidence(member: WorkstationMemberRow, tasks: readonly WorkstationTaskRow[]) {
+  const assigned = tasks.filter((task) => task.assigneeMemberId === member.id);
+  const active = assigned.filter((task) => ["backlog", "todo", "in_progress", "in_review"]
+    .includes(task.status));
+  const today = new Date().toISOString().slice(0, 10);
+  const overdueTaskCount = active.filter((task) => task.dueDate && task.dueDate < today).length;
+  const completed = assigned.filter((task) => task.status === "done");
+  const measurable = completed.filter((task) => task.dueDate && task.reviewedAt);
+  const onTime = measurable.filter((task) => task.reviewedAt!.slice(0, 10) <= task.dueDate!).length;
+  const performanceTasks = completed.filter((task) =>
+    task.acceptedAt && task.submittedAt && task.dueDate
+    && (task.startDate || task.acceptedAt));
+  const firstPass = performanceTasks.filter((task) =>
+    (task.submissionCount ?? 0) <= 1 && (task.rejectionCount ?? 0) === 0).length;
+  const qualityScores = performanceTasks.map((task) =>
+    Math.max(40, 100 - (task.rejectionCount ?? 0) * 20));
+  const efficiencyScores = performanceTasks.map((task) => {
+    const acceptedAt = new Date(task.acceptedAt!).getTime();
+    const submittedAt = new Date(task.submittedAt!).getTime();
+    const planStart = new Date(`${task.startDate ?? task.acceptedAt!.slice(0, 10)}T00:00:00Z`).getTime();
+    const planEnd = new Date(`${task.dueDate}T00:00:00Z`).getTime();
+    const dayMs = 86_400_000;
+    const actualDays = Math.max(1, Math.ceil((submittedAt - acceptedAt) / dayMs));
+    const plannedDays = Math.max(1, Math.ceil((planEnd - planStart) / dayMs));
+    return Math.max(50, Math.min(120, Math.round((plannedDays / actualDays) * 100)));
+  });
+  const average = (values: readonly number[]) => values.length
+    ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
+    : null;
+  const weeklyCapacityHours = member.workProfile?.weeklyCapacityHours ?? 40;
+  const workloadPercent = Math.min(
+    100,
+    Math.round((active.length * 8 / weeklyCapacityHours) * 100),
+  );
+  return {
+    activeTaskCount: active.length,
+    overdueTaskCount,
+    completedTaskCount: completed.length,
+    onTimeRate: measurable.length ? Math.round((onTime / measurable.length) * 100) : null,
+    firstPassRate: performanceTasks.length
+      ? Math.round((firstPass / performanceTasks.length) * 100)
+      : null,
+    qualityScore: average(qualityScores),
+    efficiencyScore: average(efficiencyScores),
+    performanceSampleCount: performanceTasks.length,
+    workloadPercent,
+  };
+}
+
 export function buildServerBootstrap(
   session: SessionInput,
   rows: BootstrapRows,
@@ -165,16 +250,29 @@ export function buildServerBootstrap(
       memberId: ownMemberId,
       permissions: [...session.permissionCodes],
     },
-    members: rows.members.map((member) => ({
-      id: memberId(member.id),
-      n: member.displayName,
-      r: member.jobTitle,
-      sk: member.skills.join(" · "),
-      dept: member.departmentName,
-      rate: 0,
-      cap: 1,
-      lv: member.id === session.memberId ? 3 : 2,
-    })),
+    members: rows.members.map((member) => {
+      const evidence = workEvidence(member, rows.tasks);
+      return {
+        id: memberId(member.id),
+        n: member.displayName,
+        r: member.jobTitle,
+        sk: uniqueSkillNames(member).join(" · "),
+        dept: member.departmentName,
+        rate: 0,
+        cap: Math.max(0.05, Math.round(100 - evidence.workloadPercent) / 100),
+        lv: member.id === session.memberId ? 3 : 2,
+        workProfile: {
+          summary: member.workProfile?.summary ?? "",
+          preferredTaskTypes: [...(member.workProfile?.preferredTaskTypes ?? [])],
+          growthGoals: [...(member.workProfile?.growthGoals ?? [])],
+          weeklyCapacityHours: member.workProfile?.weeklyCapacityHours ?? 40,
+          verifiedSkills: (member.verifiedSkills ?? []).map((skill) => ({ ...skill })),
+          selfSkills: (member.workProfile?.selfSkills ?? []).map((skill) => ({ ...skill })),
+          ...evidence,
+          updatedAt: member.workProfile?.updatedAt ?? "",
+        },
+      };
+    }),
     projects: rows.projects.map((project) => ({
       id: project.publicId,
       n: project.name,

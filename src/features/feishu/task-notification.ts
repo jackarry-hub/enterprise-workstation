@@ -15,6 +15,15 @@ export type FeishuTaskNotificationInput = {
   acceptanceCriteria: string;
 };
 
+export type FeishuTaskBatchNotificationInput = {
+  recipientOpenId: string;
+  reporterName: string;
+  tasks: Array<Omit<
+    FeishuTaskNotificationInput,
+    "recipientOpenId" | "reporterName"
+  >>;
+};
+
 type EnvSource = Readonly<Record<string, string | undefined>>;
 type FetchLike = (
   input: RequestInfo | URL,
@@ -169,6 +178,43 @@ function notificationCard(
   };
 }
 
+function batchNotificationCard(
+  input: FeishuTaskBatchNotificationInput,
+  taskUrl: string,
+) {
+  const taskSections = input.tasks.map((task, index) => [
+    `**${index + 1}. ${task.taskTitle}**`,
+    `${task.projectName} · ${task.priority} · 截止 ${task.dueDate}`,
+    `验收：${task.acceptanceCriteria}`,
+  ].join("\n")).join("\n\n");
+
+  return {
+    config: { wide_screen_mode: true },
+    header: {
+      template: "blue",
+      title: {
+        tag: "plain_text",
+        content: `你有 ${input.tasks.length} 项新任务`,
+      },
+    },
+    elements: [
+      {
+        tag: "markdown",
+        content: `**发起人：** ${input.reporterName}\n\n${taskSections}`,
+      },
+      {
+        tag: "action",
+        actions: [{
+          tag: "button",
+          type: "primary",
+          text: { tag: "plain_text", content: "查看并领取" },
+          url: taskUrl,
+        }],
+      },
+    ],
+  };
+}
+
 export function getFeishuTaskNotificationEnv(
   env: EnvSource = process.env,
 ): FeishuTaskNotificationEnv {
@@ -197,6 +243,42 @@ export async function sendFeishuTaskNotification(
 ): Promise<{ messageId: string }> {
   const notificationEnv = validatedEnv(env);
   const taskUrl = buildTaskNotificationLink(notificationEnv.appUrl, input.taskId);
+  return sendInteractiveCard(
+    input.recipientOpenId,
+    notificationCard(input, taskUrl),
+    notificationEnv,
+    fetchImpl,
+  );
+}
+
+export async function sendFeishuTaskBatchNotification(
+  input: FeishuTaskBatchNotificationInput,
+  env: FeishuTaskNotificationEnv,
+  fetchImpl: FetchLike = fetch,
+): Promise<{ messageId: string }> {
+  const notificationEnv = validatedEnv(env);
+  const recipientOpenId = nonEmptyText(input.recipientOpenId);
+  if (!recipientOpenId || input.tasks.length < 1 || input.tasks.length > 20) {
+    return configurationUnavailable();
+  }
+  const taskUrl = buildTaskNotificationLink(
+    notificationEnv.appUrl,
+    input.tasks[0].taskId,
+  );
+  return sendInteractiveCard(
+    recipientOpenId,
+    batchNotificationCard(input, taskUrl),
+    notificationEnv,
+    fetchImpl,
+  );
+}
+
+async function sendInteractiveCard(
+  recipientOpenId: string,
+  card: ReturnType<typeof notificationCard>,
+  notificationEnv: FeishuTaskNotificationEnv,
+  fetchImpl: FetchLike,
+) {
   const token = await tenantAccessToken(notificationEnv, fetchImpl);
 
   try {
@@ -210,9 +292,9 @@ export async function sendFeishuTaskNotification(
           "content-type": "application/json; charset=utf-8",
         }),
         body: JSON.stringify({
-          receive_id: input.recipientOpenId,
+          receive_id: recipientOpenId,
           msg_type: "interactive",
-          content: JSON.stringify(notificationCard(input, taskUrl)),
+          content: JSON.stringify(card),
         }),
       },
     );

@@ -912,7 +912,7 @@ var S = {
   agents:[], runs:[], agentIn:{}, agentOut:'', agentBusy:false,
   chain:[], chainIn:'', chainOut:[], chainBusy:false, chainStep:0, reqs:[],
   appr:null, demoCleared:false, serviceError:'', directorySyncBusy:false, payrollSaving:false,
-  notificationRetryBusy:false
+  notificationRetryBusy:false, workProfileSaving:false
 };
 function defaultRuntimeTabs(){ return {proj:'all',task:'all',kb:'week'}; }
 function defaultRuntimeFilters(){ return {
@@ -929,7 +929,7 @@ function resetRuntimeUiState(page){
   S.curProj=null; S.curAgent=null; S.curCustomer=null; S.curActivity=null;
   S.chat=[]; S.chatBusy=false; S.agentIn={}; S.agentOut=''; S.agentBusy=false;
   S.chain=[]; S.chainIn=''; S.chainOut=[]; S.chainBusy=false; S.chainStep=0;
-  S.aiKeyDraft=''; S.showKey=false; S.aiTest=null; S.notificationRetryBusy=false; S.form=blankForm();
+  S.aiKeyDraft=''; S.showKey=false; S.aiTest=null; S.notificationRetryBusy=false; S.workProfileSaving=false; S.form=blankForm();
 }
 
 var PAYROLL_BASE={m1:22000,m2:24000,m3:30000,m4:23000,m5:21000,m6:22000,m7:19000,
@@ -1015,13 +1015,18 @@ function createDemoGateway(){
     submitTaskResult:submitTaskResult,
     reviewTaskResult:reviewTaskResult,
     reopenTask:reopenTask,
+    saveWorkProfile:function(input){
+      var member=MB[S.me]; if(!member) throw new Error('member_not_found');
+      member.workProfile=Object.assign({},member.workProfile||{},cloneGatewayValue(input),{updatedAt:stamp()});
+      save(); return cloneGatewayValue(member.workProfile);
+    },
     clearDemoData:clearDemoData,
     resetDemoData:resetDemoData
   };
 }
 var SERVER_GATEWAY_READ_METHODS=['getSession','loadBootstrap','loadMyDashboard','listMyTasks','loadMyTask','listMyProjects','loadPayroll'];
 var SERVER_GATEWAY_WRITE_METHODS=['saveTask','claimTask','updateTaskExecution','submitTaskResult','reviewTaskResult','reopenTask'];
-var SERVER_GATEWAY_MANAGE_METHODS=['syncDirectory','createTask','retryTaskNotification','savePayroll'];
+var SERVER_GATEWAY_MANAGE_METHODS=['syncDirectory','createTask','createTasks','retryTaskNotification','savePayroll','saveWorkProfile'];
 function isCompliantServerAdapter(adapter){
   return !!adapter&&SERVER_GATEWAY_READ_METHODS.every(function(method){ return typeof adapter[method]==='function'; });
 }
@@ -1061,7 +1066,7 @@ function createUnavailableGateway(){
     listMyTasks:function(){ return []; }, loadMyTask:function(){ return null; }, listMyProjects:function(){ return []; }, loadPayroll:function(){ return []; },
     saveTask:unavailable, claimTask:unavailable, updateTaskExecution:unavailable, submitTaskResult:unavailable,
     reviewTaskResult:unavailable, reopenTask:unavailable, syncDirectory:unavailable,
-    createTask:unavailable, retryTaskNotification:unavailable, savePayroll:unavailable
+    createTask:unavailable, createTasks:unavailable, retryTaskNotification:unavailable, savePayroll:unavailable, saveWorkProfile:unavailable
   };
 }
 function resolveWorkstationGateway(){
@@ -1123,6 +1128,51 @@ function pool(perRole){
   });
   return out;
 }
+var ROLE_SKILL_DEFAULTS={
+  '产品经理':['需求分析','客户访谈','产品规划'],'项目经理':['项目管理','风险管理','跨部门协作'],
+  '架构师':['系统架构','技术选型','数据契约'],'设计师':['交互设计','视觉设计','设计系统'],
+  '前端工程师':['前端开发','TypeScript','性能优化'],'后端工程师':['后端开发','数据库','接口设计'],
+  '算法工程师':['AI能力','数据建模','模型调优'],'测试工程师':['测试设计','自动化测试','验收'],
+  '运维工程师':['发布部署','CI/CD','稳定性'],'运营':['运营增长','内容运营','渠道']
+};
+function skillKey(v){ return String(v||'').toLowerCase().replace(/[\s·・_\-/]+/g,''); }
+function taskSkills(t){
+  var own=Array.isArray(t&&t.skills)?t.skills:[];
+  var base=own.length?own:(ROLE_SKILL_DEFAULTS[t&&t.role]||[]);
+  return base.map(function(v){return String(v||'').trim();}).filter(Boolean).slice(0,8);
+}
+function memberSkills(m){
+  var wp=m&&m.workProfile||{}, out=[], seen={};
+  function add(name,level,verified){ var n=String(name||'').trim(),k=skillKey(n); if(!n||seen[k]) return; seen[k]=1; out.push({name:n,level:Math.max(1,Math.min(5,parseInt(level,10)||3)),verified:!!verified}); }
+  (wp.verifiedSkills||[]).forEach(function(s){add(s.name,s.level,true);});
+  (wp.selfSkills||[]).forEach(function(s){add(s.name,s.level,false);});
+  String(m&&m.sk||'').split(/[·・,，、;；|]/).forEach(function(n){add(n,3,false);});
+  return out;
+}
+function candidateMatch(m,t){
+  var wp=m&&m.workProfile||{}, req=taskSkills(t), have=memberSkills(m), matched=[];
+  req.forEach(function(r){ var rk=skillKey(r), hit=have.filter(function(s){var sk=skillKey(s.name);return sk===rk||sk.indexOf(rk)>=0||rk.indexOf(sk)>=0;})[0]; if(hit) matched.push(hit); });
+  var exactRole=!!(m&&t&&m.r===t.role), relatedRole=!!(m&&t&&(String(t.role||'').indexOf(String(m.r||'').slice(0,2))>=0||String(m.r||'').indexOf(String(t.role||'').slice(0,2))>=0));
+  var roleScore=exactRole?40:(relatedRole?28:7);
+  var skillScore=req.length?Math.round(28*matched.reduce(function(sum,s){return sum+(s.verified?1:0.78)*(0.7+s.level*0.06);},0)/req.length):17;
+  var onTime=isFinite(Number(wp.onTimeRate))?Number(wp.onTimeRate):75;
+  var sample=Number(wp.performanceSampleCount)||0;
+  var quality=sample>=3&&isFinite(Number(wp.qualityScore))?Number(wp.qualityScore):75;
+  var efficiency=sample>=3&&isFinite(Number(wp.efficiencyScore))?Number(wp.efficiencyScore):75;
+  var workload=isFinite(Number(wp.workloadPercent))?Number(wp.workloadPercent):Math.round((1-(Number(m&&m.cap)||0.7))*100);
+  var deliveryScore=Math.round(Math.max(0,Math.min(100,onTime))*.06)+Math.round(Math.max(0,Math.min(100,quality))*.06)+Math.round(Math.max(0,Math.min(100,efficiency))*.04);
+  var capacityScore=Math.round(Math.max(0,100-Math.max(0,workload))*.09);
+  var pref=(wp.preferredTaskTypes||[]).concat(wp.growthGoals||[]).some(function(x){var k=skillKey(x);return skillKey(t&&t.n).indexOf(k)>=0||req.some(function(r){return skillKey(r).indexOf(k)>=0||k.indexOf(skillKey(r))>=0;});});
+  var penalty=Math.min(10,(Number(wp.overdueTaskCount)||0)*3)+(workload>90?6:0);
+  var score=Math.max(1,Math.min(99,roleScore+skillScore+deliveryScore+capacityScore+(pref?4:0)-penalty));
+  var reasons=[exactRole?'职能匹配：'+m.r:(relatedRole?'相近职能：'+m.r:'跨职能候选：'+m.r)];
+  reasons.push('匹配技能：'+(matched.length?matched.map(function(s){return s.name;}).join('、'):'暂无直接匹配'));
+  reasons.push('当前负荷：'+Math.round(workload)+'%'); reasons.push('按时交付：'+Math.round(onTime)+'%');
+  if(sample>=3){ reasons.push('质量表现：'+Math.round(quality)+'%'); reasons.push('效率表现：'+Math.round(efficiency)+'%'); }
+  else reasons.push('历史任务证据不足3项，暂不做绩效加权');
+  if(pref) reasons.push('符合个人偏好或成长方向');
+  return {memberId:m.id,score:score,matchedSkills:matched.map(function(s){return s.name;}),workload:Math.round(workload),onTimeRate:Math.round(onTime),qualityScore:Math.round(quality),efficiencyScore:Math.round(efficiency),performanceSampleCount:sample,reasons:reasons};
+}
 /* 3) 排期：依赖 + 人员可用性 + 关键路径 */
 function schedule(ts, opt){
   var P=pool(opt.perRole), byId={}, free={}, map={};
@@ -1135,11 +1185,12 @@ function schedule(ts, opt){
     var cands=P.filter(function(m){ return m.r===t.role; });
     if(!cands.length) cands=P.filter(function(m){ return t.role.indexOf(m.r.slice(0,2))>=0; });
     if(!cands.length) cands=P.slice();
-    cands.sort(function(a,b){ return (free[a.id]||0)-(free[b.id]||0) || b.cap-a.cap; });
-    var m=cands[0];
+    var ranked=cands.map(function(m){ var match=candidateMatch(m,t); return {member:m,match:match,effective:match.score-Math.min(20,(free[m.id]||0)*2)}; });
+    ranked.sort(function(a,b){ return b.effective-a.effective || (free[a.member.id]||0)-(free[b.member.id]||0) || b.member.cap-a.member.cap; });
+    var m=ranked[0].member;
     var st=Math.max(es, free[m.id]||0);
     var dur=Math.max(1, Math.round((t.days||3)*opt.speed));
-    map[id]={s:st, e:st+dur, dur:dur, own:m.id};
+    map[id]={s:st, e:st+dur, dur:dur, own:m.id, match:ranked[0].match, candidates:ranked.slice(0,3).map(function(x){return x.match;})};
     free[m.id]=st+dur;
   });
   var total=0; order.forEach(function(id){ if(map[id]) total=Math.max(total,map[id].e); });
@@ -1153,7 +1204,7 @@ function schedule(ts, opt){
   var cost=0, work=0;
   order.forEach(function(id){ if(!map[id]) return;
     map[id].slack=lf[id]-map[id].e; map[id].crit=map[id].slack<=0;
-    cost+=MB[map[id].own].rate*(byId[id].days||map[id].dur); work+=map[id].dur; });
+    cost+=(Number(MB[map[id].own].rate)||0)*(byId[id].days||map[id].dur); work+=map[id].dur; });
   var used={}; order.forEach(function(id){ if(map[id]) used[map[id].own]=(used[map[id].own]||0)+map[id].dur; });
   /* 利用率＝成员在其参与档期内的实际占用率（等待空档越多越低） */
   var span={},us=[];
@@ -1176,7 +1227,7 @@ function makePlans(ts){
     return { k:k, name:name, tag:tagline, days:r.days, cost:r.cost, util:r.util, heads:r.heads, peak:r.peak, map:r.map,
       inten:Math.round(100/speed),
       end:fmt(addD(base,r.days)),
-      score:{ speed:Math.round(100-(r.days/ (Math.max(A.days,B.days,C.days))*45)), cost:Math.round(100-(r.cost/Math.max(A.cost,B.cost,C.cost)*55)), risk:k==='B'?55:(k==='C'?72:84) } };
+      score:{ speed:Math.round(100-(r.days/ (Math.max(A.days,B.days,C.days))*45)), cost:Math.round(100-(r.cost/Math.max(1,A.cost,B.cost,C.cost)*55)), risk:k==='B'?55:(k==='C'?72:84) } };
   }
   return [ wrap('A','方案 A（推荐）','按标准投入强度排期，进度与成本平衡，风险可控。',A,1.00),
            wrap('B','方案 B（快速交付）','单任务加派人手压缩工期，人天不变但协作成本更高。',B,0.78),
@@ -1204,6 +1255,7 @@ function localDecompose(goal){
     return { id:'W'+(i+1), ph:r[0], n:r[1], role:r[2], days:r[3],
       dep:r[4].map(function(x){ return 'W'+x; }),
       pri:(i<3||i>=9)?'P0':'P1',
+      skills:(ROLE_SKILL_DEFAULTS[r[2]]||[]).slice(0,3),
       ac:'交付物通过 '+r[0]+' 阶段评审，满足《'+g.slice(0,12)+'》既定验收标准' };
   });
 }
@@ -1213,6 +1265,7 @@ var LOCAL_SECURE_WORKSTATION_URL='http://127.0.0.1:3011/quantxy-ai-workbench-fus
 function aiCall(body){
   var payload={max_tokens:body.max_tokens||1200,messages:body.messages||[]};
   if(body.system) payload.system=body.system;
+  if(body.structured_output===true) payload.structured_output=true;
   return fetch('/api/ai/chat',{method:'POST',credentials:'same-origin',
     headers:{'content-type':'application/json'},body:JSON.stringify(payload)}).then(function(r){
     return r.text().then(function(txt){
@@ -1226,11 +1279,11 @@ function aiCall(body){
     });
   });
 }
-function aiText(d){
+function aiText(d,finalOnly){
   if(!d) return '';
   if(d.choices&&d.choices.length){
     var m=d.choices[0].message||{};
-    return m.content||m.reasoning_content||'';
+    return m.content||(finalOnly?'':m.reasoning_content)||'';
   }
   return ((d.content)||[]).filter(function(c){ return c.type==='text'; }).map(function(c){ return c.text; }).join('\n');
 }
@@ -1247,6 +1300,7 @@ function diagnose(e){
     return '账户余额不足（402），到 DeepSeek 平台充值后即可恢复。';
   if(/\b429\b|rate_limited/i.test(m)) return '请求较多，请稍等一分钟后再试。';
   if(/upstream_timeout/i.test(m)) return '模型响应超时，请稍后重试。';
+  if(/upstream_invalid_response/i.test(m)) return 'AI 输出格式异常，请重新生成。';
   if(/\b5\d\d\b|upstream_failed|invalid_server_config/i.test(m)) return '模型服务暂时不可用，请联系管理员检查配置。';
   return m;
 }
@@ -1338,18 +1392,19 @@ function stripFence(t){ return String(t).replace(/\u0060\u0060\u0060(json)?/g,''
 
 function aiDecompose(goal, deadline, budget, must){
   var sys='你是企业级项目调度专家。把战略目标拆解为可执行的任务清单（WBS），只输出 JSON，不要任何解释、前缀或代码块标记。'+
-    '严格格式：{"tasks":[{"id":"W1","ph":"阶段名","n":"任务名","role":"角色","days":3,"dep":["W0"],"pri":"P0","ac":"验收标准"}]}。'+
+    '严格格式：{"tasks":[{"id":"W1","ph":"阶段名","n":"任务名","role":"角色","skills":["关键技能"],"days":3,"dep":["W0"],"pri":"P0","ac":"验收标准"}]}。'+
     '要求：12-16 个任务；分 4-6 个阶段；role 必须从以下取值：'+ROLES.join('、')+'；'+
     'dep 只能引用更早的 id；days 为整数人天；pri 取 P0/P1/P2；ac 为一句可判定的验收标准；全部中文。';
   var pmt='战略目标：'+goal+'\n硬性截止：'+deadline+'\n预算上限：'+budget+' 万元\n关键约束：'+(must||'无')+'\n请输出任务拆解 JSON。';
-  return aiCall({model:S.cfg.model, max_tokens:1000, system:sys, messages:[{role:'user',content:pmt}]})
+  return aiCall({model:S.cfg.model, max_tokens:2400, structured_output:true, system:sys, messages:[{role:'user',content:pmt}]})
     .then(function(d){
-      var t=stripFence(aiText(d));
+      var t=stripFence(aiText(d,true));
       var o=JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}')+1));
       if(!o.tasks || !o.tasks.length) throw new Error('empty');
       var ids={}; o.tasks.forEach(function(x){ ids[x.id]=1; });
       return o.tasks.map(function(x,i){
         return { id:x.id||('W'+(i+1)), ph:x.ph||'执行阶段', n:x.n||('任务'+(i+1)), role:ROLES.indexOf(x.role)>=0?x.role:'产品经理',
+          skills:(Array.isArray(x.skills)?x.skills:[]).filter(function(skill){ return typeof skill==='string'&&skill.trim(); }).slice(0,8).map(function(skill){ return skill.trim().slice(0,40); }),
           days:Math.max(1,parseInt(x.days,10)||3), dep:(x.dep||[]).filter(function(d){ return ids[d] && d!==x.id; }),
           pri:['P0','P1','P2'].indexOf(x.pri)>=0?x.pri:'P1', ac:x.ac||'达成任务目标并通过评审' };
       });
@@ -1358,7 +1413,7 @@ function aiDecompose(goal, deadline, budget, must){
 
 /* ---------------- 外壳渲染 ---------------- */
 var NAV=[
-  ['me','员工工作台','user'], ['task','任务中心','task'], ['fin','我的薪酬','money'],
+  ['me','员工工作台','user'], ['task','任务中心','task'], ['fin','我的薪酬','money'], ['profile','我的工作画像','org'],
   ['dash','总览 / 决策驾驶舱','dash'], ['proj','项目中心','proj'], ['sched','AI 调度中心','ai'],
   ['customers','客户与交付','org'], ['activities','活动推进','target'],
   ['decisions','业务决策中心','ok'], ['assistant','AI 助理','bot'],
@@ -1370,7 +1425,7 @@ var MOBILE_LABEL={me:'工作台',task:'我的任务',fin:'薪酬'};
 function isMobileShell(){ return !!(window.matchMedia&&window.matchMedia('(max-width:820px)').matches); }
 function formalPageAllowed(page){
   if(isDemoRuntime()) return true;
-  if(page==='me'||page==='task'||page==='fin'||page==='assistant') return true;
+  if(page==='me'||page==='task'||page==='fin'||page==='profile'||page==='assistant') return true;
   if(page==='proj') return hasWorkstationPermission('project.read');
   if(page==='dash') return hasWorkstationPermission('dashboard.read');
   if(page==='sched') return hasWorkstationPermission('task.manage');
@@ -1397,6 +1452,7 @@ var META={
   project:['项目详情','项目下的任务、成员与健康度'],
   search:['搜索结果','跨项目、任务、成员、文档与 Agent'],
   fin:['我的薪酬','工资、奖金、扣款与实发明细'],
+  profile:['我的工作画像','让负责人快速了解你的专业能力、任务偏好与当前容量'],
   org:['组织与权限','人才池即调度资源池，能力与负载一目了然'],
   'pay-admin':['薪资录入','工资、项目奖金与扣款由授权人员维护'],
   set:['系统设置','模型接入与调度参数配置'],
@@ -1576,7 +1632,7 @@ function viewDash(){
 }
 
 /* ---------------- 页面：AI 调度中心（核心） ---------------- */
-function matchScore(m,role){ var b=m.r===role?90:74; return Math.min(99, b+Math.round(m.cap*9)); }
+function matchScore(m,role,task){ return candidateMatch(m,task||{role:role,skills:[]}).score; }
 function depGraph(ts,map){
   var byId={},lvl={},cols={},order=topo(ts);
   ts.forEach(function(t){ byId[t.id]=t; });
@@ -1679,14 +1735,14 @@ function viewSched(){
   '</div></div>']);
 
   /* 人员分配 */
-  var alloc = j(['<div class="card"><div class="hd">',ic('user',18,'#10b981'),'<h3>推荐人员分配</h3></div>',
+  var alloc = j(['<div class="card"><div class="hd">',ic('user',18,'#10b981'),'<h3>推荐人员分配</h3><span class="sm">职能优先 · 负责人确认后下发</span></div>',
    '<div class="bd" style="padding-top:6px;max-height:330px;overflow:auto">',
-   pl? '<table><thead><tr><th>角色 / 技能要求</th><th>推荐人选</th><th>匹配度</th><th>投入</th></tr></thead><tbody>'+
-     Object.keys(load).map(function(mid){ var m=MB[mid];
-       return '<tr><td><b style="font-size:12.5px">'+esc(m.r)+'</b><br><span style="font-size:11px;color:var(--mut)">'+esc(m.sk)+'</span></td>'+
-         '<td><div style="display:flex;align-items:center;gap:7px">'+av(m.n)+esc(m.n)+'</div></td>'+
-         '<td><b style="color:var(--ok)">'+matchScore(m,m.r)+'%</b></td>'+
-         '<td style="color:var(--sub)">'+load[mid]+' 天</td></tr>';
+   pl? '<table><thead><tr><th>任务 / 职能</th><th>推荐人选</th><th>匹配度</th><th>推荐理由</th></tr></thead><tbody>'+
+     ts.map(function(t){ var slot=pl.map[t.id]; if(!slot)return ''; var m=MB[slot.own], mt=slot.match||candidateMatch(m,t), backup=(slot.candidates||[]).slice(1).map(function(x){return MB[x.memberId]&&MB[x.memberId].n;}).filter(Boolean);
+       return '<tr><td><b style="font-size:12.5px">'+esc(t.n)+'</b><br><span style="font-size:11px;color:var(--mut)">'+esc(t.role)+' · '+esc(taskSkills(t).join('、')||'通用能力')+'</span></td>'+
+         '<td><div style="display:flex;align-items:center;gap:7px">'+av(m.n)+esc(m.n)+'</div>'+(backup.length?'<span style="font-size:10.5px;color:var(--mut)">备选：'+esc(backup.join('、'))+'</span>':'')+'</td>'+
+         '<td><b style="color:var(--ok)">'+mt.score+'%</b></td>'+
+         '<td style="font-size:11px;color:var(--sub);line-height:1.65"><b style="color:var(--ink)">推荐理由</b><br>'+mt.reasons.map(esc).join('<br>')+'</td></tr>';
      }).join('')+'</tbody></table>'
    : '<div class="empty">AI 会按角色、技能与当前负载自动匹配人选</div>',
   '</div></div>']);
@@ -1717,6 +1773,8 @@ function viewSched(){
   if(overdue) risks.unshift(['交付超期风险','方案预计完成 '+pl.end+'，晚于硬性截止 '+sc.deadline+'，建议切换到快速交付方案。','高','70%','切换方案 B / 缩减范围']);
 
   return j(['<div class="grid fade" style="grid-template-columns:1fr 1fr 1fr">',left,wbs,list,'</div>',
+
+  '<div style="margin-top:16px">',alloc,'</div>',
 
   '<div class="grid" style="grid-template-columns:1.05fr 1.6fr 1.1fr;margin-top:16px">',
     '<div class="card"><div class="hd">',ic('chart',18,'#f59e0b'),'<h3>资源利用率</h3><div class="grow"></div><span class="sm">本方案</span></div>',
@@ -3671,10 +3729,72 @@ function viewDecisions(){
     '</div></div></div>']);
 }
 
+function profileLabels(value){
+  return String(value||'').split(/[，,\n]+/).map(function(item){ return item.trim(); }).filter(Boolean);
+}
+function profileSkills(value){
+  var rows=profileLabels(value), skills=[];
+  for(var i=0;i<rows.length;i++){
+    var parts=rows[i].split(/[:：]/), level=parseInt(parts.pop(),10), name=parts.join(':').trim();
+    if(!name||name.length>40||!Number.isInteger(level)||level<1||level>5) return null;
+    skills.push({name:name,level:level});
+  }
+  return skills;
+}
+function viewWorkProfile(){
+  var member=MB[S.me]||{}, profile=member.workProfile||{};
+  var verified=profile.verifiedSkills||[], selfSkills=profile.selfSkills||[];
+  function metric(label,value,note){ return '<div class="card kpi"><div class="t"><span>'+label+'</span></div><div class="v" style="font-size:25px">'+value+'</div><div class="f"><em>'+note+'</em></div></div>'; }
+  return j(['<div class="fade">',
+    '<div class="grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">',
+      metric('当前任务',Number(profile.activeTaskCount||0),'进行中与待处理'),
+      metric('当前负荷',Number(profile.workloadPercent||0)+'%','按任务和每周容量估算'),
+      metric('按时完成率',profile.onTimeRate==null?'暂无':Number(profile.onTimeRate)+'%','基于已验收任务'),
+      metric('已完成',Number(profile.completedTaskCount||0)+' 项','工作结果持续积累'),
+    '</div>',
+    '<div class="grid g2">',
+      '<div class="card"><div class="hd"><h3>我的工作画像</h3><span class="sub">仅用于专业协作与任务推荐</span></div><div class="bd">',
+        '<div style="padding:11px 12px;border-radius:12px;background:var(--brand-s);margin-bottom:14px"><b>岗位职能：'+esc(member.r||'员工')+'</b><span class="sub" style="margin-left:8px">'+esc(member.dept||'未分配部门')+' · 来自飞书通讯录，不在此处重复填写</span></div>',
+        '<label class="field"><span>专业简介</span><textarea class="ta" id="wpSummary" maxlength="240" placeholder="用一句话说明你最擅长解决什么问题">',esc(profile.summary||''),'</textarea></label>',
+        '<div class="frow"><label class="field"><span>偏好任务类型</span><input class="inp" id="wpTypes" value="',attr((profile.preferredTaskTypes||[]).join('，')),'" placeholder="需求分析，跨部门协作"></label>',
+        '<label class="field"><span>成长方向</span><input class="inp" id="wpGoals" value="',attr((profile.growthGoals||[]).join('，')),'" placeholder="AI产品设计，项目管理"></label></div>',
+        '<label class="field"><span>每周可投入工时</span><input class="inp" id="wpCapacity" type="number" min="1" max="80" value="',Number(profile.weeklyCapacityHours||40),'"></label>',
+        '<label class="field"><span>自评技能（技能:等级，等级1-5）</span><textarea class="ta" id="wpSkills" placeholder="客户访谈:4，数据分析:3">',esc(selfSkills.map(function(skill){ return skill.name+':'+skill.level; }).join('，')),'</textarea></label>',
+        '<button class="btn" data-act="save-work-profile" ',S.workProfileSaving?'disabled':'','>',S.workProfileSaving?'保存中…':'保存工作画像','</button>',
+      '</div></div>',
+      '<div class="card"><div class="hd"><h3>能力证据</h3><span class="tag t-g">真实任务数据</span></div><div class="bd">',
+        '<div style="font-size:12px;color:var(--sub);margin-bottom:10px">已验证技能由负责人或组织数据确认，自评技能由本人维护。</div>',
+        Number(profile.performanceSampleCount||0)?'<div style="padding:11px;border-radius:11px;background:#f6f9ff;font-size:12px;line-height:1.8"><b>历史任务结果证据 '+Number(profile.performanceSampleCount)+' 项</b><br>质量 '+Number(profile.qualityScore||0)+'% · 效率 '+Number(profile.efficiencyScore||0)+'% · 一次通过 '+Number(profile.firstPassRate||0)+'%</div>':'<div style="padding:11px;border-radius:11px;background:#f6f9ff;font-size:12px;color:var(--mut)">完成并验收任务后，系统会自动积累效率与质量证据；不足 3 项时不参与绩效加权。</div>',
+        '<h4 style="margin:14px 0 8px">已验证技能</h4>',
+        verified.length?verified.map(function(skill){ return '<div class="filerow"><b style="flex:1">'+esc(skill.name)+'</b><span class="tag t-g">'+(skill.level?'L'+skill.level:'已验证')+'</span>'+(skill.yearsExperience?'<span class="sub">'+skill.yearsExperience+' 年</span>':'')+'</div>'; }).join(''):'<div class="empty">暂未添加已验证技能</div>',
+        '<h4 style="margin:18px 0 8px">自评技能</h4>',
+        selfSkills.length?selfSkills.map(function(skill){ return '<div class="filerow"><b style="flex:1">'+esc(skill.name)+'</b><span class="tag t-b">L'+skill.level+' · 自评</span></div>'; }).join(''):'<div class="empty">填写技能后，负责人能更准确地安排任务</div>',
+        profile.overdueTaskCount?'<div class="alert" style="margin-top:14px">当前有 '+Number(profile.overdueTaskCount)+' 项任务逾期，推荐时会降低可用度。</div>':'',
+      '</div></div>',
+    '</div></div>']);
+}
+
+function saveWorkProfile(){
+  if(S.workProfileSaving) return;
+  var member=MB[S.me]; if(!member){ toast('当前员工信息不可用'); return; }
+  var capacity=parseInt(el('wpCapacity').value,10), skills=profileSkills(el('wpSkills').value);
+  var input={summary:el('wpSummary').value.trim(),preferredTaskTypes:profileLabels(el('wpTypes').value),
+    growthGoals:profileLabels(el('wpGoals').value),weeklyCapacityHours:capacity,selfSkills:skills};
+  if(input.summary.length>240||input.preferredTaskTypes.length>8||input.growthGoals.length>8||!skills||skills.length>20||!Number.isInteger(capacity)||capacity<1||capacity>80){
+    toast('请检查画像内容：技能等级为1-5，每周工时为1-80'); return;
+  }
+  S.workProfileSaving=true; render();
+  Promise.resolve(WORKSTATION_GATEWAY.saveWorkProfile(input)).then(function(savedProfile){
+    var existing=member.workProfile||{};
+    member.workProfile=Object.assign({},existing,savedProfile||input,{verifiedSkills:existing.verifiedSkills||[]});
+    S.workProfileSaving=false; rebuildLookups(); render(); toast('工作画像已更新');
+  }).catch(function(){ S.workProfileSaving=false; render(); toast('工作画像保存失败，请稍后重试'); });
+}
+
 /* ---------------- 路由 ---------------- */
 var VIEWS={dash:viewDash,proj:viewProj,sched:viewSched,task:viewTask,me:viewMe,execution:viewExecution,assistant:viewAssistant,
   customers:viewCustomers,activities:viewActivities,decisions:viewDecisions,
-  insight:viewInsight,kb:viewKb,flow:viewAgents,fin:viewFin,org:viewOrg,'pay-admin':viewPayrollAdmin,set:viewSet,
+  insight:viewInsight,kb:viewKb,flow:viewAgents,fin:viewFin,profile:viewWorkProfile,org:viewOrg,'pay-admin':viewPayrollAdmin,set:viewSet,
   'new-member':viewNewMember,'new-project':viewNewProject,'new-file':viewNewFile,'new-task':viewNewTask,
   'new-customer':viewNewCustomer,'new-activity':viewNewActivity,
   'new-agent':viewNewAgent, agent:viewAgentRun, project:viewProject, search:viewSearch};
@@ -3753,14 +3873,13 @@ function issue(){
     }).filter(Boolean);
     if(!inputs.length){ toast('当前方案没有可下发的任务'); return; }
     sc.issuing=true; render();
-    Promise.all(inputs.map(function(input){
-      return Promise.resolve().then(function(){ return WORKSTATION_GATEWAY.createTask(input); });
-    })).then(function(tasks){
+    Promise.resolve().then(function(){ return WORKSTATION_GATEWAY.createTasks(inputs); }).then(function(tasks){
       tasks.forEach(function(task){
         if(task&&task.id&&!S.tasks.some(function(row){ return row.id===task.id; })) S.tasks.unshift(normalizeTask(task));
       });
+      var sent=tasks.filter(function(task){ return task&&task.notification&&task.notification.status==='sent'; }).length;
       sc.issuing=false; sc.issued=true; S.page='task'; render();
-      toast('已下发 '+tasks.length+' 项任务，成员可在个人工作台领取执行');
+      toast('已创建 '+tasks.length+' 项任务，飞书送达 '+sent+' 项，未送达 '+(tasks.length-sent)+' 项');
     }).catch(function(error){
       sc.issuing=false; render(); toast(taskError(error));
     });
@@ -3792,7 +3911,8 @@ function genPlan(){
   aiDecompose(S.sch.goal,S.sch.deadline,S.sch.budget,S.sch.must)
     .then(function(ts){ finish(ts,'大模型实时拆解（'+S.cfg.model+'）'); })
     .catch(function(e){
-      S.sch.err='模型调用未成功，已用内置引擎兜底。原因：'+diagnose(e);
+      var raw=(e&&e.message)||'';
+      S.sch.err=(/upstream_invalid_response|JSON|empty/i.test(raw)?'AI 输出格式异常，已使用内置方案。原因：':'模型调用未成功，已用内置引擎兜底。原因：')+diagnose(e);
       finish(localDecompose(S.sch.goal),'内置模板引擎');
     });
 }
@@ -3883,6 +4003,7 @@ document.addEventListener('click',function(e){
   }
   else if(a==='sync-directory'){ syncFormalDirectory(); }
   else if(a==='salary-save'){ saveFormalPayroll(); }
+  else if(a==='save-work-profile'){ saveWorkProfile(); }
   else if(a==='f-member'){ createMember(); }
   else if(a==='f-project'){ createProject(); }
   else if(a==='f-file'){ createFile(); }

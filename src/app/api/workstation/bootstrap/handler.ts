@@ -45,13 +45,20 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       membersResult.data ?? [],
       session.member.id,
     );
-    const [projectsResult, tasksResult, salaryResult, notificationsResult] = await Promise.all([
+    const [
+      projectsResult,
+      tasksResult,
+      salaryResult,
+      notificationsResult,
+      workProfilesResult,
+      employeeSkillsResult,
+    ] = await Promise.all([
       client.from("projects")
         .select("id, public_id, name, owner_member_id, status, health, progress, priority, updated_at")
         .is("deleted_at", null)
         .order("updated_at", { ascending: false }),
       client.from("tasks")
-        .select("id, public_id, project_id, title, description, assignee_member_id, reporter_member_id, status, priority, start_date, due_date, progress, acceptance_criteria, blocker, review_note, next_step, result_summary, result_link, result_files, accepted_at, submitted_at, reviewed_at")
+        .select("id, public_id, project_id, title, description, assignee_member_id, reporter_member_id, status, priority, start_date, due_date, progress, acceptance_criteria, blocker, review_note, next_step, result_summary, result_link, result_files, accepted_at, submitted_at, reviewed_at, submission_count, rejection_count")
         .is("deleted_at", null)
         .order("updated_at", { ascending: false }),
       client.from("salary")
@@ -61,9 +68,20 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
         .order("payroll_month", { ascending: false }),
       client.from("task_notifications")
         .select("task_id, status, last_error_code"),
+      client.from("employee_work_profiles")
+        .select("employee_profile_id, summary, preferred_task_types, growth_goals, weekly_capacity_hours, self_skills, updated_at"),
+      client.from("employee_skills")
+        .select("employee_profile_id, proficiency_level, years_experience, verification_status, skill:skill_tags(name)"),
     ]);
 
-    const failed = [projectsResult, tasksResult, salaryResult, notificationsResult]
+    const failed = [
+      projectsResult,
+      tasksResult,
+      salaryResult,
+      notificationsResult,
+      workProfilesResult,
+      employeeSkillsResult,
+    ]
       .find((result) => result.error);
     if (failed?.error) throw failed.error;
 
@@ -73,6 +91,45 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
         errorCode: row.last_error_code ?? "",
       }]),
     );
+    const workProfileByEmployee = new Map(
+      (workProfilesResult.data ?? []).map((row) => [row.employee_profile_id, {
+        summary: row.summary,
+        preferredTaskTypes: row.preferred_task_types ?? [],
+        growthGoals: row.growth_goals ?? [],
+        weeklyCapacityHours: Number(row.weekly_capacity_hours),
+        selfSkills: Array.isArray(row.self_skills)
+          ? row.self_skills.flatMap((skill) => (
+            skill && typeof skill === "object"
+              && typeof (skill as { name?: unknown }).name === "string"
+              && Number.isInteger((skill as { level?: unknown }).level)
+              ? [{
+                name: (skill as { name: string }).name,
+                level: Number((skill as { level: number }).level),
+              }]
+              : []
+          ))
+          : [],
+        updatedAt: row.updated_at,
+      }]),
+    );
+    const verifiedSkillsByEmployee = new Map<number, Array<{
+      name: string;
+      level: number | null;
+      yearsExperience: number | null;
+      verified: boolean;
+    }>>();
+    for (const row of employeeSkillsResult.data ?? []) {
+      const name = relationName(row.skill);
+      if (!name || name === "未分配部门") continue;
+      const rows = verifiedSkillsByEmployee.get(row.employee_profile_id) ?? [];
+      rows.push({
+        name,
+        level: row.proficiency_level === null ? null : Number(row.proficiency_level),
+        yearsExperience: row.years_experience === null ? null : Number(row.years_experience),
+        verified: row.verification_status === "verified",
+      });
+      verifiedSkillsByEmployee.set(row.employee_profile_id, rows);
+    }
 
     return buildServerBootstrap(
       {
@@ -86,10 +143,13 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       {
         members: (membersResult.data ?? []).map((row) => ({
           id: row.organization_member_id,
+          profileId: row.id,
           displayName: row.display_name,
           departmentName: relationName(row.department),
           jobTitle: row.job_title,
           skills: row.skills ?? [],
+          verifiedSkills: verifiedSkillsByEmployee.get(row.id) ?? [],
+          workProfile: workProfileByEmployee.get(row.id) ?? null,
         })),
         projects: (projectsResult.data ?? []).map((row) => ({
           id: row.id,
@@ -126,6 +186,8 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
           acceptedAt: row.accepted_at,
           submittedAt: row.submitted_at,
           reviewedAt: row.reviewed_at,
+          submissionCount: Number(row.submission_count ?? 0),
+          rejectionCount: Number(row.rejection_count ?? 0),
           notification: notificationByTask.get(row.id) ?? {
             status: "unavailable",
             errorCode: "recipient_unavailable",

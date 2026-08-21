@@ -6,7 +6,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildTaskNotificationLink,
   getFeishuTaskNotificationEnv,
+  sendFeishuTaskBatchNotification,
   sendFeishuTaskNotification,
+  type FeishuTaskBatchNotificationInput,
   type FeishuTaskNotificationEnv,
   type FeishuTaskNotificationInput,
 } from "@/features/feishu/task-notification";
@@ -270,6 +272,55 @@ describe("Feishu task notification links", () => {
 });
 
 describe("Feishu task notification delivery", () => {
+  it("sends one compact card for multiple tasks assigned to the same employee", async () => {
+    const batch: FeishuTaskBatchNotificationInput = {
+      recipientOpenId: "ou_employee",
+      reporterName: "负责人",
+      tasks: [
+        {
+          taskId,
+          taskTitle: "完成需求访谈",
+          projectName: "企业工作站",
+          priority: "P0",
+          dueDate: "2026-08-24",
+          acceptanceCriteria: "提交访谈纪要",
+        },
+        {
+          taskId: "55555555-5555-4555-8555-555555555555",
+          taskTitle: "整理验收清单",
+          projectName: "企业工作站",
+          priority: "P1",
+          dueDate: "2026-08-25",
+          acceptanceCriteria: "负责人确认清单",
+        },
+      ],
+    };
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(Response.json({
+        code: 0,
+        tenant_access_token: "tenant-token",
+      }))
+      .mockResolvedValueOnce(Response.json({
+        code: 0,
+        data: { message_id: "om_batch" },
+      }));
+
+    await expect(
+      sendFeishuTaskBatchNotification(batch, env, fetchImpl),
+    ).resolves.toEqual({ messageId: "om_batch" });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const messageBody = JSON.parse(String(fetchImpl.mock.calls[1][1]?.body));
+    const card = JSON.parse(messageBody.content);
+    expect(messageBody.receive_id).toBe("ou_employee");
+    expect(card.header.title.content).toBe("你有 2 项新任务");
+    expect(JSON.stringify(card)).toContain("完成需求访谈");
+    expect(JSON.stringify(card)).toContain("整理验收清单");
+    expect(JSON.stringify(card)).toContain("提交访谈纪要");
+    expect(JSON.stringify(card)).not.toContain("app-secret");
+    expect(JSON.stringify(card)).not.toContain("tenant-token");
+  });
+
   it("sends the specified interactive application card to one open_id", async () => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(Response.json({

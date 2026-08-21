@@ -182,6 +182,19 @@
         return task;
       });
     },
+    createTasks: function (inputs) {
+      return request("/api/workstation/tasks/batch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tasks: Array.isArray(inputs) ? inputs : [] }),
+      }).then(function (result) {
+        return (Array.isArray(result.tasks) ? result.tasks : []).map(function (row) {
+          var task = addTask(row.task);
+          task.notification = safeNotification(row.notification);
+          return task;
+        });
+      });
+    },
     retryTaskNotification: function (taskId) {
       return request(
         "/api/workstation/tasks/" + encodeURIComponent(taskId) + "/notify",
@@ -195,6 +208,21 @@
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(input || {}),
+      });
+    },
+    saveWorkProfile: function (input) {
+      return request("/api/workstation/work-profile", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input || {}),
+      }).then(function (result) {
+        var profile = result.profile || {};
+        var memberId = requireBootstrap().session.memberId;
+        var member = (requireBootstrap().members || []).find(function (row) {
+          return row.id === memberId;
+        });
+        if (member) member.workProfile = clone(profile);
+        return clone(profile);
       });
     },
     saveTask: function (taskId, input) { return mutateTask(taskId, "progress", input); },

@@ -98,6 +98,30 @@ test("loads the formal employee session and sends task updates without trusting 
     if (String(url) === "/api/workstation/payroll") {
       return response(true, { status: "saved" });
     }
+    if (String(url) === "/api/workstation/work-profile") {
+      return response(true, {
+        profile: {
+          ...JSON.parse(init.body),
+          updatedAt: "2026-08-21T02:00:00.000Z",
+        },
+      });
+    }
+    if (String(url) === "/api/workstation/tasks/batch" && init.method === "POST") {
+      const input = JSON.parse(init.body);
+      return response(true, {
+        tasks: input.tasks.map((row, index) => ({
+          task: {
+            ...bootstrap.tasks[0],
+            id: `batch-${index + 1}`,
+            n: row.title,
+            pr: 0,
+          },
+          notification: index === 0
+            ? { status: "sent" }
+            : { status: "unavailable", errorCode: "recipient_unavailable" },
+        })),
+      });
+    }
     return response(true, { task: { ...bootstrap.tasks[0], pr: 60 } });
   };
 
@@ -187,6 +211,46 @@ test("loads the formal employee session and sends task updates without trusting 
   await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.savePayroll({
     memberId: "m7",
     month: "2026-08",
+  });
+  const batchCreated = await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.createTasks([
+    { projectId: "p1", assigneeMemberId: "m7", title: "批量任务一" },
+    { projectId: "p1", assigneeMemberId: "m8", title: "批量任务二" },
+  ]);
+  assert.equal(batchCreated.length, 2);
+  assert.equal(batchCreated[0].id, "batch-1");
+  assert.deepEqual(JSON.parse(JSON.stringify(batchCreated[0].notification)), {
+    status: "sent",
+    errorCode: "",
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(batchCreated[1].notification)), {
+    status: "unavailable",
+    errorCode: "recipient_unavailable",
+  });
+  const batchRequests = requests.filter(({ url }) => url === "/api/workstation/tasks/batch");
+  assert.equal(batchRequests.length, 1);
+  assert.deepEqual(JSON.parse(batchRequests[0].init.body), {
+    tasks: [
+      { projectId: "p1", assigneeMemberId: "m7", title: "批量任务一" },
+      { projectId: "p1", assigneeMemberId: "m8", title: "批量任务二" },
+    ],
+  });
+  const workProfile = await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.saveWorkProfile({
+    summary: "擅长需求拆解",
+    preferredTaskTypes: ["需求分析"],
+    growthGoals: ["AI产品设计"],
+    weeklyCapacityHours: 36,
+    selfSkills: [{ name: "客户访谈", level: 4 }],
+  });
+  assert.equal(workProfile.summary, "擅长需求拆解");
+  const profileRequest = requests.find(({ url }) => url === "/api/workstation/work-profile");
+  assert.equal(profileRequest.init.method, "PUT");
+  assert.equal(profileRequest.init.credentials, "same-origin");
+  assert.deepEqual(JSON.parse(profileRequest.init.body), {
+    summary: "擅长需求拆解",
+    preferredTaskTypes: ["需求分析"],
+    growthGoals: ["AI产品设计"],
+    weeklyCapacityHours: 36,
+    selfSkills: [{ name: "客户访谈", level: 4 }],
   });
   assert.equal(requests.find(({ url }) => url === "/api/workstation/directory-sync").init.method, "POST");
   assert.equal(requests.find(({ url }) => url === "/api/workstation/tasks" && url !== "/api/workstation/tasks/t1").init.method, "POST");

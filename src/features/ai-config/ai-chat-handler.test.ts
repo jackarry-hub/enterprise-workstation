@@ -160,6 +160,118 @@ describe("handleAiChat", () => {
     expect(timeoutResponse.status).toBe(504);
   });
 
+  it("retries one invalid structured response and returns the next valid JSON object", async () => {
+    const record = await configuredRecord();
+    const upstreamBodies: Array<Record<string, unknown>> = [];
+    let call = 0;
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      upstreamBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      call += 1;
+      if (call === 1) {
+        return Response.json({
+          choices: [{ finish_reason: "stop", message: { content: "" } }],
+        });
+      }
+      return Response.json({
+        choices: [{
+          finish_reason: "stop",
+          message: { content: '{"tasks":[{"title":"客户访谈"}]}' },
+        }],
+      });
+    };
+
+    const response = await handleAiChat(request({
+      messages: [{ role: "user", content: "请用JSON拆解任务" }],
+      max_tokens: 2_400,
+      structured_output: true,
+    }), {
+      session: executiveWorkspaceSession,
+      encryptionKey,
+      store: { get: async () => record },
+      fetchImpl,
+      consumeRateLimit: () => true,
+    });
+
+    expect(response.status).toBe(200);
+    expect(call).toBe(2);
+    expect(upstreamBodies).toHaveLength(2);
+    for (const body of upstreamBodies) {
+      expect(body).toMatchObject({
+        model: "deepseek-chat",
+        max_tokens: 2_400,
+        response_format: { type: "json_object" },
+        thinking: { type: "disabled" },
+      });
+    }
+    await expect(response.json()).resolves.toEqual({
+      choices: [{
+        finish_reason: "stop",
+        message: { content: '{"tasks":[{"title":"客户访谈"}]}' },
+      }],
+    });
+  });
+
+  it("returns one stable error after two malformed or truncated structured responses", async () => {
+    const record = await configuredRecord();
+    let call = 0;
+    const fetchImpl: typeof fetch = async () => {
+      call += 1;
+      return call === 1
+        ? Response.json({
+          choices: [{
+            finish_reason: "length",
+            message: { content: '{"tasks":[' },
+          }],
+        })
+        : Response.json({
+          choices: [{
+            finish_reason: "stop",
+            message: { content: '{"tasks":[}' },
+          }],
+        });
+    };
+
+    const response = await handleAiChat(request({
+      messages: [{ role: "user", content: "请用JSON拆解任务" }],
+      structured_output: true,
+    }), {
+      session: executiveWorkspaceSession,
+      encryptionKey,
+      store: { get: async () => record },
+      fetchImpl,
+      consumeRateLimit: () => true,
+    });
+
+    expect(call).toBe(2);
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: "upstream_invalid_response",
+    });
+  });
+
+  it("rejects non-boolean structured mode before upstream access", async () => {
+    let upstreamCalls = 0;
+    const response = await handleAiChat(request({
+      messages: [{ role: "user", content: "hello" }],
+      structured_output: "yes",
+    }), {
+      session: executiveWorkspaceSession,
+      encryptionKey,
+      store: { get: configuredRecord },
+      fetchImpl: async () => {
+        upstreamCalls += 1;
+        return Response.json({});
+      },
+      consumeRateLimit: () => true,
+    });
+
+    expect(response.status).toBe(400);
+    expect(upstreamCalls).toBe(0);
+    await expect(response.json()).resolves.toEqual({
+      error: "invalid_structured_output",
+    });
+  });
+
   it("returns 429 when the tenant/user limit is exhausted", async () => {
     const response = await handleAiChat(
       request({ messages: [{ role: "user", content: "hello" }] }),
