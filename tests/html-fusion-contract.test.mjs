@@ -44,9 +44,9 @@ test("registers fused navigation, routes, and persistent collections", async () 
   assert.match(html, /decisions:viewDecisions/);
 });
 
-test("does not add traditional HR workflows", async () => {
+test("does not add attendance, leave, or corporate payroll workflows", async () => {
   const html = await readFusionHtml();
-  for (const label of ["考勤中心", "请假管理", "薪资管理", "工资单"]) {
+  for (const label of ["考勤中心", "请假管理", "薪资管理"]) {
     assert.doesNotMatch(html, new RegExp(label));
   }
 });
@@ -357,6 +357,37 @@ test("reserves Feishu cutover without activating a fake server adapter", async (
   assert.match(html, /window\.QUANTXY_WORKSTATION_SERVER_ADAPTER/);
   assert.match(html, /if\(isDemoRuntime\(\)\) return createDemoGateway\(\)/);
   assert.doesNotMatch(html, /var WORKSTATION_GATEWAY=createDemoGateway\(\)/);
+});
+
+test("renders payroll policy and server calculation controls", async () => {
+  const html = await readFusionHtml();
+  for (const label of [
+    "薪资核算参数",
+    "生效月份",
+    "养老个人比例",
+    "医疗个人比例",
+    "失业个人比例",
+    "公积金个人比例",
+    "社保基数下限",
+    "社保基数上限",
+    "保存草稿",
+    "启用参数",
+    "专项附加扣除",
+    "累计已缴个税",
+    "预览核算",
+    "确认工资单",
+  ]) {
+    assert.match(html, new RegExp(label));
+  }
+  for (const action of [
+    "payroll-policy-save",
+    "payroll-policy-activate",
+    "payroll-preview",
+    "payroll-save-draft",
+    "payroll-confirm",
+  ]) {
+    assert.match(html, new RegExp(`data-act="${action}"`));
+  }
 });
 
 test("formal task creation explains authorization failures without blaming Feishu sync", async () => {

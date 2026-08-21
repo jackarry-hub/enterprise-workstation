@@ -108,6 +108,9 @@ async function openFormalWorkbench(url, bootstrap, adapterOverrides = {}, fetchO
     createTask: async () => null,
     createTasks: async () => [],
     retryTaskNotification: async () => ({ status: "sent", errorCode: "" }),
+    loadPayrollPolicy: async () => ({ active: null, history: [] }),
+    savePayrollPolicy: async () => ({}),
+    previewPayroll: async () => ({}),
     savePayroll: async () => ({}),
     ...adapterOverrides,
   };
@@ -145,6 +148,153 @@ async function openFormalWorkbench(url, bootstrap, adapterOverrides = {}, fetchO
   await waitFor(() => dom.window.Q?.S.me === session.memberId && dom.window.Q.S.aiConfig.loaded);
   return dom;
 }
+
+test("previews and confirms a server-calculated payroll", async () => {
+  const bootstrap = formalBootstrap({
+    memberId: "m7",
+    permissions: ["task.execute", "salary.self", "salary.manage"],
+  });
+  let saveCalls = 0;
+  let lastSave = null;
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+    {
+      loadPayrollPolicy: async () => ({
+        active: { publicId: "policy-1", effectiveMonth: "2026-01" },
+        history: [],
+      }),
+      previewPayroll: async () => ({
+        employee: { hireDate: "2026-01-15" },
+        policy: { publicId: "policy-1", effectiveMonth: "2026-01" },
+        employmentMonthsYtd: 8,
+        openingRequired: false,
+        calculation: {
+          grossSalary: "25000.00",
+          socialSecurity: "3502.00",
+          individualIncomeTax: "620.00",
+          deductions: "4122.00",
+          netSalary: "20878.00",
+        },
+      }),
+      savePayroll: async (input) => {
+        saveCalls += 1;
+        lastSave = input;
+        return { status: "confirmed" };
+      },
+    },
+  );
+  try {
+    const { S } = dom.window.Q;
+    S.page = "pay-admin";
+    dom.window.Q.render();
+    await waitFor(() => dom.window.document.querySelector('[data-act="payroll-preview"]'));
+    await waitFor(() => S.payrollPolicyLoaded);
+
+    const values = {
+      salaryMember: "m7",
+      salaryMonth: "2026-08",
+      salaryBase: "20000.00",
+      salaryPerformance: "1000.00",
+      salaryProjectBonus: "2000.00",
+      salaryOtherBonus: "2000.00",
+      salaryOtherIncome: "0.00",
+      salarySocialBase: "20000.00",
+      salaryHousingBase: "20000.00",
+      salaryTaxExemptIncome: "0.00",
+      salarySpecialAdditional: "0.00",
+      salaryOtherStatutory: "0.00",
+      salaryTaxRelief: "0.00",
+      salaryOtherDeduction: "0.00",
+      salaryAdjustmentReason: "",
+      salaryNote: "",
+    };
+    for (const [id, value] of Object.entries(values)) {
+      const node = dom.window.document.getElementById(id)
+        || dom.window.document.querySelector(`[data-f="${id}"]`);
+      assert.ok(node, `missing payroll input ${id}`);
+      node.value = value;
+    }
+
+    dom.window.document.querySelector('[data-act="payroll-preview"]').click();
+    await waitFor(() => S.payrollPreview?.calculation?.netSalary === "20878.00");
+    assert.match(dom.window.document.querySelector("#view").textContent, /应发工资.*25,?000\.00/);
+    assert.match(dom.window.document.querySelector("#view").textContent, /实发工资.*20,?878\.00/);
+
+    dom.window.document.querySelector('[data-act="payroll-confirm"]').click();
+    await waitFor(() => saveCalls === 1);
+    await waitFor(() => !S.payrollSaving);
+    assert.equal(lastSave.status, "processing");
+    assert.equal(lastSave.employmentMonthsYtd, undefined);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("activates payroll policy only after the example is confirmed", async () => {
+  const bootstrap = formalBootstrap({
+    memberId: "m7",
+    permissions: ["task.execute", "salary.manage"],
+  });
+  let saved = null;
+  const policyResponse = {
+    active: null,
+    history: [{
+      publicId: "policy-draft",
+      status: "draft",
+      effectiveMonth: "2026-08",
+      pensionEmployeeRate: "8",
+      medicalEmployeeRate: "2",
+      medicalEmployeeFixedAmount: "3.00",
+      unemploymentEmployeeRate: "0.5",
+      housingFundEmployeeRate: "7",
+      socialBaseMin: "5000.00",
+      socialBaseMax: "30000.00",
+      housingBaseMin: "5000.00",
+      housingBaseMax: "30000.00",
+    }],
+    draftExample: {
+      confirmationHash: "a".repeat(64),
+      sample: {
+        grossSalary: "10000.00",
+        socialSecurity: "1553.00",
+        individualIncomeTax: "103.41",
+        deductions: "1656.41",
+        netSalary: "8343.59",
+      },
+    },
+  };
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+    {
+      loadPayrollPolicy: async () => policyResponse,
+      savePayrollPolicy: async (input) => {
+        saved = input;
+        return { status: "active" };
+      },
+    },
+  );
+  try {
+    const { S } = dom.window.Q;
+    S.page = "set";
+    dom.window.Q.render();
+    await waitFor(() => S.payrollPolicyLoaded);
+    const activate = dom.window.document.querySelector('[data-act="payroll-policy-activate"]');
+    assert.ok(activate);
+    assert.equal(activate.disabled, true);
+    const confirm = dom.window.document.getElementById("policyExampleConfirmed");
+    confirm.checked = true;
+    confirm.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    assert.equal(dom.window.document.querySelector('[data-act="payroll-policy-activate"]').disabled, false);
+    dom.window.document.querySelector('[data-act="payroll-policy-activate"]').click();
+    await waitFor(() => saved?.action === "activate");
+    assert.equal(saved.exampleConfirmationHash, "a".repeat(64));
+    await waitFor(() => !S.payrollPolicyBusy);
+  } finally {
+    dom.window.close();
+  }
+});
 
 function formalBootstrap({
   memberId = "77777777-7777-4777-8777-777777777777",
@@ -594,6 +744,39 @@ test("routes clickable workbench records to their exact destination", async () =
     incomeButton.click();
     assert.equal(dom.window.Q.S.page, "fin");
     assert.equal(dom.window.Q.S.f.payMonth, month);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("opens the current employee payroll from the compact mobile income entry", async () => {
+  const dom = await openWorkbench();
+  try {
+    dom.window.matchMedia = (query) => ({
+      matches: query === "(max-width:820px)",
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+    });
+    const { S } = dom.window.Q;
+    S.me = "m1";
+    S.page = "me";
+    S.mobileTaskFocus = false;
+    dom.window.Q.render();
+
+    const incomeButton = dom.window.document.querySelector(
+      '.me-mobile-income[data-act="open-income"]',
+    );
+    assert.ok(incomeButton);
+    const month = incomeButton.getAttribute("data-month");
+
+    incomeButton.click();
+
+    assert.equal(S.page, "fin");
+    assert.equal(S.f.payMonth, month);
+    assert.match(dom.window.document.querySelector("#top").textContent, /我的薪酬/);
   } finally {
     dom.window.close();
   }

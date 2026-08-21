@@ -171,6 +171,13 @@
     loadPayrollPolicy: function () {
       return request("/api/workstation/payroll/policy", { method: "GET" });
     },
+    savePayrollPolicy: function (input) {
+      return request("/api/workstation/payroll/policy", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input || {}),
+      });
+    },
     previewPayroll: function (input) {
       return request("/api/workstation/payroll/preview", {
         method: "POST",

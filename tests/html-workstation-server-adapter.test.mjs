@@ -96,6 +96,9 @@ test("loads the formal employee session and sends task updates without trusting 
       });
     }
     if (String(url) === "/api/workstation/payroll/policy") {
+      if (init.method === "PUT") {
+        return response(true, { status: "draft", publicId: "policy-1" });
+      }
       return response(true, { active: { publicId: "policy-1" }, history: [] });
     }
     if (String(url) === "/api/workstation/payroll/preview") {
@@ -223,6 +226,11 @@ test("loads the formal employee session and sends task updates without trusting 
   }
   const policy = await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.loadPayrollPolicy();
   assert.equal(policy.active.publicId, "policy-1");
+  const savedPolicy = await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.savePayrollPolicy({
+    action: "saveDraft",
+    effectiveMonth: "2026-08",
+  });
+  assert.equal(savedPolicy.status, "draft");
   const preview = await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.previewPayroll({
     memberId: "m7",
     month: "2026-08",
@@ -279,7 +287,8 @@ test("loads the formal employee session and sends task updates without trusting 
   assert.equal(requests.find(({ url }) => url === "/api/workstation/directory-sync").init.method, "POST");
   assert.equal(requests.find(({ url }) => url === "/api/workstation/tasks" && url !== "/api/workstation/tasks/t1").init.method, "POST");
   assert.equal(requests.find(({ url }) => url === "/api/workstation/payroll").init.method, "POST");
-  assert.equal(requests.find(({ url }) => url === "/api/workstation/payroll/policy").init.method, "GET");
+  assert.equal(requests.find(({ url, init }) => url === "/api/workstation/payroll/policy" && init.method === "GET").init.method, "GET");
+  assert.equal(requests.find(({ url, init }) => url === "/api/workstation/payroll/policy" && init.method === "PUT").init.method, "PUT");
   assert.equal(requests.find(({ url }) => url === "/api/workstation/payroll/preview").init.method, "POST");
   for (const taskId of ["t1", "t2"]) {
     const notifyRequest = requests.find(({ url }) => (
