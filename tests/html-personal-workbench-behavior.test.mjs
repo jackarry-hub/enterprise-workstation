@@ -231,6 +231,47 @@ test("previews and confirms a server-calculated payroll", async () => {
   }
 });
 
+test("shows a payroll calculation entry only for formal salary managers", async () => {
+  const managerBootstrap = formalBootstrap({
+    memberId: "m7",
+    permissions: ["task.execute", "salary.self", "salary.manage"],
+  });
+  const managerDom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    managerBootstrap,
+  );
+  try {
+    managerDom.window.Q.S.page = "fin";
+    managerDom.window.Q.render();
+    const managerView = managerDom.window.document.querySelector("#view").textContent;
+    assert.match(managerView, /本月薪资核算/);
+    assert.match(managerView, /累计预扣法/);
+    const entry = managerDom.window.document.querySelector('[data-act="go"][data-page="pay-admin"]');
+    assert.ok(entry, "salary manager should get a direct payroll calculation entry");
+    entry.click();
+    assert.equal(managerDom.window.Q.S.page, "pay-admin");
+    assert.match(managerDom.window.document.querySelector("#view").textContent, /工资核算/);
+  } finally {
+    managerDom.window.close();
+  }
+
+  const employeeDom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    formalBootstrap({
+      memberId: "m7",
+      permissions: ["task.execute", "salary.self"],
+    }),
+  );
+  try {
+    employeeDom.window.Q.S.page = "fin";
+    employeeDom.window.Q.render();
+    assert.doesNotMatch(employeeDom.window.document.querySelector("#view").textContent, /本月薪资核算/);
+    assert.equal(employeeDom.window.document.querySelector('[data-act="go"][data-page="pay-admin"]'), null);
+  } finally {
+    employeeDom.window.close();
+  }
+});
+
 test("activates payroll policy only after the example is confirmed", async () => {
   const bootstrap = formalBootstrap({
     memberId: "m7",

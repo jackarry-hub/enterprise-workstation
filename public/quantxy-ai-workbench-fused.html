@@ -2427,12 +2427,20 @@ function viewInsight(){
 
 /* ---------------- 页面：财务中心 ---------------- */
 function viewFin(){
+  function payrollManagerEntry(){
+    if(!hasWorkstationPermission('salary.manage')) return '';
+    return '<div class="card fade" style="margin-bottom:16px;border-color:#bfdbfe;background:linear-gradient(120deg,#eff6ff,#fff)"><div class="bd" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
+      '<span style="width:42px;height:42px;border-radius:14px;background:var(--brand-s);display:grid;place-items:center;flex:0 0 auto">'+ic('money',20,'#2563eb')+'</span>'+
+      '<div style="flex:1;min-width:220px"><b style="font-size:15px">本月薪资核算</b><p class="hint" style="margin-top:4px">录入工资、奖金、扣款与缴费基数；系统按累计预扣法计算应发、个税、扣款和实发。</p></div>'+
+      '<button class="btn" data-act="go" data-page="pay-admin">进入薪资核算</button>'+
+    '</div></div>';
+  }
   var rows=WORKSTATION_GATEWAY.loadPayroll(S.me).sort(function(a,b){
     return String(b.month||'').localeCompare(String(a.month||''));
   });
   var member=MB[S.me]||{n:'当前员工'};
   if(!rows.length){
-    return '<div class="card fade"><div class="hd"><h3>我的薪酬</h3></div><div class="empty">当前身份暂无工资记录</div></div>';
+    return payrollManagerEntry()+'<div class="card fade"><div class="hd"><h3>我的薪酬</h3></div><div class="empty">当前身份暂无工资记录</div></div>';
   }
   var selected=payrollRow(S.me,S.f.payMonth);
   var selectedTotals=payrollTotals(selected);
@@ -2461,6 +2469,7 @@ function viewFin(){
     ['应发工资',gross],['扣款合计',-deductions],['实发工资',net]
   ];
   return j([
+    payrollManagerEntry(),
     '<div class="card fade"><div class="hd"><h3>我的薪酬</h3><div class="grow"></div><span class="tag t-b">',esc(member.n),'</span><span class="sm">',esc(selected.month),' 工资明细</span></div>',
       S.f.payFocus&&focusLabels[S.f.payFocus]?'<div class="bd" style="padding-bottom:0"><div style="padding:11px 13px;border-radius:11px;background:var(--brand-s);color:var(--brand-d)"><b>'+focusLabels[S.f.payFocus]+'明细</b><span style="margin-left:10px">'+payrollMoney(focusValues[S.f.payFocus])+'</span><span class="sm" style="margin-left:8px">'+esc(selected.month)+'</span></div></div>':'',
       '<div class="bd"><div class="grid payroll-summary-grid" style="grid-template-columns:repeat(5,1fr)">',
