@@ -390,6 +390,55 @@ test("payroll summary cards open and focus the calculation detail", async () => 
   }
 });
 
+test("lets a formal CEO close read-only payroll detail modals without write-interface warnings", async () => {
+  const bootstrap = formalBootstrap({
+    memberId: "m7",
+    permissions: ["task.execute", "salary.self", "salary.manage"],
+  });
+  bootstrap.payroll = {
+    m7: [{
+      month: "2026-08",
+      base: 4000,
+      performance: 0,
+      projectBonus: 500,
+      otherBonus: 0,
+      otherIncome: 0,
+      pensionEmployee: 0,
+      medicalEmployee: 0,
+      unemploymentEmployee: 0,
+      housingFundEmployee: 0,
+      social: 0,
+      tax: 0,
+      otherDeduction: 0,
+      gross: 4000,
+      deductions: 0,
+      net: 4000,
+      status: "待发放",
+      payDate: "",
+    }],
+  };
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+    { loadPayroll: (memberId) => bootstrap.payroll[memberId] || [] },
+  );
+  try {
+    const { S } = dom.window.Q;
+    S.page = "fin";
+    dom.window.Q.render();
+    dom.window.document.querySelector('[data-act="payroll-focus"][data-focus="performance"]').click();
+    await waitFor(() => dom.window.document.querySelector(".modal"));
+    assert.match(dom.window.document.querySelector(".modal").textContent, /绩效奖金明细/);
+
+    dom.window.document.querySelector('[data-act="modal-ok"]').click();
+    await waitFor(() => !dom.window.document.querySelector(".modal"));
+    assert.notEqual(dom.window.document.querySelector("#toast")?.textContent, "真实数据接口未配置");
+    assert.equal(S.confirm, null);
+  } finally {
+    dom.window.close();
+  }
+});
+
 function formalBootstrap({
   memberId = "77777777-7777-4777-8777-777777777777",
   taskId = "11111111-1111-4111-8111-111111111111",

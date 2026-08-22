@@ -4103,7 +4103,7 @@ var REAL_WRITE_BLOCKED_ACTIONS={
   'appr':1,'decision-pass':1,'decision-reject':1,'del-proj':1,'del-task':1,'del-doc':1,
   'dept-add':1,'dept-del':1,'del-member':1,'run-agent':1,'chain-run':1,
   'req-apply':1,'req-ok':1,'req-no':1,'perm-dept':1,'perm-revoke':1,
-  'save-schedule':1,'clear-demo':1,'reset':1,'restore-demo':1,'modal-ok':1
+  'save-schedule':1,'clear-demo':1,'reset':1,'restore-demo':1
 };
 function rejectLegacyWriteInRealMode(action){
   if(isDemoRuntime()||!REAL_WRITE_BLOCKED_ACTIONS[action]) return false;
