@@ -339,7 +339,15 @@ export function createPayrollPolicyHandler(
         }
       }
       try {
-        return json(await dependencies.savePolicy(parsed.input));
+        const saved = await dependencies.savePolicy(parsed.input);
+        const savedObject = saved && typeof saved === "object" ? saved : {};
+        if (parsed.input.action !== "activate") {
+          return json({
+            ...savedObject,
+            draftExample: await dependencies.buildActivationExample(parsed.input),
+          });
+        }
+        return json(saved);
       } catch {
         return json({ error: "payroll_policy_update_failed" }, 409);
       }

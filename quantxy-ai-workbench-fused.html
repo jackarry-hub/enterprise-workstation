@@ -2602,9 +2602,20 @@ function savePayrollPolicy(action){
   if(action==='activate'&&(!S.payrollPolicyConfirmed||!S.payrollPolicyExample)){ toast('请先核对并确认示例结果'); return; }
   var input=readPayrollPolicyDraft(action); S.payrollPolicyDraft=Object.assign({},input);
   S.payrollPolicyBusy=true; S.payrollError=''; render();
-  Promise.resolve(WORKSTATION_GATEWAY.savePayrollPolicy(input)).then(function(){
-    S.payrollPolicyLoaded=false; S.payrollPolicyBusy=false; ensurePayrollPolicy();
-    toast(action==='activate'?'薪资核算参数已启用':'薪资核算参数草稿已保存');
+  Promise.resolve(WORKSTATION_GATEWAY.savePayrollPolicy(input)).then(function(response){
+    S.payrollPolicyBusy=false;
+    if(action==='activate'){
+      S.payrollPolicyLoaded=false; ensurePayrollPolicy();
+      toast('薪资核算参数已启用');
+      return;
+    }
+    if(response&&response.draftExample){
+      S.payrollPolicyExample=response.draftExample; S.payrollPolicyConfirmed=false;
+      S.payrollError=''; render(); toast('草稿已保存，请核对示例结果后启用');
+      return;
+    }
+    S.payrollPolicyLoaded=false; ensurePayrollPolicy();
+    toast('薪资核算参数草稿已保存');
   }).catch(function(error){ S.payrollPolicyBusy=false; S.payrollError=payrollPolicyError(error); render(); });
 }
 function payrollPolicyCard(){
@@ -2621,7 +2632,8 @@ function payrollPolicyCard(){
     (ex?'<div style="margin-top:14px;padding:14px;border-radius:12px;background:#f6f9ff"><b>示例核算结果</b><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:10px">'+
       [['应发工资',ex.sample.grossSalary],['社保公积金',ex.sample.socialSecurity],['个人所得税',ex.sample.individualIncomeTax],['全部扣款',ex.sample.deductions],['实发工资',ex.sample.netSalary]].map(function(row){ return '<div><span class="sm">'+row[0]+'</span><b style="display:block;margin-top:3px">¥ '+esc(row[1])+'</b></div>'; }).join('')+'</div><label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-size:12px"><input id="policyExampleConfirmed" type="checkbox" '+(S.payrollPolicyConfirmed?'checked':'')+'> 我已核对示例结果</label></div>':''),
     (S.payrollError?'<div class="alert" style="margin-top:12px">'+esc(S.payrollError)+'</div>':''),
-    '<div style="display:flex;justify-content:flex-end;gap:9px;margin-top:16px"><button class="btn ghost" data-act="payroll-policy-save" '+(S.payrollPolicyBusy?'disabled':'')+'>保存草稿</button><button class="btn" data-act="payroll-policy-activate" '+(S.payrollPolicyBusy||!S.payrollPolicyConfirmed||!ex?'disabled':'')+'>启用参数</button></div>',
+    (!ex?'<div class="hint" style="margin-top:12px">先点击“预览并保存草稿”，系统会按当前参数生成一份示例工资单；核对无误后再勾选确认并启用。</div>':''),
+    '<div style="display:flex;justify-content:flex-end;gap:9px;margin-top:16px"><button class="btn ghost" data-act="payroll-policy-save" '+(S.payrollPolicyBusy?'disabled':'')+'>'+(ex?'保存草稿':'预览并保存草稿')+'</button><button class="btn" data-act="payroll-policy-activate" '+(S.payrollPolicyBusy||!S.payrollPolicyConfirmed||!ex?'disabled':'')+'>启用参数</button></div>',
   '</div></div>']);
 }
 function viewSet(){

@@ -146,16 +146,20 @@ describe("payroll policy API", () => {
   });
 
   it("normalizes percentage rates and money before saving a draft", async () => {
+    const buildActivationExample = vi.fn(async () => (
+      activationExample("c".repeat(64))
+    ));
     const savePolicy = vi.fn().mockResolvedValue({
       status: "draft",
       publicId: draftPolicy.publicId,
     });
-    const handler = authorized({ savePolicy });
+    const handler = authorized({ buildActivationExample, savePolicy });
 
     const response = await handler.PUT(policyRequest({
       action: "saveDraft",
       ...policyBody,
     }));
+    const body = await response.json();
 
     expect(response.status).toBe(200);
     expect(savePolicy).toHaveBeenCalledWith({
@@ -167,6 +171,15 @@ describe("payroll policy API", () => {
       unemploymentEmployeeRate: "0.005000",
       housingFundEmployeeRate: "0.070000",
       exampleConfirmationHash: null,
+    });
+    expect(buildActivationExample).toHaveBeenCalledWith(expect.objectContaining({
+      actorMemberId: 7,
+      action: "saveDraft",
+    }));
+    expect(body).toMatchObject({
+      status: "draft",
+      publicId: draftPolicy.publicId,
+      draftExample: { confirmationHash: "c".repeat(64) },
     });
   });
 

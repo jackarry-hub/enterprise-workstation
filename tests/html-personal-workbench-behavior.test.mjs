@@ -272,6 +272,51 @@ test("shows a payroll calculation entry only for formal salary managers", async 
   }
 });
 
+test("saving payroll policy draft immediately exposes the activation confirmation", async () => {
+  const bootstrap = formalBootstrap({
+    memberId: "m7",
+    permissions: ["task.execute", "salary.manage"],
+  });
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+    {
+      loadPayrollPolicy: async () => ({ active: null, history: [], draftExample: null }),
+      savePayrollPolicy: async () => ({
+        status: "draft",
+        draftExample: {
+          confirmationHash: "d".repeat(64),
+          sample: {
+            grossSalary: "10000.00",
+            socialSecurity: "1553.00",
+            individualIncomeTax: "103.41",
+            deductions: "1656.41",
+            netSalary: "8343.59",
+          },
+        },
+      }),
+    },
+  );
+  try {
+    const { S } = dom.window.Q;
+    S.page = "set";
+    dom.window.Q.render();
+    await waitFor(() => S.payrollPolicyLoaded);
+    assert.equal(dom.window.document.getElementById("policyExampleConfirmed"), null);
+    dom.window.document.querySelector('[data-act="payroll-policy-save"]').click();
+    await waitFor(() => !!S.payrollPolicyExample);
+    assert.ok(dom.window.document.getElementById("policyExampleConfirmed"));
+    assert.equal(dom.window.document.querySelector('[data-act="payroll-policy-activate"]').disabled, true);
+    const confirm = dom.window.document.getElementById("policyExampleConfirmed");
+    confirm.checked = true;
+    confirm.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    confirm.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    assert.equal(dom.window.document.querySelector('[data-act="payroll-policy-activate"]').disabled, false);
+  } finally {
+    dom.window.close();
+  }
+});
+
 test("activates payroll policy only after the example is confirmed", async () => {
   const bootstrap = formalBootstrap({
     memberId: "m7",
