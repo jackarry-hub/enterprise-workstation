@@ -326,6 +326,7 @@ test("activates payroll policy only after the example is confirmed", async () =>
     assert.equal(activate.disabled, true);
     const confirm = dom.window.document.getElementById("policyExampleConfirmed");
     confirm.checked = true;
+    confirm.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
     confirm.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
     assert.equal(dom.window.document.querySelector('[data-act="payroll-policy-activate"]').disabled, false);
     dom.window.document.querySelector('[data-act="payroll-policy-activate"]').click();

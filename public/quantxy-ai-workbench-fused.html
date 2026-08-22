@@ -4525,7 +4525,7 @@ document.addEventListener('change',function(e){
 });
 /* 表单实时预览（只更新预览节点，不打断输入焦点） */
 document.addEventListener('input',function(e){
-  if(e.target&&/^policy/.test(e.target.id||'')){
+  if(e.target&&/^policy/.test(e.target.id||'')&&e.target.id!=='policyExampleConfirmed'){
     S.payrollPolicyConfirmed=false; S.payrollPolicyExample=null;
     var activate=document.querySelector('[data-act="payroll-policy-activate"]'); if(activate) activate.disabled=true;
     return;
