@@ -94,6 +94,8 @@ export function isStandaloneAuthorizedPath(pathname: string) {
     || pathname === "/api/workstation/tasks"
     || pathname.startsWith("/api/workstation/tasks/")
     || pathname === "/api/workstation/payroll"
+    || pathname === "/api/workstation/payroll/policy"
+    || pathname === "/api/workstation/payroll/preview"
     || pathname === "/api/auth/logout"
     || pathname === "/api/demo-auth/login"
     || pathname === "/api/demo-auth/session"
