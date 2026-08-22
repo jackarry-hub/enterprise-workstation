@@ -341,6 +341,9 @@ test("payroll summary cards open and focus the calculation detail", async () => 
     await waitFor(() => S.f.payFocus === "deductions" && S.payrollDetailsOpen);
     await waitFor(() => scrolled);
     assert.match(dom.window.document.querySelector("#view").textContent, /扣款合计明细/);
+    assert.match(dom.window.document.querySelector(".modal")?.textContent || "", /扣款合计明细/);
+    assert.match(dom.window.document.querySelector(".modal")?.textContent || "", /社保公积金/);
+    assert.match(dom.window.document.querySelector(".modal")?.textContent || "", /仅显示当前登录员工本人薪资/);
   } finally {
     dom.window.close();
   }

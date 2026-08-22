@@ -3642,7 +3642,7 @@ function modalHTML(){
   var c=S.confirm; if(!c) return '';
   return '<div class="mask" data-act="modal-cancel"><div class="modal" data-stop="1">'+
     '<b style="font-size:15px">'+esc(c.t)+'</b>'+
-    '<p style="margin:9px 0 18px;font-size:13px;color:var(--sub);line-height:1.7">'+esc(c.m)+'</p>'+
+    '<p style="margin:9px 0 18px;font-size:13px;color:var(--sub);line-height:1.7;white-space:pre-line">'+esc(c.m)+'</p>'+
     '<div style="display:flex;gap:9px;justify-content:flex-end">'+
     '<button class="btn ghost" data-act="modal-cancel">取消</button>'+
     '<button class="btn" style="background:'+(c.danger?'var(--risk)':'var(--brand)')+';box-shadow:none" data-act="modal-ok">'+esc(c.ok||'确认')+'</button>'+
@@ -3654,6 +3654,25 @@ function scrollToPayrollDetail(){
     var node=el('payrollDetailCard');
     if(node&&node.scrollIntoView) node.scrollIntoView({behavior:'smooth',block:'start'});
   },40);
+}
+function showPayrollFocusDetail(focus){
+  var row=payrollRow(S.me,S.f.payMonth);
+  if(!row){ toast('当前身份暂无工资记录'); return; }
+  var totals=payrollTotals(row);
+  var gross=totals.gross, deductions=totals.deductions, net=totals.net;
+  var labels={net:'实发工资',gross:'应发工资',deductions:'扣款合计',performance:'绩效奖金',projectBonus:'项目奖金'};
+  var groups={
+    net:[['应发工资',gross],['扣款合计',-deductions],['实发工资',net]],
+    gross:[['基本工资',row.base],['绩效奖金',row.performance],['项目奖金',row.projectBonus],['其他奖励',row.otherBonus],['其他收入',row.otherIncome],['应发工资',gross]],
+    deductions:[['社保公积金',-totals.social],['个人所得税',-Number(row.tax||0)],['其他扣款',-Number(row.otherDeduction||0)],['扣款合计',-deductions]],
+    performance:[['绩效奖金',row.performance]],
+    projectBonus:[['项目奖金',row.projectBonus]]
+  };
+  var key=labels[focus]?focus:'net';
+  S.f.payFocus=key; S.payrollDetailsOpen=true;
+  var lines=(groups[key]||groups.net).map(function(item){ return item[0]+'：'+payrollMoney(item[1]); });
+  ask(labels[key]+'明细',String(row.month||'本月')+' 工资单\n\n'+lines.join('\n')+'\n\n仅显示当前登录员工本人薪资。','知道了',function(){ S.confirm=null; render(); });
+  scrollToPayrollDetail();
 }
 
 
@@ -4410,7 +4429,7 @@ document.addEventListener('click',function(e){
   }
   else if(a==='payroll-details-toggle'){ S.payrollDetailsOpen=!S.payrollDetailsOpen; render(); if(S.payrollDetailsOpen) scrollToPayrollDetail(); }
   else if(a==='payroll-focus'){
-    S.f.payFocus=t.getAttribute('data-focus')||''; S.payrollDetailsOpen=true; render(); scrollToPayrollDetail();
+    showPayrollFocusDetail(t.getAttribute('data-focus')||'net');
   }
   else if(a==='pick-task-go'){ S.sel.task=t.getAttribute('data-id'); S.page='execution'; render(); }
   else if(a==='goal-go'){ var gb=el('goalBox'); S.sch.goal=gb?gb.value.trim():''; S.page='sched'; render();
