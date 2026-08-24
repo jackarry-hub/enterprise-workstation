@@ -19,6 +19,7 @@ describe("standalone workstation middleware boundary", () => {
     expect(isStandaloneAuthorizedPath("/api/workstation/payroll")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/payroll/policy")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/payroll/preview")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/work-profile")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/auth/logout")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/admin")).toBe(false);
     expect(isStandaloneAuthorizedPath("/dashboard")).toBe(false);
