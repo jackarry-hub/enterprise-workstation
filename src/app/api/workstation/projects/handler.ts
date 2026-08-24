@@ -96,24 +96,17 @@ export const defaultWorkstationProjectCreateDependencies: WorkstationProjectCrea
 
     if (rpcError || !publicId) throw rpcError ?? new Error("project_create_failed");
 
-    const { data, error } = await client.from("projects")
-      .select("public_id, name, owner_member_id, progress, health, status, priority, updated_at")
-      .eq("public_id", publicId)
-      .single();
-
-    if (error || !data) throw error ?? new Error("project_create_failed");
-
     return {
-      id: data.public_id,
-      n: data.name,
-      own: `m${data.owner_member_id}`,
+      id: publicId,
+      n: input.name,
+      own: `m${input.ownerMemberId}`,
       cat: input.category || "企业项目",
-      pr: Number(data.progress ?? 0),
+      pr: 0,
       bud: input.budgetWan,
-      health: data.health === "on_track" ? 90 : data.health === "at_risk" ? 65 : 35,
-      st: data.status === "completed" ? "已完成" : data.status === "on_hold" ? "风险" : "进行中",
-      up: data.updated_at,
-      pri: data.priority,
+      health: 90,
+      st: "进行中",
+      up: new Date().toISOString(),
+      pri: "medium",
     };
   },
 };
