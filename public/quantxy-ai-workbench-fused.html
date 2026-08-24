@@ -2945,6 +2945,15 @@ function viewNewProject(){
       ['预算按人力口径填写','调度方案的成本对比只统计人力成本，采购与云资源建议单列。'],
       ['负责人不等于执行人','负责人负责整体把控，具体任务由 AI 按角色分配给团队成员。']]));
 }
+function projectCreateErrorText(error){
+  var code=error&&error.message||'';
+  if(code==='forbidden'||code==='project_create_forbidden') return '当前账号没有项目创建权限';
+  if(code==='project_member_invalid') return '项目负责人不属于当前企业或账号未启用';
+  if(code==='real_data_service_unavailable'||code==='real_write_not_configured') return '真实数据接口未连接，请刷新后重试';
+  if(code==='supabase_service_role_missing') return '服务器缺少 Supabase 服务密钥';
+  if(code==='invalid_request') return '项目信息不完整，请检查必填项';
+  return '项目创建失败：'+(code||'请稍后重试');
+}
 function createProject(){
   syncForm(); var f=S.form.project;
   if(!f.n){ toast('请填写项目名称'); return; }
@@ -2964,6 +2973,8 @@ function createProject(){
         name:f.n, category:f.cat, ownerMemberId:f.own, startDate:f.s, dueDate:f.e,
         budgetWan:parseFloat(f.bud)||0, description:f.desc||'', goal:goal||''
       }).then(done).catch(function(error){
+        console.error('[project-create-ui]',error);
+        toast(projectCreateErrorText(error)); return;
         toast(error&&error.message==='forbidden'?'当前账号没有项目创建权限':'项目创建失败，请稍后重试');
       });
     }catch(error){
