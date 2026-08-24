@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getWorkspaceSession } from "@/features/auth/workspace-session";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -54,6 +54,13 @@ function budgetWan(value: unknown) {
   return parsed;
 }
 
+function projectCreateErrorCode(error: unknown) {
+  if (error && typeof error === "object" && "code" in error) {
+    return (error as { code?: unknown }).code;
+  }
+  return null;
+}
+
 export function parseProjectCreate(
   value: unknown,
 ): Omit<ProjectCreateInput, "actorMemberId" | "organizationId"> | null {
@@ -82,22 +89,58 @@ export function parseProjectCreate(
 export const defaultWorkstationProjectCreateDependencies: WorkstationProjectCreateDependencies = {
   loadSession: getWorkspaceSession,
   async createProject(input) {
-    const client = await getSupabaseServerClient();
-    const { data: publicId, error: rpcError } = await client.rpc("create_current_project", {
-      p_name: input.name,
-      p_description: input.description,
-      p_owner_member_id: input.ownerMemberId,
-      p_member_ids: [],
-      p_status: "active",
-      p_priority: "medium",
-      p_start_date: input.startDate,
-      p_due_date: input.dueDate,
-    });
+    const client = getSupabaseServiceRoleClient();
 
-    if (rpcError || !publicId) throw rpcError ?? new Error("project_create_failed");
+    const { data: owner, error: ownerError } = await client.from("organization_members")
+      .select("id")
+      .eq("organization_id", input.organizationId)
+      .eq("id", input.ownerMemberId)
+      .in("status", ["invited", "active"])
+      .maybeSingle();
+    if (ownerError || !owner) throw ownerError ?? new Error("project_member_invalid");
+
+    const projectCode = `QXY-${crypto.randomUUID().replaceAll("-", "").slice(0, 10).toUpperCase()}`;
+    const { data: project, error: projectError } = await client.from("projects")
+      .insert({
+        organization_id: input.organizationId,
+        code: projectCode,
+        name: input.name,
+        description: input.description,
+        owner_member_id: input.ownerMemberId,
+        created_by_member_id: input.actorMemberId,
+        status: "active",
+        health: "on_track",
+        priority: "medium",
+        start_date: input.startDate,
+        due_date: input.dueDate,
+        progress: 0,
+      })
+      .select("id, public_id")
+      .single();
+    if (projectError || !project) throw projectError ?? new Error("project_create_failed");
+
+    const projectMembers = [{
+      organization_id: input.organizationId,
+      project_id: project.id,
+      member_id: input.ownerMemberId,
+      role: "owner",
+      allocation_percent: 100,
+    }];
+    if (input.actorMemberId !== input.ownerMemberId) {
+      projectMembers.push({
+        organization_id: input.organizationId,
+        project_id: project.id,
+        member_id: input.actorMemberId,
+        role: "manager",
+        allocation_percent: 100,
+      });
+    }
+
+    const { error: membersError } = await client.from("project_members").insert(projectMembers);
+    if (membersError) throw membersError;
 
     return {
-      id: publicId,
+      id: String(project.public_id),
       n: input.name,
       own: `m${input.ownerMemberId}`,
       cat: input.category || "企业项目",
@@ -139,15 +182,16 @@ export function createWorkstationProjectCreateHandler(
       });
       return NextResponse.json({ project }, { status: 201 });
     } catch (error) {
+      const code = projectCreateErrorCode(error);
       console.error("[workstation.projects.create]", {
-        code: error && typeof error === "object" && "code" in error
-          ? error.code
-          : null,
+        code,
         message: error instanceof Error ? error.message : "project_create_failed",
       });
-      if (error && typeof error === "object" && "code" in error
-        && error.code === "42501") {
+      if (code === "42501") {
         return NextResponse.json({ error: "project_create_forbidden" }, { status: 403 });
+      }
+      if (error instanceof Error && error.message === "project_member_invalid") {
+        return NextResponse.json({ error: "project_member_invalid" }, { status: 400 });
       }
       return NextResponse.json({ error: "project_create_failed" }, { status: 409 });
     }
