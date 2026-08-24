@@ -79,30 +79,26 @@ export function parseProjectCreate(
   };
 }
 
-function projectCode(input: ProjectCreateInput) {
-  const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
-  return `WORK-${input.actorMemberId}-${Date.now().toString(36).toUpperCase()}-${suffix}`;
-}
-
 export const defaultWorkstationProjectCreateDependencies: WorkstationProjectCreateDependencies = {
   loadSession: getWorkspaceSession,
   async createProject(input) {
     const client = await getSupabaseServerClient();
+    const { data: publicId, error: rpcError } = await client.rpc("create_current_project", {
+      p_name: input.name,
+      p_description: input.description,
+      p_owner_member_id: input.ownerMemberId,
+      p_member_ids: [],
+      p_status: "active",
+      p_priority: "medium",
+      p_start_date: input.startDate,
+      p_due_date: input.dueDate,
+    });
+
+    if (rpcError || !publicId) throw rpcError ?? new Error("project_create_failed");
+
     const { data, error } = await client.from("projects")
-      .insert({
-        organization_id: input.organizationId,
-        code: projectCode(input),
-        name: input.name,
-        description: input.description,
-        owner_member_id: input.ownerMemberId,
-        created_by_member_id: input.actorMemberId,
-        status: "active",
-        health: "on_track",
-        priority: "medium",
-        start_date: input.startDate,
-        due_date: input.dueDate,
-      })
       .select("public_id, name, owner_member_id, progress, health, status, priority, updated_at")
+      .eq("public_id", publicId)
       .single();
 
     if (error || !data) throw error ?? new Error("project_create_failed");
