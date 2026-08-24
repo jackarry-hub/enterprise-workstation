@@ -194,6 +194,11 @@ export function createWorkstationProjectCreateHandler(
   return async function createProject(request: Request) {
     const session = await dependencies.loadSession();
     if (!session) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    console.info("[workstation.projects.create.request]", {
+      memberId: session.member.id,
+      canCreateProject: session.permissionCodes.includes("project.manage"),
+      canManageTask: session.permissionCodes.includes("task.manage"),
+    });
     if (!session.permissionCodes.includes("project.manage")) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
