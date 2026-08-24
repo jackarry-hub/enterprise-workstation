@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getWorkspaceSession } from "@/features/auth/workspace-session";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -61,6 +61,10 @@ function projectCreateErrorCode(error: unknown) {
   return null;
 }
 
+function projectCreateErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "project_create_failed";
+}
+
 export function parseProjectCreate(
   value: unknown,
 ): Omit<ProjectCreateInput, "actorMemberId" | "organizationId"> | null {
@@ -89,21 +93,88 @@ export function parseProjectCreate(
 export const defaultWorkstationProjectCreateDependencies: WorkstationProjectCreateDependencies = {
   loadSession: getWorkspaceSession,
   async createProject(input) {
-    const client = await getSupabaseServerClient();
-    const { data, error } = await client.rpc("create_current_project", {
-      p_name: input.name,
-      p_description: input.description,
-      p_owner_member_id: input.ownerMemberId,
-      p_member_ids: [],
-      p_status: "active",
-      p_priority: "medium",
-      p_start_date: input.startDate,
-      p_due_date: input.dueDate,
-    });
-    if (error || typeof data !== "string") throw error ?? new Error("project_create_failed");
+    const client = getSupabaseServiceRoleClient();
+
+    const { data: organization, error: organizationError } = await client
+      .from("organizations")
+      .select("id")
+      .eq("public_id", input.organizationId)
+      .single();
+    if (organizationError || !organization?.id) {
+      throw organizationError ?? new Error("organization_not_found");
+    }
+    const organizationId = Number(organization.id);
+
+    const requestedMemberIds = [...new Set([input.ownerMemberId, input.actorMemberId])];
+    const { data: members, error: membersError } = await client
+      .from("organization_members")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .in("id", requestedMemberIds)
+      .in("status", ["invited", "active"]);
+    if (membersError) throw membersError;
+
+    const validMemberIds = new Set((members ?? []).map((member) => Number(member.id)));
+    if (!validMemberIds.has(input.ownerMemberId) || !validMemberIds.has(input.actorMemberId)) {
+      throw new Error("project_member_invalid");
+    }
+
+    const projectPublicId = crypto.randomUUID();
+    const { data: projectRow, error: projectError } = await client
+      .from("projects")
+      .insert({
+        public_id: projectPublicId,
+        organization_id: organizationId,
+        code: `QXY-${projectPublicId.replaceAll("-", "").slice(0, 10).toUpperCase()}`,
+        name: input.name,
+        description: input.description,
+        owner_member_id: input.ownerMemberId,
+        created_by_member_id: input.actorMemberId,
+        status: "active",
+        health: "on_track",
+        priority: "medium",
+        start_date: input.startDate,
+        due_date: input.dueDate,
+        progress: 0,
+      })
+      .select("id, public_id, updated_at")
+      .single();
+    if (projectError || !projectRow?.id || !projectRow?.public_id) {
+      throw projectError ?? new Error("project_create_failed");
+    }
+
+    const projectId = Number(projectRow.id);
+    const membershipRows = input.ownerMemberId === input.actorMemberId
+      ? [{
+        organization_id: organizationId,
+        project_id: projectId,
+        member_id: input.ownerMemberId,
+        role: "owner",
+        allocation_percent: 100,
+      }]
+      : [
+        {
+          organization_id: organizationId,
+          project_id: projectId,
+          member_id: input.ownerMemberId,
+          role: "owner",
+          allocation_percent: 100,
+        },
+        {
+          organization_id: organizationId,
+          project_id: projectId,
+          member_id: input.actorMemberId,
+          role: "manager",
+          allocation_percent: 100,
+        },
+      ];
+    const { error: membershipError } = await client
+      .from("project_members")
+      .insert(membershipRows);
+    if (membershipError) throw membershipError;
 
     return {
-      id: data,
+      id: String(projectRow.public_id),
       n: input.name,
       own: `m${input.ownerMemberId}`,
       cat: input.category || "企业项目",
@@ -111,7 +182,7 @@ export const defaultWorkstationProjectCreateDependencies: WorkstationProjectCrea
       bud: input.budgetWan,
       health: 90,
       st: "进行中",
-      up: new Date().toISOString(),
+      up: typeof projectRow.updated_at === "string" ? projectRow.updated_at : new Date().toISOString(),
       pri: "medium",
     };
   },
@@ -146,14 +217,12 @@ export function createWorkstationProjectCreateHandler(
       return NextResponse.json({ project }, { status: 201 });
     } catch (error) {
       const code = projectCreateErrorCode(error);
-      console.error("[workstation.projects.create]", {
-        code,
-        message: error instanceof Error ? error.message : "project_create_failed",
-      });
-      if (code === "42501") {
+      const message = projectCreateErrorMessage(error);
+      console.error("[workstation.projects.create]", { code, message });
+      if (code === "42501" || message === "project_create_forbidden") {
         return NextResponse.json({ error: "project_create_forbidden" }, { status: 403 });
       }
-      if (code === "23503" || (error instanceof Error && error.message === "project_member_invalid")) {
+      if (code === "23503" || message === "project_member_invalid") {
         return NextResponse.json({ error: "project_member_invalid" }, { status: 400 });
       }
       if (code === "22023") {
