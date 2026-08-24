@@ -5,7 +5,7 @@ import {
   parseWorkProfileInput,
   type WorkProfileInput,
 } from "@/features/work-profile/work-profile-schema";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 type WorkProfileSession = { member: { id: number } };
 
@@ -17,7 +17,7 @@ export type WorkProfileUpdateDependencies = {
 export const defaultWorkProfileUpdateDependencies: WorkProfileUpdateDependencies = {
   loadSession: getWorkspaceSession,
   async saveProfile(memberId, input) {
-    const client = await getSupabaseServerClient();
+    const client = getSupabaseServiceRoleClient();
     const profileResult = await client.from("employee_profiles")
       .select("id, tenant_id, organization_id")
       .eq("organization_member_id", memberId)
