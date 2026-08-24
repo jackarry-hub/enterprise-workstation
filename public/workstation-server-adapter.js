@@ -124,6 +124,12 @@
     return clone(task);
   }
 
+  function addProject(project) {
+    var rows = requireBootstrap().projects || [];
+    rows.unshift(project);
+    return clone(project);
+  }
+
   function mutateTask(taskId, action, input) {
     return request("/api/workstation/tasks/" + encodeURIComponent(taskId), {
       method: "PATCH",
@@ -187,6 +193,15 @@
     },
     syncDirectory: function () {
       return request("/api/workstation/directory-sync", { method: "POST" });
+    },
+    createProject: function (input) {
+      return request("/api/workstation/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input || {}),
+      }).then(function (result) {
+        return addProject(result.project);
+      });
     },
     createTask: function (input) {
       return request("/api/workstation/tasks", {

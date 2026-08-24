@@ -1054,7 +1054,7 @@ function createDemoGateway(){
 }
 var SERVER_GATEWAY_READ_METHODS=['getSession','loadBootstrap','loadMyDashboard','listMyTasks','loadMyTask','listMyProjects','loadPayroll'];
 var SERVER_GATEWAY_WRITE_METHODS=['saveTask','claimTask','updateTaskExecution','submitTaskResult','reviewTaskResult','reopenTask'];
-var SERVER_GATEWAY_MANAGE_METHODS=['syncDirectory','createTask','createTasks','retryTaskNotification','loadPayrollPolicy','savePayrollPolicy','previewPayroll','savePayroll','saveWorkProfile'];
+var SERVER_GATEWAY_MANAGE_METHODS=['syncDirectory','createProject','createTask','createTasks','retryTaskNotification','loadPayrollPolicy','savePayrollPolicy','previewPayroll','savePayroll','saveWorkProfile'];
 function isCompliantServerAdapter(adapter){
   return !!adapter&&SERVER_GATEWAY_READ_METHODS.every(function(method){ return typeof adapter[method]==='function'; });
 }
@@ -1094,7 +1094,7 @@ function createUnavailableGateway(){
     listMyTasks:function(){ return []; }, loadMyTask:function(){ return null; }, listMyProjects:function(){ return []; }, loadPayroll:function(){ return []; },
     saveTask:unavailable, claimTask:unavailable, updateTaskExecution:unavailable, submitTaskResult:unavailable,
     reviewTaskResult:unavailable, reopenTask:unavailable, syncDirectory:unavailable,
-    createTask:unavailable, createTasks:unavailable, retryTaskNotification:unavailable,
+    createProject:unavailable, createTask:unavailable, createTasks:unavailable, retryTaskNotification:unavailable,
     loadPayrollPolicy:unavailable, savePayrollPolicy:unavailable, previewPayroll:unavailable,
     savePayroll:unavailable, saveWorkProfile:unavailable
   };
@@ -2938,14 +2938,31 @@ function viewNewProject(){
 function createProject(){
   syncForm(); var f=S.form.project;
   if(!f.n){ toast('请填写项目名称'); return; }
-  var id='p'+Date.now().toString(36).slice(-5);
-  var pj={id:id,n:f.n,own:f.own,cat:f.cat,pr:0,bud:parseFloat(f.bud)||0,health:80,st:'进行中',up:'刚刚'};
-  PROJECTS.unshift(pj); PB[id]=pj;
   var goal=f.goal, auto=Number(f.auto);
-  S.form.project=blankForm().project; save(); toast('项目「'+pj.n+'」已创建');
-  if(goal){ S.sch.goal=goal; S.sch.tasks=null; S.sch.plans=null; }
-  if(goal&&auto){ S.page='sched'; render(); setTimeout(genPlan,60); return; }
-  S.page= goal?'sched':'proj'; render();
+  function done(pj){
+    PROJECTS.unshift(pj); PB[pj.id]=pj;
+    S.form.project=blankForm().project;
+    if(isDemoRuntime()) save();
+    toast('项目「'+pj.n+'」已创建');
+    if(goal){ S.sch.goal=goal; S.sch.projectId=pj.id; S.sch.tasks=null; S.sch.plans=null; }
+    if(goal&&auto){ S.page='sched'; render(); setTimeout(genPlan,60); return; }
+    S.page= goal?'sched':'proj'; render();
+  }
+  if(!isDemoRuntime()){
+    try{
+      WORKSTATION_GATEWAY.createProject({
+        name:f.n, category:f.cat, ownerMemberId:f.own, startDate:f.s, dueDate:f.e,
+        budgetWan:parseFloat(f.bud)||0, description:f.desc||'', goal:goal||''
+      }).then(done).catch(function(error){
+        toast(error&&error.message==='forbidden'?'当前账号没有项目创建权限':'项目创建失败，请稍后重试');
+      });
+    }catch(error){
+      toast('项目创建失败，请稍后重试');
+    }
+    return;
+  }
+  var id='p'+Date.now().toString(36).slice(-5);
+  done({id:id,n:f.n,own:f.own,cat:f.cat,pr:0,bud:parseFloat(f.bud)||0,health:80,st:'进行中',up:'刚刚'});
 }
 
 /* ---- 上传文档 ---- */
