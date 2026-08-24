@@ -44,6 +44,29 @@ test("registers fused navigation, routes, and persistent collections", async () 
   assert.match(html, /decisions:viewDecisions/);
 });
 
+test("orders sidebar around the project task dispatch flow", async () => {
+  const html = await readFusionHtml();
+  const navSource = html.slice(html.indexOf("var NAV=["), html.indexOf("];", html.indexOf("var NAV=[")));
+  const expectedOrder = [
+    "总览 / 决策驾驶舱",
+    "组织与权限",
+    "项目中心",
+    "AI 调度中心",
+    "任务中心",
+    "员工工作台",
+    "我的工作画像",
+    "我的薪酬",
+    "AI 助理",
+    "系统设置",
+  ];
+  let cursor = -1;
+  for (const label of expectedOrder) {
+    const next = navSource.indexOf(label);
+    assert.ok(next > cursor, `${label} should appear after the previous workflow item`);
+    cursor = next;
+  }
+});
+
 test("does not add attendance, leave, or corporate payroll workflows", async () => {
   const html = await readFusionHtml();
   for (const label of ["考勤中心", "请假管理", "薪资管理"]) {
