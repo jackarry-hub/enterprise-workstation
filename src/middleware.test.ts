@@ -13,6 +13,7 @@ describe("standalone workstation middleware boundary", () => {
     expect(isStandaloneAuthorizedPath("/workstation-server-adapter.js")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/bootstrap")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/directory-sync")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/projects")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/tasks")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/tasks/task-1")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/payroll")).toBe(true);
