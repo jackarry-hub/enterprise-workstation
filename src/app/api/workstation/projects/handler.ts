@@ -139,6 +139,12 @@ export function createWorkstationProjectCreateHandler(
       });
       return NextResponse.json({ project }, { status: 201 });
     } catch (error) {
+      console.error("[workstation.projects.create]", {
+        code: error && typeof error === "object" && "code" in error
+          ? error.code
+          : null,
+        message: error instanceof Error ? error.message : "project_create_failed",
+      });
       if (error && typeof error === "object" && "code" in error
         && error.code === "42501") {
         return NextResponse.json({ error: "project_create_forbidden" }, { status: 403 });
