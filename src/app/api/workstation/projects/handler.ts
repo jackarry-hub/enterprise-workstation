@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getWorkspaceSession } from "@/features/auth/workspace-session";
-import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -89,75 +89,21 @@ export function parseProjectCreate(
 export const defaultWorkstationProjectCreateDependencies: WorkstationProjectCreateDependencies = {
   loadSession: getWorkspaceSession,
   async createProject(input) {
-    const client = getSupabaseServiceRoleClient();
-
-    const { data: organization, error: organizationError } = await client.from("organizations")
-      .select("id")
-      .eq("public_id", input.organizationId)
-      .maybeSingle();
-    if (organizationError || !organization) {
-      throw organizationError ?? new Error("project_organization_invalid");
-    }
-    const organizationId = organization.id;
-
-    const { data: owner, error: ownerError } = await client.from("organization_members")
-      .select("id")
-      .eq("organization_id", organizationId)
-      .eq("id", input.ownerMemberId)
-      .in("status", ["invited", "active"])
-      .maybeSingle();
-    if (ownerError || !owner) throw ownerError ?? new Error("project_member_invalid");
-
-    const { data: actor, error: actorError } = await client.from("organization_members")
-      .select("id")
-      .eq("organization_id", organizationId)
-      .eq("id", input.actorMemberId)
-      .eq("status", "active")
-      .maybeSingle();
-    if (actorError || !actor) throw actorError ?? new Error("project_actor_invalid");
-
-    const projectCode = `QXY-${crypto.randomUUID().replaceAll("-", "").slice(0, 10).toUpperCase()}`;
-    const { data: project, error: projectError } = await client.from("projects")
-      .insert({
-        organization_id: organizationId,
-        code: projectCode,
-        name: input.name,
-        description: input.description,
-        owner_member_id: input.ownerMemberId,
-        created_by_member_id: input.actorMemberId,
-        status: "active",
-        health: "on_track",
-        priority: "medium",
-        start_date: input.startDate,
-        due_date: input.dueDate,
-        progress: 0,
-      })
-      .select("id, public_id")
-      .single();
-    if (projectError || !project) throw projectError ?? new Error("project_create_failed");
-
-    const projectMembers = [{
-      organization_id: organizationId,
-      project_id: project.id,
-      member_id: input.ownerMemberId,
-      role: "owner",
-      allocation_percent: 100,
-    }];
-    if (input.actorMemberId !== input.ownerMemberId) {
-      projectMembers.push({
-        organization_id: organizationId,
-        project_id: project.id,
-        member_id: input.actorMemberId,
-        role: "manager",
-        allocation_percent: 100,
-      });
-    }
-
-    const { error: membersError } = await client.from("project_members").insert(projectMembers);
-    if (membersError) throw membersError;
+    const client = await getSupabaseServerClient();
+    const { data, error } = await client.rpc("create_current_project", {
+      p_name: input.name,
+      p_description: input.description,
+      p_owner_member_id: input.ownerMemberId,
+      p_member_ids: [],
+      p_status: "active",
+      p_priority: "medium",
+      p_start_date: input.startDate,
+      p_due_date: input.dueDate,
+    });
+    if (error || typeof data !== "string") throw error ?? new Error("project_create_failed");
 
     return {
-      id: String(project.public_id),
+      id: data,
       n: input.name,
       own: `m${input.ownerMemberId}`,
       cat: input.category || "企业项目",
@@ -207,8 +153,11 @@ export function createWorkstationProjectCreateHandler(
       if (code === "42501") {
         return NextResponse.json({ error: "project_create_forbidden" }, { status: 403 });
       }
-      if (error instanceof Error && error.message === "project_member_invalid") {
+      if (code === "23503" || (error instanceof Error && error.message === "project_member_invalid")) {
         return NextResponse.json({ error: "project_member_invalid" }, { status: 400 });
+      }
+      if (code === "22023") {
+        return NextResponse.json({ error: "invalid_request" }, { status: 400 });
       }
       return NextResponse.json({ error: "project_create_failed" }, { status: 409 });
     }
