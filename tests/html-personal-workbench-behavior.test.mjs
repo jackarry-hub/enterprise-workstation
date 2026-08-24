@@ -105,6 +105,7 @@ async function openFormalWorkbench(url, bootstrap, adapterOverrides = {}, fetchO
     reopenTask: async () => null,
     saveWorkProfile: async () => null,
     syncDirectory: async () => ({}),
+    createProject: async () => null,
     createTask: async () => null,
     createTasks: async () => [],
     retryTaskNotification: async () => ({ status: "sent", errorCode: "" }),
@@ -542,6 +543,48 @@ test("migrates legacy tasks to the execution schema without losing records", asy
   assert.ok(Array.isArray(task.timeline));
   assert.equal(dom.window.Q.S.tasks.length, 1);
   dom.window.close();
+});
+
+test("allows formal project creation to call the server gateway", async () => {
+  const bootstrap = formalBootstrap({ permissions: ["task.manage"] });
+  let createdInput = null;
+  const createdProject = {
+    id: "33333333-3333-4333-8333-333333333333",
+    n: "AI商业矩阵",
+    own: bootstrap.session.memberId,
+    st: "进行中",
+    cat: "AI研发",
+  };
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+    {
+      createProject: async (input) => {
+        createdInput = input;
+        return createdProject;
+      },
+    },
+  );
+  try {
+    const { S } = dom.window.Q;
+    S.page = "new-project";
+    dom.window.Q.render();
+    dom.window.document.querySelector('[data-f="n"]').value = "AI商业矩阵";
+    dom.window.document.querySelector('[data-f="cat"]').value = "AI研发";
+    dom.window.document.querySelector('[data-f="own"]').value = bootstrap.session.memberId;
+    dom.window.document.querySelector('[data-f="bud"]').value = "10";
+    dom.window.document.querySelector('[data-f="desc"]').value = "建立AI商业化矩阵";
+    dom.window.document.querySelector('[data-act="f-project"]').click();
+
+    await waitFor(() => createdInput);
+    assert.equal(createdInput.name, "AI商业矩阵");
+    assert.equal(createdInput.category, "AI研发");
+    assert.equal(createdInput.ownerMemberId, bootstrap.session.memberId);
+    assert.equal(createdInput.budgetWan, 10);
+    assert.equal(S.page, "proj");
+  } finally {
+    dom.window.close();
+  }
 });
 
 test("seeds identity-scoped payroll with internally consistent totals", async () => {
