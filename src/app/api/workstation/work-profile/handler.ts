@@ -22,6 +22,16 @@ export type WorkProfileUpdateDependencies = {
   ) => Promise<unknown>;
 };
 
+function safeErrorLabel(error: unknown) {
+  if (!error || typeof error !== "object") return "unknown";
+  const record = error as Record<string, unknown>;
+  const code = typeof record.code === "string" ? record.code : "";
+  const name = typeof record.name === "string" ? record.name : "";
+  const message = typeof record.message === "string" ? record.message : "";
+  return [code, name, message].filter(Boolean).join(" | ").slice(0, 240)
+    || "unknown";
+}
+
 export const defaultWorkProfileUpdateDependencies: WorkProfileUpdateDependencies = {
   loadSession: getWorkspaceSession,
   async saveProfile(member, input) {
@@ -86,7 +96,8 @@ export function createWorkProfileUpdateHandler(
       return NextResponse.json({ profile }, {
         headers: { "cache-control": "no-store" },
       });
-    } catch {
+    } catch (error) {
+      console.error("[work-profile] save failed", safeErrorLabel(error));
       return NextResponse.json(
         { error: "profile_save_failed" },
         { status: 409 },
