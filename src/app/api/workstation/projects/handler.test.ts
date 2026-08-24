@@ -56,6 +56,30 @@ describe("formal workstation project create", () => {
     expect(createProject).not.toHaveBeenCalled();
   });
 
+  it("allows organization managers to create projects", async () => {
+    const project = { id: "project-public-id", n: "AI鍟嗕笟鐭╅樀" };
+    const createProject = vi.fn().mockResolvedValue(project);
+    const handler = createWorkstationProjectCreateHandler({
+      loadSession: vi.fn().mockResolvedValue({
+        organization: { id: "7" },
+        member: { id: 3 },
+        permissionCodes: ["organization.manage"],
+      }),
+      createProject,
+    });
+
+    const response = await handler(request({
+      name: "AI鍟嗕笟鐭╅樀",
+      ownerMemberId: "m4",
+      startDate: "2026-08-24",
+      dueDate: "2026-08-28",
+    }));
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ project });
+    expect(createProject).toHaveBeenCalled();
+  });
+
   it("creates a project using the current organization and actor", async () => {
     const project = { id: "project-public-id", n: "AI商业矩阵" };
     const createProject = vi.fn().mockResolvedValue(project);

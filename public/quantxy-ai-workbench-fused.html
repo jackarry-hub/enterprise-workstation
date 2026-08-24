@@ -2947,12 +2947,18 @@ function viewNewProject(){
 }
 function projectCreateErrorText(error){
   var code=error&&error.message||'';
-  if(code==='forbidden'||code==='project_create_forbidden') return '当前账号没有项目创建权限';
-  if(code==='project_member_invalid') return '项目负责人不属于当前企业或账号未启用';
-  if(code==='real_data_service_unavailable'||code==='real_write_not_configured') return '真实数据接口未连接，请刷新后重试';
-  if(code==='supabase_service_role_missing') return '服务器缺少 Supabase 服务密钥';
-  if(code==='invalid_request') return '项目信息不完整，请检查必填项';
-  return '项目创建失败：'+(code||'请稍后重试');
+  var map={
+    forbidden:'当前账号没有项目创建权限',
+    project_create_forbidden:'当前账号没有项目创建权限',
+    project_member_invalid:'项目负责人不属于当前企业或账号未启用，请先同步飞书同事',
+    organization_not_found:'当前登录企业没有完成组织绑定，请重新登录或同步飞书通讯录',
+    real_data_service_unavailable:'真实数据接口未连接，请刷新后重试',
+    real_write_not_configured:'真实数据写接口未配置',
+    supabase_service_role_missing:'服务器缺少 Supabase 服务密钥',
+    invalid_request:'项目信息不完整，请检查项目名称、负责人和日期',
+    project_create_failed:'项目写入数据库失败，请联系管理员查看服务器日志'
+  };
+  return map[code]||('项目创建失败：'+(code||'请稍后重试'));
 }
 function createProject(){
   syncForm(); var f=S.form.project;

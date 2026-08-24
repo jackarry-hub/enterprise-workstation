@@ -65,6 +65,11 @@ function projectCreateErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "project_create_failed";
 }
 
+function canCreateProject(permissionCodes: readonly string[]) {
+  return permissionCodes.includes("project.manage")
+    || permissionCodes.includes("organization.manage");
+}
+
 export function parseProjectCreate(
   value: unknown,
 ): Omit<ProjectCreateInput, "actorMemberId" | "organizationId"> | null {
@@ -197,9 +202,10 @@ export function createWorkstationProjectCreateHandler(
     console.info("[workstation.projects.create.request]", {
       memberId: session.member.id,
       canCreateProject: session.permissionCodes.includes("project.manage"),
+      canManageOrganization: session.permissionCodes.includes("organization.manage"),
       canManageTask: session.permissionCodes.includes("task.manage"),
     });
-    if (!session.permissionCodes.includes("project.manage")) {
+    if (!canCreateProject(session.permissionCodes)) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
 
@@ -229,6 +235,9 @@ export function createWorkstationProjectCreateHandler(
       }
       if (code === "23503" || message === "project_member_invalid") {
         return NextResponse.json({ error: "project_member_invalid" }, { status: 400 });
+      }
+      if (message === "organization_not_found") {
+        return NextResponse.json({ error: "organization_not_found" }, { status: 400 });
       }
       if (code === "22023") {
         return NextResponse.json({ error: "invalid_request" }, { status: 400 });
