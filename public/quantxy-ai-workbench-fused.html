@@ -3958,9 +3958,11 @@ function profileLabels(value){
   return String(value||'').split(/[，,\n]+/).map(function(item){ return item.trim(); }).filter(Boolean);
 }
 function profileSkills(value){
-  var rows=profileLabels(value), skills=[];
+  var rows=String(value||'').split(/[\n,;\uFF0C\u3001\uFF1B]+/).map(function(item){ return item.trim(); }).filter(Boolean), skills=[];
   for(var i=0;i<rows.length;i++){
-    var parts=rows[i].split(/[:：]/), level=parseInt(parts.pop(),10), name=parts.join(':').trim();
+    var match=rows[i].match(/^(.+?)(?:\s*[:\uFF1A=]\s*|\s+)(?:L|l|\u7B49\u7EA7)?\s*([1-5])\s*(?:\u7EA7|\u5206|\u661F|\/5)?$/);
+    if(!match) return null;
+    var name=match[1].trim(), level=parseInt(match[2],10);
     if(!name||name.length>40||!Number.isInteger(level)||level<1||level>5) return null;
     skills.push({name:name,level:level});
   }

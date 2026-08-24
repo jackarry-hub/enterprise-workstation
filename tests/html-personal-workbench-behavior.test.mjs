@@ -2175,7 +2175,7 @@ test("lets the signed-in employee maintain a concise work profile", async () => 
     dom.window.document.querySelector("#wpTypes").value = "需求分析，跨部门协作";
     dom.window.document.querySelector("#wpGoals").value = "AI产品设计，项目管理";
     dom.window.document.querySelector("#wpCapacity").value = "40";
-    dom.window.document.querySelector("#wpSkills").value = "客户访谈:5，数据分析:3";
+    dom.window.document.querySelector("#wpSkills").value = "客户访谈 5\n数据分析 L3";
     dom.window.document.querySelector('[data-act="save-work-profile"]').click();
 
     await waitFor(() => savedInput && dom.window.document.querySelector("#toast")?.textContent === "工作画像已更新");
