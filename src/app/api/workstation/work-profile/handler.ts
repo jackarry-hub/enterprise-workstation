@@ -7,22 +7,32 @@ import {
 } from "@/features/work-profile/work-profile-schema";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
-type WorkProfileSession = { member: { id: number } };
+type WorkProfileSession = {
+  member: {
+    id: number;
+    employeeProfileId?: string;
+  };
+};
 
 export type WorkProfileUpdateDependencies = {
   loadSession: () => Promise<WorkProfileSession | null>;
-  saveProfile: (memberId: number, input: WorkProfileInput) => Promise<unknown>;
+  saveProfile: (
+    member: WorkProfileSession["member"],
+    input: WorkProfileInput,
+  ) => Promise<unknown>;
 };
 
 export const defaultWorkProfileUpdateDependencies: WorkProfileUpdateDependencies = {
   loadSession: getWorkspaceSession,
-  async saveProfile(memberId, input) {
+  async saveProfile(member, input) {
     const client = getSupabaseServiceRoleClient();
-    const profileResult = await client.from("employee_profiles")
+    let profileQuery = client.from("employee_profiles")
       .select("id, tenant_id, organization_id")
-      .eq("organization_member_id", memberId)
-      .is("deleted_at", null)
-      .single();
+      .is("deleted_at", null);
+    profileQuery = member.employeeProfileId
+      ? profileQuery.eq("public_id", member.employeeProfileId)
+      : profileQuery.eq("organization_member_id", member.id);
+    const profileResult = await profileQuery.single();
     if (profileResult.error || !profileResult.data) {
       throw profileResult.error ?? new Error("employee_profile_not_found");
     }
@@ -72,7 +82,7 @@ export function createWorkProfileUpdateHandler(
       return NextResponse.json({ error: "invalid_request" }, { status: 400 });
     }
     try {
-      const profile = await dependencies.saveProfile(session.member.id, input);
+      const profile = await dependencies.saveProfile(session.member, input);
       return NextResponse.json({ profile }, {
         headers: { "cache-control": "no-store" },
       });

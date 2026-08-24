@@ -5,10 +5,14 @@ import {
   defaultWorkstationBootstrapDependencies,
   numericProfileIdForMember,
 } from "@/app/api/workstation/bootstrap/handler";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  getSupabaseServerClient,
+  getSupabaseServiceRoleClient,
+} from "@/lib/supabase/server";
 
 vi.mock("@/lib/supabase/server", () => ({
   getSupabaseServerClient: vi.fn(),
+  getSupabaseServiceRoleClient: vi.fn(),
 }));
 
 function query(result: { data: unknown[]; error: unknown }) {
@@ -223,12 +227,18 @@ describe("workstation bootstrap route", () => {
         if (table === "tasks") return builders.tasks;
         if (table === "salary") return builders.salary;
         if (table === "task_notifications") return builders.notifications;
-        if (table === "employee_work_profiles") return builders.workProfiles;
         if (table === "employee_skills") return builders.employeeSkills;
         throw new Error(`unexpected table ${table}`);
       }),
     };
+    const serviceClient = {
+      from: vi.fn((table: string) => {
+        if (table === "employee_work_profiles") return builders.workProfiles;
+        throw new Error(`unexpected service table ${table}`);
+      }),
+    };
     vi.mocked(getSupabaseServerClient).mockResolvedValue(client as never);
+    vi.mocked(getSupabaseServiceRoleClient).mockReturnValue(serviceClient as never);
 
     const bootstrap = await defaultWorkstationBootstrapDependencies.loadBootstrap({
       member: { id: 7 },
@@ -246,7 +256,7 @@ describe("workstation bootstrap route", () => {
     };
 
     expect(client.from).toHaveBeenCalledWith("task_notifications");
-    expect(client.from).toHaveBeenCalledWith("employee_work_profiles");
+    expect(serviceClient.from).toHaveBeenCalledWith("employee_work_profiles");
     expect(client.from).toHaveBeenCalledWith("employee_skills");
     expect(notifications.select).toHaveBeenCalledWith(
       "task_id, status, last_error_code",
@@ -342,12 +352,18 @@ describe("workstation bootstrap route", () => {
         if (table === "tasks") return tasks;
         if (table === "salary") return salaryCalls++ === 0 ? detailedSalary : legacySalary;
         if (table === "task_notifications") return notifications;
-        if (table === "employee_work_profiles") return workProfiles;
         if (table === "employee_skills") return employeeSkills;
         throw new Error(`unexpected table ${table}`);
       }),
     };
+    const serviceClient = {
+      from: vi.fn((table: string) => {
+        if (table === "employee_work_profiles") return workProfiles;
+        throw new Error(`unexpected service table ${table}`);
+      }),
+    };
     vi.mocked(getSupabaseServerClient).mockResolvedValue(client as never);
+    vi.mocked(getSupabaseServiceRoleClient).mockReturnValue(serviceClient as never);
 
     const bootstrap = await defaultWorkstationBootstrapDependencies.loadBootstrap({
       member: { id: 7 },

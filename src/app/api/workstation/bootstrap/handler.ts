@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 
 import { getWorkspaceSession } from "@/features/auth/workspace-session";
 import { buildServerBootstrap } from "@/features/workstation/server-bootstrap";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  getSupabaseServerClient,
+  getSupabaseServiceRoleClient,
+} from "@/lib/supabase/server";
 
 type BootstrapSession = Awaited<ReturnType<typeof getWorkspaceSession>>;
 
@@ -94,6 +97,10 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       membersResult.data ?? [],
       session.member.id,
     );
+    const accessibleEmployeeProfileIds = (membersResult.data ?? [])
+      .map((row) => Number(row.id))
+      .filter((id) => Number.isSafeInteger(id) && id > 0);
+    const serviceClient = getSupabaseServiceRoleClient();
     const [
       projectsResult,
       tasksResult,
@@ -113,8 +120,11 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       loadSalaryRows(client as unknown as SalaryClient, employeeProfileId),
       client.from("task_notifications")
         .select("task_id, status, last_error_code"),
-      client.from("employee_work_profiles")
-        .select("employee_profile_id, summary, preferred_task_types, growth_goals, weekly_capacity_hours, self_skills, updated_at"),
+      accessibleEmployeeProfileIds.length
+        ? serviceClient.from("employee_work_profiles")
+          .select("employee_profile_id, summary, preferred_task_types, growth_goals, weekly_capacity_hours, self_skills, updated_at")
+          .in("employee_profile_id", accessibleEmployeeProfileIds)
+        : Promise.resolve({ data: [], error: null }),
       client.from("employee_skills")
         .select("employee_profile_id, proficiency_level, years_experience, verification_status, skill:skill_tags(name)"),
     ]);
