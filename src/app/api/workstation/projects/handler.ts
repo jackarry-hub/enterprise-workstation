@@ -91,18 +91,35 @@ export const defaultWorkstationProjectCreateDependencies: WorkstationProjectCrea
   async createProject(input) {
     const client = getSupabaseServiceRoleClient();
 
+    const { data: organization, error: organizationError } = await client.from("organizations")
+      .select("id")
+      .eq("public_id", input.organizationId)
+      .maybeSingle();
+    if (organizationError || !organization) {
+      throw organizationError ?? new Error("project_organization_invalid");
+    }
+    const organizationId = organization.id;
+
     const { data: owner, error: ownerError } = await client.from("organization_members")
       .select("id")
-      .eq("organization_id", input.organizationId)
+      .eq("organization_id", organizationId)
       .eq("id", input.ownerMemberId)
       .in("status", ["invited", "active"])
       .maybeSingle();
     if (ownerError || !owner) throw ownerError ?? new Error("project_member_invalid");
 
+    const { data: actor, error: actorError } = await client.from("organization_members")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("id", input.actorMemberId)
+      .eq("status", "active")
+      .maybeSingle();
+    if (actorError || !actor) throw actorError ?? new Error("project_actor_invalid");
+
     const projectCode = `QXY-${crypto.randomUUID().replaceAll("-", "").slice(0, 10).toUpperCase()}`;
     const { data: project, error: projectError } = await client.from("projects")
       .insert({
-        organization_id: input.organizationId,
+        organization_id: organizationId,
         code: projectCode,
         name: input.name,
         description: input.description,
@@ -120,7 +137,7 @@ export const defaultWorkstationProjectCreateDependencies: WorkstationProjectCrea
     if (projectError || !project) throw projectError ?? new Error("project_create_failed");
 
     const projectMembers = [{
-      organization_id: input.organizationId,
+      organization_id: organizationId,
       project_id: project.id,
       member_id: input.ownerMemberId,
       role: "owner",
@@ -128,7 +145,7 @@ export const defaultWorkstationProjectCreateDependencies: WorkstationProjectCrea
     }];
     if (input.actorMemberId !== input.ownerMemberId) {
       projectMembers.push({
-        organization_id: input.organizationId,
+        organization_id: organizationId,
         project_id: project.id,
         member_id: input.actorMemberId,
         role: "manager",
