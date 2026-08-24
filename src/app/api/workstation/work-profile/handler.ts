@@ -32,6 +32,26 @@ function safeErrorLabel(error: unknown) {
     || "unknown";
 }
 
+function safeInputShape(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "not_object";
+  }
+  const body = value as Record<string, unknown>;
+  return JSON.stringify({
+    summary: typeof body.summary,
+    preferredTaskTypes: Array.isArray(body.preferredTaskTypes)
+      ? body.preferredTaskTypes.length
+      : typeof body.preferredTaskTypes,
+    growthGoals: Array.isArray(body.growthGoals)
+      ? body.growthGoals.length
+      : typeof body.growthGoals,
+    weeklyCapacityHours: typeof body.weeklyCapacityHours,
+    selfSkills: Array.isArray(body.selfSkills)
+      ? body.selfSkills.length
+      : typeof body.selfSkills,
+  });
+}
+
 export const defaultWorkProfileUpdateDependencies: WorkProfileUpdateDependencies = {
   loadSession: getWorkspaceSession,
   async saveProfile(member, input) {
@@ -89,6 +109,7 @@ export function createWorkProfileUpdateHandler(
     }
     const input = parseWorkProfileInput(body);
     if (!input) {
+      console.warn("[work-profile] invalid input", safeInputShape(body));
       return NextResponse.json({ error: "invalid_request" }, { status: 400 });
     }
     try {

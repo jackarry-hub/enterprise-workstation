@@ -3998,7 +3998,13 @@ function saveWorkProfile(){
     var existing=member.workProfile||{};
     member.workProfile=Object.assign({},existing,savedProfile||input,{verifiedSkills:existing.verifiedSkills||[]});
     S.workProfileSaving=false; rebuildLookups(); render(); toast('工作画像已更新');
-  }).catch(function(){ S.workProfileSaving=false; render(); toast('工作画像保存失败，请稍后重试'); });
+  }).catch(function(error){
+    var code=error&&error.message?String(error.message):'';
+    var msg=code==='invalid_request'?'画像内容格式未通过服务器校验'
+      :(code==='unauthorized'?'登录状态已失效，请重新登录'
+      :(code==='profile_save_failed'?'画像服务写入失败，请稍后重试':'工作画像保存失败，请稍后重试'));
+    S.workProfileSaving=false; render(); toast(msg);
+  });
 }
 
 /* ---------------- 路由 ---------------- */
