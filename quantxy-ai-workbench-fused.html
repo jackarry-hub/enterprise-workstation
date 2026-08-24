@@ -1499,9 +1499,16 @@ var META={
 function renderNav(){
   var nav=el('nav');
   nav.className='nav'+(S.mobileNav?' expanded':'');
+  function desktopNavOrder(page){
+    var isManagerFlow=isDemoRuntime()||hasWorkstationPermission('dashboard.read')||hasWorkstationPermission('organization.manage')||hasWorkstationPermission('project.read')||hasWorkstationPermission('task.manage');
+    var workflowOrder={dash:1,org:2,proj:3,sched:4,task:5,me:6,profile:7,fin:8,customers:9,activities:10,decisions:11,assistant:12,insight:13,kb:14,flow:15,set:16};
+    var personalOrder={me:1,task:2,profile:3,fin:4,assistant:5,set:6};
+    var order=(isManagerFlow?workflowOrder:personalOrder)[page];
+    return order||((NAV.findIndex(function(item){ return item[0]===page; })+1)*10);
+  }
   function navButton(x){
     var active=(x[0]==='me'&&S.page==='me'&&!S.mobileTaskFocus)||(x[0]==='task'&&(S.page==='task'||S.page==='execution'||(S.page==='me'&&S.mobileTaskFocus)))||(x[0]!=='me'&&x[0]!=='task'&&S.page===x[0]);
-    return '<button data-act="go" data-page="'+x[0]+'" style="--nav-order:'+NAV.findIndex(function(item){ return item[0]===x[0]; })+'" class="'+(MOBILE_CORE[x[0]]?'mobile-core':'mobile-extra')+(active?' on':'')+'">'+ic(x[2],18)+'<span class="desktop-nav-label">'+x[1]+'</span><span class="mobile-nav-label">'+(MOBILE_LABEL[x[0]]||x[1])+'</span></button>';
+    return '<button data-act="go" data-page="'+x[0]+'" style="--nav-order:'+desktopNavOrder(x[0])+'" class="'+(MOBILE_CORE[x[0]]?'mobile-core':'mobile-extra')+(active?' on':'')+'">'+ic(x[2],18)+'<span class="desktop-nav-label">'+x[1]+'</span><span class="mobile-nav-label">'+(MOBILE_LABEL[x[0]]||x[1])+'</span></button>';
   }
   var visible=NAV.filter(function(x){ return formalPageAllowed(x[0]); });
   var core=MOBILE_CORE_ORDER.map(function(page){ return visible.find(function(x){ return x[0]===page; }); }).filter(Boolean).map(navButton).join('');
