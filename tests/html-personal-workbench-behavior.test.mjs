@@ -150,6 +150,82 @@ async function openFormalWorkbench(url, bootstrap, adapterOverrides = {}, fetchO
   return dom;
 }
 
+async function openFormalWorkbenchWithStorage(url, bootstrap, seedStorage = {}, adapterOverrides = {}, fetchOverride) {
+  const html = await readRealModeHtml();
+  const tasks = bootstrap.tasks || [];
+  const projects = bootstrap.projects || [];
+  const session = bootstrap.session;
+  const adapter = {
+    ready: async () => bootstrap,
+    getSession: () => session,
+    loadBootstrap: () => bootstrap,
+    loadMyDashboard: (memberId) => ({
+      tasks: tasks.filter((task) => task.own === memberId),
+      must: tasks.filter((task) => task.own === memberId),
+      projects,
+      payroll: null,
+      reminders: [],
+    }),
+    listMyTasks: (memberId) => tasks.filter((task) => task.own === memberId),
+    loadMyTask: (memberId, taskId) => tasks.find((task) => task.id === taskId && task.own === memberId) || null,
+    listMyProjects: () => projects,
+    loadPayroll: () => [],
+    saveTask: async () => null,
+    claimTask: async () => null,
+    updateTaskExecution: async () => null,
+    submitTaskResult: async () => null,
+    reviewTaskResult: async () => null,
+    reopenTask: async () => null,
+    saveWorkProfile: async () => null,
+    syncDirectory: async () => ({}),
+    createProject: async () => null,
+    createTask: async () => null,
+    createTasks: async () => [],
+    retryTaskNotification: async () => ({ status: "sent", errorCode: "" }),
+    loadPayrollPolicy: async () => ({ active: null, history: [] }),
+    savePayrollPolicy: async () => ({}),
+    previewPayroll: async () => ({}),
+    savePayroll: async () => ({}),
+    ...adapterOverrides,
+  };
+  const dom = new JSDOM(html, {
+    url,
+    runScripts: "dangerously",
+    pretendToBeVisual: true,
+    beforeParse(window) {
+      window.scrollTo = () => {};
+      window.matchMedia = (query) => ({
+        matches: false,
+        media: query,
+        addEventListener() {},
+        removeEventListener() {},
+        addListener() {},
+        removeListener() {},
+      });
+      for (const [key, value] of Object.entries(seedStorage)) {
+        window.localStorage.setItem(key, value);
+      }
+      window.QUANTXY_WORKSTATION_RUNTIME = { authMode: "feishu", dataMode: "server" };
+      window.QUANTXY_WORKSTATION_SERVER_ADAPTER = adapter;
+      window.fetch = async (requestUrl, init) => String(requestUrl) === "/api/ai/config"
+        ? response(true, {
+          provider: "deepseek",
+          apiBaseUrl: "https://api.deepseek.com",
+          model: "deepseek-v4-flash",
+          keyConfigured: false,
+          keyHint: null,
+          updatedAt: null,
+          canManage: true,
+        })
+        : fetchOverride
+          ? fetchOverride(requestUrl, init)
+          : response(false, { error: "unexpected_request" }, 404);
+    },
+  });
+  await waitFor(() => dom.window.Q?.S.me === session.memberId && dom.window.Q.S.aiConfig.loaded);
+  return dom;
+}
+
 test("previews and confirms a server-calculated payroll", async () => {
   const bootstrap = formalBootstrap({
     memberId: "m7",
@@ -1029,7 +1105,7 @@ test("keeps the four mobile destinations fixed while more opens only secondary m
     const panel = expandedNav.querySelector(".mobile-more-panel");
     assert.equal(expandedNav.classList.contains("expanded"), true);
     assert.ok(panel);
-    assert.equal(panel.querySelectorAll(".mobile-extra").length, 13);
+    assert.equal(panel.querySelectorAll(".mobile-extra").length, 12);
     assert.ok(panel.querySelector('[data-page="profile"]'));
     assert.equal(expandedNav.querySelectorAll(":scope > .mobile-core").length, 3);
     assert.ok(expandedNav.querySelector(":scope > [data-act=\"mobile-nav-more\"]"));
@@ -3192,6 +3268,324 @@ test("keeps a safe failed notification state when retry rejects", async () => {
       errorCode: "send_failed",
     });
     assert.doesNotMatch(dom.window.document.querySelector("#view").textContent, /provider|raw|send_failed|open_id/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal dashboard leaves finance-owned executive metrics empty instead of showing demo money", async () => {
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    formalBootstrap({ permissions: ["dashboard.read", "project.read"] }),
+  );
+  try {
+    dom.window.Q.S.page = "dash";
+    dom.window.Q.render();
+    const view = dom.window.document.querySelector("#view");
+    assert.equal(view.querySelector("[data-finance-v1-empty]")?.getAttribute("data-state"), "reserved");
+    assert.doesNotMatch(view.textContent, /8,642\.18|1,203\.66|23\.7/);
+    assert.match(view.textContent, /财务|V1|留空/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal AI scheduler shows resource utilization only from real schedule data", async () => {
+  const bootstrap = formalBootstrap({ permissions: ["task.manage"] });
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    const { S } = dom.window.Q;
+    S.page = "sched";
+    S.sch.tasks = null;
+    S.sch.plans = null;
+    dom.window.Q.render();
+    const emptyResource = dom.window.document.querySelector("[data-resource-utilization]");
+    assert.equal(emptyResource?.getAttribute("data-state"), "empty");
+    assert.doesNotMatch(emptyResource?.textContent || "", /88%|65%|62%/);
+
+    const task = {
+      id: "W1",
+      ph: "阶段",
+      n: "完成客户需求访谈",
+      role: "产品经理",
+      skills: ["需求分析"],
+      days: 2,
+      dep: [],
+      pri: "P1",
+      ac: "提交访谈纪要",
+    };
+    S.sch.tasks = [task];
+    S.sch.plans = dom.window.Q.makePlans([task]);
+    S.sch.pick = "A";
+    dom.window.Q.render();
+    const resource = dom.window.document.querySelector("[data-resource-utilization]");
+    assert.equal(resource?.getAttribute("data-state"), "calculated");
+    assert.doesNotMatch(resource?.textContent || "", /88%|65%|62%/);
+    assert.match(resource?.textContent || "", /投入人力|项目工期|关键路径任务/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("AI assignment keeps recommendations but allows a manager to manually override with an audit hint", async () => {
+  const bootstrap = formalBootstrap({ permissions: ["task.manage"] });
+  bootstrap.members = [
+    { id: "member-ai", n: "AI推荐员工", r: "产品经理", dept: "产品中心", cap: 0.9, sk: "需求分析", workProfile: { verifiedSkills: [{ name: "需求分析", level: 5 }] } },
+    { id: "member-manual", n: "人工指定员工", r: "产品经理", dept: "产品中心", cap: 0.5, sk: "需求分析", workProfile: { verifiedSkills: [{ name: "需求分析", level: 3 }] } },
+  ];
+  bootstrap.session.memberId = "member-ai";
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    const task = {
+      id: "W1",
+      ph: "阶段",
+      n: "完成需求分析",
+      role: "产品经理",
+      skills: ["需求分析"],
+      days: 2,
+      dep: [],
+      pri: "P1",
+      ac: "提交需求说明",
+    };
+    const plans = dom.window.Q.makePlans([task]);
+    dom.window.Q.S.page = "sched";
+    dom.window.Q.S.sch.tasks = [task];
+    dom.window.Q.S.sch.plans = plans;
+    dom.window.Q.S.sch.pick = "A";
+    dom.window.Q.render();
+
+    const select = dom.window.document.querySelector('[data-act="assign-member"][data-task-id="W1"]');
+    assert.ok(select, "assignment should expose a manual override control");
+    assert.equal(plans[0].map.W1.own, "member-ai");
+    select.value = "member-manual";
+    select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    assert.equal(dom.window.Q.S.sch.plans[0].map.W1.own, "member-manual");
+    assert.equal(dom.window.Q.S.sch.plans[0].map.W1.manual, true);
+    assert.match(dom.window.document.querySelector("#view").textContent, /人工改派|AI 推荐/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal assistant does not pretend chat history is interactive before conversation storage exists", async () => {
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    formalBootstrap(),
+  );
+  try {
+    dom.window.Q.S.page = "assistant";
+    dom.window.Q.render();
+    const history = dom.window.document.querySelector("[data-ai-chat-history]");
+    assert.equal(history?.getAttribute("data-state"), "pending-storage");
+    assert.equal(history.querySelectorAll("button[data-chat-session]").length, 0);
+    assert.match(history.textContent, /会话功能待接入|不会保存历史会话/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal route and unfinished form draft survive a refresh", async () => {
+  const bootstrap = formalBootstrap({ permissions: ["project.read", "project.manage"] });
+  const first = await openFormalWorkbenchWithStorage(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  let storage = {};
+  try {
+    first.window.Q.S.page = "new-project";
+    first.window.Q.render();
+    const name = first.window.document.querySelector('[data-f="n"]');
+    name.value = "刷新后仍保留的项目";
+    name.dispatchEvent(new first.window.Event("input", { bubbles: true }));
+    const desc = first.window.document.querySelector('[data-f="desc"]');
+    desc.value = "刷新后继续填写";
+    desc.dispatchEvent(new first.window.Event("input", { bubbles: true }));
+    storage = {
+      "qxy.workstation.ui.v1": first.window.localStorage.getItem("qxy.workstation.ui.v1"),
+    };
+    assert.ok(storage["qxy.workstation.ui.v1"], "route and draft should be saved to localStorage");
+  } finally {
+    first.window.close();
+  }
+
+  const second = await openFormalWorkbenchWithStorage(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+    storage,
+  );
+  try {
+    assert.equal(second.window.Q.S.page, "new-project");
+    assert.equal(second.window.document.querySelector('[data-f="n"]').value, "刷新后仍保留的项目");
+    assert.equal(second.window.document.querySelector('[data-f="desc"]').value, "刷新后继续填写");
+  } finally {
+    second.window.close();
+  }
+});
+
+test("personal salary starts with the employee department and level before money details", async () => {
+  const bootstrap = formalBootstrap({
+    memberId: "salary-member",
+    permissions: ["salary.self"],
+  });
+  bootstrap.members = [
+    { id: "salary-member", n: "薪资员工", r: "员工", dept: "产品中心", lv: 4 },
+  ];
+  bootstrap.payroll = {
+    "salary-member": [{ month: "2026-08", base: 10000, performance: 1000, projectBonus: 500, otherBonus: 0, social: 1000, tax: 200, otherDeduction: 0, status: "待发放" }],
+  };
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    dom.window.Q.S.page = "fin";
+    dom.window.Q.render();
+    const profile = dom.window.document.querySelector("[data-salary-identity]");
+    assert.ok(profile);
+    assert.match(profile.textContent, /产品中心/);
+    assert.match(profile.textContent, /L4|职级/);
+    assert.ok(profile.compareDocumentPosition(dom.window.document.querySelector("[data-payroll-summary]")) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal manager navigation follows the project-to-task workflow and uses Agent Center wording", async () => {
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    formalBootstrap({
+      permissions: ["dashboard.read", "organization.manage", "project.read", "project.manage", "task.manage", "salary.self", "agent.manage"],
+    }),
+  );
+  try {
+    const navLabels = Array.from(dom.window.document.querySelectorAll(".nav button[data-page]"))
+      .sort((left, right) => Number(left.style.getPropertyValue("--nav-order")) - Number(right.style.getPropertyValue("--nav-order")))
+      .map((button) => button.querySelector(".desktop-nav-label")?.textContent.trim() || "")
+      .filter(Boolean);
+    assert.deepEqual(navLabels.slice(0, 10), [
+      "总览 / 决策驾驶舱",
+      "组织与权限",
+      "项目中心",
+      "AI 调度中心",
+      "任务中心",
+      "员工工作台",
+      "我的工作画像",
+      "我的薪酬",
+      "Agent 中心",
+      "系统设置",
+    ]);
+    assert.equal(navLabels.includes("AI 助理"), false);
+    assert.equal(navLabels.includes("Agent Store"), false);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("Agent Center presents enterprise agents with capability, run log and permission scope", async () => {
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    formalBootstrap({
+      permissions: ["dashboard.read", "agent.manage"],
+    }),
+  );
+  try {
+    dom.window.Q.S.page = "flow";
+    dom.window.Q.render();
+    const viewText = dom.window.document.querySelector("#view").textContent;
+    for (const name of [
+      "任务拆解 Agent",
+      "智能派单 Agent",
+      "飞书通知 Agent",
+      "员工画像 Agent",
+      "薪资核算 Agent",
+      "报账审核 Agent",
+      "知识库问答 Agent",
+      "项目复盘 Agent",
+    ]) {
+      assert.match(viewText, new RegExp(name));
+    }
+    assert.match(viewText, /智能体能力|调用记录|权限范围/);
+    assert.doesNotMatch(viewText, /商店|购买|安装|Agent Store/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal project overview totals are calculated from real project bootstrap data", async () => {
+  const bootstrap = formalBootstrap({
+    permissions: ["project.read", "project.manage", "dashboard.read"],
+  });
+  bootstrap.projects = [
+    { id: "p-live-1", n: "真实项目一", own: bootstrap.session.memberId, cat: "AI研发", pr: 20, bud: 300, health: 90, st: "进行中", up: "2026-08-20" },
+    { id: "p-live-2", n: "真实项目二", own: bootstrap.session.memberId, cat: "AI研发", pr: 100, bud: 120, health: 88, st: "已完成", up: "2026-08-21" },
+    { id: "p-live-3", n: "真实项目三", own: bootstrap.session.memberId, cat: "AI研发", pr: 40, bud: 50, health: 62, st: "风险", up: "2026-08-22" },
+  ];
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    dom.window.Q.S.page = "proj";
+    dom.window.Q.render();
+    const overview = dom.window.document.querySelector("[data-project-overview]");
+    assert.ok(overview, "project overview should expose calculated real-data stats");
+    assert.equal(overview.getAttribute("data-state"), "calculated");
+    assert.match(overview.textContent, /进行中项目[\s\S]*1/);
+    assert.match(overview.textContent, /已完成项目[\s\S]*1/);
+    assert.match(overview.textContent, /风险项目[\s\S]*1/);
+    assert.match(overview.textContent, /总预算[\s\S]*470/);
+    assert.doesNotMatch(overview.textContent, /8,642\.18|5,210\.66|24/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("manual AI assignment override explains the difference and keeps an audit trail", async () => {
+  const bootstrap = formalBootstrap({ permissions: ["task.manage"] });
+  bootstrap.members = [
+    { id: "member-ai", n: "AI推荐员工", r: "产品经理", dept: "产品中心", cap: 0.9, sk: "需求分析", workProfile: { verifiedSkills: [{ name: "需求分析", level: 5 }] } },
+    { id: "member-manual", n: "人工指定员工", r: "产品经理", dept: "产品中心", cap: 0.2, sk: "运营活动", workProfile: { verifiedSkills: [{ name: "运营活动", level: 2 }] } },
+  ];
+  bootstrap.session.memberId = "member-ai";
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    const task = {
+      id: "W1",
+      ph: "阶段",
+      n: "完成需求分析",
+      role: "产品经理",
+      skills: ["需求分析"],
+      days: 2,
+      dep: [],
+      pri: "P1",
+      ac: "提交需求说明",
+    };
+    const plans = dom.window.Q.makePlans([task]);
+    dom.window.Q.S.page = "sched";
+    dom.window.Q.S.sch.tasks = [task];
+    dom.window.Q.S.sch.plans = plans;
+    dom.window.Q.S.sch.pick = "A";
+    dom.window.Q.render();
+
+    const select = dom.window.document.querySelector('[data-act="assign-member"][data-task-id="W1"]');
+    select.value = "member-manual";
+    select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+
+    const slot = dom.window.Q.S.sch.plans[0].map.W1;
+    assert.equal(slot.own, "member-manual");
+    assert.equal(slot.manual, true);
+    assert.equal(Array.isArray(slot.manualAudit), true);
+    assert.match(slot.manualAudit.at(-1).reason, /技能匹配度较低|当前负载较高|低于 AI 推荐/);
+    assert.match(dom.window.document.querySelector("#view").textContent, /人工改派记录|差异提示|负责人最终确认/);
   } finally {
     dom.window.close();
   }
