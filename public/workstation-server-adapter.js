@@ -4,7 +4,8 @@
   if (window.location.protocol === "file:") return;
   try {
     if (new URLSearchParams(window.location.search).get("formal") !== "1") return;
-  } catch {
+  } catch (error) {
+    void error;
     return;
   }
 
@@ -61,7 +62,8 @@
     var target = loginUrl();
     try {
       window.location.assign(target);
-    } catch {
+    } catch (error) {
+      void error;
       window.location.href = target;
     }
   }
@@ -95,7 +97,8 @@
         var body = {};
         try {
           body = xhr.responseText ? JSON.parse(xhr.responseText) : {};
-        } catch {
+        } catch (error) {
+          void error;
           body = {};
         }
         try {
