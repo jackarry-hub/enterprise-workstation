@@ -58,6 +58,180 @@ describe("formal workstation bootstrap", () => {
     expect(bootstrap.features).toEqual({ identitySwitch: false, demoReset: false });
   });
 
+  it("uses database compensation grade fields for formal workstation members", () => {
+    const bootstrap = buildServerBootstrap(
+      {
+        memberId: 7,
+        displayName: "张云帆",
+        departmentName: "产品中心",
+        jobTitle: "产品经理",
+        avatarUrl: null,
+        permissionCodes: ["task.manage", "salary.self"],
+      },
+      {
+        members: [
+          {
+            id: 7,
+            displayName: "张云帆",
+            departmentName: "产品中心",
+            jobTitle: "产品经理",
+            salaryGradeCode: "P6",
+            jobLevel: 6,
+            skills: ["prd"],
+          },
+          {
+            id: 8,
+            displayName: "李明",
+            departmentName: "研发中心",
+            jobTitle: "工程师",
+            salaryGradeCode: "P4",
+            jobLevel: 4,
+            skills: [],
+          },
+        ],
+        projects: [],
+        tasks: [],
+        salary: [],
+      },
+    );
+
+    expect(bootstrap.members).toEqual([
+      expect.objectContaining({ id: "m7", grade: "P6", lv: 6 }),
+      expect.objectContaining({ id: "m8", grade: "P4", lv: 4 }),
+    ]);
+  });
+
+  it("maps enterprise agent center definitions and recent invocations for the fused workstation", () => {
+    const bootstrap = buildServerBootstrap(
+      {
+        memberId: 7,
+        displayName: "张云帆",
+        departmentName: "产品中心",
+        jobTitle: "产品经理",
+        avatarUrl: null,
+        permissionCodes: ["task.manage"],
+      },
+      {
+        members: [
+          { id: 7, displayName: "张云帆", departmentName: "产品中心", jobTitle: "产品经理", skills: [] },
+        ],
+        projects: [],
+        tasks: [],
+        salary: [],
+        agents: [
+          {
+            id: 91,
+            publicId: "33333333-3333-4333-8333-333333333333",
+            name: "任务拆解 Agent",
+            departmentName: "产品中心",
+            icon: "check",
+            description: "拆成任务、验收和依赖",
+            modelCode: "deepseek-v4-flash",
+            promptVersion: "v1",
+            capabilities: ["目标拆解", "验收标准"],
+            visibilityScope: "all",
+            minJobLevel: 1,
+            allowedDepartmentNames: [],
+            allowedMemberIds: [],
+            invocationCount: 12,
+            successRate: 98.5,
+            status: "enabled",
+          },
+        ],
+        agentInvocations: [
+          {
+            agentId: 91,
+            agentName: "任务拆解 Agent",
+            departmentName: "产品中心",
+            actorMemberId: 7,
+            actorName: "张云帆",
+            status: "succeeded",
+            latencyMs: 830,
+            outputSummary: "已生成 6 个子任务",
+            startedAt: "2026-08-25T09:30:00.000Z",
+          },
+        ],
+      },
+    );
+
+    expect(bootstrap.agents).toEqual([
+      expect.objectContaining({
+        id: "33333333-3333-4333-8333-333333333333",
+        n: "任务拆解 Agent",
+        dept: "产品中心",
+        ic: "check",
+        model: "deepseek-v4-flash",
+        on: 1,
+        runs: 12,
+        ok: 98.5,
+        scope: "all",
+        minLv: 1,
+        d: "拆成任务、验收和依赖",
+        f: [
+          { k: "input", n: "输入目标或任务", t: "ta" },
+          { k: "context", n: "补充上下文（可选）", t: "ta" },
+        ],
+        abilities: ["目标拆解", "验收标准"],
+        promptVersion: "v1",
+      }),
+    ]);
+    expect(bootstrap.runs).toEqual([
+      {
+        id: "33333333-3333-4333-8333-333333333333",
+        n: "任务拆解 Agent",
+        dept: "产品中心",
+        by: "张云帆",
+        at: "2026-08-25 09:30",
+        ok: 1,
+        ms: 830,
+        out: "已生成 6 个子任务",
+      },
+    ]);
+  });
+
+  it("maps published knowledge documents into the formal knowledge center", () => {
+    const bootstrap = buildServerBootstrap(
+      {
+        memberId: 7,
+        displayName: "张云帆",
+        departmentName: "产品中心",
+        jobTitle: "产品经理",
+        avatarUrl: null,
+        permissionCodes: ["task.manage"],
+      },
+      {
+        members: [],
+        projects: [],
+        tasks: [],
+        salary: [],
+        knowledge: [
+          {
+            publicId: "55555555-5555-4555-8555-555555555555",
+            title: "项目交付验收规范",
+            category: "SOP模板",
+            summary: "验收标准、交付材料和签字规则",
+            tags: ["项目管理", "验收"],
+            version: 3,
+            publishedAt: "2026-08-22T06:00:00.000Z",
+          },
+        ],
+      },
+    );
+
+    expect(bootstrap.kb).toEqual([
+      {
+        id: "55555555-5555-4555-8555-555555555555",
+        n: "项目交付验收规范",
+        c: "SOP模板",
+        v: "v3",
+        l: 14,
+        sum: "验收标准、交付材料和签字规则",
+        tags: ["项目管理", "验收"],
+        publishedAt: "2026-08-22T06:00:00.000Z",
+      },
+    ]);
+  });
+
   it("exposes recipient failures as unavailable without expanding the public status set", () => {
     const bootstrap = buildServerBootstrap(
       {

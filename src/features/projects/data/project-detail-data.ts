@@ -15,6 +15,7 @@ import type {
   ProjectTask,
 } from "@/features/projects/types";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { shouldAllowMockBusinessData } from "@/lib/runtime/workstation-mode";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof getSupabaseServerClient>>;
 export type ProjectDetailClientFactory = () => Promise<SupabaseServerClient>;
@@ -191,7 +192,7 @@ export async function loadProjectDetail(
   clientFactory: ProjectDetailClientFactory = getSupabaseServerClient,
   options: { allowMockFallback?: boolean } = {},
 ): Promise<ProjectDetailResult | undefined> {
-  const allowMockFallback = options.allowMockFallback ?? true;
+  const allowMockFallback = options.allowMockFallback ?? shouldAllowMockBusinessData();
   const fallback = () => allowMockFallback ? matchingMock(projectPublicId) : undefined;
 
   try {
@@ -388,7 +389,10 @@ export async function loadProjectDetail(
     };
 
     return { detail, source: "supabase" };
-  } catch {
-    return fallback();
+  } catch (error) {
+    const fallbackResult = fallback();
+    if (fallbackResult) return fallbackResult;
+    if (!allowMockFallback) throw error;
+    return undefined;
   }
 }

@@ -16,14 +16,21 @@ import type { SalaryRecord, SalaryStatus } from "@/features/salary/salary-types"
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { useOperations } from "@/features/operations/use-operations";
 
-export function PayrollDetailPage({ record: sourceRecord }: { record: SalaryRecord }) {
+export function PayrollDetailPage({
+  record: sourceRecord,
+  dataSource = "mock",
+}: {
+  record: SalaryRecord;
+  dataSource?: "mock" | "supabase";
+}) {
   const session = useWorkspaceSession();
   const { state, isFixtureBound } = useOperations(session);
-  if (!isFixtureBound) {
+  const isSupabaseData = dataSource === "supabase";
+  if (!isSupabaseData && !isFixtureBound) {
     return <RealDataUnavailable title="薪资数据暂不可用" description="当前账号不会显示演示工资单。真实薪资数据接入后，只会展示你有权查看的记录。" backHref="/payroll" backLabel="返回薪资管理" />;
   }
   const cycleStatus: SalaryStatus = state.payrollRun.status === "draft" ? "draft" : state.payrollRun.status === "paid" ? "paid" : "processing";
-  const record = sourceRecord.month === state.payrollRun.month ? { ...sourceRecord, status: cycleStatus, paidAt: cycleStatus === "paid" ? state.payrollRun.paidAt ? new Date(state.payrollRun.paidAt).toLocaleString("zh-CN") : sourceRecord.paidAt : undefined, history: sourceRecord.history.map((item) => item.month === state.payrollRun.month ? { ...item, status: cycleStatus } : item) } : sourceRecord;
+  const record = isSupabaseData ? sourceRecord : sourceRecord.month === state.payrollRun.month ? { ...sourceRecord, status: cycleStatus, paidAt: cycleStatus === "paid" ? state.payrollRun.paidAt ? new Date(state.payrollRun.paidAt).toLocaleString("zh-CN") : sourceRecord.paidAt : undefined, history: sourceRecord.history.map((item) => item.month === state.payrollRun.month ? { ...item, status: cycleStatus } : item) } : sourceRecord;
   const status = salaryStatusMeta[record.status];
   const incomeTotal = record.baseSalary + record.bonus;
   return (
@@ -33,7 +40,7 @@ export function PayrollDetailPage({ record: sourceRecord }: { record: SalaryReco
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[url('/dashboard/welcome-space-bg.png')] bg-cover bg-[position:80%_center] opacity-55" />
         <div className="relative"><PageHeader title={`${record.employee.displayName}的工资单`} description={`${record.month.replace("-", "年")}月 · ${record.employee.employeeNo}`} actions={<StatusBadge status={status.tone}>{status.label}</StatusBadge>} />
           <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_1fr_1.2fr]">
-            <div className="flex items-center gap-3 rounded-2xl border border-white/75 bg-background/65 p-4"><Avatar className="size-12">{record.employee.avatarUrl ? <AvatarImage src={record.employee.avatarUrl} alt={record.employee.displayName} /> : null}<AvatarFallback className="bg-primary text-primary-foreground">{record.employee.displayName.slice(-2)}</AvatarFallback></Avatar><div><p className="font-semibold text-foreground">{record.employee.displayName}</p><p className="text-xs text-muted-foreground">{record.department.name} · {record.employee.jobTitle}</p></div></div>
+            <div className="flex items-center gap-3 rounded-2xl border border-white/75 bg-background/65 p-4"><Avatar className="size-12">{record.employee.avatarUrl ? <AvatarImage src={record.employee.avatarUrl} alt={record.employee.displayName} /> : null}<AvatarFallback className="bg-primary text-primary-foreground">{record.employee.displayName.slice(-2)}</AvatarFallback></Avatar><div><p className="font-semibold text-foreground">{record.employee.displayName}</p><p className="text-xs text-muted-foreground">{record.department.name} · {record.employee.jobTitle}{record.employee.salaryGradeCode || record.employee.jobLevel ? ` · ${[record.employee.salaryGradeCode, record.employee.jobLevel ? `L${record.employee.jobLevel}` : null].filter(Boolean).join(" · ")}` : ""}</p></div></div>
             <div className="rounded-2xl border border-white/75 bg-background/65 p-4"><p className="text-xs text-muted-foreground">发放时间</p><p className="mt-2 font-medium text-foreground">{record.paidAt ?? "待发放"}</p><p className="mt-1 text-xs text-muted-foreground">工资月份 {record.month}</p></div>
             <div className="rounded-2xl border border-primary/15 bg-primary/8 p-4"><p className="text-xs text-primary">本月实发工资</p><p className="mt-1 text-3xl font-semibold tracking-tight text-foreground">{formatSalaryCurrency(record.netSalary)}</p><p className="mt-1 text-xs text-muted-foreground">税后及扣款后金额</p></div>
           </div>
@@ -54,7 +61,7 @@ export function PayrollDetailPage({ record: sourceRecord }: { record: SalaryReco
 
         <div className="grid content-start gap-4 xl:col-span-4">
           <GlassCard className="p-4 sm:p-5"><div className="flex items-center gap-2"><Banknote aria-hidden="true" className="size-4 text-primary" /><h2 className="text-lg font-semibold text-foreground">工资单信息</h2></div><dl className="mt-4 grid gap-3 text-sm"><div className="flex justify-between"><dt className="text-muted-foreground">所属员工</dt><dd className="font-medium text-foreground">{record.employee.displayName}</dd></div><div className="flex justify-between"><dt className="text-muted-foreground">所属部门</dt><dd className="font-medium text-foreground">{record.department.name}</dd></div><div className="flex justify-between"><dt className="text-muted-foreground">工资月份</dt><dd className="font-medium text-foreground">{record.month}</dd></div><div className="flex justify-between"><dt className="text-muted-foreground">发放状态</dt><dd><StatusBadge status={status.tone}>{status.label}</StatusBadge></dd></div></dl></GlassCard>
-          <GlassCard className="p-4 sm:p-5"><div className="flex items-center gap-2"><UserRound aria-hidden="true" className="size-4 text-primary" /><h2 className="text-lg font-semibold text-foreground">隐私说明</h2></div><p className="mt-3 text-sm leading-6 text-muted-foreground">工资单仅员工本人和授权的老板、管理员、HR、财务可查看。V0.9 不执行自动算税或薪资规则计算。</p></GlassCard>
+          <GlassCard className="p-4 sm:p-5"><div className="flex items-center gap-2"><UserRound aria-hidden="true" className="size-4 text-primary" /><h2 className="text-lg font-semibold text-foreground">隐私说明</h2></div><p className="mt-3 text-sm leading-6 text-muted-foreground">工资单仅员工本人和授权的老板、管理员、HR、财务可查看。基础工资按部门与职级政策生成，项目奖金来自已审批奖金池。</p></GlassCard>
         </div>
       </section>
 

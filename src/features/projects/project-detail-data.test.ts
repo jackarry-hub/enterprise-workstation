@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   loadProjectDetail,
@@ -25,6 +25,10 @@ function createQuery(response: { data: unknown; error: null }) {
 }
 
 describe("loadProjectDetail", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("falls back to the matching mock project when Supabase is unavailable", async () => {
     const result = await loadProjectDetail(
       mockProjects[0].id,
@@ -61,6 +65,17 @@ describe("loadProjectDetail", () => {
 
     expect(result?.source).toBe("mock");
     expect(result?.detail.project.id).toBe(mockProjects[0].id);
+  });
+
+  it("does not silently fall back to mock data in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+
+    await expect(loadProjectDetail(
+      mockProjects[0].id,
+      async () => {
+        throw new Error("permission denied");
+      },
+    )).rejects.toThrow("permission denied");
   });
 
   it("uses employee profiles for Supabase-backed project members", async () => {

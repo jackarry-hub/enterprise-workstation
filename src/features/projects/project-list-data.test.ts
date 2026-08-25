@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   loadProjectList,
@@ -26,6 +26,10 @@ function createQuery(response: QueryResponse) {
 }
 
 describe("loadProjectList", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("falls back to the complete mock portfolio when Supabase is unavailable", async () => {
     const result = await loadProjectList(async () => {
       throw new Error("offline");
@@ -34,6 +38,14 @@ describe("loadProjectList", () => {
     expect(result.source).toBe("mock");
     expect(result.projects).toHaveLength(mockProjects.length);
     expect(result.reminders.length).toBeGreaterThan(0);
+  });
+
+  it("does not silently fall back to mock data in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+
+    await expect(loadProjectList(async () => {
+      throw new Error("offline");
+    })).rejects.toThrow("offline");
   });
 
   it("assembles projects, owners, members and milestones from Supabase", async () => {

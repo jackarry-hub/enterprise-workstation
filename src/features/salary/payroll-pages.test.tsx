@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { PayrollDetailPage } from "@/features/salary/payroll-detail-page";
 import { PayrollPage } from "@/features/salary/payroll-page";
 import { salaryMockResult } from "@/features/salary/salary-mock-data";
+import type { SalaryResult } from "@/features/salary/salary-types";
 
 describe("payroll pages", () => {
   it("does not expose fixture payroll to an unbound real identity", () => {
@@ -17,6 +18,49 @@ describe("payroll pages", () => {
 
     expect(screen.getByText("当前账号没有可显示的真实薪资数据。" )).toBeVisible();
     expect(screen.queryByText("林远")).not.toBeInTheDocument();
+  });
+
+  it("renders Supabase payroll for a real identity instead of treating it as fixture data", () => {
+    const realPayroll: SalaryResult = {
+      source: "supabase",
+      data: {
+        departments: [{ id: "dept-real", name: "总经办" }],
+        stats: { totalSalary: 31500, employeeCount: 1, averageSalary: 31500 },
+        records: [{
+          id: "real-payroll-1",
+          employee: {
+            id: unboundExecutiveWorkspaceSession.member.employeeProfileId,
+            employeeNo: "QXY-CEO",
+            displayName: "真实决策人",
+            jobTitle: "董事长",
+            salaryGradeCode: "M6",
+            jobLevel: 6,
+          },
+          department: { id: "dept-real", name: "总经办" },
+          month: "2026-08",
+          baseSalary: 26000,
+          bonus: 8500,
+          deductions: 3000,
+          netSalary: 31500,
+          status: "paid",
+          breakdown: [
+            { label: "部门职级基础工资", amount: 26000, kind: "income" },
+            { label: "项目奖金池分配", amount: 4800, kind: "income" },
+            { label: "扣款", amount: 3000, kind: "deduction" },
+          ],
+          history: [{ month: "2026-08", netSalary: 31500, status: "paid" }],
+        }],
+      },
+    };
+
+    renderWithSpecificWorkspaceSession(
+      <PayrollPage result={realPayroll} />,
+      unboundExecutiveWorkspaceSession,
+    );
+
+    expect(screen.queryByText("当前账号没有可显示的真实薪资数据。")).not.toBeInTheDocument();
+    expect(screen.getAllByText("真实决策人").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("M6 · L6")).toBeVisible();
   });
 
   it("does not expose fixture payslip detail to an unbound real identity", () => {

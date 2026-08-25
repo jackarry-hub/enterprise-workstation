@@ -136,6 +136,25 @@ describe("parseWorkspaceAccess", () => {
     expect(session?.organization.name).toBe("第二个合法组织");
   });
 
+  it("keeps department grade fields in the validated workspace session", () => {
+    const session = parseWorkspaceAccess({
+      ...base,
+      roleCodes: ["employee"],
+      salaryGradeCode: "P6",
+      jobLevel: 6,
+    });
+
+    expect(session?.profile).toMatchObject({
+      departmentName: "AI事业部",
+      salaryGradeCode: "P6",
+      jobLevel: 6,
+    });
+    expect(session?.actor).toMatchObject({
+      salaryGradeCode: "P6",
+      jobLevel: 6,
+    });
+  });
+
   it("returns only the provider-neutral identity summary", () => {
     const session = parseWorkspaceAccess({
       ...base,

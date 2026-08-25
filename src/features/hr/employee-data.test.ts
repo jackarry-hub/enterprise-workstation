@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   filterEmployees,
@@ -8,6 +8,10 @@ import {
 import { employeeDirectoryMockResult } from "@/features/hr/employee-mock-data";
 
 describe("employee directory data", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("keeps the mock directory relationally complete", () => {
     const { departments, employees, stats } = employeeDirectoryMockResult.data;
 
@@ -77,6 +81,18 @@ describe("employee directory data", () => {
       },
       { allowMockFallback: false },
     );
+
+    expect(result.source).toBe("supabase");
+    expect(result.data.employees).toEqual([]);
+    expect(result.data.loadError).toBeTruthy();
+  });
+
+  it("does not use mock employees by default in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+
+    const result = await loadEmployeeDirectory(async () => {
+      throw new Error("Supabase configuration missing");
+    });
 
     expect(result.source).toBe("supabase");
     expect(result.data.employees).toEqual([]);

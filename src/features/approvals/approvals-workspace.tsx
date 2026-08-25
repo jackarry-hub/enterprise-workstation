@@ -23,16 +23,35 @@ import { useOperations } from "@/features/operations/use-operations";
 
 const defaultFilters: ApprovalFilters = { query: "", queue: "all", type: "all" };
 
+function statsFromApprovals(approvals: ApprovalResult["data"]["approvals"]) {
+  return {
+    pending: approvals.filter((approval) => approval.status === "pending").length,
+    initiated: approvals.filter((approval) => approval.initiatedByViewer).length,
+    approved: approvals.filter((approval) => approval.status === "approved").length,
+    rejected: approvals.filter((approval) => approval.status === "rejected").length,
+  };
+}
+
 export function ApprovalsWorkspace({ result }: { result: ApprovalResult }) {
   const session = useWorkspaceSession();
   const { actor } = session;
   const { isFixtureBound } = useOperations(session);
   const [filters, setFilters] = useState(defaultFilters);
-  const visibleApprovals = useMemo(() => !isFixtureBound ? [] : actor.role === "employee"
-    ? result.data.approvals.filter(({ applicant }) => applicant.displayName === actor.name)
-    : actor.role === "finance" ? result.data.approvals.filter(({ type, applicant }) => type === "reimbursement" || type === "purchase" || applicant.displayName === actor.name)
-      : actor.role === "department_head" ? result.data.approvals.filter(({ applicant, owner }) => applicant.department === actor.department || owner.displayName === actor.name) : result.data.approvals, [actor.department, actor.name, actor.role, isFixtureBound, result.data.approvals]);
+  const isSupabaseData = result.source === "supabase";
+  const visibleApprovals = useMemo(() => {
+    if (!isSupabaseData && !isFixtureBound) return [];
+    return actor.role === "employee"
+      ? result.data.approvals.filter((approval) =>
+        isSupabaseData ? approval.initiatedByViewer : approval.applicant.displayName === actor.name,
+      )
+      : actor.role === "finance"
+        ? result.data.approvals.filter(({ type, applicant }) => type === "reimbursement" || type === "purchase" || applicant.displayName === actor.name)
+        : actor.role === "department_head"
+          ? result.data.approvals.filter(({ applicant, owner }) => applicant.department === actor.department || owner.displayName === actor.name)
+          : result.data.approvals;
+  }, [actor.department, actor.name, actor.role, isFixtureBound, isSupabaseData, result.data.approvals]);
   const approvals = useMemo(() => filterApprovals(visibleApprovals, filters), [filters, visibleApprovals]);
+  const stats = useMemo(() => isSupabaseData ? statsFromApprovals(visibleApprovals) : isFixtureBound ? result.data.stats : { pending: 0, initiated: 0, approved: 0, rejected: 0 }, [isFixtureBound, isSupabaseData, result.data.stats, visibleApprovals]);
 
   return (
     <main className="mx-auto flex w-full max-w-420 flex-col gap-4 px-3 pt-5 pb-26 sm:px-4 lg:px-5 lg:pt-9 lg:pb-6">
@@ -42,8 +61,8 @@ export function ApprovalsWorkspace({ result }: { result: ApprovalResult }) {
           <PageHeader title="审批中心" description="高效审批，让企业流程清晰、协作顺畅。" actions={<Badge variant="info" className="h-8 gap-1.5 rounded-xl px-3"><ShieldCheck aria-hidden="true" className="size-3.5" />固定流程 V0.9</Badge>} />
         </div>
       </section>
-      {isFixtureBound ? <OperationalApprovalQueue /> : <RealDataNotice message="当前账号没有可显示的真实审批数据。" />}
-      <ApprovalStats stats={isFixtureBound ? result.data.stats : { pending: 0, initiated: 0, approved: 0, rejected: 0 }} />
+      {isFixtureBound && !isSupabaseData ? <OperationalApprovalQueue /> : isSupabaseData ? <GlassCard className="p-4 text-sm text-muted-foreground"><strong className="text-foreground">真实审批模式：</strong>请假、采购、合同与报账申请从 Supabase 审批表读取；报账金额会进入费用台账，按权限展示。</GlassCard> : <RealDataNotice message="当前账号没有可显示的真实审批数据。" />}
+      <ApprovalStats stats={stats} />
       <section className="grid min-w-0 gap-4 xl:grid-cols-12">
         <GlassCard className="min-w-0 overflow-hidden p-3 sm:p-4 xl:col-span-9">
           <Tabs value={filters.queue} onValueChange={(value) => setFilters({ ...filters, queue: value as ApprovalQueue })}>
@@ -61,7 +80,7 @@ export function ApprovalsWorkspace({ result }: { result: ApprovalResult }) {
             </div>
           </Tabs>
           <section aria-label="审批列表" className="mt-3"><ApprovalList approvals={approvals} /></section>
-          <footer className="mt-3 flex items-center justify-between border-t border-border/60 px-1 pt-3 text-xs text-muted-foreground"><span>当前显示 {approvals.length} 条审批</span><span className="flex items-center gap-1"><Database aria-hidden="true" className="size-3.5" />本地业务记录</span></footer>
+          <footer className="mt-3 flex items-center justify-between border-t border-border/60 px-1 pt-3 text-xs text-muted-foreground"><span>当前显示 {approvals.length} 条审批</span><span className="flex items-center gap-1"><Database aria-hidden="true" className="size-3.5" />{isSupabaseData ? "真实数据库记录" : "本地业务记录"}</span></footer>
         </GlassCard>
         <GlassCard className="min-w-0 p-4 sm:p-5 xl:col-span-3"><ApprovalAside /></GlassCard>
       </section>

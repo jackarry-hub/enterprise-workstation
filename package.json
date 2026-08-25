@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint .",
+    "lint": "node --max-old-space-size=4096 ./node_modules/eslint/bin/eslint.js .",
     "typecheck": "tsc --noEmit",
     "test": "npm run test:unit && npm run test:html",
     "test:unit": "vitest run --exclude \"scripts/phase1/**/*.test.mjs\" --exclude \"scripts/phase2/**/*.test.mjs\" --exclude \"tests/html-*.test.mjs\" --exclude \".worktrees/**\"",

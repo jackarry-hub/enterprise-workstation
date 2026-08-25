@@ -14,6 +14,7 @@ import type {
 } from "@/features/projects/types";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { formatDateInputInTimeZone } from "@/lib/date";
+import { shouldAllowMockBusinessData } from "@/lib/runtime/workstation-mode";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof getSupabaseServerClient>>;
 export type ProjectListClientFactory = () => Promise<SupabaseServerClient>;
@@ -141,7 +142,7 @@ export async function loadProjectList(
   clientFactory: ProjectListClientFactory = getSupabaseServerClient,
   options: { allowMockFallback?: boolean } = {},
 ): Promise<ProjectListResult> {
-  const allowMockFallback = options.allowMockFallback ?? true;
+  const allowMockFallback = options.allowMockFallback ?? shouldAllowMockBusinessData();
 
   try {
     const client = await clientFactory();

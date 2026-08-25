@@ -11,7 +11,7 @@ import type {
   EmploymentType,
 } from "@/features/hr/employee-types";
 export { filterEmployees, getEmployeeDetail } from "@/features/hr/employee-selectors";
-import { hasSupabaseEnv } from "@/lib/supabase/env";
+import { shouldAllowMockBusinessData } from "@/lib/runtime/workstation-mode";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof getSupabaseServerClient>>;
@@ -78,7 +78,7 @@ export async function loadEmployeeDirectory(
   clientFactory: EmployeeDirectoryClientFactory = getSupabaseServerClient,
   options: { allowMockFallback?: boolean } = {},
 ): Promise<EmployeeDirectoryResult> {
-  const allowMockFallback = options.allowMockFallback ?? !hasSupabaseEnv();
+  const allowMockFallback = options.allowMockFallback ?? shouldAllowMockBusinessData();
 
   if (allowMockFallback) {
     return employeeDirectoryMockResult;

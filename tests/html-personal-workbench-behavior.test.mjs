@@ -2474,6 +2474,25 @@ test("makes insight and knowledge utility controls produce visible state changes
   }
 });
 
+test("keeps AI assistant and Agent center visible in formal mode while hiding unfinished demo modules", async () => {
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    formalBootstrap({ permissions: ["task.execute", "payroll.read.self"] }),
+  );
+  try {
+    const navText = dom.window.document.querySelector("#nav").textContent;
+
+    assert.match(navText, /AI 助理/);
+    assert.match(navText, /Agent 中心/);
+    assert.doesNotMatch(navText, /客户与交付/);
+    assert.doesNotMatch(navText, /活动推进/);
+    assert.doesNotMatch(navText, /数据洞察/);
+    assert.doesNotMatch(navText, /知识中心/);
+  } finally {
+    dom.window.close();
+  }
+});
+
 test("opens one authorized UUID task from a formal deep link", async () => {
   const taskId = "11111111-1111-4111-8111-111111111111";
   const dom = await openFormalWorkbench(

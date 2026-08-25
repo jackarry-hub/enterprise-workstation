@@ -13,6 +13,8 @@ export type WorkstationMemberRow = {
   displayName: string;
   departmentName: string;
   jobTitle: string;
+  salaryGradeCode?: string | null;
+  jobLevel?: number | null;
   skills: readonly string[];
   verifiedSkills?: readonly {
     name: string;
@@ -88,11 +90,55 @@ export type WorkstationSalaryRow = {
   paidAt: string | null;
 };
 
+export type WorkstationAgentRow = {
+  id: number;
+  publicId: string;
+  name: string;
+  departmentName: string | null;
+  icon: string;
+  description: string;
+  modelCode: string | null;
+  promptVersion: string;
+  capabilities: readonly string[];
+  visibilityScope: string;
+  minJobLevel: number;
+  allowedDepartmentNames: readonly string[];
+  allowedMemberIds: readonly number[];
+  invocationCount: number;
+  successRate: number;
+  status: string;
+};
+
+export type WorkstationAgentInvocationRow = {
+  agentId: number;
+  agentName: string;
+  departmentName: string | null;
+  actorMemberId: number | null;
+  actorName: string | null;
+  status: string;
+  latencyMs: number | null;
+  outputSummary: string | null;
+  startedAt: string;
+};
+
+export type WorkstationKnowledgeRow = {
+  publicId: string;
+  title: string;
+  category: string;
+  summary: string;
+  tags: readonly string[];
+  version: number;
+  publishedAt: string | null;
+};
+
 type BootstrapRows = {
   members: readonly WorkstationMemberRow[];
   projects: readonly WorkstationProjectRow[];
   tasks: readonly WorkstationTaskRow[];
   salary: readonly WorkstationSalaryRow[];
+  agents?: readonly WorkstationAgentRow[];
+  agentInvocations?: readonly WorkstationAgentInvocationRow[];
+  knowledge?: readonly WorkstationKnowledgeRow[];
 };
 
 const projectStatuses: Record<string, string> = {
@@ -159,6 +205,25 @@ function memberId(value: number | null) {
 
 function month(value: string) {
   return value.slice(0, 7);
+}
+
+function minuteTime(value: string) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) {
+    return value.slice(0, 16).replace("T", " ");
+  }
+  const pad = (part: number) => `${part}`.padStart(2, "0");
+  return [
+    date.getUTCFullYear(),
+    pad(date.getUTCMonth() + 1),
+    pad(date.getUTCDate()),
+  ].join("-")
+    + ` ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
+}
+
+function agentScope(value: string) {
+  if (value === "dept" || value === "list" || value === "all") return value;
+  return "all";
 }
 
 function uniqueSkillNames(member: WorkstationMemberRow) {
@@ -239,6 +304,9 @@ export function buildServerBootstrap(
   const memberRoles = new Map(
     rows.members.map((member) => [member.id, member.jobTitle]),
   );
+  const agentPublicIds = new Map(
+    (rows.agents ?? []).map((agent) => [agent.id, agent.publicId]),
+  );
   const ownMemberId = memberId(session.memberId);
 
   return {
@@ -256,11 +324,12 @@ export function buildServerBootstrap(
         id: memberId(member.id),
         n: member.displayName,
         r: member.jobTitle,
+        grade: member.salaryGradeCode ?? "",
         sk: uniqueSkillNames(member).join(" · "),
         dept: member.departmentName,
         rate: 0,
         cap: Math.max(0.05, Math.round(100 - evidence.workloadPercent) / 100),
-        lv: member.id === session.memberId ? 3 : 2,
+        lv: member.jobLevel ?? (member.id === session.memberId ? 3 : 2),
         workProfile: {
           summary: member.workProfile?.summary ?? "",
           preferredTaskTypes: [...(member.workProfile?.preferredTaskTypes ?? [])],
@@ -334,13 +403,52 @@ export function buildServerBootstrap(
         payDate: salary.paidAt?.slice(0, 10) ?? "",
       }); }),
     },
-    kb: [],
+    kb: (rows.knowledge ?? []).map((document) => ({
+      id: document.publicId,
+      n: document.title,
+      c: document.category,
+      v: `v${document.version}`,
+      l: document.summary.length,
+      sum: document.summary,
+      tags: [...document.tags],
+      publishedAt: document.publishedAt ?? "",
+    })),
     depts: [...new Set(rows.members.map((member) => member.departmentName).filter(Boolean))],
     customers: [],
     activities: [],
     decisions: [],
-    agents: [],
-    runs: [],
+    agents: (rows.agents ?? []).map((agent) => ({
+      id: agent.publicId,
+      n: agent.name,
+      dept: agent.departmentName ?? "企业级",
+      ic: agent.icon || "bot",
+      model: agent.modelCode ?? "",
+      on: agent.status === "enabled" ? 1 : 0,
+      runs: Number(agent.invocationCount),
+      ok: Number(agent.successRate),
+      scope: agentScope(agent.visibilityScope),
+      minLv: agent.minJobLevel,
+      grant: agent.allowedMemberIds.map(memberId),
+      depts: [...agent.allowedDepartmentNames],
+      d: agent.description,
+      sys: "企业内部 Agent，由权限和职级统一管理。",
+      f: [
+        { k: "input", n: "输入目标或任务", t: "ta" },
+        { k: "context", n: "补充上下文（可选）", t: "ta" },
+      ],
+      abilities: [...agent.capabilities],
+      promptVersion: agent.promptVersion,
+    })),
+    runs: (rows.agentInvocations ?? []).map((run) => ({
+      id: agentPublicIds.get(run.agentId) ?? "",
+      n: run.agentName,
+      dept: run.departmentName ?? "企业级",
+      by: run.actorName ?? memberId(run.actorMemberId),
+      at: minuteTime(run.startedAt),
+      ok: run.status === "succeeded" ? 1 : 0,
+      ms: run.latencyMs ?? 0,
+      out: run.outputSummary ?? "",
+    })).filter((run) => run.id),
     reqs: [],
     appr: [],
     features: { identitySwitch: false, demoReset: false },

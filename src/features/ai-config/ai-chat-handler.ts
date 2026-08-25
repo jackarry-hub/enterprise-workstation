@@ -9,6 +9,21 @@ type AiChatDeps = {
   encryptionKey: Uint8Array;
   fetchImpl?: typeof fetch;
   consumeRateLimit?: (key: string) => boolean;
+  recordAgentInvocation?: (payload: AgentInvocationLogPayload) => Promise<void>;
+};
+
+export type AgentInvocationLogPayload = {
+  agentPublicId: string;
+  actorMemberId: number;
+  modelCode: string;
+  promptVersion: string;
+  status: "succeeded" | "failed";
+  inputSummary: string;
+  outputSummary: string;
+  inputTokens: number;
+  outputTokens: number;
+  latencyMs: number;
+  errorCode: string;
 };
 
 type ChatMessage = {
@@ -17,6 +32,8 @@ type ChatMessage = {
 };
 
 type JsonRecord = Record<string, unknown>;
+type ParseChatRequestResult = Awaited<ReturnType<typeof parseChatRequest>>;
+type ParsedChatRequest = Extract<ParseChatRequestResult, { messages: ChatMessage[] }>;
 
 const limits = new Map<string, { count: number; resetAt: number }>();
 
@@ -29,7 +46,7 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
   if (!consume(limitKey)) return json({ error: "rate_limited" }, 429);
 
   const parsed = await parseChatRequest(request);
-  if (parsed.error) return json({ error: parsed.error }, parsed.status);
+  if ("error" in parsed) return json({ error: parsed.error }, parsed.status);
 
   const config = await deps.store.get(session.tenantId);
   if (!config?.encrypted_api_key || !config.api_key_iv) {
@@ -53,6 +70,7 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
   }
 
   try {
+    const startedAt = Date.now();
     const upstreamBody = JSON.stringify({
       model: config.model_name,
       messages: parsed.messages,
@@ -80,21 +98,59 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
       );
 
       if (upstream.status === 401 || upstream.status === 403) {
+        const recorded = await recordAgentInvocation(deps, session, parsed, config.model_name, {
+          status: "failed",
+          outputSummary: "",
+          latencyMs: Date.now() - startedAt,
+          errorCode: "upstream_auth_failed",
+        });
+        if (!recorded) return json({ error: "agent_invocation_log_failed" }, 500);
         return json({ error: "upstream_auth_failed" }, 502);
       }
-      if (!upstream.ok) return json({ error: "upstream_failed" }, 502);
+      if (!upstream.ok) {
+        const recorded = await recordAgentInvocation(deps, session, parsed, config.model_name, {
+          status: "failed",
+          outputSummary: "",
+          latencyMs: Date.now() - startedAt,
+          errorCode: "upstream_failed",
+        });
+        if (!recorded) return json({ error: "agent_invocation_log_failed" }, 500);
+        return json({ error: "upstream_failed" }, 502);
+      }
 
       let data: unknown;
       try {
         data = await upstream.json();
       } catch {
         if (attempt + 1 < attemptLimit) continue;
+        const recorded = await recordAgentInvocation(deps, session, parsed, config.model_name, {
+          status: "failed",
+          outputSummary: "",
+          latencyMs: Date.now() - startedAt,
+          errorCode: "upstream_invalid_response",
+        });
+        if (!recorded) return json({ error: "agent_invocation_log_failed" }, 500);
         return json({ error: "upstream_invalid_response" }, 502);
       }
       if (!parsed.structuredOutput || isValidStructuredResponse(data)) {
+        const recorded = await recordAgentInvocation(deps, session, parsed, config.model_name, {
+          status: "succeeded",
+          outputSummary: outputSummary(data),
+          usage: usage(data),
+          latencyMs: Date.now() - startedAt,
+          errorCode: "",
+        });
+        if (!recorded) return json({ error: "agent_invocation_log_failed" }, 500);
         return json(data);
       }
     }
+    const recorded = await recordAgentInvocation(deps, session, parsed, config.model_name, {
+      status: "failed",
+      outputSummary: "",
+      latencyMs: Date.now() - startedAt,
+      errorCode: "upstream_invalid_response",
+    });
+    if (!recorded) return json({ error: "agent_invocation_log_failed" }, 500);
     return json({ error: "upstream_invalid_response" }, 502);
   } catch (error) {
     if (
@@ -108,8 +164,22 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
 }
 
 async function parseChatRequest(request: Request): Promise<
-  | { error: string; status: number; messages?: never; maxTokens?: never; structuredOutput?: never }
-  | { messages: ChatMessage[]; maxTokens: number; structuredOutput: boolean; error?: never; status?: never }
+  | {
+      error: string;
+      status: number;
+      messages?: never;
+      maxTokens?: never;
+      structuredOutput?: never;
+      agentPublicId?: never;
+    }
+  | {
+      messages: ChatMessage[];
+      maxTokens: number;
+      structuredOutput: boolean;
+      agentPublicId: string | null;
+      error?: never;
+      status?: never;
+    }
 > {
   const raw = await request.text();
   if (Buffer.byteLength(raw, "utf8") > 65_536) {
@@ -159,10 +229,14 @@ async function parseChatRequest(request: Request): Promise<
   if (body.structured_output !== undefined && typeof body.structured_output !== "boolean") {
     return { error: "invalid_structured_output", status: 400 };
   }
+  if (body.agent_public_id !== undefined && !validPublicUuid(body.agent_public_id)) {
+    return { error: "invalid_agent", status: 400 };
+  }
   return {
     messages,
     maxTokens,
     structuredOutput: body.structured_output === true,
+    agentPublicId: typeof body.agent_public_id === "string" ? body.agent_public_id : null,
   };
 }
 
@@ -191,6 +265,78 @@ function isValidStructuredResponse(value: unknown) {
 
 function validText(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 12_000;
+}
+
+function validPublicUuid(value: unknown): value is string {
+  return typeof value === "string"
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      .test(value);
+}
+
+function compact(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function inputSummary(messages: readonly ChatMessage[]) {
+  return messages.map((message) => compact(message.content))
+    .filter(Boolean)
+    .join("\n")
+    .slice(0, 600);
+}
+
+function outputSummary(value: unknown) {
+  const response = jsonRecord(value);
+  const choices = response?.choices;
+  if (Array.isArray(choices) && choices.length > 0) {
+    const choice = jsonRecord(choices[0]);
+    const message = jsonRecord(choice?.message);
+    if (typeof message?.content === "string") return compact(message.content).slice(0, 600);
+  }
+  return compact(JSON.stringify(value) ?? "").slice(0, 600);
+}
+
+function usage(value: unknown) {
+  const response = jsonRecord(value);
+  const usageRecord = jsonRecord(response?.usage);
+  return {
+    inputTokens: Number(usageRecord?.prompt_tokens ?? 0),
+    outputTokens: Number(usageRecord?.completion_tokens ?? 0),
+  };
+}
+
+async function recordAgentInvocation(
+  deps: AiChatDeps,
+  session: WorkspaceSession,
+  parsed: ParsedChatRequest,
+  modelCode: string,
+  result: {
+    status: AgentInvocationLogPayload["status"];
+    outputSummary: string;
+    usage?: { inputTokens: number; outputTokens: number };
+    latencyMs: number;
+    errorCode: string;
+  },
+) {
+  if (!parsed.agentPublicId) return true;
+  if (!deps.recordAgentInvocation) return false;
+  try {
+    await deps.recordAgentInvocation({
+      agentPublicId: parsed.agentPublicId,
+      actorMemberId: session.member.id,
+      modelCode,
+      promptVersion: "",
+      status: result.status,
+      inputSummary: inputSummary(parsed.messages),
+      outputSummary: result.outputSummary,
+      inputTokens: result.usage?.inputTokens ?? 0,
+      outputTokens: result.usage?.outputTokens ?? 0,
+      latencyMs: result.latencyMs,
+      errorCode: result.errorCode,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function consumeProcessRateLimit(key: string) {

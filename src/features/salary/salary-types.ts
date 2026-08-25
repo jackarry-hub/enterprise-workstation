@@ -5,6 +5,8 @@ export type SalaryEmployee = {
   employeeNo: string;
   displayName: string;
   jobTitle: string;
+  salaryGradeCode?: string;
+  jobLevel?: number;
   avatarUrl?: string;
 };
 

@@ -1,5 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
+import { isDemoAuthEnabled } from "@/lib/runtime/workstation-mode";
+
 export type DemoAuthEnv = {
   username: string;
   password: string;
@@ -11,6 +13,10 @@ const UUID_PATTERN =
   /^(?!00000000-0000-0000-0000-000000000000$)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function getDemoAuthEnv(): DemoAuthEnv {
+  if (!isDemoAuthEnabled()) {
+    throw new Error("演示登录服务端配置缺失：WORKSTATION_DEMO_ENABLED");
+  }
+
   const username = process.env.WORKSTATION_DEMO_USERNAME?.trim() || "admin";
   const password = process.env.WORKSTATION_DEMO_PASSWORD?.trim() || "";
   const tenantId = process.env.WORKSTATION_DEMO_TENANT_ID?.trim() || "";

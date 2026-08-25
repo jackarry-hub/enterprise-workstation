@@ -4,6 +4,7 @@ import { handleAiChat } from "@/features/ai-config/ai-chat-handler";
 import { getAiConfigEnv } from "@/features/ai-config/ai-config-env";
 import { createAiConfigStore } from "@/features/ai-config/ai-config-store";
 import { getWorkspaceApiSession } from "@/features/ai-config/workspace-api-session";
+import { createAgentInvocationRecorder } from "@/features/workstation/agent-invocation-recorder";
 import { getSupabaseEnv } from "@/lib/supabase/env";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,7 @@ export async function POST(request: Request) {
       session,
       encryptionKey,
       store: createAiConfigStore(admin),
+      ...(session ? { recordAgentInvocation: createAgentInvocationRecorder(admin, session) } : {}),
     });
   } catch {
     return Response.json(

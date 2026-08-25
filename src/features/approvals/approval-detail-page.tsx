@@ -33,7 +33,13 @@ function Person({ person }: { person: Approval["applicant"] }) {
   );
 }
 
-export function ApprovalDetailPage({ approval }: { approval: Approval }) {
+export function ApprovalDetailPage({
+  approval,
+  dataSource = "mock",
+}: {
+  approval: Approval;
+  dataSource?: "mock" | "supabase";
+}) {
   const session = useWorkspaceSession();
   const { isFixtureBound } = useOperations(session);
   const [status, setStatus] = useState<ApprovalStatus>(approval.status);
@@ -41,8 +47,9 @@ export function ApprovalDetailPage({ approval }: { approval: Approval }) {
   const [feedback, setFeedback] = useState("");
   const statusMeta = approvalStatusMeta[status];
   const isPending = status === "pending";
+  const isSupabaseData = dataSource === "supabase";
 
-  if (!isFixtureBound) {
+  if (!isSupabaseData && !isFixtureBound) {
     return (
       <RealDataUnavailable
         title="审批数据暂不可用"

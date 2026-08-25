@@ -42,6 +42,8 @@ export type WorkspaceActor = {
   roleLabel: string;
   department: string;
   title: string;
+  salaryGradeCode?: string;
+  jobLevel?: number;
   landingPath: string;
 };
 
@@ -66,6 +68,8 @@ export type WorkspaceSession = {
     avatarUrl: string | null;
     departmentName: string;
     jobTitle: string;
+    salaryGradeCode?: string;
+    jobLevel?: number;
     skills: string[];
   };
   roleCodes: DatabaseRoleCode[];

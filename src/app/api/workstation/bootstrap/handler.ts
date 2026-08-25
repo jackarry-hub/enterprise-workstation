@@ -19,6 +19,43 @@ function relationName(value: unknown) {
     : "未分配部门";
 }
 
+function optionalRelationName(value: unknown) {
+  const relation = Array.isArray(value) ? value[0] : value;
+  return typeof relation === "object" && relation !== null
+    && typeof (relation as { name?: unknown }).name === "string"
+    ? (relation as { name: string }).name
+    : null;
+}
+
+function nestedAgentName(value: unknown) {
+  const relation = Array.isArray(value) ? value[0] : value;
+  return typeof relation === "object" && relation !== null
+    && typeof (relation as { name?: unknown }).name === "string"
+    ? (relation as { name: string }).name
+    : "未知 Agent";
+}
+
+function actorName(value: unknown) {
+  const actor = Array.isArray(value) ? value[0] : value;
+  if (typeof actor !== "object" || actor === null) return null;
+  const profile = Array.isArray((actor as { profile?: unknown }).profile)
+    ? (actor as { profile?: unknown[] }).profile?.[0]
+    : (actor as { profile?: unknown }).profile;
+  if (typeof profile === "object" && profile !== null
+    && typeof (profile as { display_name?: unknown }).display_name === "string") {
+    return (profile as { display_name: string }).display_name;
+  }
+  return null;
+}
+
+function actorMemberId(value: unknown) {
+  const actor = Array.isArray(value) ? value[0] : value;
+  return typeof actor === "object" && actor !== null
+    && Number.isSafeInteger((actor as { id?: unknown }).id)
+    ? Number((actor as { id: number }).id)
+    : null;
+}
+
 export function numericProfileIdForMember(
   rows: readonly { id: unknown; organization_member_id: unknown }[],
   memberId: number,
@@ -35,7 +72,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
   async loadBootstrap(session) {
     const client = await getSupabaseServerClient();
     const membersResult = await client.from("employee_profiles")
-      .select("id, organization_member_id, display_name, job_title, skills, department:departments!employee_profiles_department_id_fkey(name)")
+      .select("id, organization_member_id, display_name, job_title, salary_grade_code, job_level, skills, department:departments!employee_profiles_department_id_fkey(name)")
       .is("deleted_at", null)
       .in("employment_status", ["probation", "active", "on_leave"])
       .order("display_name");
@@ -52,6 +89,10 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       notificationsResult,
       workProfilesResult,
       employeeSkillsResult,
+      agentsResult,
+      agentPermissionsResult,
+      agentInvocationsResult,
+      knowledgeResult,
     ] = await Promise.all([
       client.from("projects")
         .select("id, public_id, name, owner_member_id, status, health, progress, priority, updated_at")
@@ -72,6 +113,23 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
         .select("employee_profile_id, summary, preferred_task_types, growth_goals, weekly_capacity_hours, self_skills, updated_at"),
       client.from("employee_skills")
         .select("employee_profile_id, proficiency_level, years_experience, verification_status, skill:skill_tags(name)"),
+      client.from("agent_definitions")
+        .select("id, public_id, name, icon, description, model_code, prompt_version, capabilities, visibility_scope, min_job_level, status, department:departments!agent_definitions_department_id_fkey(name)")
+        .is("deleted_at", null)
+        .in("status", ["enabled", "disabled"])
+        .order("updated_at", { ascending: false }),
+      client.from("agent_permissions")
+        .select("agent_id, scope_type, min_job_level, department:departments!agent_permissions_department_id_fkey(name), member_id")
+        .is("deleted_at", null),
+      client.from("agent_invocations")
+        .select("agent_id, status, latency_ms, output_summary, started_at, agent:agent_definitions!agent_invocations_agent_id_fkey(name, department:departments!agent_definitions_department_id_fkey(name)), actor:organization_members!agent_invocations_actor_member_id_fkey(id, profile:employee_profiles!employee_profiles_organization_member_id_fkey(display_name))")
+        .order("started_at", { ascending: false })
+        .limit(40),
+      client.from("knowledge_documents")
+        .select("public_id, title, summary, category, tags, version, published_at")
+        .eq("status", "published")
+        .order("updated_at", { ascending: false })
+        .limit(30),
     ]);
 
     const failed = [
@@ -81,6 +139,10 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       notificationsResult,
       workProfilesResult,
       employeeSkillsResult,
+      agentsResult,
+      agentPermissionsResult,
+      agentInvocationsResult,
+      knowledgeResult,
     ]
       .find((result) => result.error);
     if (failed?.error) throw failed.error;
@@ -130,6 +192,45 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       });
       verifiedSkillsByEmployee.set(row.employee_profile_id, rows);
     }
+    const permissionsByAgent = new Map<number, {
+      scope: string;
+      minJobLevel: number;
+      departments: string[];
+      memberIds: number[];
+    }>();
+    for (const row of agentPermissionsResult.data ?? []) {
+      const previous = permissionsByAgent.get(row.agent_id) ?? {
+        scope: "all",
+        minJobLevel: Number(row.min_job_level ?? 1),
+        departments: [],
+        memberIds: [],
+      };
+      previous.minJobLevel = Math.min(previous.minJobLevel, Number(row.min_job_level ?? 1));
+      if (row.scope_type === "dept") {
+        previous.scope = previous.scope === "all" ? "dept" : "list";
+        const departmentName = optionalRelationName(row.department);
+        if (departmentName && !previous.departments.includes(departmentName)) {
+          previous.departments.push(departmentName);
+        }
+      } else if (row.scope_type === "member") {
+        if (Number.isSafeInteger(row.member_id) && Number(row.member_id) > 0) {
+          previous.memberIds.push(Number(row.member_id));
+        }
+      } else if (row.scope_type === "role") {
+        previous.scope = previous.scope === "all" ? "list" : previous.scope;
+      } else {
+        previous.scope = "all";
+      }
+      permissionsByAgent.set(row.agent_id, previous);
+    }
+
+    const invocationsByAgent = new Map<number, { total: number; succeeded: number }>();
+    for (const row of agentInvocationsResult.data ?? []) {
+      const current = invocationsByAgent.get(row.agent_id) ?? { total: 0, succeeded: 0 };
+      current.total += 1;
+      if (row.status === "succeeded") current.succeeded += 1;
+      invocationsByAgent.set(row.agent_id, current);
+    }
 
     return buildServerBootstrap(
       {
@@ -147,6 +248,8 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
           displayName: row.display_name,
           departmentName: relationName(row.department),
           jobTitle: row.job_title,
+          salaryGradeCode: row.salary_grade_code,
+          jobLevel: row.job_level == null ? null : Number(row.job_level),
           skills: row.skills ?? [],
           verifiedSkills: verifiedSkillsByEmployee.get(row.id) ?? [],
           workProfile: workProfileByEmployee.get(row.id) ?? null,
@@ -207,6 +310,56 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
           netSalary: Number(row.net_salary),
           status: row.status,
           paidAt: row.paid_at,
+        })),
+        agents: (agentsResult.data ?? []).map((row) => {
+          const permission = permissionsByAgent.get(row.id);
+          const stats = invocationsByAgent.get(row.id);
+          return {
+            id: row.id,
+            publicId: row.public_id,
+            name: row.name,
+            departmentName: optionalRelationName(row.department),
+            icon: row.icon,
+            description: row.description,
+            modelCode: row.model_code,
+            promptVersion: row.prompt_version,
+            capabilities: Array.isArray(row.capabilities)
+              ? row.capabilities.filter((item): item is string => typeof item === "string")
+              : [],
+            visibilityScope: permission?.scope ?? row.visibility_scope,
+            minJobLevel: permission?.minJobLevel ?? Number(row.min_job_level),
+            allowedDepartmentNames: permission?.departments ?? [],
+            allowedMemberIds: permission?.memberIds ?? [],
+            invocationCount: stats?.total ?? 0,
+            successRate: stats?.total
+              ? Math.round((stats.succeeded / stats.total) * 1000) / 10
+              : 100,
+            status: row.status,
+          };
+        }),
+        agentInvocations: (agentInvocationsResult.data ?? []).map((row) => ({
+          agentId: row.agent_id,
+          agentName: nestedAgentName(row.agent),
+          departmentName: typeof row.agent === "object" && row.agent !== null
+            ? optionalRelationName((row.agent as { department?: unknown }).department)
+            : null,
+          actorMemberId: actorMemberId(row.actor),
+          actorName: actorName(row.actor),
+          status: row.status,
+          latencyMs: row.latency_ms === null ? null : Number(row.latency_ms),
+          outputSummary: row.output_summary,
+          startedAt: row.started_at,
+        })),
+        knowledge: (knowledgeResult.data ?? []).map((row) => ({
+          publicId: row.public_id,
+          title: row.title,
+          category: row.category,
+          summary: row.summary,
+          tags: Array.isArray(row.tags)
+            ? row.tags.filter((item): item is string => typeof item === "string")
+            : [],
+          version: Number(row.version),
+          publishedAt: row.published_at,
         })),
       },
     );

@@ -3,18 +3,20 @@ import type { Metadata } from "next";
 import { ApprovalsPage } from "@/features/approvals/approvals-page";
 import type { ApprovalResult } from "@/features/approvals/approval-types";
 import { requireWorkspaceSession } from "@/features/auth/workspace-session";
-import {
-  createOperationFixtureContext,
-  type WorkspaceIdentityContext,
-} from "@/features/operations/operation-actor-compat";
+import { createOperationFixtureContext } from "@/features/operations/operation-actor-compat";
+import { hasSupabaseEnv } from "@/lib/supabase/env";
 
 export const metadata: Metadata = { title: "审批中心 | 企业工作站" };
 
 export default async function ApprovalsRoute() {
   const session = await requireWorkspaceSession();
-  const identityContext: WorkspaceIdentityContext =
-    createOperationFixtureContext(session);
-  if (!identityContext.actor) {
+  const fixtureContext = createOperationFixtureContext(session);
+  const { loadApprovals } = await import("@/features/approvals/approval-data");
+  if (fixtureContext.actor) {
+    const result = await loadApprovals();
+    return <ApprovalsPage result={result} />;
+  }
+  if (!hasSupabaseEnv()) {
     const result: ApprovalResult = {
       source: "supabase",
       data: {
@@ -24,8 +26,9 @@ export default async function ApprovalsRoute() {
     };
     return <ApprovalsPage result={result} />;
   }
-
-  const { loadApprovals } = await import("@/features/approvals/approval-data");
-  const result = await loadApprovals();
+  const result = await loadApprovals(undefined, {
+    allowMockFallback: false,
+    viewerEmployeeProfileId: session.member.employeeProfileId,
+  });
   return <ApprovalsPage result={result} />;
 }

@@ -211,6 +211,65 @@ describe("handleAiChat", () => {
     });
   });
 
+  it("records authenticated agent invocations after a successful model call", async () => {
+    const record = await configuredRecord();
+    const recorded: unknown[] = [];
+    const response = await handleAiChat(request({
+      agent_public_id: "33333333-3333-4333-8333-333333333333",
+      system: "你是任务拆解 Agent",
+      messages: [{ role: "user", content: "把官网项目拆成任务" }],
+      max_tokens: 900,
+    }), {
+      session: executiveWorkspaceSession,
+      encryptionKey,
+      store: { get: async () => record },
+      fetchImpl: async () => Response.json({
+        choices: [{ message: { content: "已生成任务拆解方案" } }],
+      }),
+      consumeRateLimit: () => true,
+      recordAgentInvocation: async (payload) => {
+        recorded.push(payload);
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(recorded).toEqual([
+      expect.objectContaining({
+        agentPublicId: "33333333-3333-4333-8333-333333333333",
+        actorMemberId: executiveWorkspaceSession.member.id,
+        modelCode: "deepseek-chat",
+        status: "succeeded",
+        inputSummary: "你是任务拆解 Agent\n把官网项目拆成任务",
+        outputSummary: "已生成任务拆解方案",
+        errorCode: "",
+      }),
+    ]);
+  });
+
+  it("fails closed when an agent invocation cannot be recorded", async () => {
+    const record = await configuredRecord();
+    const response = await handleAiChat(request({
+      agent_public_id: "33333333-3333-4333-8333-333333333333",
+      messages: [{ role: "user", content: "运行 Agent" }],
+    }), {
+      session: executiveWorkspaceSession,
+      encryptionKey,
+      store: { get: async () => record },
+      fetchImpl: async () => Response.json({
+        choices: [{ message: { content: "完成" } }],
+      }),
+      consumeRateLimit: () => true,
+      recordAgentInvocation: async () => {
+        throw new Error("database down");
+      },
+    });
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "agent_invocation_log_failed",
+    });
+  });
+
   it("returns one stable error after two malformed or truncated structured responses", async () => {
     const record = await configuredRecord();
     let call = 0;

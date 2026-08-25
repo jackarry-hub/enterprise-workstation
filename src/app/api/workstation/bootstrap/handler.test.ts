@@ -18,6 +18,7 @@ function query(result: { data: unknown[]; error: unknown }) {
     in: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
     order: vi.fn().mockReturnThis(),
+    limit: vi.fn().mockReturnThis(),
     then: <TResult1 = typeof result, TResult2 = never>(
       onfulfilled?: ((value: typeof result) => TResult1 | PromiseLike<TResult1>) | null,
       onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
@@ -175,6 +176,65 @@ describe("workstation bootstrap route", () => {
       }],
       error: null,
     });
+    const agents = query({
+      data: [{
+        id: 91,
+        public_id: "44444444-4444-4444-8444-444444444444",
+        name: "任务拆解 Agent",
+        icon: "check",
+        description: "拆成任务和验收标准",
+        model_code: "deepseek-v4-flash",
+        prompt_version: "v1",
+        capabilities: ["目标拆解", "验收标准"],
+        visibility_scope: "all",
+        min_job_level: 1,
+        status: "enabled",
+        department: { name: "产品中心" },
+      }],
+      error: null,
+    });
+    const agentPermissions = query({
+      data: [
+        {
+          agent_id: 91,
+          scope_type: "all",
+          min_job_level: 1,
+          department: null,
+          member_id: null,
+        },
+      ],
+      error: null,
+    });
+    const agentInvocations = query({
+      data: [{
+        agent_id: 91,
+        status: "succeeded",
+        latency_ms: 930,
+        output_summary: "已生成 4 个任务",
+        started_at: "2026-08-25T03:20:00.000Z",
+        agent: {
+          name: "任务拆解 Agent",
+          department: { name: "产品中心" },
+        },
+        actor: {
+          id: 7,
+          profile: [{ display_name: "张云帆" }],
+        },
+      }],
+      error: null,
+    });
+    const knowledge = query({
+      data: [{
+        public_id: "55555555-5555-4555-8555-555555555555",
+        title: "项目交付验收规范",
+        summary: "验收标准、交付材料和签字规则",
+        category: "SOP模板",
+        tags: ["项目管理"],
+        version: 3,
+        published_at: "2026-08-22T06:00:00.000Z",
+      }],
+      error: null,
+    });
     const builders = {
       members,
       projects,
@@ -183,6 +243,10 @@ describe("workstation bootstrap route", () => {
       notifications,
       workProfiles,
       employeeSkills,
+      agents,
+      agentPermissions,
+      agentInvocations,
+      knowledge,
     };
     const client = {
       from: vi.fn((table: string) => {
@@ -193,6 +257,10 @@ describe("workstation bootstrap route", () => {
         if (table === "task_notifications") return builders.notifications;
         if (table === "employee_work_profiles") return builders.workProfiles;
         if (table === "employee_skills") return builders.employeeSkills;
+        if (table === "agent_definitions") return builders.agents;
+        if (table === "agent_permissions") return builders.agentPermissions;
+        if (table === "agent_invocations") return builders.agentInvocations;
+        if (table === "knowledge_documents") return builders.knowledge;
         throw new Error(`unexpected table ${table}`);
       }),
     };
@@ -215,9 +283,17 @@ describe("workstation bootstrap route", () => {
     expect(client.from).toHaveBeenCalledWith("task_notifications");
     expect(client.from).toHaveBeenCalledWith("employee_work_profiles");
     expect(client.from).toHaveBeenCalledWith("employee_skills");
+    expect(client.from).toHaveBeenCalledWith("agent_definitions");
+    expect(client.from).toHaveBeenCalledWith("agent_permissions");
+    expect(client.from).toHaveBeenCalledWith("agent_invocations");
+    expect(client.from).toHaveBeenCalledWith("knowledge_documents");
     expect(notifications.select).toHaveBeenCalledWith(
       "task_id, status, last_error_code",
     );
+    expect(agents.select).toHaveBeenCalledWith(expect.stringContaining("public_id"));
+    expect(agentPermissions.select).toHaveBeenCalledWith(expect.stringContaining("scope_type"));
+    expect(agentInvocations.select).toHaveBeenCalledWith(expect.stringContaining("output_summary"));
+    expect(knowledge.select).toHaveBeenCalledWith(expect.stringContaining("public_id"));
     expect(tasks.select).toHaveBeenCalledWith(expect.stringContaining("id, public_id"));
     expect(bootstrap.tasks[0].notification).toEqual({
       status: "failed",
@@ -239,6 +315,30 @@ describe("workstation bootstrap route", () => {
         verified: true,
       }],
       selfSkills: [{ name: "客户访谈", level: 4 }],
+    });
+    expect(bootstrap).toMatchObject({
+      agents: [
+        expect.objectContaining({
+          n: "任务拆解 Agent",
+          dept: "产品中心",
+          runs: 1,
+          ok: 100,
+        }),
+      ],
+      runs: [
+        expect.objectContaining({
+          n: "任务拆解 Agent",
+          by: "张云帆",
+          out: "已生成 4 个任务",
+        }),
+      ],
+      kb: [
+        expect.objectContaining({
+          n: "项目交付验收规范",
+          c: "SOP模板",
+          v: "v3",
+        }),
+      ],
     });
     expect(JSON.stringify(bootstrap)).not.toMatch(
       /task_id|9001|9002|open_id|tenant_access_token|app_secret|raw provider response/i,

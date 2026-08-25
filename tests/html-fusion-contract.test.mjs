@@ -151,6 +151,14 @@ test("keeps model credentials on the server and makes key updates write only", a
   assert.match(html, /更新时间/);
 });
 
+test("persists agent center runs through the server-side AI audit path", async () => {
+  const html = await readFusionHtml();
+
+  assert.match(html, /agent_public_id:a\.id/);
+  assert.match(html, /fetch\('\/api\/ai\/chat'/);
+  assert.doesNotMatch(html, /localStorage\.setItem\(QXY_DEMO_DATA_KEY[\s\S]{0,120}agent_public_id/);
+});
+
 test("deploys the exact fused workstation HTML through the Next public directory", async () => {
   const [source, deployed] = await Promise.all([
     readFile(outputPath),
@@ -250,6 +258,14 @@ test("keeps the mobile personal workbench intentionally minimal", async () => {
   assert.match(html, /\.me-task-list \.hd h3\s*\{[^}]*display:\s*none/s);
   assert.match(html, /\.me-reminders button>\.tag\s*\{[^}]*display:\s*none/s);
   assert.match(html, /\.top \.search,\.top \.quick-create\s*\{[^}]*display:\s*none/s);
+});
+
+test("keeps narrow workstation headings horizontal instead of vertical", async () => {
+  const html = await readFusionHtml();
+
+  assert.match(html, /\.top \.ttl h1\s*\{[^}]*white-space:\s*nowrap/s);
+  assert.match(html, /\.top \.ttl h1\s*\{[^}]*word-break:\s*keep-all/s);
+  assert.match(html, /@media \(max-width:1100px\)[\s\S]*?\.top\s*\{[^}]*flex-wrap:\s*wrap/s);
 });
 
 test("uses clear scoped employee copy and accessible shell controls", async () => {

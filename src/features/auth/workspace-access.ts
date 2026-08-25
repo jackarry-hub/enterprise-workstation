@@ -75,6 +75,7 @@ const workspacePermissions = new Set<WorkspacePermissionCode>([
 const UUID_PATTERN =
   /^(?!00000000-0000-0000-0000-000000000000$)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
+const SALARY_GRADE_PATTERN = /^[A-Z][A-Z0-9]{1,11}$/;
 
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -133,6 +134,25 @@ function skillArray(value: unknown): string[] | null {
   return skills;
 }
 
+function optionalSalaryGradeCode(value: unknown): string | undefined | null {
+  if (value === undefined || value === null) return undefined;
+  if (
+    typeof value !== "string" ||
+    value !== value.trim() ||
+    !SALARY_GRADE_PATTERN.test(value)
+  ) {
+    return null;
+  }
+  return value;
+}
+
+function optionalJobLevel(value: unknown): number | undefined | null {
+  if (value === undefined || value === null) return undefined;
+  return Number.isSafeInteger(value) && (value as number) >= 1 && (value as number) <= 20
+    ? value as number
+    : null;
+}
+
 export function parseWorkspaceAccess(value: unknown): WorkspaceSession | null {
   const raw = record(value);
   if (!raw) return null;
@@ -164,7 +184,9 @@ export function parseWorkspaceAccess(value: unknown): WorkspaceSession | null {
   const roleCodes = enumArray(raw.roleCodes, databaseRoles);
   const permissionCodes = enumArray(raw.permissionCodes, workspacePermissions);
   const skills = skillArray(raw.skills);
-  if (!roleCodes || !permissionCodes || !skills) return null;
+  const salaryGradeCode = optionalSalaryGradeCode(raw.salaryGradeCode);
+  const jobLevel = optionalJobLevel(raw.jobLevel);
+  if (!roleCodes || !permissionCodes || !skills || salaryGradeCode === null || jobLevel === null) return null;
 
   const databaseRole = rolePriority.find((role) => roleCodes.includes(role));
   if (!databaseRole) return null;
@@ -179,6 +201,8 @@ export function parseWorkspaceAccess(value: unknown): WorkspaceSession | null {
     roleLabel: roleLabels[primaryRole],
     department: raw.departmentName,
     title: raw.jobTitle,
+    salaryGradeCode,
+    jobLevel,
     landingPath,
   };
 
@@ -201,6 +225,8 @@ export function parseWorkspaceAccess(value: unknown): WorkspaceSession | null {
       avatarUrl: raw.avatarUrl,
       departmentName: raw.departmentName,
       jobTitle: raw.jobTitle,
+      salaryGradeCode,
+      jobLevel,
       skills,
     },
     roleCodes,
