@@ -105,9 +105,13 @@ async function openFormalWorkbench(url, bootstrap, adapterOverrides = {}, fetchO
     reopenTask: async () => null,
     saveWorkProfile: async () => null,
     syncDirectory: async () => ({}),
+    createProject: async () => null,
     createTask: async () => null,
     createTasks: async () => [],
     retryTaskNotification: async () => ({ status: "sent", errorCode: "" }),
+    loadPayrollPolicy: async () => ({ active: null, history: [] }),
+    savePayrollPolicy: async () => ({}),
+    previewPayroll: async () => ({}),
     savePayroll: async () => ({}),
     ...adapterOverrides,
   };
@@ -146,11 +150,467 @@ async function openFormalWorkbench(url, bootstrap, adapterOverrides = {}, fetchO
   return dom;
 }
 
+async function openFormalWorkbenchWithStorage(url, bootstrap, seedStorage = {}, adapterOverrides = {}, fetchOverride) {
+  const html = await readRealModeHtml();
+  const tasks = bootstrap.tasks || [];
+  const projects = bootstrap.projects || [];
+  const session = bootstrap.session;
+  const adapter = {
+    ready: async () => bootstrap,
+    getSession: () => session,
+    loadBootstrap: () => bootstrap,
+    loadMyDashboard: (memberId) => ({
+      tasks: tasks.filter((task) => task.own === memberId),
+      must: tasks.filter((task) => task.own === memberId),
+      projects,
+      payroll: null,
+      reminders: [],
+    }),
+    listMyTasks: (memberId) => tasks.filter((task) => task.own === memberId),
+    loadMyTask: (memberId, taskId) => tasks.find((task) => task.id === taskId && task.own === memberId) || null,
+    listMyProjects: () => projects,
+    loadPayroll: () => [],
+    saveTask: async () => null,
+    claimTask: async () => null,
+    updateTaskExecution: async () => null,
+    submitTaskResult: async () => null,
+    reviewTaskResult: async () => null,
+    reopenTask: async () => null,
+    saveWorkProfile: async () => null,
+    syncDirectory: async () => ({}),
+    createProject: async () => null,
+    createTask: async () => null,
+    createTasks: async () => [],
+    retryTaskNotification: async () => ({ status: "sent", errorCode: "" }),
+    loadPayrollPolicy: async () => ({ active: null, history: [] }),
+    savePayrollPolicy: async () => ({}),
+    previewPayroll: async () => ({}),
+    savePayroll: async () => ({}),
+    ...adapterOverrides,
+  };
+  const dom = new JSDOM(html, {
+    url,
+    runScripts: "dangerously",
+    pretendToBeVisual: true,
+    beforeParse(window) {
+      window.scrollTo = () => {};
+      window.matchMedia = (query) => ({
+        matches: false,
+        media: query,
+        addEventListener() {},
+        removeEventListener() {},
+        addListener() {},
+        removeListener() {},
+      });
+      for (const [key, value] of Object.entries(seedStorage)) {
+        window.localStorage.setItem(key, value);
+      }
+      window.QUANTXY_WORKSTATION_RUNTIME = { authMode: "feishu", dataMode: "server" };
+      window.QUANTXY_WORKSTATION_SERVER_ADAPTER = adapter;
+      window.fetch = async (requestUrl, init) => String(requestUrl) === "/api/ai/config"
+        ? response(true, {
+          provider: "deepseek",
+          apiBaseUrl: "https://api.deepseek.com",
+          model: "deepseek-v4-flash",
+          keyConfigured: false,
+          keyHint: null,
+          updatedAt: null,
+          canManage: true,
+        })
+        : fetchOverride
+          ? fetchOverride(requestUrl, init)
+          : response(false, { error: "unexpected_request" }, 404);
+    },
+  });
+  await waitFor(() => dom.window.Q?.S.me === session.memberId && dom.window.Q.S.aiConfig.loaded);
+  return dom;
+}
+
+test("previews and confirms a server-calculated payroll", async () => {
+  const bootstrap = formalBootstrap({
+    memberId: "m7",
+    permissions: ["task.execute", "salary.self", "salary.manage"],
+  });
+  let saveCalls = 0;
+  let lastSave = null;
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+    {
+      loadPayrollPolicy: async () => ({
+        active: { publicId: "policy-1", effectiveMonth: "2026-01" },
+        history: [],
+      }),
+      previewPayroll: async () => ({
+        employee: { hireDate: "2026-01-15" },
+        policy: { publicId: "policy-1", effectiveMonth: "2026-01" },
+        employmentMonthsYtd: 8,
+        openingRequired: false,
+        calculation: {
+          grossSalary: "25000.00",
+          socialSecurity: "3502.00",
+          individualIncomeTax: "620.00",
+          deductions: "4122.00",
+          netSalary: "20878.00",
+        },
+      }),
+      savePayroll: async (input) => {
+        saveCalls += 1;
+        lastSave = input;
+        return { status: "confirmed" };
+      },
+    },
+  );
+  try {
+    const { S } = dom.window.Q;
+    S.page = "pay-admin";
+    dom.window.Q.render();
+    await waitFor(() => dom.window.document.querySelector('[data-act="payroll-preview"]'));
+    await waitFor(() => S.payrollPolicyLoaded);
+
+    const values = {
+      salaryMember: "m7",
+      salaryMonth: "2026-08",
+      salaryBase: "20000.00",
+      salaryPerformance: "1000.00",
+      salaryProjectBonus: "2000.00",
+      salaryOtherBonus: "2000.00",
+      salaryOtherIncome: "0.00",
+      salarySocialBase: "20000.00",
+      salaryHousingBase: "20000.00",
+      salaryTaxExemptIncome: "0.00",
+      salarySpecialAdditional: "0.00",
+      salaryOtherStatutory: "0.00",
+      salaryTaxRelief: "0.00",
+      salaryOtherDeduction: "0.00",
+      salaryAdjustmentReason: "",
+      salaryNote: "",
+    };
+    for (const [id, value] of Object.entries(values)) {
+      const node = dom.window.document.getElementById(id)
+        || dom.window.document.querySelector(`[data-f="${id}"]`);
+      assert.ok(node, `missing payroll input ${id}`);
+      node.value = value;
+    }
+
+    dom.window.document.querySelector('[data-act="payroll-preview"]').click();
+    await waitFor(() => S.payrollPreview?.calculation?.netSalary === "20878.00");
+    assert.match(dom.window.document.querySelector("#view").textContent, /应发工资.*25,?000\.00/);
+    assert.match(dom.window.document.querySelector("#view").textContent, /实发工资.*20,?878\.00/);
+
+    dom.window.document.querySelector('[data-act="payroll-confirm"]').click();
+    await waitFor(() => saveCalls === 1);
+    await waitFor(() => !S.payrollSaving);
+    assert.equal(lastSave.status, "processing");
+    assert.equal(lastSave.employmentMonthsYtd, undefined);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("payroll admin derives base salary from department and level and frames project bonus as a bonus pool", async () => {
+  const bootstrap = formalBootstrap({
+    memberId: "salary-admin",
+    permissions: ["salary.manage", "salary.self"],
+    primaryRole: "ceo",
+  });
+  bootstrap.members = [
+    { id: "member-product-l3", n: "产品三级", r: "产品经理", dept: "产品中心", lv: 3 },
+    { id: "member-rd-l4", n: "研发四级", r: "算法工程师", dept: "研发中心", lv: 4 },
+    { id: "salary-admin", n: "薪资管理员", r: "CEO", dept: "管理层", lv: 5 },
+  ];
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    const { S } = dom.window.Q;
+    S.page = "pay-admin";
+    S.payrollDraft = null;
+    dom.window.Q.render();
+
+    const firstBasis = dom.window.document.querySelector("[data-salary-basis-card]");
+    assert.equal(firstBasis?.getAttribute("data-dept"), "产品中心");
+    assert.equal(firstBasis?.getAttribute("data-level"), "3");
+    assert.equal(firstBasis?.getAttribute("data-base"), "22000");
+    assert.match(firstBasis.textContent, /部门\+职级|项目奖金池|任务难度|验收质量|效率/);
+    assert.equal(dom.window.document.querySelector("#salaryBase").value, "22000.00");
+    assert.equal(dom.window.document.querySelector("#salaryBase").readOnly, true);
+
+    const select = dom.window.document.querySelector('[data-f="salaryMember"]');
+    select.value = "member-rd-l4";
+    select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+
+    const secondBasis = dom.window.document.querySelector("[data-salary-basis-card]");
+    assert.equal(secondBasis?.getAttribute("data-dept"), "研发中心");
+    assert.equal(secondBasis?.getAttribute("data-level"), "4");
+    assert.equal(secondBasis?.getAttribute("data-base"), "35000");
+    assert.equal(dom.window.document.querySelector("#salaryBase").value, "35000.00");
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("shows a payroll calculation entry only for formal salary managers", async () => {
+  const managerBootstrap = formalBootstrap({
+    memberId: "m7",
+    permissions: ["task.execute", "salary.self", "salary.manage"],
+  });
+  const managerDom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    managerBootstrap,
+  );
+  try {
+    managerDom.window.Q.S.page = "fin";
+    managerDom.window.Q.render();
+    const managerView = managerDom.window.document.querySelector("#view").textContent;
+    assert.match(managerView, /本月薪资核算/);
+    assert.match(managerView, /累计预扣法/);
+    const entry = managerDom.window.document.querySelector('[data-act="go"][data-page="pay-admin"]');
+    assert.ok(entry, "salary manager should get a direct payroll calculation entry");
+    entry.click();
+    assert.equal(managerDom.window.Q.S.page, "pay-admin");
+    assert.match(managerDom.window.document.querySelector("#view").textContent, /工资核算/);
+  } finally {
+    managerDom.window.close();
+  }
+
+  const employeeDom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    formalBootstrap({
+      memberId: "m7",
+      permissions: ["task.execute", "salary.self"],
+    }),
+  );
+  try {
+    employeeDom.window.Q.S.page = "fin";
+    employeeDom.window.Q.render();
+    assert.doesNotMatch(employeeDom.window.document.querySelector("#view").textContent, /本月薪资核算/);
+    assert.equal(employeeDom.window.document.querySelector('[data-act="go"][data-page="pay-admin"]'), null);
+  } finally {
+    employeeDom.window.close();
+  }
+});
+
+test("saving payroll policy draft immediately exposes the activation confirmation", async () => {
+  const bootstrap = formalBootstrap({
+    memberId: "m7",
+    permissions: ["task.execute", "salary.manage"],
+  });
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+    {
+      loadPayrollPolicy: async () => ({ active: null, history: [], draftExample: null }),
+      savePayrollPolicy: async () => ({
+        status: "draft",
+        draftExample: {
+          confirmationHash: "d".repeat(64),
+          sample: {
+            grossSalary: "10000.00",
+            socialSecurity: "1553.00",
+            individualIncomeTax: "103.41",
+            deductions: "1656.41",
+            netSalary: "8343.59",
+          },
+        },
+      }),
+    },
+  );
+  try {
+    const { S } = dom.window.Q;
+    S.page = "set";
+    dom.window.Q.render();
+    await waitFor(() => S.payrollPolicyLoaded);
+    assert.equal(dom.window.document.getElementById("policyExampleConfirmed"), null);
+    dom.window.document.querySelector('[data-act="payroll-policy-save"]').click();
+    await waitFor(() => !!S.payrollPolicyExample);
+    assert.ok(dom.window.document.getElementById("policyExampleConfirmed"));
+    assert.equal(dom.window.document.querySelector('[data-act="payroll-policy-activate"]').disabled, true);
+    const confirm = dom.window.document.getElementById("policyExampleConfirmed");
+    confirm.checked = true;
+    confirm.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    confirm.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    assert.equal(dom.window.document.querySelector('[data-act="payroll-policy-activate"]').disabled, false);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("activates payroll policy only after the example is confirmed", async () => {
+  const bootstrap = formalBootstrap({
+    memberId: "m7",
+    permissions: ["task.execute", "salary.manage"],
+  });
+  let saved = null;
+  const policyResponse = {
+    active: null,
+    history: [{
+      publicId: "policy-draft",
+      status: "draft",
+      effectiveMonth: "2026-08",
+      pensionEmployeeRate: "8",
+      medicalEmployeeRate: "2",
+      medicalEmployeeFixedAmount: "3.00",
+      unemploymentEmployeeRate: "0.5",
+      housingFundEmployeeRate: "7",
+      socialBaseMin: "5000.00",
+      socialBaseMax: "30000.00",
+      housingBaseMin: "5000.00",
+      housingBaseMax: "30000.00",
+    }],
+    draftExample: {
+      confirmationHash: "a".repeat(64),
+      sample: {
+        grossSalary: "10000.00",
+        socialSecurity: "1553.00",
+        individualIncomeTax: "103.41",
+        deductions: "1656.41",
+        netSalary: "8343.59",
+      },
+    },
+  };
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+    {
+      loadPayrollPolicy: async () => policyResponse,
+      savePayrollPolicy: async (input) => {
+        saved = input;
+        return { status: "active" };
+      },
+    },
+  );
+  try {
+    const { S } = dom.window.Q;
+    S.page = "set";
+    dom.window.Q.render();
+    await waitFor(() => S.payrollPolicyLoaded);
+    const activate = dom.window.document.querySelector('[data-act="payroll-policy-activate"]');
+    assert.ok(activate);
+    assert.equal(activate.disabled, true);
+    const confirm = dom.window.document.getElementById("policyExampleConfirmed");
+    confirm.checked = true;
+    confirm.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    confirm.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    assert.equal(dom.window.document.querySelector('[data-act="payroll-policy-activate"]').disabled, false);
+    dom.window.document.querySelector('[data-act="payroll-policy-activate"]').click();
+    await waitFor(() => saved?.action === "activate");
+    assert.equal(saved.exampleConfirmationHash, "a".repeat(64));
+    await waitFor(() => !S.payrollPolicyBusy);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("payroll summary cards open and focus the calculation detail", async () => {
+  const bootstrap = formalBootstrap({
+    memberId: "m7",
+    permissions: ["task.execute", "salary.self"],
+  });
+  bootstrap.payroll = {
+    m7: [{
+      month: "2026-08",
+      base: 100000,
+      performance: 0,
+      projectBonus: 0,
+      otherBonus: 0,
+      otherIncome: 0,
+      pensionEmployee: 0,
+      medicalEmployee: 0,
+      unemploymentEmployee: 0,
+      housingFundEmployee: 0,
+      social: 0,
+      tax: 0,
+      otherDeduction: 0,
+      gross: 100000,
+      deductions: 0,
+      net: 100000,
+      status: "待发放",
+      payDate: "",
+    }],
+  };
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+    { loadPayroll: (memberId) => bootstrap.payroll[memberId] || [] },
+  );
+  try {
+    const { S } = dom.window.Q;
+    S.page = "fin";
+    dom.window.Q.render();
+    let scrolled = false;
+    dom.window.HTMLElement.prototype.scrollIntoView = function scrollIntoView() {
+      if (this.id === "payrollDetailCard") scrolled = true;
+    };
+    await waitFor(() => dom.window.document.querySelector('[data-act="payroll-focus"][data-focus="deductions"]'));
+    dom.window.document.querySelector('[data-act="payroll-focus"][data-focus="deductions"]').click();
+    await waitFor(() => S.f.payFocus === "deductions" && S.payrollDetailsOpen);
+    await waitFor(() => scrolled);
+    assert.match(dom.window.document.querySelector("#view").textContent, /扣款合计明细/);
+    assert.match(dom.window.document.querySelector(".modal")?.textContent || "", /扣款合计明细/);
+    assert.match(dom.window.document.querySelector(".modal")?.textContent || "", /社保公积金/);
+    assert.match(dom.window.document.querySelector(".modal")?.textContent || "", /仅显示当前登录员工本人薪资/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("lets a formal CEO close read-only payroll detail modals without write-interface warnings", async () => {
+  const bootstrap = formalBootstrap({
+    memberId: "m7",
+    permissions: ["task.execute", "salary.self", "salary.manage"],
+  });
+  bootstrap.payroll = {
+    m7: [{
+      month: "2026-08",
+      base: 4000,
+      performance: 0,
+      projectBonus: 500,
+      otherBonus: 0,
+      otherIncome: 0,
+      pensionEmployee: 0,
+      medicalEmployee: 0,
+      unemploymentEmployee: 0,
+      housingFundEmployee: 0,
+      social: 0,
+      tax: 0,
+      otherDeduction: 0,
+      gross: 4000,
+      deductions: 0,
+      net: 4000,
+      status: "待发放",
+      payDate: "",
+    }],
+  };
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+    { loadPayroll: (memberId) => bootstrap.payroll[memberId] || [] },
+  );
+  try {
+    const { S } = dom.window.Q;
+    S.page = "fin";
+    dom.window.Q.render();
+    dom.window.document.querySelector('[data-act="payroll-focus"][data-focus="performance"]').click();
+    await waitFor(() => dom.window.document.querySelector(".modal"));
+    assert.match(dom.window.document.querySelector(".modal").textContent, /绩效奖金明细/);
+
+    dom.window.document.querySelector('[data-act="modal-ok"]').click();
+    await waitFor(() => !dom.window.document.querySelector(".modal"));
+    assert.notEqual(dom.window.document.querySelector("#toast")?.textContent, "真实数据接口未配置");
+    assert.equal(S.confirm, null);
+  } finally {
+    dom.window.close();
+  }
+});
+
 function formalBootstrap({
   memberId = "77777777-7777-4777-8777-777777777777",
   taskId = "11111111-1111-4111-8111-111111111111",
   ownerId = memberId,
   permissions = ["task.execute", "payroll.read.self"],
+  primaryRole = "employee",
   notification = { status: "failed", errorCode: "send_failed" },
 } = {}) {
   const projectId = "22222222-2222-4222-8222-222222222222";
@@ -162,6 +622,7 @@ function formalBootstrap({
       dataMode: "server",
       memberId,
       permissions,
+      primaryRole,
     },
     members: [
       { id: memberId, n: "当前员工", r: "产品经理", dept: "产品中心", lv: 3 },
@@ -203,6 +664,48 @@ test("migrates legacy tasks to the execution schema without losing records", asy
   assert.ok(Array.isArray(task.timeline));
   assert.equal(dom.window.Q.S.tasks.length, 1);
   dom.window.close();
+});
+
+test("allows formal project creation to call the server gateway", async () => {
+  const bootstrap = formalBootstrap({ permissions: ["task.manage"] });
+  let createdInput = null;
+  const createdProject = {
+    id: "33333333-3333-4333-8333-333333333333",
+    n: "AI商业矩阵",
+    own: bootstrap.session.memberId,
+    st: "进行中",
+    cat: "AI研发",
+  };
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+    {
+      createProject: async (input) => {
+        createdInput = input;
+        return createdProject;
+      },
+    },
+  );
+  try {
+    const { S } = dom.window.Q;
+    S.page = "new-project";
+    dom.window.Q.render();
+    dom.window.document.querySelector('[data-f="n"]').value = "AI商业矩阵";
+    dom.window.document.querySelector('[data-f="cat"]').value = "AI研发";
+    dom.window.document.querySelector('[data-f="own"]').value = bootstrap.session.memberId;
+    dom.window.document.querySelector('[data-f="bud"]').value = "10";
+    dom.window.document.querySelector('[data-f="desc"]').value = "建立AI商业化矩阵";
+    dom.window.document.querySelector('[data-act="f-project"]').click();
+
+    await waitFor(() => createdInput);
+    assert.equal(createdInput.name, "AI商业矩阵");
+    assert.equal(createdInput.category, "AI研发");
+    assert.equal(createdInput.ownerMemberId, bootstrap.session.memberId);
+    assert.equal(createdInput.budgetWan, 10);
+    assert.equal(S.page, "proj");
+  } finally {
+    dom.window.close();
+  }
 });
 
 test("seeds identity-scoped payroll with internally consistent totals", async () => {
@@ -599,6 +1102,39 @@ test("routes clickable workbench records to their exact destination", async () =
   }
 });
 
+test("opens the current employee payroll from the compact mobile income entry", async () => {
+  const dom = await openWorkbench();
+  try {
+    dom.window.matchMedia = (query) => ({
+      matches: query === "(max-width:820px)",
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+    });
+    const { S } = dom.window.Q;
+    S.me = "m1";
+    S.page = "me";
+    S.mobileTaskFocus = false;
+    dom.window.Q.render();
+
+    const incomeButton = dom.window.document.querySelector(
+      '.me-mobile-income[data-act="open-income"]',
+    );
+    assert.ok(incomeButton);
+    const month = incomeButton.getAttribute("data-month");
+
+    incomeButton.click();
+
+    assert.equal(S.page, "fin");
+    assert.equal(S.f.payMonth, month);
+    assert.match(dom.window.document.querySelector("#top").textContent, /我的薪酬/);
+  } finally {
+    dom.window.close();
+  }
+});
+
 test("keeps the four mobile destinations fixed while more opens only secondary modules", async () => {
   const dom = await openWorkbench();
   try {
@@ -951,6 +1487,14 @@ test("shows only the selected identity payroll and clears stale month selection"
   const dom = await openWorkbench();
   try {
     const { S, gateway } = dom.window.Q;
+    S.payroll.m1 = [
+      { month: "2026-08", base: 11111, performance: 0, projectBonus: 0, otherBonus: 0, social: 0, tax: 0, otherDeduction: 0, net: 11111, status: "待发放", payDate: "" },
+      { month: "2026-07", base: 22222, performance: 0, projectBonus: 0, otherBonus: 0, social: 0, tax: 0, otherDeduction: 0, net: 22222, status: "已发放", payDate: "2026-07-10" },
+    ];
+    S.payroll.m2 = [
+      { month: "2026-08", base: 33333, performance: 0, projectBonus: 0, otherBonus: 0, social: 0, tax: 0, otherDeduction: 0, net: 33333, status: "待发放", payDate: "" },
+      { month: "2026-07", base: 44444, performance: 0, projectBonus: 0, otherBonus: 0, social: 0, tax: 0, otherDeduction: 0, net: 44444, status: "已发放", payDate: "2026-07-10" },
+    ];
     S.me = "m1";
     S.page = "fin";
     dom.window.Q.render();
@@ -1029,6 +1573,121 @@ test("recomputes displayed payroll totals instead of trusting stored aggregate f
     assert.match(view, new RegExp(expectedDeductions.toLocaleString("zh-CN")));
     assert.match(view, new RegExp(expectedNet.toLocaleString("zh-CN")));
     assert.doesNotMatch(view, /-333/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("shows the current employee calculated payslip without exposing another employee payroll", async () => {
+  const dom = await openWorkbench();
+  try {
+    const { S } = dom.window.Q;
+    S.me = "m1";
+    S.page = "fin";
+    S.payroll.m1 = [{
+      month: "2026-08",
+      base: 20000,
+      performance: 1000,
+      projectBonus: 2000,
+      otherBonus: 1500,
+      otherIncome: 500,
+      pensionEmployee: 1600,
+      medicalEmployee: 400,
+      unemploymentEmployee: 100,
+      housingFundEmployee: 1400,
+      social: 3500,
+      cumulativeTaxableIncome: 120000,
+      tax: 620,
+      otherDeduction: 80,
+      manualAdjustmentReason: "补扣上月餐费",
+      calculationVersion: "cn-cumulative-withholding-v1",
+      status: "已发放",
+      payDate: "2026-09-10",
+    }];
+    S.payroll.m2 = [{
+      month: "2026-08",
+      base: 999999,
+      performance: 0,
+      projectBonus: 0,
+      otherBonus: 0,
+      social: 0,
+      tax: 0,
+      otherDeduction: 0,
+      calculationVersion: "cn-cumulative-withholding-v1",
+    }];
+
+    dom.window.Q.render();
+    const view = dom.window.document.querySelector("#view").textContent;
+    for (const label of [
+      "应发工资",
+      "养老保险",
+      "医疗保险",
+      "失业保险",
+      "住房公积金",
+      "累计应纳税所得额",
+      "本期个人所得税",
+      "扣款合计",
+      "实发工资",
+      "补扣上月餐费",
+    ]) {
+      assert.match(view, new RegExp(label));
+    }
+    assert.doesNotMatch(view, /999,999/);
+    assert.doesNotMatch(view, /data-member-id/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("keeps payroll totals visible and collapses detailed items on compact mobile", async () => {
+  const dom = await openWorkbench();
+  try {
+    dom.window.matchMedia = (query) => ({
+      matches: query === "(max-width:680px)" || query === "(max-width:820px)",
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+    });
+    const { S } = dom.window.Q;
+    S.me = "m1";
+    S.page = "fin";
+    S.payroll.m1 = [{
+      month: "2026-08",
+      base: 20000,
+      performance: 1000,
+      projectBonus: 2000,
+      otherBonus: 2000,
+      pensionEmployee: 1600,
+      medicalEmployee: 400,
+      unemploymentEmployee: 100,
+      housingFundEmployee: 1400,
+      social: 3500,
+      cumulativeTaxableIncome: 120000,
+      tax: 620,
+      otherDeduction: 0,
+      calculationVersion: "cn-cumulative-withholding-v1",
+    }];
+
+    dom.window.Q.render();
+    const view = dom.window.document.querySelector("#view").textContent;
+    assert.match(view, /应发工资/);
+    assert.match(view, /扣款合计/);
+    assert.match(view, /实发工资/);
+    const toggle = dom.window.document.querySelector('[data-act="payroll-details-toggle"]');
+    const details = dom.window.document.querySelector("[data-payroll-details]");
+    assert.ok(toggle);
+    assert.ok(details);
+    assert.equal(toggle.getAttribute("aria-expanded"), "false");
+    assert.equal(details.hidden, true);
+    assert.ok(Number.parseInt(dom.window.getComputedStyle(toggle).minHeight, 10) >= 44);
+
+    toggle.click();
+    const expanded = dom.window.document.querySelector('[data-act="payroll-details-toggle"]');
+    const expandedDetails = dom.window.document.querySelector("[data-payroll-details]");
+    assert.equal(expanded.getAttribute("aria-expanded"), "true");
+    assert.equal(expandedDetails.hidden, false);
   } finally {
     dom.window.close();
   }
@@ -1645,7 +2304,7 @@ test("lets the signed-in employee maintain a concise work profile", async () => 
     dom.window.document.querySelector("#wpTypes").value = "需求分析，跨部门协作";
     dom.window.document.querySelector("#wpGoals").value = "AI产品设计，项目管理";
     dom.window.document.querySelector("#wpCapacity").value = "40";
-    dom.window.document.querySelector("#wpSkills").value = "客户访谈:5，数据分析:3";
+    dom.window.document.querySelector("#wpSkills").value = "客户访谈 5\n数据分析 L3";
     dom.window.document.querySelector('[data-act="save-work-profile"]').click();
 
     await waitFor(() => savedInput && dom.window.document.querySelector("#toast")?.textContent === "工作画像已更新");
@@ -2475,9 +3134,11 @@ test("makes insight and knowledge utility controls produce visible state changes
 });
 
 test("keeps AI assistant and Agent center visible in formal mode while hiding unfinished demo modules", async () => {
+  const bootstrap = formalBootstrap({ permissions: ["task.execute", "payroll.read.self"] });
+  bootstrap.members[0].lv = 1;
   const dom = await openFormalWorkbench(
     "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
-    formalBootstrap({ permissions: ["task.execute", "payroll.read.self"] }),
+    bootstrap,
   );
   try {
     const navText = dom.window.document.querySelector("#nav").textContent;
@@ -2681,6 +3342,474 @@ test("keeps a safe failed notification state when retry rejects", async () => {
       errorCode: "send_failed",
     });
     assert.doesNotMatch(dom.window.document.querySelector("#view").textContent, /provider|raw|send_failed|open_id/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal dashboard leaves finance-owned executive metrics empty instead of showing demo money", async () => {
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    formalBootstrap({ permissions: ["dashboard.read", "project.read"] }),
+  );
+  try {
+    dom.window.Q.S.page = "dash";
+    dom.window.Q.render();
+    const view = dom.window.document.querySelector("#view");
+    assert.equal(view.querySelector("[data-finance-v1-empty]")?.getAttribute("data-state"), "reserved");
+    assert.doesNotMatch(view.textContent, /8,642\.18|1,203\.66|23\.7/);
+    assert.match(view.textContent, /财务|V1|留空/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal AI scheduler shows resource utilization only from real schedule data", async () => {
+  const bootstrap = formalBootstrap({ permissions: ["task.manage"] });
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    const { S } = dom.window.Q;
+    S.page = "sched";
+    S.sch.tasks = null;
+    S.sch.plans = null;
+    dom.window.Q.render();
+    const emptyResource = dom.window.document.querySelector("[data-resource-utilization]");
+    assert.equal(emptyResource?.getAttribute("data-state"), "empty");
+    assert.doesNotMatch(emptyResource?.textContent || "", /88%|65%|62%/);
+
+    const task = {
+      id: "W1",
+      ph: "阶段",
+      n: "完成客户需求访谈",
+      role: "产品经理",
+      skills: ["需求分析"],
+      days: 2,
+      dep: [],
+      pri: "P1",
+      ac: "提交访谈纪要",
+    };
+    S.sch.tasks = [task];
+    S.sch.plans = dom.window.Q.makePlans([task]);
+    S.sch.pick = "A";
+    dom.window.Q.render();
+    const resource = dom.window.document.querySelector("[data-resource-utilization]");
+    assert.equal(resource?.getAttribute("data-state"), "calculated");
+    assert.doesNotMatch(resource?.textContent || "", /88%|65%|62%/);
+    assert.match(resource?.textContent || "", /投入人力|项目工期|关键路径任务/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("AI assignment keeps recommendations but allows a manager to manually override with an audit hint", async () => {
+  const bootstrap = formalBootstrap({ permissions: ["task.manage"] });
+  bootstrap.members = [
+    { id: "member-ai", n: "AI推荐员工", r: "产品经理", dept: "产品中心", cap: 0.9, sk: "需求分析", workProfile: { verifiedSkills: [{ name: "需求分析", level: 5 }] } },
+    { id: "member-manual", n: "人工指定员工", r: "产品经理", dept: "产品中心", cap: 0.5, sk: "需求分析", workProfile: { verifiedSkills: [{ name: "需求分析", level: 3 }] } },
+  ];
+  bootstrap.session.memberId = "member-ai";
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    const task = {
+      id: "W1",
+      ph: "阶段",
+      n: "完成需求分析",
+      role: "产品经理",
+      skills: ["需求分析"],
+      days: 2,
+      dep: [],
+      pri: "P1",
+      ac: "提交需求说明",
+    };
+    const plans = dom.window.Q.makePlans([task]);
+    dom.window.Q.S.page = "sched";
+    dom.window.Q.S.sch.tasks = [task];
+    dom.window.Q.S.sch.plans = plans;
+    dom.window.Q.S.sch.pick = "A";
+    dom.window.Q.render();
+
+    const select = dom.window.document.querySelector('[data-act="assign-member"][data-task-id="W1"]');
+    assert.ok(select, "assignment should expose a manual override control");
+    assert.equal(plans[0].map.W1.own, "member-ai");
+    select.value = "member-manual";
+    select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    assert.equal(dom.window.Q.S.sch.plans[0].map.W1.own, "member-manual");
+    assert.equal(dom.window.Q.S.sch.plans[0].map.W1.manual, true);
+    assert.match(dom.window.document.querySelector("#view").textContent, /人工改派|AI 推荐/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal assistant does not pretend chat history is interactive before conversation storage exists", async () => {
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    formalBootstrap(),
+  );
+  try {
+    dom.window.Q.S.page = "assistant";
+    dom.window.Q.render();
+    const history = dom.window.document.querySelector("[data-ai-chat-history]");
+    assert.equal(history?.getAttribute("data-state"), "pending-storage");
+    assert.equal(history.querySelectorAll("button[data-chat-session]").length, 0);
+    assert.match(history.textContent, /会话功能待接入|不会保存历史会话/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal route and unfinished form draft survive a refresh", async () => {
+  const bootstrap = formalBootstrap({ permissions: ["project.read", "project.manage"] });
+  const first = await openFormalWorkbenchWithStorage(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  let storage = {};
+  try {
+    first.window.Q.S.page = "new-project";
+    first.window.Q.render();
+    const name = first.window.document.querySelector('[data-f="n"]');
+    name.value = "刷新后仍保留的项目";
+    name.dispatchEvent(new first.window.Event("input", { bubbles: true }));
+    const desc = first.window.document.querySelector('[data-f="desc"]');
+    desc.value = "刷新后继续填写";
+    desc.dispatchEvent(new first.window.Event("input", { bubbles: true }));
+    storage = {
+      "qxy.workstation.ui.v1": first.window.localStorage.getItem("qxy.workstation.ui.v1"),
+    };
+    assert.ok(storage["qxy.workstation.ui.v1"], "route and draft should be saved to localStorage");
+  } finally {
+    first.window.close();
+  }
+
+  const second = await openFormalWorkbenchWithStorage(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+    storage,
+  );
+  try {
+    assert.equal(second.window.Q.S.page, "new-project");
+    assert.equal(second.window.document.querySelector('[data-f="n"]').value, "刷新后仍保留的项目");
+    assert.equal(second.window.document.querySelector('[data-f="desc"]').value, "刷新后继续填写");
+  } finally {
+    second.window.close();
+  }
+});
+
+test("formal assistant draft survives a refresh", async () => {
+  const bootstrap = formalBootstrap({ permissions: ["assistant.use"] });
+  const first = await openFormalWorkbenchWithStorage(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  let storage = {};
+  try {
+    first.window.Q.S.page = "assistant";
+    first.window.Q.render();
+    const chatInput = first.window.document.querySelector("#chatIn");
+    chatInput.value = "请帮我把本周任务整理成执行计划";
+    chatInput.dispatchEvent(new first.window.Event("input", { bubbles: true }));
+    storage = {
+      "qxy.workstation.ui.v1": first.window.localStorage.getItem("qxy.workstation.ui.v1"),
+    };
+    assert.ok(storage["qxy.workstation.ui.v1"], "assistant draft should be saved to localStorage");
+  } finally {
+    first.window.close();
+  }
+
+  const second = await openFormalWorkbenchWithStorage(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+    storage,
+  );
+  try {
+    assert.equal(second.window.Q.S.page, "assistant");
+    assert.equal(
+      second.window.document.querySelector("#chatIn").value,
+      "请帮我把本周任务整理成执行计划",
+    );
+  } finally {
+    second.window.close();
+  }
+});
+
+test("personal salary starts with the employee department and level before money details", async () => {
+  const bootstrap = formalBootstrap({
+    memberId: "salary-member",
+    permissions: ["salary.self"],
+  });
+  bootstrap.members = [
+    { id: "salary-member", n: "薪资员工", r: "员工", dept: "产品中心", lv: 4 },
+  ];
+  bootstrap.payroll = {
+    "salary-member": [{ month: "2026-08", base: 10000, performance: 1000, projectBonus: 500, otherBonus: 0, social: 1000, tax: 200, otherDeduction: 0, status: "待发放" }],
+  };
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    dom.window.Q.S.page = "fin";
+    dom.window.Q.render();
+    const profile = dom.window.document.querySelector("[data-salary-identity]");
+    assert.ok(profile);
+    assert.match(profile.textContent, /产品中心/);
+    assert.match(profile.textContent, /L4|职级/);
+    assert.ok(profile.compareDocumentPosition(dom.window.document.querySelector("[data-payroll-summary]")) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal manager navigation keeps both Agent Center and AI assistant as separate tools", async () => {
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    formalBootstrap({
+      permissions: ["dashboard.read", "organization.manage", "project.read", "project.manage", "task.manage", "salary.self", "agent.manage"],
+    }),
+  );
+  try {
+    const navLabels = Array.from(dom.window.document.querySelectorAll(".nav button[data-page]"))
+      .sort((left, right) => Number(left.style.getPropertyValue("--nav-order")) - Number(right.style.getPropertyValue("--nav-order")))
+      .map((button) => button.querySelector(".desktop-nav-label")?.textContent.trim() || "")
+      .filter(Boolean);
+    assert.deepEqual(navLabels.slice(0, 10), [
+      "总览 / 决策驾驶舱",
+      "组织与权限",
+      "项目中心",
+      "AI 调度中心",
+      "任务中心",
+      "员工工作台",
+      "我的工作画像",
+      "我的薪酬",
+      "Agent 中心",
+      "AI 助理",
+    ]);
+    assert.ok(navLabels.indexOf("AI 助理") > navLabels.indexOf("Agent 中心"));
+    assert.ok(navLabels.indexOf("系统设置") > navLabels.indexOf("AI 助理"));
+    assert.equal(navLabels.includes("Agent Store"), false);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal employee navigation hides unavailable modules while keeping AI assistant and Agent Center", async () => {
+  const bootstrap = formalBootstrap({
+    permissions: ["task.execute", "salary.self"],
+    primaryRole: "employee",
+  });
+  bootstrap.members[0].lv = 1;
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    dom.window.Q.S.page = "me";
+    dom.window.Q.render();
+    const buttons = Array.from(dom.window.document.querySelectorAll(".nav button[data-page]"));
+    const pages = buttons.map((button) => button.getAttribute("data-page"));
+    for (const page of ["task", "me", "profile", "fin", "flow", "assistant", "set"]) {
+      assert.equal(pages.includes(page), true, `${page} should stay visible in formal navigation`);
+    }
+    for (const page of ["dash", "org", "proj", "sched", "kb", "customers", "activities", "decisions", "insight"]) {
+      assert.equal(pages.includes(page), false, `${page} should not clutter formal navigation`);
+    }
+
+    const byPage = Object.fromEntries(buttons.map((button) => [button.getAttribute("data-page"), button]));
+    byPage.flow.click();
+    assert.equal(dom.window.Q.S.page, "flow");
+    dom.window.document.querySelector('.nav button[data-page="assistant"]').click();
+    assert.equal(dom.window.Q.S.page, "assistant");
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal level permissions reveal project and scheduling modules progressively", async () => {
+  const bootstrap = formalBootstrap({
+    permissions: ["task.execute", "salary.self"],
+    primaryRole: "employee",
+  });
+  bootstrap.members[0].lv = 4;
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    const pages = Array.from(dom.window.document.querySelectorAll(".nav button[data-page]"))
+      .map((button) => button.getAttribute("data-page"));
+    for (const page of ["proj", "sched", "kb", "task", "me", "profile", "fin", "flow", "assistant"]) {
+      assert.equal(pages.includes(page), true, `${page} should be visible for a level 4 employee`);
+    }
+    for (const page of ["dash", "org"]) {
+      assert.equal(pages.includes(page), false, `${page} should stay hidden below level 5`);
+    }
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal CEO can use the full workstation skeleton by default", async () => {
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    formalBootstrap({
+      permissions: [],
+      primaryRole: "ceo",
+    }),
+  );
+  try {
+    const buttons = Array.from(dom.window.document.querySelectorAll(".nav button[data-page]"));
+    const byPage = Object.fromEntries(buttons.map((button) => [button.getAttribute("data-page"), button]));
+    for (const page of ["dash", "org", "proj", "sched", "task", "me", "profile", "fin", "flow", "assistant", "set", "kb"]) {
+      assert.ok(byPage[page], `${page} should be visible for CEO`);
+      assert.equal(byPage[page].getAttribute("data-disabled"), null, `${page} should be enabled for CEO`);
+    }
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("Agent Center presents enterprise agents with capability, run log and permission scope", async () => {
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    formalBootstrap({
+      permissions: ["dashboard.read", "agent.manage"],
+    }),
+  );
+  try {
+    dom.window.Q.S.page = "flow";
+    dom.window.Q.render();
+    const viewText = dom.window.document.querySelector("#view").textContent;
+    for (const name of [
+      "任务拆解 Agent",
+      "智能派单 Agent",
+      "飞书通知 Agent",
+      "员工画像 Agent",
+      "薪资核算 Agent",
+      "报账审核 Agent",
+      "知识库问答 Agent",
+      "项目复盘 Agent",
+    ]) {
+      assert.match(viewText, new RegExp(name));
+    }
+    assert.match(viewText, /智能体能力|调用记录|权限范围/);
+    assert.doesNotMatch(viewText, /商店|购买|安装|Agent Store/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("Agent Center summary chips are real clickable controls", async () => {
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    formalBootstrap({
+      permissions: ["dashboard.read", "agent.manage"],
+      primaryRole: "ceo",
+    }),
+  );
+  try {
+    const { S } = dom.window.Q;
+    S.page = "flow";
+    dom.window.Q.render();
+
+    const capability = dom.window.document.querySelector('[data-act="set"][data-k="agentTab"][data-v="cap"]');
+    assert.ok(capability, "capability chip should open a real capability overview");
+    capability.click();
+    assert.equal(S.f.agentTab, "cap");
+    assert.match(dom.window.document.querySelector("#view").textContent, /能力总览/);
+    assert.match(dom.window.document.querySelector("#view").textContent, /输入字段|可调用状态/);
+
+    const log = dom.window.document.querySelector('[data-act="set"][data-k="agentTab"][data-v="log"]');
+    assert.ok(log, "run log chip should switch tabs");
+    log.click();
+    assert.equal(S.f.agentTab, "log");
+    assert.match(dom.window.document.querySelector("#view").textContent, /运行记录/);
+
+    const perm = dom.window.document.querySelector('[data-act="set"][data-k="agentTab"][data-v="perm"]');
+    assert.ok(perm, "permission scope chip should switch tabs for CEO");
+    perm.click();
+    assert.equal(S.f.agentTab, "perm");
+    assert.match(dom.window.document.querySelector("#view").textContent, /权限管理|权限范围/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal project overview totals are calculated from real project bootstrap data", async () => {
+  const bootstrap = formalBootstrap({
+    permissions: ["project.read", "project.manage", "dashboard.read"],
+  });
+  bootstrap.projects = [
+    { id: "p-live-1", n: "真实项目一", own: bootstrap.session.memberId, cat: "AI研发", pr: 20, bud: 300, health: 90, st: "进行中", up: "2026-08-20" },
+    { id: "p-live-2", n: "真实项目二", own: bootstrap.session.memberId, cat: "AI研发", pr: 100, bud: 120, health: 88, st: "已完成", up: "2026-08-21" },
+    { id: "p-live-3", n: "真实项目三", own: bootstrap.session.memberId, cat: "AI研发", pr: 40, bud: 50, health: 62, st: "风险", up: "2026-08-22" },
+  ];
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    dom.window.Q.S.page = "proj";
+    dom.window.Q.render();
+    const overview = dom.window.document.querySelector("[data-project-overview]");
+    assert.ok(overview, "project overview should expose calculated real-data stats");
+    assert.equal(overview.getAttribute("data-state"), "calculated");
+    assert.match(overview.textContent, /进行中项目[\s\S]*1/);
+    assert.match(overview.textContent, /已完成项目[\s\S]*1/);
+    assert.match(overview.textContent, /风险项目[\s\S]*1/);
+    assert.match(overview.textContent, /总预算[\s\S]*470/);
+    assert.doesNotMatch(overview.textContent, /8,642\.18|5,210\.66|24/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("manual AI assignment override explains the difference and keeps an audit trail", async () => {
+  const bootstrap = formalBootstrap({ permissions: ["task.manage"] });
+  bootstrap.members = [
+    { id: "member-ai", n: "AI推荐员工", r: "产品经理", dept: "产品中心", cap: 0.9, sk: "需求分析", workProfile: { verifiedSkills: [{ name: "需求分析", level: 5 }] } },
+    { id: "member-manual", n: "人工指定员工", r: "产品经理", dept: "产品中心", cap: 0.2, sk: "运营活动", workProfile: { verifiedSkills: [{ name: "运营活动", level: 2 }] } },
+  ];
+  bootstrap.session.memberId = "member-ai";
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    const task = {
+      id: "W1",
+      ph: "阶段",
+      n: "完成需求分析",
+      role: "产品经理",
+      skills: ["需求分析"],
+      days: 2,
+      dep: [],
+      pri: "P1",
+      ac: "提交需求说明",
+    };
+    const plans = dom.window.Q.makePlans([task]);
+    dom.window.Q.S.page = "sched";
+    dom.window.Q.S.sch.tasks = [task];
+    dom.window.Q.S.sch.plans = plans;
+    dom.window.Q.S.sch.pick = "A";
+    dom.window.Q.render();
+
+    const select = dom.window.document.querySelector('[data-act="assign-member"][data-task-id="W1"]');
+    select.value = "member-manual";
+    select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+
+    const slot = dom.window.Q.S.sch.plans[0].map.W1;
+    assert.equal(slot.own, "member-manual");
+    assert.equal(slot.manual, true);
+    assert.equal(Array.isArray(slot.manualAudit), true);
+    assert.match(slot.manualAudit.at(-1).reason, /技能匹配度较低|当前负载较高|低于 AI 推荐/);
+    assert.match(dom.window.document.querySelector("#view").textContent, /人工改派记录|差异提示|负责人最终确认/);
   } finally {
     dom.window.close();
   }

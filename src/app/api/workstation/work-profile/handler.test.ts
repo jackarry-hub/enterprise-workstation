@@ -33,7 +33,7 @@ describe("work profile update route", () => {
   it("rejects invalid profile input before persistence", async () => {
     const saveProfile = vi.fn();
     const response = await createWorkProfileUpdateHandler({
-      loadSession: async () => ({ member: { id: 7 } }),
+      loadSession: async () => ({ member: { id: 7, employeeProfileId: "10000000-0000-4000-8000-000000000007" } }),
       saveProfile,
     })(request({ ...validProfile, weeklyCapacityHours: 100 }));
 
@@ -46,18 +46,21 @@ describe("work profile update route", () => {
     const saved = { ...validProfile, updatedAt: "2026-08-21T02:00:00.000Z" };
     const saveProfile = vi.fn().mockResolvedValue(saved);
     const response = await createWorkProfileUpdateHandler({
-      loadSession: async () => ({ member: { id: 7 } }),
+      loadSession: async () => ({ member: { id: 7, employeeProfileId: "10000000-0000-4000-8000-000000000007" } }),
       saveProfile,
     })(request({ ...validProfile, memberId: 999, summary: ` ${validProfile.summary} ` }));
 
     expect(response.status).toBe(200);
-    expect(saveProfile).toHaveBeenCalledWith(7, validProfile);
+    expect(saveProfile).toHaveBeenCalledWith(
+      { id: 7, employeeProfileId: "10000000-0000-4000-8000-000000000007" },
+      validProfile,
+    );
     await expect(response.json()).resolves.toEqual({ profile: saved });
   });
 
   it("maps persistence failures to one stable response", async () => {
     const response = await createWorkProfileUpdateHandler({
-      loadSession: async () => ({ member: { id: 7 } }),
+      loadSession: async () => ({ member: { id: 7, employeeProfileId: "10000000-0000-4000-8000-000000000007" } }),
       saveProfile: async () => {
         throw new Error("database details and employee data leaked");
       },

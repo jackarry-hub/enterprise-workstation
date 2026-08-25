@@ -134,9 +134,9 @@ a{color:inherit;text-decoration:none}
 .step b{flex:0 0 20px;height:20px;border-radius:50%;background:var(--brand-s);color:var(--brand-d);
   display:grid;place-items:center;font-size:11px}
 .filerow{display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;margin-top:9px;background:#fff}
-.nav{flex:1;overflow:auto;padding:0 12px 10px}
+.nav{flex:1;overflow:auto;padding:0 12px 10px;display:flex;flex-direction:column}
 .nav button{display:flex;align-items:center;gap:11px;width:100%;padding:10px 12px;border-radius:10px;
-  color:var(--sub);font-size:13.5px;margin-bottom:2px;transition:.15s}
+  color:var(--sub);font-size:13.5px;margin-bottom:2px;transition:.15s;order:var(--nav-order,0)}
 .nav button:hover{background:var(--brand-s);color:var(--brand-d)}
 .nav button.on{background:var(--brand);color:#fff;box-shadow:0 6px 16px rgba(37,99,235,.28)}
 .nav svg{flex:0 0 18px}
@@ -178,6 +178,8 @@ a{color:inherit;text-decoration:none}
 .btn:disabled{opacity:.55;cursor:not-allowed}
 .quick-create .btn{white-space:nowrap}
 .me{display:flex;align-items:center;gap:9px;position:relative}
+.me>button{white-space:nowrap;flex:0 0 auto}
+.me .nm,.me .rl{display:block;white-space:nowrap}
 .me .nm{font-size:13px;font-weight:600;line-height:1.2}
 .me .rl{font-size:11px;color:var(--mut)}
 .menu{position:absolute;right:0;top:48px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:var(--sh);
@@ -276,6 +278,8 @@ tr:last-child td{border-bottom:0}
 .msg .bub p{margin:0 0 8px} .msg .bub p:last-child{margin:0}
 .flow-node{fill:#fff;stroke:var(--line);stroke-width:1.5}
 [data-page-heading]:focus{outline:none}
+.me-mobile-income{display:none}
+.payroll-details-toggle{display:none}
 
 /* ---------- compact workstation layout ---------- */
 @media (max-width:820px){
@@ -287,6 +291,7 @@ tr:last-child td{border-bottom:0}
   .brand .cn,.side h6,.helper{display:none!important}
   .nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;overflow:visible;padding:8px 10px 10px}
   .nav button{width:100%;min-height:44px;margin:0;padding:9px 8px;justify-content:center;white-space:nowrap}
+  .nav button,.nav .mobile-more{order:initial}
   .nav .mobile-extra{display:none}
   .nav .mobile-more{display:flex}
   .nav .mobile-more-panel{display:none}
@@ -365,6 +370,13 @@ tr:last-child td{border-bottom:0}
   .me-must .bd,.me-reminders .bd{padding:0 14px 8px!important;overflow:visible}
   .me-reminders .sm{display:none}
   .me-reminders button>.tag{display:none}
+  .me-mobile-income{display:flex;order:4;width:100%;min-height:68px;align-items:center;gap:12px;padding:12px 14px;text-align:left;
+    border-color:#dfe7fb;background:linear-gradient(120deg,var(--brand-s),var(--violet-s))}
+  .me-mobile-income .me-income-copy{min-width:0;flex:1}
+  .me-mobile-income .me-income-copy span{display:block;font-size:11px;color:var(--mut)}
+  .me-mobile-income .me-income-copy b{display:block;margin-top:3px;font-size:20px;color:var(--brand-d)}
+  .me-mobile-income .me-income-link{font-size:12px;font-weight:600;color:var(--brand)}
+  .personal-workbench.mobile-task-focus .me-mobile-income{display:none}
   .me-task-list .hd{align-items:flex-start}
   .me-task-list .hd h3{display:none}
   .me-task-list .chips{width:100%;overflow-x:auto;flex-wrap:nowrap}
@@ -377,6 +389,18 @@ tr:last-child td{border-bottom:0}
   .execution-layout{gap:12px!important}
   .execution-actions{gap:12px!important}
   .execution-actions .btn{min-height:44px;justify-content:center;width:100%}
+}
+@media (max-width:680px){
+  .payroll-summary-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:7px!important}
+  .payroll-summary-grid .payroll-bonus-card{display:none}
+  .payroll-summary-grid .kpi{padding:11px 8px}
+  .payroll-summary-grid .kpi .t{font-size:11px}
+  .payroll-summary-grid .kpi .ico,.payroll-summary-grid .kpi .f{display:none}
+  .payroll-summary-grid .kpi .v{font-size:17px;margin-top:7px}
+  .payroll-details-toggle{display:flex;width:100%;align-items:center;justify-content:space-between}
+  .payroll-detail-card .bd{overflow:visible}
+  .payroll-detail-card table{min-width:0;width:100%}
+  .payroll-history table{min-width:520px}
 }
 </style>
 </head>
@@ -402,7 +426,7 @@ tr:last-child td{border-bottom:0}
   </div>
 </div>
 <div class="toast" id="toast"></div>
-<script src="/workstation-server-adapter.js"></script>
+<script src="/workstation-server-adapter.js?v=formal-gate"></script>
 <script>
 /* =========================================================
    量子星河 QuantXY · AI 企业工作台
@@ -430,6 +454,7 @@ function isDemoRuntime(){ return WORKSTATION_RUNTIME.authMode==='demo'&&WORKSTAT
 var QXY_DEMO_DATA_KEY='qxy.workstation.demo.v2';
 var QXY_DEMO_CLEARED_KEY='qxy.workstation.demo.cleared';
 var QXY_LEGACY_DATA_KEY='qxy';
+var QXY_UI_STATE_KEY='qxy.workstation.ui.v1';
 var LOADED_DATA_SOURCE='';
 
 function demoSnapshot(){
@@ -455,6 +480,38 @@ function load(){
   var legacy=readStoredJson(QXY_LEGACY_DATA_KEY);
   if(legacy){ LOADED_DATA_SOURCE='legacy'; return legacy; }
   return null;
+}
+function persistUiState(){
+  if(isDemoRuntime()) return false;
+  try{ if(new URLSearchParams(window.location.search).get('formal')!=='1') return false; }catch(e){ return false; }
+  try{
+    localStorage.setItem(QXY_UI_STATE_KEY,JSON.stringify({
+      page:S.page, form:S.form, tab:S.tab, f:S.f, sel:S.sel, sch:S.sch,
+      curProj:S.curProj, curAgent:S.curAgent, curCustomer:S.curCustomer, curActivity:S.curActivity,
+      mobileTaskFocus:S.mobileTaskFocus, payrollDetailsOpen:S.payrollDetailsOpen,
+      chatDraft:S.chatDraft||'', savedAt:Date.now()
+    }));
+    return true;
+  }catch(e){ return false; }
+}
+function restoreUiState(){
+  if(isDemoRuntime()) return false;
+  try{ if(new URLSearchParams(window.location.search).get('formal')!=='1') return false; }catch(e){ return false; }
+  var stored=readStoredJson(QXY_UI_STATE_KEY);
+  if(!stored||typeof stored!=='object') return false;
+  var params=new URLSearchParams(window.location.search);
+  var hasTaskDeepLink=params.getAll('task').length>0;
+  if(!hasTaskDeepLink&&stored.page&&formalPageAllowed(stored.page)) S.page=stored.page;
+  if(stored.form&&typeof stored.form==='object') S.form=Object.assign(blankForm(),stored.form);
+  if(stored.tab&&typeof stored.tab==='object') S.tab=Object.assign(defaultRuntimeTabs(),stored.tab);
+  if(stored.f&&typeof stored.f==='object') S.f=Object.assign(defaultRuntimeFilters(),stored.f);
+  if(!hasTaskDeepLink&&stored.sel&&typeof stored.sel==='object') S.sel=Object.assign({task:null,wbs:null},stored.sel);
+  if(stored.sch&&typeof stored.sch==='object') S.sch=Object.assign(defaultRuntimeSchedule(),stored.sch);
+  S.curProj=stored.curProj||null; S.curAgent=stored.curAgent||null;
+  S.curCustomer=stored.curCustomer||null; S.curActivity=stored.curActivity||null;
+  S.mobileTaskFocus=!!stored.mobileTaskFocus; S.payrollDetailsOpen=!!stored.payrollDetailsOpen;
+  S.chatDraft=typeof stored.chatDraft==='string'?stored.chatDraft:'';
+  return true;
 }
 function defaultReviewer(task){
   var project=PB[task.p], candidate=project&&project.own;
@@ -911,7 +968,7 @@ var S = {
   aiTest:null,
   sch:{ goal:'', deadline:fmt(addD(today(),45)), budget:30, must:'', busy:false, err:'',
         projectId:'', tasks:null, plans:null, pick:'A', from:'', issued:false, issuing:false },
-  chat:[], chatBusy:false, cmenu:false, form:null,
+  chat:[], chatDraft:'', chatBusy:false, cmenu:false, form:null,
   f:{ projCat:'all', projSt:'all', projQ:'', taskQ:'', taskOwn:'all', taskPri:'all', taskSt:'all',
       meScope:'todo', meTab:'all', payMonth:'', payFocus:'', kbQ:'', kbCat:'all', kbAdvanced:'0', kbRecommend:'0', orgQ:'', orgDept:'all', agentDept:'all', agentQ:'', agentTab:'dir', agentVis:'all',
       dashTab:'进行中', dateDays:'30', insightG:'日', insightScope:'全部业务', insightCompare:'前一周期', insightLine:'全部', insightChannel:'全部', insightRegion:'全部', gq:'', customerQ:'', customerSt:'all', activitySt:'all', decisionTab:'待我决策' },
@@ -919,7 +976,11 @@ var S = {
   agents:[], runs:[], agentIn:{}, agentOut:'', agentBusy:false,
   chain:[], chainIn:'', chainOut:[], chainBusy:false, chainStep:0, reqs:[],
   appr:null, demoCleared:false, serviceError:'', directorySyncBusy:false, payrollSaving:false,
-  notificationRetryBusy:false, workProfileSaving:false
+  notificationRetryBusy:false, workProfileSaving:false,
+  payrollPolicy:null, payrollPolicyDraft:null, payrollPolicyLoaded:false, payrollPolicyBusy:false,
+  payrollPolicyExample:null, payrollPolicyConfirmed:false,
+  payrollDraft:null, payrollPreview:null, payrollPreviewHash:'', payrollError:'',
+  payrollOpeningRequired:false, payrollPreviewBusy:false, payrollDetailsOpen:false
 };
 function defaultRuntimeTabs(){ return {proj:'all',task:'all',kb:'week'}; }
 function defaultRuntimeFilters(){ return {
@@ -934,13 +995,102 @@ function resetRuntimeUiState(page){
   S.page=page||'me'; S.menu=false; S.cmenu=false; S.topPanel=null; S.confirm=null; S.editId=null; S.deptMgr=false; S.helper=true;
   S.tab=defaultRuntimeTabs(); S.f=defaultRuntimeFilters(); S.sch=defaultRuntimeSchedule(); S.sel={task:null,wbs:null};
   S.curProj=null; S.curAgent=null; S.curCustomer=null; S.curActivity=null;
-  S.chat=[]; S.chatBusy=false; S.agentIn={}; S.agentOut=''; S.agentBusy=false;
+  S.chat=[]; S.chatDraft=''; S.chatBusy=false; S.agentIn={}; S.agentOut=''; S.agentBusy=false;
   S.chain=[]; S.chainIn=''; S.chainOut=[]; S.chainBusy=false; S.chainStep=0;
   S.aiKeyDraft=''; S.showKey=false; S.aiTest=null; S.notificationRetryBusy=false; S.workProfileSaving=false; S.form=blankForm();
+  S.payrollDetailsOpen=false;
 }
 
-var PAYROLL_BASE={m1:22000,m2:24000,m3:30000,m4:23000,m5:21000,m6:22000,m7:19000,
-  m8:28000,m9:18000,m10:16500,m11:19000,m12:20000,m13:18000,m14:45000};
+var SALARY_GRADE_MATRIX={
+  '管理层':{1:18000,2:22000,3:28000,4:36000,5:45000},
+  '产品中心':{1:15000,2:18000,3:22000,4:30000,5:42000},
+  '研发中心':{1:19000,2:23000,3:28000,4:35000,5:48000},
+  '数据中心':{1:19000,2:24000,3:30000,4:38000,5:50000},
+  '质量中心':{1:16500,2:19000,3:24000,4:30000,5:38000},
+  '运维中心':{1:16000,2:20000,3:26000,4:34000,5:43000},
+  '市场部':{1:14000,2:18000,3:24000,4:32000,5:42000},
+  '销售部':{1:12000,2:16000,3:22000,4:30000,5:40000},
+  '客服部':{1:10000,2:13500,3:18000,4:24000,5:32000},
+  '财务部':{1:13000,2:17000,3:23000,4:30000,5:39000},
+  '法务部':{1:15000,2:20000,3:28000,4:36000,5:48000},
+  '人力资源':{1:12000,2:16000,3:22000,4:30000,5:39000},
+  '行政部':{1:9000,2:12000,3:16000,4:22000,5:30000}
+};
+var DEFAULT_SALARY_GRADE={1:12000,2:16000,3:22000,4:30000,5:42000};
+var BONUS_POOL_POLICY={projectPoolRate:0.08,priority:{P0:1.5,P1:1.2,P2:1},roleLead:1.15};
+function moneyFixed(value){
+  return Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2,useGrouping:false});
+}
+function memberLevelValue(member){
+  var raw=parseInt(member&&(member.lv||member.level),10);
+  return Math.max(1,Math.min(5,isFinite(raw)?raw:1));
+}
+function memberDeptName(member){
+  return String(member&&(member.dept||member.department)||'未分配部门');
+}
+function salaryBandForMember(member){
+  var dept=memberDeptName(member), level=memberLevelValue(member);
+  var matrix=SALARY_GRADE_MATRIX[dept]||DEFAULT_SALARY_GRADE;
+  var base=Number(matrix[level]||DEFAULT_SALARY_GRADE[level]||DEFAULT_SALARY_GRADE[1]);
+  var targetRate=level>=5?0.20:(level>=3?0.15:0.10);
+  var performanceTarget=Math.round(base*targetRate);
+  return {dept:dept,level:level,levelName:lvName(level),base:base,baseSalary:moneyFixed(base),
+    performanceTarget:performanceTarget,performanceTargetText:moneyFixed(performanceTarget),
+    policy:'部门+职级定基本工资，项目奖金池按任务贡献分配'};
+}
+function taskBonusWeight(task){
+  task=task||{};
+  var priority=BONUS_POOL_POLICY.priority[task.pri]||1;
+  var days=Math.max(1,Number(task.days||task.dur||diffD(new Date(task.s||today()),new Date(task.e||today()))||1));
+  var progress=Number(task.pr||0);
+  var quality=Number(task.qualityScore||task.score||0);
+  var qualityWeight=quality?Math.max(0.7,Math.min(1.3,quality/90)):1;
+  var efficiency=progress>=100?1.12:1;
+  var project=PB[task.p]||{};
+  var leadWeight=project.own===task.own?BONUS_POOL_POLICY.roleLead:1;
+  return Math.max(1,Math.round(days*priority*qualityWeight*efficiency*leadWeight*10)/10);
+}
+function projectBonusTasks(month){
+  var targetMonth=String(month||'').slice(0,7);
+  return (S.tasks||[]).filter(function(task){
+    if(!(task.st==='已完成'||task.st==='待验收'||Number(task.pr||0)>=100)) return false;
+    if(!targetMonth) return true;
+    var mark=String(task.reviewedAt||task.submittedAt||task.e||'').slice(0,7);
+    return !mark||mark===targetMonth;
+  });
+}
+function projectBonusSuggestion(memberId,month){
+  var tasks=projectBonusTasks(month);
+  var projectMap={}, totalBudget=0, totalWeight=0, memberWeight=0, memberTasks=0;
+  tasks.forEach(function(task){
+    var project=PB[task.p]||{};
+    if(project.id&&!projectMap[project.id]){ projectMap[project.id]=1; totalBudget+=Number(project.bud||0)*10000; }
+    var weight=taskBonusWeight(task);
+    totalWeight+=weight;
+    if(task.own===memberId){ memberWeight+=weight; memberTasks++; }
+  });
+  var pool=Math.round(totalBudget*BONUS_POOL_POLICY.projectPoolRate);
+  var amount=totalWeight?Math.round(pool*memberWeight/totalWeight):0;
+  return {pool:pool,amount:amount,tasks:memberTasks,totalTasks:tasks.length,weight:memberWeight,totalWeight:totalWeight,
+    rule:'奖金池=项目预算×'+Math.round(BONUS_POOL_POLICY.projectPoolRate*100)+'%，再按任务难度、优先级、验收质量、效率与角色权重分配'};
+}
+function defaultPayrollDraft(month,memberId){
+  var now=new Date(), currentMonth=now.getFullYear()+'-'+pad(now.getMonth()+1);
+  return {memberId:memberId||(MEMBERS.length?MEMBERS[0].id:''),month:month||currentMonth,baseSalary:'0.00',performanceBonus:'0.00',projectBonus:'0.00',otherBonus:'0.00',otherIncome:'0.00',
+    socialBase:'0.00',housingFundBase:'0.00',taxExemptIncome:'0.00',specialAdditionalDeduction:'0.00',otherStatutoryDeduction:'0.00',taxRelief:'0.00',otherDeduction:'0.00',manualAdjustmentReason:'',
+    openingCumulativeIncome:'',openingCumulativeTaxExemptIncome:'',openingCumulativeSpecialDeduction:'',openingCumulativeSpecialAdditionalDeduction:'',openingCumulativeOtherStatutoryDeduction:'',openingCumulativeTaxRelief:'',openingCumulativeTaxWithheld:'',note:''};
+}
+function applyDepartmentLevelSalaryDraft(draft,force){
+  draft=Object.assign(defaultPayrollDraft(),draft||{});
+  var member=MB[draft.memberId]||MEMBERS[0]||{};
+  var band=salaryBandForMember(member), bonus=projectBonusSuggestion(draft.memberId,draft.month);
+  var next=Object.assign({},draft);
+  if(force||!String(next.baseSalary||'').trim()||Number(next.baseSalary)<=0) next.baseSalary=band.baseSalary;
+  if(force||!String(next.socialBase||'').trim()||Number(next.socialBase)<=0) next.socialBase=band.baseSalary;
+  if(force||!String(next.housingFundBase||'').trim()||Number(next.housingFundBase)<=0) next.housingFundBase=band.baseSalary;
+  if(force||!String(next.projectBonus||'').trim()||Number(next.projectBonus)<=0) next.projectBonus=moneyFixed(bonus.amount);
+  return next;
+}
 function payrollMonth(offset){
   var d=new Date(); d.setDate(1); d.setMonth(d.getMonth()+offset);
   return d.getFullYear()+'-'+pad(d.getMonth()+1);
@@ -948,7 +1098,7 @@ function payrollMonth(offset){
 function seedPayroll(){
   var out={};
   MEMBERS.forEach(function(member,index){
-    var base=PAYROLL_BASE[member.id]||18000;
+    var base=salaryBandForMember(member).base;
     out[member.id]=[-2,-1,0].map(function(offset,monthIndex){
       var performance=1800+((index+monthIndex)%5)*600;
       var projectBonus=((index+monthIndex)%4)*900;
@@ -976,8 +1126,10 @@ function payrollRow(memberId,month){
 }
 function payrollTotals(row){
   row=row||{};
-  var social=Number(row.socialSecurity!=null?row.socialSecurity:row.social||0);
-  var gross=Number(row.base||0)+Number(row.performance||0)+Number(row.projectBonus||0)+Number(row.otherBonus||0);
+  var calculated=!!row.calculationVersion;
+  var calculatedSocial=Number(row.pensionEmployee||0)+Number(row.medicalEmployee||0)+Number(row.unemploymentEmployee||0)+Number(row.housingFundEmployee||0);
+  var social=calculated?calculatedSocial:Number(row.socialSecurity!=null?row.socialSecurity:row.social||0);
+  var gross=Number(row.base||0)+Number(row.performance||0)+Number(row.projectBonus||0)+Number(row.otherBonus||0)+Number(row.otherIncome||0);
   var deductions=social+Number(row.tax||0)+Number(row.otherDeduction||0);
   return {gross:gross,deductions:deductions,net:gross-deductions,social:social};
 }
@@ -1033,7 +1185,7 @@ function createDemoGateway(){
 }
 var SERVER_GATEWAY_READ_METHODS=['getSession','loadBootstrap','loadMyDashboard','listMyTasks','loadMyTask','listMyProjects','loadPayroll'];
 var SERVER_GATEWAY_WRITE_METHODS=['saveTask','claimTask','updateTaskExecution','submitTaskResult','reviewTaskResult','reopenTask'];
-var SERVER_GATEWAY_MANAGE_METHODS=['syncDirectory','createTask','createTasks','retryTaskNotification','savePayroll','saveWorkProfile'];
+var SERVER_GATEWAY_MANAGE_METHODS=['syncDirectory','createProject','createTask','createTasks','retryTaskNotification','loadPayrollPolicy','savePayrollPolicy','previewPayroll','savePayroll','saveWorkProfile'];
 function isCompliantServerAdapter(adapter){
   return !!adapter&&SERVER_GATEWAY_READ_METHODS.every(function(method){ return typeof adapter[method]==='function'; });
 }
@@ -1073,7 +1225,9 @@ function createUnavailableGateway(){
     listMyTasks:function(){ return []; }, loadMyTask:function(){ return null; }, listMyProjects:function(){ return []; }, loadPayroll:function(){ return []; },
     saveTask:unavailable, claimTask:unavailable, updateTaskExecution:unavailable, submitTaskResult:unavailable,
     reviewTaskResult:unavailable, reopenTask:unavailable, syncDirectory:unavailable,
-    createTask:unavailable, createTasks:unavailable, retryTaskNotification:unavailable, savePayroll:unavailable, saveWorkProfile:unavailable
+    createProject:unavailable, createTask:unavailable, createTasks:unavailable, retryTaskNotification:unavailable,
+    loadPayrollPolicy:unavailable, savePayrollPolicy:unavailable, previewPayroll:unavailable,
+    savePayroll:unavailable, saveWorkProfile:unavailable
   };
 }
 function resolveWorkstationGateway(){
@@ -1089,6 +1243,20 @@ function workstationSession(){
 function hasWorkstationPermission(code){
   var permissions=workstationSession().permissions||[];
   return permissions.indexOf(code)>=0;
+}
+function workstationPrimaryRole(){
+  var session=workstationSession();
+  return String(session.primaryRole||session.role||'').toLowerCase();
+}
+function currentMemberLevel(){
+  var session=workstationSession();
+  var id=session.memberId||S.me;
+  var member=(MEMBERS||[]).filter(function(m){ return m.id===id; })[0]||{};
+  return Number(member.lv||member.level||0)||0;
+}
+function isWorkstationCEO(){
+  var role=workstationPrimaryRole();
+  return role==='ceo'||role==='owner'||role==='founder'||role==='admin';
 }
 var TASK_UUID_PATTERN=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 function applyTaskDeepLink(){
@@ -1197,7 +1365,7 @@ function schedule(ts, opt){
     var m=ranked[0].member;
     var st=Math.max(es, free[m.id]||0);
     var dur=Math.max(1, Math.round((t.days||3)*opt.speed));
-    map[id]={s:st, e:st+dur, dur:dur, own:m.id, match:ranked[0].match, candidates:ranked.slice(0,3).map(function(x){return x.match;})};
+    map[id]={s:st, e:st+dur, dur:dur, own:m.id, aiOwn:m.id, manual:false, match:ranked[0].match, aiMatch:ranked[0].match, candidates:ranked.slice(0,3).map(function(x){return x.match;})};
     free[m.id]=st+dur;
   });
   var total=0; order.forEach(function(id){ if(map[id]) total=Math.max(total,map[id].e); });
@@ -1223,6 +1391,31 @@ function schedule(ts, opt){
   var peak=1,d,c;
   for(d=0;d<total;d++){ c=0; order.forEach(function(id){ if(map[id]&&map[id].s<=d&&d<map[id].e) c++; }); if(c>peak) peak=c; }
   return { map:map, days:total, cost:Math.round(cost*opt.rate), util:util, heads:Object.keys(used).length, peak:peak, order:order };
+}
+function selectedSchedulePlan(){
+  return S.sch.plans?S.sch.plans.filter(function(p){ return p.k===S.sch.pick; })[0]:null;
+}
+function memberOptionList(selected){
+  return MEMBERS.filter(function(m){ return !m.hidden; }).map(function(m){
+    return '<option value="'+attr(m.id)+'"'+(m.id===selected?' selected':'')+'>'+esc(m.n)+'（'+esc(m.r||'成员')+' · '+esc(m.dept||'未分配')+'）</option>';
+  }).join('');
+}
+function assignScheduleMember(taskId,memberId){
+  var pl=selectedSchedulePlan(), task=(S.sch.tasks||[]).filter(function(t){ return t.id===taskId; })[0], member=MB[memberId];
+  if(!pl||!task||!member||!pl.map||!pl.map[taskId]) return false;
+  var slot=pl.map[taskId];
+  if(!slot.aiOwn) slot.aiOwn=slot.own;
+  if(!slot.aiMatch) slot.aiMatch=slot.match||candidateMatch(MB[slot.aiOwn]||member,task);
+  var prev=slot.own, ai=MB[slot.aiOwn]||member, nextMatch=candidateMatch(member,task), reasons=[];
+  if(nextMatch.score+8<slot.aiMatch.score) reasons.push('低于 AI 推荐 '+(slot.aiMatch.score-nextMatch.score)+' 分');
+  if(nextMatch.workload>=75) reasons.push('此人当前负载较高');
+  if(nextMatch.matchedSkills.length<((slot.aiMatch&&slot.aiMatch.matchedSkills)||[]).length) reasons.push('技能匹配度较低');
+  if(!reasons.length&&memberId!==slot.aiOwn) reasons.push('人工改派，负责人最终确认');
+  slot.own=memberId; slot.manual=memberId!==slot.aiOwn; slot.match=nextMatch; slot.manualReason=reasons.join('；');
+  slot.manualAudit=slot.manualAudit||[];
+  if(slot.manual) slot.manualAudit.push({at:new Date().toISOString(),from:prev,to:memberId,ai:slot.aiOwn,reason:slot.manualReason||'人工改派，负责人最终确认'});
+  else slot.manualAudit.push({at:new Date().toISOString(),from:prev,to:memberId,ai:slot.aiOwn,reason:'恢复为 AI 推荐人选'});
+  return true;
 }
 /* 4) 三套方案：均衡 / 快速交付 / 成本优化 */
 function makePlans(ts){
@@ -1420,25 +1613,38 @@ function aiDecompose(goal, deadline, budget, must){
 
 /* ---------------- 外壳渲染 ---------------- */
 var NAV=[
-  ['me','员工工作台','user'], ['task','任务中心','task'], ['fin','我的薪酬','money'], ['profile','我的工作画像','org'],
-  ['dash','总览 / 决策驾驶舱','dash'], ['proj','项目中心','proj'], ['sched','AI 调度中心','ai'],
+  ['dash','总览 / 决策驾驶舱','dash'], ['org','组织与权限','org'],
+  ['proj','项目中心','proj'], ['sched','AI 调度中心','ai'], ['task','任务中心','task'],
+  ['me','员工工作台','user'], ['profile','我的工作画像','org'], ['fin','我的薪酬','money'],
+  ['flow','Agent 中心','flow'], ['assistant','AI 助理','bot'], ['set','系统设置','set'],
   ['customers','客户与交付','org'], ['activities','活动推进','target'],
-  ['decisions','业务决策中心','ok'], ['assistant','AI 助理','bot'],
-  ['insight','数据洞察','chart'], ['kb','知识中心','book'], ['flow','Agent 中心','flow'],
-  ['org','组织与权限','org'], ['set','系统设置','set']
+  ['decisions','业务决策中心','ok'], ['insight','数据洞察','chart'], ['kb','知识中心','book']
 ];
 var MOBILE_CORE={me:1,task:1,fin:1};
+var MOBILE_CORE_ORDER=['me','task','fin'];
 var MOBILE_LABEL={me:'工作台',task:'我的任务',fin:'薪酬'};
 function isMobileShell(){ return !!(window.matchMedia&&window.matchMedia('(max-width:820px)').matches); }
+function hasLevelAccess(level){ return isDemoRuntime()||isWorkstationCEO()||currentMemberLevel()>=level; }
 function formalPageAllowed(page){
   if(isDemoRuntime()) return true;
+  if(isWorkstationCEO()) return true;
   if(page==='me'||page==='task'||page==='fin'||page==='profile'||page==='assistant'||page==='flow') return true;
-  if(page==='proj') return hasWorkstationPermission('project.read');
-  if(page==='dash') return hasWorkstationPermission('dashboard.read');
-  if(page==='sched') return hasWorkstationPermission('task.manage');
-  if(page==='org') return hasWorkstationPermission('organization.manage');
+  if(page==='proj'||page==='kb') return hasWorkstationPermission('project.read')||hasLevelAccess(3);
+  if(page==='dash') return hasWorkstationPermission('dashboard.read')||hasLevelAccess(5);
+  if(page==='sched') return hasWorkstationPermission('task.manage')||hasLevelAccess(4);
+  if(page==='org') return hasWorkstationPermission('organization.manage')||hasLevelAccess(5);
+  if(page==='new-project') return hasWorkstationPermission('project.manage')||hasWorkstationPermission('project.read')||hasLevelAccess(3);
+  if(page==='new-task') return hasWorkstationPermission('task.manage')||hasLevelAccess(4);
+  if(page==='new-member') return hasWorkstationPermission('organization.manage')||hasLevelAccess(5);
+  if(page==='new-agent'||page==='agent') return hasWorkstationPermission('agent.manage')||hasWorkstationPermission('dashboard.read')||hasLevelAccess(5);
+  if(page==='pay-admin') return hasWorkstationPermission('salary.manage')||hasLevelAccess(5);
   if(page==='set') return true;
   return false;
+}
+function formalNavVisible(page){
+  if(isDemoRuntime()) return true;
+  if(page==='customers'||page==='activities'||page==='decisions'||page==='insight') return false;
+  return formalPageAllowed(page);
 }
 var META={
   dash:['决策驾驶舱','数据更新于 '+fmt(today())+' 10:30'],
@@ -1473,12 +1679,19 @@ var META={
 function renderNav(){
   var nav=el('nav');
   nav.className='nav'+(S.mobileNav?' expanded':'');
+  function desktopNavOrder(page){
+    var isManagerFlow=isDemoRuntime()||hasWorkstationPermission('dashboard.read')||hasWorkstationPermission('organization.manage')||hasWorkstationPermission('project.read')||hasWorkstationPermission('task.manage');
+    var workflowOrder={dash:1,org:2,proj:3,sched:4,task:5,me:6,profile:7,fin:8,flow:9,assistant:10,set:11,customers:12,activities:13,decisions:14,insight:15,kb:16};
+    var personalOrder={me:1,task:2,profile:3,fin:4,flow:5,assistant:6,set:7};
+    var order=(isManagerFlow?workflowOrder:personalOrder)[page];
+    return order||((NAV.findIndex(function(item){ return item[0]===page; })+1)*10);
+  }
   function navButton(x){
     var active=(x[0]==='me'&&S.page==='me'&&!S.mobileTaskFocus)||(x[0]==='task'&&(S.page==='task'||S.page==='execution'||(S.page==='me'&&S.mobileTaskFocus)))||(x[0]!=='me'&&x[0]!=='task'&&S.page===x[0]);
-    return '<button data-act="go" data-page="'+x[0]+'" class="'+(MOBILE_CORE[x[0]]?'mobile-core':'mobile-extra')+(active?' on':'')+'">'+ic(x[2],18)+'<span class="desktop-nav-label">'+x[1]+'</span><span class="mobile-nav-label">'+(MOBILE_LABEL[x[0]]||x[1])+'</span></button>';
+    return '<button data-act="go" data-page="'+x[0]+'" style="--nav-order:'+desktopNavOrder(x[0])+'" class="'+(MOBILE_CORE[x[0]]?'mobile-core':'mobile-extra')+(active?' on':'')+'">'+ic(x[2],18)+'<span class="desktop-nav-label">'+x[1]+'</span><span class="mobile-nav-label">'+(MOBILE_LABEL[x[0]]||x[1])+'</span></button>';
   }
-  var visible=NAV.filter(function(x){ return formalPageAllowed(x[0]); });
-  var core=visible.filter(function(x){ return MOBILE_CORE[x[0]]; }).map(navButton).join('');
+  var visible=NAV.filter(function(x){ return formalNavVisible(x[0]); });
+  var core=MOBILE_CORE_ORDER.map(function(page){ return visible.find(function(x){ return x[0]===page; }); }).filter(Boolean).map(navButton).join('');
   var extra=visible.filter(function(x){ return !MOBILE_CORE[x[0]]; }).map(navButton).join('');
   nav.innerHTML=core+'<button class="mobile-more '+(!MOBILE_CORE[S.page]&&S.page!=='execution'?'on':'')+'" data-act="mobile-nav-more" aria-expanded="'+(S.mobileNav?'true':'false')+'">'+ic('down',18)+'<span>'+(S.mobileNav?'收起':'更多')+'</span></button><div class="mobile-more-panel" aria-label="更多功能">'+extra+'</div>';
   var hp=document.querySelector('.helper'); if(hp) hp.style.display=S.helper?'':'none';
@@ -1575,13 +1788,21 @@ function viewDash(){
   S.decisions.forEach(function(d){ if(d.st==='待我决策') pendingDecisions.push(d); });
   focusCustomers.sort(function(a,b){ return (b.amount||0)-(a.amount||0)||(b.progress||0)-(a.progress||0); });
   focusActivities.sort(function(a,b){ return (b.progress||0)-(a.progress||0); });
-  return j([
-  '<div class="grid fade" style="grid-template-columns:repeat(5,1fr)">',
+  var topMetrics=isDemoRuntime()?j([
     kpi({t:'营收（本月）',v:'¥ 8,642.18',u:' 万',i:'money',c:'#2563eb',bg:'var(--brand-s)',d:12.6,s:[38,42,40,47,44,52,58,55,63,68,66,74]}),
     kpi({t:'本月利润率',v:'23.7',u:'%',i:'chart',c:'#10b981',bg:'var(--ok-s)',d:2.9,du:' pp',s:[20,21,20.5,22,21.6,22.4,22,23,23.2,23.5,23.4,23.7]}),
     kpi({t:'AI 调度任务',v:''+aiN,u:' 项',i:'ai',c:'#7c3aed',bg:'var(--violet-s)',d:5,du:' 项',s:[2,3,3,5,6,6,8,9,11,12,14,16]}),
     kpi({t:'任务完成率',v:''+rate,u:'%',i:'task',c:'#2563eb',bg:'var(--brand-s)',d:6.3,du:' pp',s:[70,72,75,74,79,81,80,85,88,90,91,92]}),
-    kpi({t:'成本节约（本月）',v:'¥ 1,203.66',u:' 万',i:'bolt',c:'#f59e0b',bg:'var(--warn-s)',d:18.7,s:[30,34,33,40,44,42,50,55,58,62,68,72]}),
+    kpi({t:'成本节约（本月）',v:'¥ 1,203.66',u:' 万',i:'bolt',c:'#f59e0b',bg:'var(--warn-s)',d:18.7,s:[30,34,33,40,44,42,50,55,58,62,68,72]})
+  ]):j([
+    '<div class="card kpi" data-finance-v1-empty data-state="reserved" style="grid-column:span 2"><div class="t"><span>财务经营指标</span><span class="ico" style="background:var(--warn-s)">',ic('money',17,'#f59e0b'),'</span></div><div class="v" style="font-size:24px">V1 留空</div><div class="f"><em>后续由财务真实接口接管</em><span>不展示演示金额</span></div></div>',
+    kpi({t:'AI 调度任务',v:''+aiN,u:' 项',i:'ai',c:'#7c3aed',bg:'var(--violet-s)',d:0,du:' 项',s:[0,0,0,0,0,0,0,0,0,0,0,aiN]}),
+    kpi({t:'任务完成率',v:''+rate,u:'%',i:'task',c:'#2563eb',bg:'var(--brand-s)',d:0,du:' pp',s:[rate,rate,rate,rate,rate,rate,rate,rate,rate,rate,rate,rate]}),
+    '<div class="card kpi" data-finance-v1-empty data-state="reserved"><div class="t"><span>成本/利润</span><span class="ico" style="background:var(--brand-s)">',ic('bolt',17,'#2563eb'),'</span></div><div class="v" style="font-size:24px">V1 留空</div><div class="f"><em>等待财务系统接入</em><span>真实累计后启用</span></div></div>'
+  ]);
+  return j([
+  '<div class="grid fade" style="grid-template-columns:repeat(5,1fr)">',
+    topMetrics,
   '</div>',
 
   '<div class="grid" style="grid-template-columns:1fr 1.55fr 1.1fr;margin-top:16px">',
@@ -1648,14 +1869,14 @@ function depGraph(ts,map){
     (cols[lvl[id]]=cols[lvl[id]]||[]).push(id); });
   var ks=Object.keys(cols).map(Number).sort(function(a,b){return a-b;});
   var maxRow=0; ks.forEach(function(k){ maxRow=Math.max(maxRow,cols[k].length); });
-  var W=ks.length*150+30, H=maxRow*56+30, pos={};
+  var W=ks.length*122+28, H=maxRow*52+28, pos={};
   ks.forEach(function(k,ci){ cols[k].forEach(function(id,ri){
-    pos[id]={x:20+ci*150, y:15+ri*56+(maxRow-cols[k].length)*28};
+    pos[id]={x:16+ci*122, y:14+ri*52+(maxRow-cols[k].length)*26};
   }); });
   var edges='',nodes='';
   ts.forEach(function(t){ (t.dep||[]).forEach(function(d){
     if(!pos[d]||!pos[t.id]) return;
-    var a=pos[d],b=pos[t.id], x1=a.x+118,y1=a.y+19,x2=b.x,y2=b.y+19, mx=(x1+x2)/2;
+    var a=pos[d],b=pos[t.id], x1=a.x+96,y1=a.y+17,x2=b.x,y2=b.y+17, mx=(x1+x2)/2;
     var cr=map&&map[d]&&map[t.id]&&map[d].crit&&map[t.id].crit;
     edges+='<path d="M'+x1+' '+y1+' C'+mx+' '+y1+' '+mx+' '+y2+' '+(x2-6)+' '+y2+'" fill="none" stroke="'+(cr?'#ef4444':'#c9d5ee')+'" stroke-width="'+(cr?1.8:1.3)+'"'+(cr?' stroke-dasharray="5 4"':'')+'/>'+
       '<circle cx="'+(x2-4)+'" cy="'+y2+'" r="2.6" fill="'+(cr?'#ef4444':'#c9d5ee')+'"/>';
@@ -1663,12 +1884,12 @@ function depGraph(ts,map){
   ts.forEach(function(t){ var p=pos[t.id]; if(!p) return; var m=map&&map[t.id];
     var on=S.sel.wbs===t.id, crit=m&&m.crit;
     nodes+='<g style="cursor:pointer" data-act="pick-wbs" data-id="'+attr(t.id)+'">'+
-      '<rect x="'+p.x+'" y="'+p.y+'" width="118" height="38" rx="9" fill="'+(on?'#eef3ff':'#fff')+'" stroke="'+(on?'#2563eb':(crit?'#fca5a5':'#e9edf5'))+'" stroke-width="'+(on?2:1.4)+'"/>'+
-      '<text x="'+(p.x+11)+'" y="'+(p.y+17)+'" font-size="11" fill="#1b2440" font-weight="600">'+esc(t.n.length>8?t.n.slice(0,8)+'…':t.n)+'</text>'+
-      '<text x="'+(p.x+11)+'" y="'+(p.y+30)+'" font-size="9.5" fill="#98a2ba">'+esc(t.role)+(m?' · '+m.dur+'d':'')+'</text>'+
-      (crit?'<circle cx="'+(p.x+109)+'" cy="'+(p.y+9)+'" r="3.2" fill="#ef4444"/>':'')+'</g>';
+      '<rect x="'+p.x+'" y="'+p.y+'" width="96" height="34" rx="8" fill="'+(on?'#eef3ff':'#fff')+'" stroke="'+(on?'#2563eb':(crit?'#fca5a5':'#e9edf5'))+'" stroke-width="'+(on?2:1.2)+'"/>'+
+      '<text x="'+(p.x+9)+'" y="'+(p.y+15)+'" font-size="10" fill="#1b2440" font-weight="600">'+esc(t.n.length>7?t.n.slice(0,7)+'…':t.n)+'</text>'+
+      '<text x="'+(p.x+9)+'" y="'+(p.y+27)+'" font-size="8.8" fill="#98a2ba">'+esc(t.role)+(m?' · '+m.dur+'d':'')+'</text>'+
+      (crit?'<circle cx="'+(p.x+88)+'" cy="'+(p.y+8)+'" r="3" fill="#ef4444"/>':'')+'</g>';
   });
-  return '<div style="overflow:auto"><svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'">'+edges+nodes+'</svg></div>';
+  return '<div class="compact-dependency-graph" style="overflow:auto"><svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'">'+edges+nodes+'</svg></div>';
 }
 function ganttOf(ts,pl){
   var base=today(), tot=pl.days||1;
@@ -1742,19 +1963,22 @@ function viewSched(){
   '</div></div>']);
 
   /* 人员分配 */
-  var alloc = j(['<div class="card"><div class="hd">',ic('user',18,'#10b981'),'<h3>推荐人员分配</h3><span class="sm">职能优先 · 负责人确认后下发</span></div>',
+  var alloc = j(['<div class="card"><div class="hd">',ic('user',18,'#10b981'),'<h3>推荐人员分配</h3><span class="sm">AI 推荐优先 · 允许负责人手动调整</span></div>',
    '<div class="bd" style="padding-top:6px;max-height:330px;overflow:auto">',
-   pl? '<table><thead><tr><th>任务 / 职能</th><th>推荐人选</th><th>匹配度</th><th>推荐理由</th></tr></thead><tbody>'+
-     ts.map(function(t){ var slot=pl.map[t.id]; if(!slot)return ''; var m=MB[slot.own], mt=slot.match||candidateMatch(m,t), backup=(slot.candidates||[]).slice(1).map(function(x){return MB[x.memberId]&&MB[x.memberId].n;}).filter(Boolean);
-       return '<tr><td><b style="font-size:12.5px">'+esc(t.n)+'</b><br><span style="font-size:11px;color:var(--mut)">'+esc(t.role)+' · '+esc(taskSkills(t).join('、')||'通用能力')+'</span></td>'+
-         '<td><div style="display:flex;align-items:center;gap:7px">'+av(m.n)+esc(m.n)+'</div>'+(backup.length?'<span style="font-size:10.5px;color:var(--mut)">备选：'+esc(backup.join('、'))+'</span>':'')+'</td>'+
-         '<td><b style="color:var(--ok)">'+mt.score+'%</b></td>'+
-         '<td style="font-size:11px;color:var(--sub);line-height:1.65"><b style="color:var(--ink)">推荐理由</b><br>'+mt.reasons.map(esc).join('<br>')+'</td></tr>';
-     }).join('')+'</tbody></table>'
-   : '<div class="empty">AI 会按角色、技能与当前负载自动匹配人选</div>',
-  '</div></div>']);
+   pl? '<table><thead><tr><th>任务 / 职能</th><th>执行人</th><th>匹配度</th><th>推荐理由</th></tr></thead><tbody>'+
+     ts.map(function(t){ var slot=pl.map[t.id]; if(!slot)return ''; var m=MB[slot.own], ai=MB[slot.aiOwn||slot.own]||m, mt=slot.match||candidateMatch(m,t), aiMt=slot.aiMatch||slot.match||candidateMatch(ai,t), backup=(slot.candidates||[]).slice(1).map(function(x){return MB[x.memberId]&&MB[x.memberId].n;}).filter(Boolean);
+        return '<tr><td><b style="font-size:12.5px">'+esc(t.n)+'</b><br><span style="font-size:11px;color:var(--mut)">'+esc(t.role)+' · '+esc(taskSkills(t).join('、')||'通用能力')+'</span></td>'+
+          '<td><div style="display:flex;align-items:center;gap:7px;margin-bottom:6px">'+av(m.n)+esc(m.n)+'</div><select class="sel" style="height:34px;font-size:12px" data-act="assign-member" data-task-id="'+attr(t.id)+'">'+memberOptionList(slot.own)+'</select>'+
+          '<div style="margin-top:5px;font-size:10.5px;color:var(--mut)">AI 推荐：'+esc(ai.n)+'（'+aiMt.score+'%）'+(slot.manual?' · <b style="color:var(--warn)">人工改派</b>':'')+'</div>'+(slot.manual?'<div class="tag t-o" style="margin-top:5px;white-space:normal;line-height:1.5">差异提示：'+esc(slot.manualReason||'人工改派，负责人最终确认')+'；负责人最终确认。人工改派记录已保留。</div>':'')+(backup.length?'<span style="font-size:10.5px;color:var(--mut)">备选：'+esc(backup.join('、'))+'</span>':'')+'</td>'+
+          '<td><b style="color:var(--ok)">'+mt.score+'%</b></td>'+
+          '<td style="font-size:11px;color:var(--sub);line-height:1.65"><b style="color:var(--ink)">推荐理由</b><br>'+mt.reasons.map(esc).join('<br>')+'</td></tr>';
+      }).join('')+'</tbody></table>'
+   : '<div class="empty">AI 会按角色、技能与当前负载推荐人选；负责人仍可在生成后人工选择执行人。</div>',
+   '</div></div>']);
 
+  var emptyResource='<div class="card" data-resource-utilization data-state="empty"><div class="hd">'+ic('chart',18,'#f59e0b')+'<h3>资源利用率</h3><div class="grow"></div><span class="sm">等待真实调度</span></div><div class="empty">生成调度方案后，这里只显示真实任务排期计算出来的人力、工期、关键路径与预算占用。</div></div>';
   if(!ts) return j(['<div class="grid fade" style="grid-template-columns:1fr 1fr 1fr">',left,wbs,alloc,'</div>',
+    '<div class="grid" style="grid-template-columns:1fr 1.6fr;margin-top:16px">',emptyResource,
     '<div class="card" style="margin-top:16px"><div class="bd">',
     '<div style="text-align:center;padding:26px 10px">',
     '<div style="font-size:15px;font-weight:650;margin-bottom:6px">决策人只需要给出目标，剩下的交给 AI</div>',
@@ -1764,7 +1988,7 @@ function viewSched(){
         return '<div style="text-align:center"><div style="width:44px;height:44px;border-radius:12px;background:var(--brand-s);display:grid;place-items:center;margin:0 auto 8px">'+ic(x[0],20,'#2563eb')+'</div>'+
           '<b style="font-size:13px">'+x[1]+'</b><p style="margin:3px 0 0;font-size:11.5px;color:var(--mut)">'+x[2]+'</p></div>';
       }).join(''),
-    '</div></div></div></div>']);
+    '</div></div></div></div></div>']);
 
   /* 已生成：完整调度视图 */
   var suggestions=[];
@@ -1780,35 +2004,6 @@ function viewSched(){
   if(overdue) risks.unshift(['交付超期风险','方案预计完成 '+pl.end+'，晚于硬性截止 '+sc.deadline+'，建议切换到快速交付方案。','高','70%','切换方案 B / 缩减范围']);
 
   return j(['<div class="grid fade" style="grid-template-columns:1fr 1fr 1fr">',left,wbs,list,'</div>',
-
-  '<div style="margin-top:16px">',alloc,'</div>',
-
-  '<div class="grid" style="grid-template-columns:1.05fr 1.6fr 1.1fr;margin-top:16px">',
-    '<div class="card"><div class="hd">',ic('chart',18,'#f59e0b'),'<h3>资源利用率</h3><div class="grow"></div><span class="sm">本方案</span></div>',
-    '<div class="bd" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center">',
-      [[pl.util,pl.util>85?'#ef4444':'#10b981','人员档期占用'],[65,'#f59e0b','计算资源'],[62,'#10b981','存储资源'],[Math.min(99,budUse),'#2563eb','预算使用']].map(function(x){
-        return '<div>'+ring(x[0],x[1],86)+'<div style="font-size:11.5px;color:var(--sub);margin-top:4px">'+x[2]+'</div></div>';
-      }).join(''),
-    '</div>',
-    '<div class="bd" style="border-top:1px solid var(--line2);padding-top:12px">',
-      '<div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--sub);margin-bottom:6px"><span>投入人力</span><b>'+pl.heads+' 人（峰值并行 '+pl.peak+' 人）</b></div>',
-      '<div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--sub);margin-bottom:6px"><span>项目工期</span><b>'+pl.days+' 天（至 '+pl.end+'）</b></div>',
-      '<div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--sub)"><span>关键路径任务</span><b>'+ts.filter(function(t){ return pl.map[t.id]&&pl.map[t.id].crit; }).length+' 项</b></div>',
-    '</div></div>',
-
-    '<div class="card"><div class="hd">',ic('link',18,'#2563eb'),'<h3>任务依赖关系图</h3><div class="grow"></div>',
-      '<span class="sm" style="display:flex;gap:12px"><span>● 正常</span><span style="color:var(--risk)">┄ 关键路径</span></span></div>',
-      '<div class="bd">',depGraph(ts,pl.map),'</div></div>',
-
-    '<div class="card"><div class="hd">',ic('bolt',18,'#7c3aed'),'<h3>AI 优化建议</h3></div><div class="bd" style="padding-top:8px">',
-      suggestions.map(function(x){
-        return '<div style="padding:11px;border-radius:11px;background:#f9fbff;margin-bottom:9px">'+
-          '<div style="display:flex;justify-content:space-between;gap:8px"><b style="font-size:13px">'+esc(x[0])+'</b><span class="tag '+x[3]+'">'+x[2]+'</span></div>'+
-          '<p style="margin:5px 0 6px;font-size:12px;color:var(--sub);line-height:1.6">'+esc(x[1])+'</p>'+
-          '<span style="font-size:11.5px;color:var(--brand)">'+esc(x[4])+'</span></div>';
-      }).join(''),
-    '</div></div>',
-  '</div>',
 
   '<div class="grid" style="grid-template-columns:1.9fr 1.1fr;margin-top:16px">',
     '<div class="card"><div class="hd">',ic('ai',18,'#2563eb'),'<h3>调度方案对比</h3><div class="grow"></div><span class="sm">选择方案后可一键下发</span></div>',
@@ -1842,6 +2037,35 @@ function viewSched(){
     '</div></div>',
   '</div>',
 
+  '<div style="margin-top:16px">',alloc,'</div>',
+
+  '<div class="grid" style="grid-template-columns:.85fr 1.55fr .95fr;margin-top:16px;align-items:start">',
+    '<div class="card" data-resource-utilization data-state="calculated"><div class="hd">',ic('chart',18,'#f59e0b'),'<h3>资源利用率</h3><div class="grow"></div><span class="sm">本方案</span></div>',
+    '<div class="bd" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center">',
+      [[pl.util,pl.util>85?'#ef4444':'#10b981','人员档期占用'],[Math.min(99,Math.round(pl.heads/Math.max(1,MEMBERS.length)*100)),'#7c3aed','团队投入占比'],[Math.min(99,Math.round(pl.peak/Math.max(1,Number(S.cfg.parallel)||1)*100)),'#10b981','并行峰值'],[Math.min(99,budUse),'#2563eb','预算使用']].map(function(x){
+        return '<div>'+ring(x[0],x[1],70)+'<div style="font-size:11px;color:var(--sub);margin-top:3px">'+x[2]+'</div></div>';
+      }).join(''),
+    '</div>',
+    '<div class="bd" style="border-top:1px solid var(--line2);padding-top:10px">',
+      '<div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--sub);margin-bottom:6px"><span>投入人力</span><b>'+pl.heads+' 人（峰值并行 '+pl.peak+' 人）</b></div>',
+      '<div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--sub);margin-bottom:6px"><span>项目工期</span><b>'+pl.days+' 天（至 '+pl.end+'）</b></div>',
+      '<div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--sub)"><span>关键路径任务</span><b>'+ts.filter(function(t){ return pl.map[t.id]&&pl.map[t.id].crit; }).length+' 项</b></div>',
+    '</div></div>',
+
+    '<div class="card"><div class="hd">',ic('link',18,'#2563eb'),'<h3>任务依赖关系图</h3><div class="grow"></div>',
+      '<span class="sm" style="display:flex;gap:12px"><span>● 正常</span><span style="color:var(--risk)">┄ 关键路径</span></span></div>',
+      '<div class="bd" style="max-height:250px;overflow:auto;padding-bottom:8px">',depGraph(ts,pl.map),'</div></div>',
+
+    '<div class="card"><div class="hd">',ic('bolt',18,'#7c3aed'),'<h3>AI 优化建议</h3></div><div class="bd" style="padding-top:8px;max-height:250px;overflow:auto">',
+      suggestions.map(function(x){
+        return '<div style="padding:10px;border-radius:11px;background:#f9fbff;margin-bottom:8px">'+
+          '<div style="display:flex;justify-content:space-between;gap:8px"><b style="font-size:13px">'+esc(x[0])+'</b><span class="tag '+x[3]+'">'+x[2]+'</span></div>'+
+          '<p style="margin:5px 0 6px;font-size:12px;color:var(--sub);line-height:1.6">'+esc(x[1])+'</p>'+
+          '<span style="font-size:11.5px;color:var(--brand)">'+esc(x[4])+'</span></div>';
+      }).join(''),
+    '</div></div>',
+  '</div>',
+
   '<div class="card" style="margin-top:16px"><div class="hd">',ic('cal',18,'#2563eb'),'<h3>排期甘特图</h3><div class="grow"></div>',
     '<span class="sm">起始 ',fmt(today()),'　·　橙红条为关键路径</span></div><div class="bd">',ganttOf(ts,pl),'</div></div>',
 
@@ -1858,14 +2082,26 @@ function viewProj(){
     if(S.f.projSt!=='all'&&p.st!==S.f.projSt) return false;
     return !q||(p.n+p.cat).indexOf(q)>=0;
   });
+  var projectTotals=PROJECTS.reduce(function(acc,p){
+    var st=p.st||'进行中', budget=Number(p.bud||0), progress=Math.max(0,Math.min(100,Number(p.pr)||0));
+    acc.total++;
+    if(st==='已完成') acc.done++;
+    else if(st==='风险'||st==='延期'||st==='已逾期') acc.risk++;
+    else acc.active++;
+    acc.budget+=budget;
+    acc.used+=budget*progress/100;
+    acc.health+=Number(p.health||0);
+    return acc;
+  },{total:0,active:0,done:0,risk:0,budget:0,used:0,health:0});
+  var avgHealth=projectTotals.total?Math.round(projectTotals.health/projectTotals.total):0;
   var mile=[['需求评审与方案确认','完成',-16],['系统设计与技术选型','完成',-8],['核心开发与联调','进行中',9],['测试与验收','待开始',22],['上线与复盘','待开始',30]];
   return j([
-  '<div class="card fade"><div class="hd"><h3>项目总览</h3></div><div class="bd" style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px">',
-    [['进行中项目','24','↑ 9'],['已完成项目','8','↑ 2'],['延期项目','3','↑ 1'],['总预算（万元）','8,642.18','↑ 12.6%'],['已使用（万元）','5,210.66','↑ 9.8%']].map(function(x){
+  '<div class="card fade" data-project-overview data-state="calculated"><div class="hd"><h3>项目总览</h3><div class="grow"></div><span class="sm">来自当前项目实时累计</span></div><div class="bd" style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px">',
+    [['进行中项目',''+projectTotals.active,'实时'],['已完成项目',''+projectTotals.done,'实时'],['风险项目',''+projectTotals.risk,'实时'],['总预算（万元）',num(projectTotals.budget,2),'累计'],['已使用（万元）',num(projectTotals.used,2),'按进度估算']].map(function(x){
       return '<div><div style="font-size:12.5px;color:var(--sub)">'+x[0]+'</div><div style="font-size:23px;font-weight:650;margin:6px 0 4px;font-variant-numeric:tabular-nums">'+x[1]+'</div>'+
         '<div style="font-size:11.5px;color:var(--mut)">较上月 <span class="up">'+x[2]+'</span></div></div>';
     }).join(''),
-    '<div style="display:flex;align-items:center;gap:10px">'+ring(82,'#f59e0b',72,'健康度')+'<div><div style="font-size:12.5px;color:var(--sub)">平均健康度</div><div style="font-size:11.5px;color:var(--mut);margin-top:4px">较上月 <span class="up">↑ 6 分</span></div></div></div>',
+    '<div style="display:flex;align-items:center;gap:10px">'+ring(avgHealth||0,avgHealth>=80?'#10b981':avgHealth>=70?'#f59e0b':'#ef4444',72,'健康度')+'<div><div style="font-size:12.5px;color:var(--sub)">平均健康度</div><div style="font-size:11.5px;color:var(--mut);margin-top:4px">当前 <span class="up">'+(avgHealth||0)+' 分</span></div></div></div>',
   '</div></div>',
 
   '<div class="card" style="margin-top:16px"><div class="bd" style="display:flex;align-items:center;gap:14px">',
@@ -2071,6 +2307,8 @@ function viewMe(){
     '</div></div>',
   '</div>',
 
+  payroll?'<button class="card me-mobile-income" data-act="open-income" data-month="'+attr(payroll.month)+'" aria-label="查看 '+attr(payroll.month)+' 薪资明细"><span style="width:36px;height:36px;border-radius:11px;background:#fff;display:grid;place-items:center;flex:0 0 auto">'+ic('money',18,'#2563eb')+'</span><span class="me-income-copy"><span>'+esc(payroll.month)+' 本人薪资</span><b>'+payrollMoney(payrollSummary.net)+'</b></span><span class="me-income-link">查看明细 ›</span></button>':'',
+
   '<div class="card me-task-list" style="margin-top:16px"><div class="hd" style="gap:8px"><h3 style="margin-right:8px">个人任务</h3>',
     '<button class="chip '+(scope==='todo'?'on':'')+'" data-act="my-task-filter" data-scope="todo" data-status="'+attr(status)+'">我的待办</button>',
     '<button class="chip '+(scope==='created'?'on':'')+'" data-act="my-task-filter" data-scope="created" data-status="'+attr(status)+'">我发起的</button>',
@@ -2250,18 +2488,26 @@ function viewAssistant(){
     ['bolt','起草方案','生成项目方案与执行计划','帮我起草一份项目落地方案，包含目标、路径、里程碑与风险：'],
     ['book','查找知识','搜索企业知识与文档','在企业知识库中，我想了解：'],
     ['flow','生成流程','生成流程图与自动化流程','帮我设计一条自动化流程，触发条件与节点如下：']];
-  return j([
-  '<div class="grid fade" style="grid-template-columns:250px 1fr 300px;align-items:start">',
-    '<div class="card"><div class="hd"><h3>会话列表</h3><div class="grow"></div><button class="link" data-act="new-chat">+ 新建会话</button></div>',
+  var historyPane=isDemoRuntime()?j([
+    '<div class="card" data-ai-chat-history data-state="demo"><div class="hd"><h3>会话列表</h3><div class="grow"></div><button class="link" data-act="new-chat">+ 新建会话</button></div>',
     '<div class="bd" style="padding-top:8px">',
       '<div class="search" style="width:100%;margin-bottom:10px">'+ic('search',15)+'<input placeholder="搜索会话或内容"></div>',
       hist.map(function(h,i){
-        return '<div style="padding:10px;border-radius:11px;margin-bottom:6px;cursor:pointer;background:'+(i===0?'var(--brand-s)':'transparent')+'">'+
+        return '<button data-act="chat-session" data-chat-session="'+i+'" style="display:block;width:100%;padding:10px;border-radius:11px;margin-bottom:6px;cursor:pointer;text-align:left;background:'+(i===0?'var(--brand-s)':'transparent')+'">'+
           '<div style="display:flex;gap:7px;align-items:center"><span>'+ic('bot',15,i===0?'#2563eb':'#98a2ba')+'</span>'+
           '<b style="font-size:12.5px;flex:1;'+(i===0?'color:var(--brand-d)':'')+'">'+h[0]+'</b><span style="font-size:11px;color:var(--mut)">'+h[2]+'</span></div>'+
-          '<p style="margin:4px 0 0 22px;font-size:11.5px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+h[1]+'</p></div>';
+          '<p style="margin:4px 0 0 22px;font-size:11.5px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+h[1]+'</p></button>';
       }).join(''),
-    '</div></div>',
+    '</div></div>'
+  ]):j([
+    '<div class="card" data-ai-chat-history data-state="pending-storage"><div class="hd"><h3>会话列表</h3><div class="grow"></div><span class="tag t-o">待接入</span></div>',
+    '<div class="bd" style="padding-top:8px"><div class="empty" style="min-height:180px">',
+      '<b>会话功能待接入</b><br>正式模式暂不展示假历史会话，也不会保存历史会话。后续接入会话存储后，这里会显示真实对话记录。',
+    '</div></div></div>'
+  ]);
+  return j([
+  '<div class="grid fade" style="grid-template-columns:250px 1fr 300px;align-items:start">',
+    historyPane,
 
     '<div class="card" style="display:flex;flex-direction:column;height:calc(100vh - 130px)">',
       '<div class="hd" style="padding-bottom:14px;border-bottom:1px solid var(--line2)"><h3>与量子星河 AI 助理对话</h3>',
@@ -2279,7 +2525,7 @@ function viewAssistant(){
       '</div>',
       '<div class="bd" style="border-top:1px solid var(--line2)">',
         '<div style="display:flex;gap:8px;align-items:flex-end">',
-        '<textarea class="ta" id="chatIn" style="min-height:52px;flex:1" placeholder="输入您的问题，或从右侧选择一项能力快速开始…"></textarea>',
+        '<textarea class="ta" id="chatIn" style="min-height:52px;flex:1" placeholder="输入您的问题，或从右侧选择一项能力快速开始…">'+esc(S.chatDraft||'')+'</textarea>',
         '<button class="btn" data-act="chat" style="height:44px" '+(S.chatBusy?'disabled':'')+'>'+ic('send',16)+'</button></div>',
         '<div class="chips" style="margin-top:10px">',
           caps.slice(0,4).map(function(c){ return '<button class="chip" data-act="cap" data-p="'+esc(c[3])+'">'+c[1]+'</button>'; }).join(''),
@@ -2402,46 +2648,73 @@ function viewInsight(){
 
 /* ---------------- 页面：财务中心 ---------------- */
 function viewFin(){
+  function payrollManagerEntry(){
+    if(!hasWorkstationPermission('salary.manage')) return '';
+    return '<div class="card fade" style="margin-bottom:16px;border-color:#bfdbfe;background:linear-gradient(120deg,#eff6ff,#fff)"><div class="bd" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
+      '<span style="width:42px;height:42px;border-radius:14px;background:var(--brand-s);display:grid;place-items:center;flex:0 0 auto">'+ic('money',20,'#2563eb')+'</span>'+
+      '<div style="flex:1;min-width:220px"><b style="font-size:15px">本月薪资核算</b><p class="hint" style="margin-top:4px">录入工资、奖金、扣款与缴费基数；系统按累计预扣法计算应发、个税、扣款和实发。</p></div>'+
+      '<button class="btn" data-act="go" data-page="pay-admin">进入薪资核算</button>'+
+    '</div></div>';
+  }
   var rows=WORKSTATION_GATEWAY.loadPayroll(S.me).sort(function(a,b){
     return String(b.month||'').localeCompare(String(a.month||''));
   });
   var member=MB[S.me]||{n:'当前员工'};
-  if(!rows.length){
-    return '<div class="card fade"><div class="hd"><h3>我的薪酬</h3></div><div class="empty">当前身份暂无工资记录</div></div>';
-  }
+  var band=salaryBandForMember(member);
   var selected=payrollRow(S.me,S.f.payMonth);
+  var salaryIdentity='<div class="card fade" data-salary-identity style="margin-bottom:16px"><div class="bd" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
+    av(member.n||'员',1)+'<div style="flex:1;min-width:220px"><b style="font-size:16px">'+esc(member.n||'当前员工')+'</b><p class="hint" style="margin-top:4px">部门：'+esc(band.dept)+' · 职级：'+esc(band.levelName)+' · 岗位：'+esc(member.r||'员工')+'</p><p class="hint" style="margin-top:3px">薪资档位：'+esc(band.dept)+' L'+band.level+' · 基准月薪 '+payrollMoney(band.base)+' · 项目奖金池按任务贡献结算</p></div>'+
+    '<span class="tag t-b">薪资仅本人可见</span></div></div>';
+  if(!rows.length){
+    return payrollManagerEntry()+salaryIdentity+'<div class="card fade"><div class="hd"><h3>我的薪酬</h3></div><div class="bd"><div class="grid payroll-summary-grid" data-payroll-summary style="grid-template-columns:repeat(5,1fr)"></div></div><div class="empty">当前身份暂无工资记录</div></div>';
+  }
   var selectedTotals=payrollTotals(selected);
   var gross=selectedTotals.gross, deductions=selectedTotals.deductions, net=selectedTotals.net;
-  var focusValues={net:net,gross:gross,performance:Number(selected.performance||0),projectBonus:Number(selected.projectBonus||0)};
-  var focusLabels={net:'实发工资',gross:'应发工资',performance:'绩效奖金',projectBonus:'项目奖金'};
+  var calculated=!!selected.calculationVersion;
+  var compact=!!(window.matchMedia&&window.matchMedia('(max-width:680px)').matches);
+  var detailsExpanded=!compact||S.payrollDetailsOpen;
+  var focusValues={net:net,gross:gross,deductions:deductions,performance:Number(selected.performance||0),projectBonus:Number(selected.projectBonus||0)};
+  var focusLabels={net:'实发工资',gross:'应发工资',deductions:'扣款合计',performance:'绩效奖金',projectBonus:'项目奖金'};
   var cards=[
     {key:'net',label:'实发工资',value:net,icon:'money',color:'#2563eb',bg:'var(--brand-s)'},
     {key:'gross',label:'应发工资',value:gross,icon:'chart',color:'#10b981',bg:'var(--ok-s)'},
-    {key:'performance',label:'绩效奖金',value:selected.performance,icon:'target',color:'#7c3aed',bg:'var(--violet-s)'},
-    {key:'projectBonus',label:'项目奖金',value:selected.projectBonus,icon:'bolt',color:'#f59e0b',bg:'var(--warn-s)'}
+    {key:'deductions',label:'扣款合计',value:deductions,icon:'file',color:'#ef4444',bg:'var(--risk-s)'},
+    {key:'performance',label:'绩效奖金',value:selected.performance,icon:'target',color:'#7c3aed',bg:'var(--violet-s)',bonus:true},
+    {key:'projectBonus',label:'项目奖金',value:selected.projectBonus,icon:'bolt',color:'#f59e0b',bg:'var(--warn-s)',bonus:true}
   ];
-  var details=[
+  var details=calculated?[
+    ['基本工资',selected.base],['绩效奖金',selected.performance],['项目奖金',selected.projectBonus],['其他奖励',selected.otherBonus],['其他收入',selected.otherIncome],
+    ['应发工资',gross],['养老保险',-Number(selected.pensionEmployee||0)],['医疗保险',-Number(selected.medicalEmployee||0)],
+    ['失业保险',-Number(selected.unemploymentEmployee||0)],['住房公积金',-Number(selected.housingFundEmployee||0)],
+    ['累计应纳税所得额',Number(selected.cumulativeTaxableIncome||0)],['本期个人所得税',-Number(selected.tax||0)],
+    ['其他扣款',-Number(selected.otherDeduction||0),selected.manualAdjustmentReason||''],['扣款合计',-deductions],['实发工资',net]
+  ]:[
     ['基本工资',selected.base],['绩效奖金',selected.performance],['项目奖金',selected.projectBonus],['其他奖励',selected.otherBonus],
     ['社保公积金',-selectedTotals.social],['个人所得税',-Number(selected.tax||0)],['其他扣款',-Number(selected.otherDeduction||0)],
     ['应发工资',gross],['扣款合计',-deductions],['实发工资',net]
   ];
   return j([
+    payrollManagerEntry(),
+    salaryIdentity,
     '<div class="card fade"><div class="hd"><h3>我的薪酬</h3><div class="grow"></div><span class="tag t-b">',esc(member.n),'</span><span class="sm">',esc(selected.month),' 工资明细</span></div>',
-      S.f.payFocus&&focusLabels[S.f.payFocus]?'<div class="bd" style="padding-bottom:0"><div style="padding:11px 13px;border-radius:11px;background:var(--brand-s);color:var(--brand-d)"><b>'+focusLabels[S.f.payFocus]+'明细</b><span style="margin-left:10px">'+payrollMoney(focusValues[S.f.payFocus])+'</span><span class="sm" style="margin-left:8px">'+esc(selected.month)+'</span></div></div>':'',
-      '<div class="bd"><div class="grid" style="grid-template-columns:repeat(4,1fr)">',
+    S.f.payFocus&&focusLabels[S.f.payFocus]?'<div class="bd" style="padding-bottom:0"><div style="padding:11px 13px;border-radius:11px;background:var(--brand-s);color:var(--brand-d)"><b>'+focusLabels[S.f.payFocus]+'明细</b><span style="margin-left:10px">'+payrollMoney(focusValues[S.f.payFocus])+'</span><span class="sm" style="margin-left:8px">'+esc(selected.month)+'</span></div></div>':'',
+      '<div class="bd"><div class="grid payroll-summary-grid" data-payroll-summary style="grid-template-columns:repeat(5,1fr)">',
         cards.map(function(card){
           var active=S.f.payFocus===card.key;
-          return '<button class="card kpi" style="width:100%;text-align:left;border-color:'+(active?card.color:'var(--line)')+'" data-act="payroll-focus" data-focus="'+attr(card.key)+'">'+
+          return '<button class="card kpi '+(card.bonus?'payroll-bonus-card':'')+'" style="width:100%;text-align:left;border-color:'+(active?card.color:'var(--line)')+'" data-act="payroll-focus" data-focus="'+attr(card.key)+'">'+
             '<div class="t"><span>'+card.label+'</span><span class="ico" style="background:'+card.bg+'">'+ic(card.icon,17,card.color)+'</span></div>'+
             '<div class="v">'+payrollMoney(card.value)+'</div><div class="f"><em>点击查看当月明细</em><span class="link">查看 ›</span></div></button>';
         }).join(''),
       '</div></div></div>',
     '<div class="grid" style="grid-template-columns:1fr 1.15fr;margin-top:16px">',
-      '<div class="card"><div class="hd"><h3>',esc(selected.month),' 薪酬明细</h3><div class="grow"></div>',
-        selected.status?'<span class="tag '+(selected.status==='已发放'?'t-g':'t-o')+'">'+esc(selected.status)+'</span>':'','</div><div class="bd"><table><thead><tr><th>项目</th><th style="text-align:right">金额</th></tr></thead><tbody>',
-        details.map(function(item){ return '<tr><td>'+item[0]+'</td><td style="text-align:right;font-weight:'+(item[0]==='实发工资'?'700':'500')+';color:'+(Number(item[1])<0?'var(--risk)':'inherit')+'">'+payrollMoney(item[1])+'</td></tr>'; }).join(''),
-        '</tbody></table></div></div>',
-      '<div class="card"><div class="hd"><h3>最近月份工资记录</h3><div class="grow"></div><span class="sm">仅显示当前身份</span></div><div class="bd"><table><thead><tr><th>月份</th><th>实发工资</th><th>状态</th><th>发放日期</th></tr></thead><tbody>',
+      '<div class="card payroll-detail-card" id="payrollDetailCard"><div class="hd"><h3>',esc(selected.month),' 薪酬明细</h3><div class="grow"></div>',
+        '<span class="tag '+(calculated?'t-g':'t-o')+'">'+(calculated?'系统核算':'历史手工记录')+'</span>',
+        selected.status?'<span class="tag '+(selected.status==='已发放'?'t-g':'t-o')+'">'+esc(selected.status)+'</span>':'','</div><div class="bd">',
+        '<button class="btn ghost payroll-details-toggle" style="min-height:44px" data-act="payroll-details-toggle" aria-expanded="'+(detailsExpanded?'true':'false')+'"><span>查看核算明细</span><span>'+(detailsExpanded?'收起':'展开')+'</span></button>',
+        '<div data-payroll-details'+(detailsExpanded?'':' hidden')+'><table><thead><tr><th>项目</th><th style="text-align:right">金额</th></tr></thead><tbody>',
+        details.map(function(item){ return '<tr><td>'+item[0]+(item[2]?'<div class="sm" style="margin-top:3px">'+esc(item[2])+'</div>':'')+'</td><td style="text-align:right;font-weight:'+(item[0]==='实发工资'?'700':'500')+';color:'+(Number(item[1])<0?'var(--risk)':'inherit')+'">'+payrollMoney(item[1])+'</td></tr>'; }).join(''),
+        '</tbody></table></div></div></div>',
+      '<div class="card payroll-history"><div class="hd"><h3>最近月份工资记录</h3><div class="grow"></div><span class="sm">仅显示当前身份</span></div><div class="bd"><table><thead><tr><th>月份</th><th>实发工资</th><th>状态</th><th>发放日期</th></tr></thead><tbody>',
         rows.map(function(row){
           var rowTotals=payrollTotals(row);
           var active=row.month===selected.month;
@@ -2508,6 +2781,87 @@ function viewKb(){
 }
 
 /* ---------------- 页面：系统设置 ---------------- */
+function defaultPayrollPolicyDraft(){
+  var d=new Date();
+  return {effectiveMonth:d.getFullYear()+'-'+pad(d.getMonth()+1),pensionEmployeeRate:'8',
+    medicalEmployeeRate:'2',medicalEmployeeFixedAmount:'0.00',unemploymentEmployeeRate:'0.5',
+    housingFundEmployeeRate:'7',socialBaseMin:'0.00',socialBaseMax:'999999.00',
+    housingBaseMin:'0.00',housingBaseMax:'999999.00'};
+}
+function payrollPolicyRecord(data){
+  var rows=data&&Array.isArray(data.history)?data.history:[];
+  return rows.filter(function(row){ return row.status==='draft'; })[0]||(data&&data.active)||null;
+}
+function applyPayrollPolicyState(data){
+  S.payrollPolicy=data||{active:null,history:[]};
+  S.payrollPolicyDraft=Object.assign(defaultPayrollPolicyDraft(),payrollPolicyRecord(data)||{});
+  S.payrollPolicyExample=data&&data.draftExample||null;
+  S.payrollPolicyLoaded=true; S.payrollPolicyBusy=false; S.payrollPolicyConfirmed=false;
+}
+function ensurePayrollPolicy(){
+  if(isDemoRuntime()||!hasWorkstationPermission('salary.manage')||S.payrollPolicyLoaded||S.payrollPolicyBusy) return;
+  S.payrollPolicyBusy=true;
+  Promise.resolve(WORKSTATION_GATEWAY.loadPayrollPolicy()).then(function(data){
+    applyPayrollPolicyState(data); render();
+  }).catch(function(){
+    S.payrollPolicyBusy=false; S.payrollPolicyLoaded=true; S.payrollError='薪资参数读取失败，请稍后重试'; render();
+  });
+}
+function payrollPolicyInput(id){ var node=el(id); return node?String(node.value||'').trim():''; }
+function readPayrollPolicyDraft(action){
+  return {action:action,effectiveMonth:payrollPolicyInput('policyEffectiveMonth'),
+    pensionEmployeeRate:payrollPolicyInput('policyPensionRate'),medicalEmployeeRate:payrollPolicyInput('policyMedicalRate'),
+    medicalEmployeeFixedAmount:payrollPolicyInput('policyMedicalFixed'),unemploymentEmployeeRate:payrollPolicyInput('policyUnemploymentRate'),
+    housingFundEmployeeRate:payrollPolicyInput('policyHousingRate'),socialBaseMin:payrollPolicyInput('policySocialMin'),
+    socialBaseMax:payrollPolicyInput('policySocialMax'),housingBaseMin:payrollPolicyInput('policyHousingMin'),
+    housingBaseMax:payrollPolicyInput('policyHousingMax'),exampleConfirmationHash:action==='activate'&&S.payrollPolicyExample?S.payrollPolicyExample.confirmationHash:null};
+}
+function payrollPolicyError(error){
+  var code=error&&error.message||'';
+  if(code==='activation_example_mismatch') return '示例结果已经变化，请重新保存草稿并核对';
+  if(code==='invalid_rate'||code==='invalid_base_range') return '请检查个人比例和缴费基数范围';
+  if(code==='forbidden') return '当前账号没有薪资参数管理权限';
+  return '薪资参数服务暂时不可用，请稍后重试';
+}
+function savePayrollPolicy(action){
+  if(S.payrollPolicyBusy) return;
+  if(action==='activate'&&(!S.payrollPolicyConfirmed||!S.payrollPolicyExample)){ toast('请先核对并确认示例结果'); return; }
+  var input=readPayrollPolicyDraft(action); S.payrollPolicyDraft=Object.assign({},input);
+  S.payrollPolicyBusy=true; S.payrollError=''; render();
+  Promise.resolve(WORKSTATION_GATEWAY.savePayrollPolicy(input)).then(function(response){
+    S.payrollPolicyBusy=false;
+    if(action==='activate'){
+      S.payrollPolicyLoaded=false; ensurePayrollPolicy();
+      toast('薪资核算参数已启用');
+      return;
+    }
+    if(response&&response.draftExample){
+      S.payrollPolicyExample=response.draftExample; S.payrollPolicyConfirmed=false;
+      S.payrollError=''; render(); toast('草稿已保存，请核对示例结果后启用');
+      return;
+    }
+    S.payrollPolicyLoaded=false; ensurePayrollPolicy();
+    toast('薪资核算参数草稿已保存');
+  }).catch(function(error){ S.payrollPolicyBusy=false; S.payrollError=payrollPolicyError(error); render(); });
+}
+function payrollPolicyCard(){
+  if(!hasWorkstationPermission('salary.manage')) return '';
+  var p=S.payrollPolicyDraft||defaultPayrollPolicyDraft(), ex=S.payrollPolicyExample;
+  if(S.payrollPolicyBusy&&!S.payrollPolicyLoaded) return '<div class="card" style="grid-column:1/-1"><div class="bd"><div class="empty">正在读取薪资核算参数…</div></div></div>';
+  return j(['<div class="card" style="grid-column:1/-1"><div class="hd">',ic('money',18,'#10b981'),'<div><h3>薪资核算参数</h3><div class="sm">企业可配置费率 · 累计预扣法</div></div><div class="grow"></div>',
+    (S.payrollPolicy&&S.payrollPolicy.active?'<span class="tag t-g">已启用 '+esc(S.payrollPolicy.active.effectiveMonth)+'</span>':'<span class="tag t-o">尚未启用</span>'),'</div><div class="bd">',
+    '<div class="frow"><div>',fld('生效月份','<input class="inp" id="policyEffectiveMonth" type="month" value="'+attr(p.effectiveMonth||'')+'">','',1),'</div><div>',fld('医疗个人固定金额','<input class="inp" id="policyMedicalFixed" inputmode="decimal" value="'+attr(p.medicalEmployeeFixedAmount||'0.00')+'">'),'</div></div>',
+    '<div class="frow"><div>',fld('养老个人比例（%）','<input class="inp" id="policyPensionRate" inputmode="decimal" value="'+attr(p.pensionEmployeeRate||'')+'">','',1),'</div><div>',fld('医疗个人比例（%）','<input class="inp" id="policyMedicalRate" inputmode="decimal" value="'+attr(p.medicalEmployeeRate||'')+'">','',1),'</div></div>',
+    '<div class="frow"><div>',fld('失业个人比例（%）','<input class="inp" id="policyUnemploymentRate" inputmode="decimal" value="'+attr(p.unemploymentEmployeeRate||'')+'">','',1),'</div><div>',fld('公积金个人比例（%）','<input class="inp" id="policyHousingRate" inputmode="decimal" value="'+attr(p.housingFundEmployeeRate||'')+'">','',1),'</div></div>',
+    '<div class="frow"><div>',fld('社保基数下限','<input class="inp" id="policySocialMin" inputmode="decimal" value="'+attr(p.socialBaseMin||'')+'">','',1),'</div><div>',fld('社保基数上限','<input class="inp" id="policySocialMax" inputmode="decimal" value="'+attr(p.socialBaseMax||'')+'">','',1),'</div></div>',
+    '<div class="frow"><div>',fld('公积金基数下限','<input class="inp" id="policyHousingMin" inputmode="decimal" value="'+attr(p.housingBaseMin||'')+'">','',1),'</div><div>',fld('公积金基数上限','<input class="inp" id="policyHousingMax" inputmode="decimal" value="'+attr(p.housingBaseMax||'')+'">','',1),'</div></div>',
+    (ex?'<div style="margin-top:14px;padding:14px;border-radius:12px;background:#f6f9ff"><b>示例核算结果</b><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:10px">'+
+      [['应发工资',ex.sample.grossSalary],['社保公积金',ex.sample.socialSecurity],['个人所得税',ex.sample.individualIncomeTax],['全部扣款',ex.sample.deductions],['实发工资',ex.sample.netSalary]].map(function(row){ return '<div><span class="sm">'+row[0]+'</span><b style="display:block;margin-top:3px">¥ '+esc(row[1])+'</b></div>'; }).join('')+'</div><label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-size:12px"><input id="policyExampleConfirmed" type="checkbox" '+(S.payrollPolicyConfirmed?'checked':'')+'> 我已核对示例结果</label></div>':''),
+    (S.payrollError?'<div class="alert" style="margin-top:12px">'+esc(S.payrollError)+'</div>':''),
+    (!ex?'<div class="hint" style="margin-top:12px">先点击“预览并保存草稿”，系统会按当前参数生成一份示例工资单；核对无误后再勾选确认并启用。</div>':''),
+    '<div style="display:flex;justify-content:flex-end;gap:9px;margin-top:16px"><button class="btn ghost" data-act="payroll-policy-save" '+(S.payrollPolicyBusy?'disabled':'')+'>'+(ex?'保存草稿':'预览并保存草稿')+'</button><button class="btn" data-act="payroll-policy-activate" '+(S.payrollPolicyBusy||!S.payrollPolicyConfirmed||!ex?'disabled':'')+'>启用参数</button></div>',
+  '</div></div>']);
+}
 function viewSet(){
   var c=S.aiConfig;
   var fileMode=location.protocol==='file:';
@@ -2577,7 +2931,7 @@ function viewSet(){
     (!canManageSchedule?'<p class="hint">调度参数仅组织管理员可调整。</p>':''),
     (demoTools?'<button class="btn ghost" style="width:100%;justify-content:center;margin-top:9px" data-act="reset">重置演示数据</button>':''),
     (demoTools?'<button class="btn ghost" style="width:100%;justify-content:center;margin-top:9px;color:var(--risk);border-color:#fecaca" data-act="clear-demo">清除演示数据</button>':''),
-  '</div></div></div>']);
+  '</div></div>',payrollPolicyCard(),'</div>']);
 }
 
 
@@ -2640,7 +2994,7 @@ function hydrateServerBootstrap(bootstrap){
   S.customers=Array.isArray(bootstrap.customers)?cloneGatewayValue(bootstrap.customers):[];
   S.activities=Array.isArray(bootstrap.activities)?cloneGatewayValue(bootstrap.activities):[];
   S.decisions=Array.isArray(bootstrap.decisions)?cloneGatewayValue(bootstrap.decisions):[];
-  S.agents=Array.isArray(bootstrap.agents)?cloneGatewayValue(bootstrap.agents):[];
+  S.agents=Array.isArray(bootstrap.agents)&&bootstrap.agents.length?cloneGatewayValue(bootstrap.agents):seedAgents();
   S.runs=Array.isArray(bootstrap.runs)?cloneGatewayValue(bootstrap.runs):[];
   S.reqs=Array.isArray(bootstrap.reqs)?cloneGatewayValue(bootstrap.reqs):[];
   S.payroll=bootstrap.payroll&&typeof bootstrap.payroll==='object'?cloneGatewayValue(bootstrap.payroll):{};
@@ -2810,14 +3164,31 @@ function viewNewProject(){
 function createProject(){
   syncForm(); var f=S.form.project;
   if(!f.n){ toast('请填写项目名称'); return; }
-  var id='p'+Date.now().toString(36).slice(-5);
-  var pj={id:id,n:f.n,own:f.own,cat:f.cat,pr:0,bud:parseFloat(f.bud)||0,health:80,st:'进行中',up:'刚刚'};
-  PROJECTS.unshift(pj); PB[id]=pj;
   var goal=f.goal, auto=Number(f.auto);
-  S.form.project=blankForm().project; save(); toast('项目「'+pj.n+'」已创建');
-  if(goal){ S.sch.goal=goal; S.sch.tasks=null; S.sch.plans=null; }
-  if(goal&&auto){ S.page='sched'; render(); setTimeout(genPlan,60); return; }
-  S.page= goal?'sched':'proj'; render();
+  function done(pj){
+    PROJECTS.unshift(pj); PB[pj.id]=pj;
+    S.form.project=blankForm().project;
+    if(isDemoRuntime()) save();
+    toast('项目「'+pj.n+'」已创建');
+    if(goal){ S.sch.goal=goal; S.sch.projectId=pj.id; S.sch.tasks=null; S.sch.plans=null; }
+    if(goal&&auto){ S.page='sched'; render(); setTimeout(genPlan,60); return; }
+    S.page= goal?'sched':'proj'; render();
+  }
+  if(!isDemoRuntime()){
+    try{
+      WORKSTATION_GATEWAY.createProject({
+        name:f.n, category:f.cat, ownerMemberId:f.own, startDate:f.s, dueDate:f.e,
+        budgetWan:parseFloat(f.bud)||0, description:f.desc||'', goal:goal||''
+      }).then(done).catch(function(error){
+        toast(projectCreateFailureMessage(error));
+      });
+    }catch(error){
+      toast(projectCreateFailureMessage(error));
+    }
+    return;
+  }
+  var id='p'+Date.now().toString(36).slice(-5);
+  done({id:id,n:f.n,own:f.own,cat:f.cat,pr:0,bud:parseFloat(f.bud)||0,health:80,st:'进行中',up:'刚刚'});
 }
 
 /* ---- 上传文档 ---- */
@@ -3035,7 +3406,7 @@ var PREV={'new-member':pvMember,'new-project':pvProject,'new-file':pvFile,'new-t
 /* ---------------- 职级与权限模型 ---------------- */
 var LEVELS=[{v:1,l:'L1 员工'},{v:2,l:'L2 主管'},{v:3,l:'L3 经理'},{v:4,l:'L4 总监'},{v:5,l:'L5 决策层'}];
 function lvName(v){ var x=LEVELS.filter(function(l){ return l.v===(v||1); })[0]; return x?x.l:'L1 员工'; }
-function isAdmin(mid){ var m=MB[mid||S.me]; return !!m && (m.r==='企业决策人' || (m.lv||1)>=4); }
+function isAdmin(mid){ var m=MB[mid||S.me]; return isWorkstationCEO() || (!!m && (m.r==='企业决策人' || (m.lv||1)>=4)); }
 /* 调用权限判定：决策层直通 → 单独授权 → 职级门槛 → 部门范围 */
 function canUse(a,mid){
   var m=MB[mid||S.me];
@@ -3105,6 +3476,41 @@ function seedAgents(){ return [
   f:[{k:'raw',l:'会议内容',t:'ta',ph:'粘贴会议记录、录音转写或要点'},{k:'p',l:'参会人（可选）',t:'in',ph:'如：刘辉、王磊、张云帆'}]}
 ]; }
 
+function seedAgents(){ return [
+ {id:'ag-task-breakdown',n:'任务拆解 Agent',dept:'项目中心',ic:'task',model:'',on:1,runs:0,ok:0,scope:'all',minLv:2,grant:[],depts:[],
+  d:'把项目目标拆成阶段、任务、验收标准与依赖关系，交给 AI 调度中心继续排期。',
+  sys:'你是企业项目拆解专家。输出阶段化 WBS、任务说明、验收标准、依赖关系和建议负责人画像。全部中文，务必可执行。',
+  f:[{k:'goal',l:'项目目标',t:'ta',ph:'描述要完成的目标、截止时间和硬性约束'},{k:'context',l:'背景资料',t:'ta',ph:'补充项目背景、已有资源、风险和边界'}]},
+ {id:'ag-dispatch',n:'智能派单 Agent',dept:'管理层',ic:'ai',model:'',on:1,runs:0,ok:0,scope:'all',minLv:3,grant:[],depts:[],
+  d:'根据员工画像、职能、职级、当前负载、历史质量和效率推荐执行人，并说明人工改派风险。',
+  sys:'你是企业智能派单专家。根据任务要求与员工画像推荐执行人，必须输出推荐理由、风险提示、备选人员和人工改派差异。',
+  f:[{k:'task',l:'任务信息',t:'ta',ph:'任务名称、要求、技能、截止时间'},{k:'members',l:'候选员工画像',t:'ta',ph:'员工职能、职级、技能、负载、质量和效率记录'}]},
+ {id:'ag-feishu-notify',n:'飞书通知 Agent',dept:'协同中台',ic:'send',model:'',on:1,runs:0,ok:0,scope:'all',minLv:1,grant:[],depts:[],
+  d:'把任务领取、改派、催办、验收和驳回提醒同步到飞书，确保员工能收到并回到工作台执行。',
+  sys:'你是企业协同通知助手。生成飞书消息文案，包含任务名、负责人、截止时间、工作台链接和下一步动作。',
+  f:[{k:'event',l:'通知事件',t:'in',ph:'如：任务下发 / 催办 / 验收通过'},{k:'payload',l:'任务上下文',t:'ta',ph:'任务标题、执行人、链接、状态'}]},
+ {id:'ag-talent-profile',n:'员工画像 Agent',dept:'组织与权限',ic:'user',model:'',on:1,runs:0,ok:0,scope:'all',minLv:2,grant:[],depts:[],
+  d:'根据任务履约、验收评分、效率、质量和自评信息沉淀员工能力画像。',
+  sys:'你是组织人才画像分析师。把任务执行证据转化为技能标签、能力等级、适合任务类型和成长建议。',
+  f:[{k:'evidence',l:'执行证据',t:'ta',ph:'任务记录、验收意见、质量分、耗时、阻塞原因'}]},
+ {id:'ag-payroll',n:'薪资核算 Agent',dept:'财务部',ic:'money',model:'',on:1,runs:0,ok:0,scope:'list',minLv:4,grant:[],depts:['财务部','管理层'],
+  d:'基于职级、部门、任务收益、奖金、社保公积金与累计预扣法生成薪资核算说明。',
+  sys:'你是企业薪资核算助手。解释薪资构成、社保公积金、个税累计预扣和应发实发，输出仅供财务复核。',
+  f:[{k:'payroll',l:'薪资数据',t:'ta',ph:'基本工资、奖金、扣款、社保公积金、税前税后'}]},
+ {id:'ag-expense-audit',n:'报账审核 Agent',dept:'财务部',ic:'file',model:'',on:1,runs:0,ok:0,scope:'list',minLv:3,grant:[],depts:['财务部','管理层'],
+  d:'初审报账单据、费用类型、发票附件和项目归属，提示缺失材料与合规风险。',
+  sys:'你是财务报账审核助手。逐项检查报账理由、金额、附件、项目归属和制度风险，输出待补材料清单。',
+  f:[{k:'expense',l:'报账材料',t:'ta',ph:'费用类型、金额、项目、说明、附件情况'}]},
+ {id:'ag-knowledge-qa',n:'知识库问答 Agent',dept:'知识中心',ic:'book',model:'',on:1,runs:0,ok:0,scope:'all',minLv:1,grant:[],depts:[],
+  d:'基于企业知识库回答制度、项目资料、流程规范和历史复盘问题。',
+  sys:'你是企业知识库问答助手。必须基于已提供知识回答，不确定时说明需要补充文档，不编造。',
+  f:[{k:'question',l:'问题',t:'ta',ph:'输入要查询的制度、流程或项目知识'}]},
+ {id:'ag-retro',n:'项目复盘 Agent',dept:'项目中心',ic:'ok',model:'',on:1,runs:0,ok:0,scope:'all',minLv:2,grant:[],depts:[],
+  d:'在项目结束后汇总目标达成、延期原因、质量问题、人员表现和下一轮改进建议。',
+  sys:'你是企业项目复盘专家。输出目标达成、进度偏差、质量问题、成员贡献、经验沉淀和下次改进清单。',
+  f:[{k:'project',l:'项目记录',t:'ta',ph:'项目目标、任务记录、验收结果、风险与协作反馈'}]}
+]; }
+
 function agentIcon(a,size){
   return '<span style="width:'+(size||38)+'px;height:'+(size||38)+'px;border-radius:11px;background:var(--brand-s);display:grid;place-items:center;flex:0 0 auto">'+ic(a.ic,(size||38)*0.47,'#2563eb')+'</span>';
 }
@@ -3125,8 +3531,15 @@ function viewAgents(){
     '<span class="grow"></span>',
     '<span class="sm">按「部门 + 职级」判定调用权限，当前身份可调用 <b style="color:var(--ink)">',okN,'/',S.agents.length,'</b> 个</span>',
   '</div>',
+  '<div class="bd" style="display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--line2);font-size:12px;color:var(--sub);flex-wrap:wrap">',
+    '<button class="chip '+(tab==='dir'&&(S.f.agentVis||'all')==='all'?'on':'')+'" data-act="agent-filter" data-tab="dir" data-vis="all">企业已启用智能体</button>',
+    '<button class="chip '+(tab==='cap'?'on':'')+'" data-act="set" data-k="agentTab" data-v="cap">智能体能力</button>',
+    '<button class="chip '+(tab==='log'?'on':'')+'" data-act="set" data-k="agentTab" data-v="log">调用记录</button>',
+    isAdmin()?'<button class="chip '+(tab==='perm'?'on':'')+'" data-act="set" data-k="agentTab" data-v="perm">权限范围</button>':'<button class="chip" data-act="agent-perm-info">权限范围</button>',
+    '<span class="grow"></span><span>企业内部 AI 中控台，由权限和职级统一管理。</span>',
+  '</div>',
   '<div class="tabs">',
-    [['dir','Agent 目录'],['chain','编排流水线'],['log','运行记录']].concat(isAdmin()?[['perm','权限管理'+(pend.length?' ('+pend.length+')':'')]]:[]).map(function(x){
+    [['dir','Agent 目录'],['cap','能力总览'],['chain','编排流水线'],['log','运行记录']].concat(isAdmin()?[['perm','权限管理'+(pend.length?' ('+pend.length+')':'')]]:[]).map(function(x){
       return '<button class="'+(tab===x[0]?'on':'')+'" data-act="set" data-k="agentTab" data-v="'+x[0]+'">'+x[1]+'</button>'; }).join(''),
   '</div>']);
 
@@ -3167,6 +3580,39 @@ function viewAgents(){
           '</div></div></div>';
       }).join('') : '<div class="empty" style="grid-column:1/-1">没有匹配的 Agent</div>',
     '</div></div>']);
+  }
+
+  if(tab==='cap'){
+    var groups=[
+      ['项目调度','任务拆解、智能派单、项目复盘，服务项目从目标到验收的闭环'],
+      ['协同通知','飞书通知与流程编排，保证任务下发、催办、验收能触达员工'],
+      ['组织薪资','员工画像、薪资核算、报账审核，连接能力证据与财务复核'],
+      ['知识问答','企业知识库问答，支撑制度、流程、项目材料的引用检索']
+    ];
+    return head+j(['<div class="bd" data-agent-capabilities style="padding-top:14px">',
+      '<div class="card" style="box-shadow:none;border:1px solid var(--line);margin-bottom:14px"><div class="bd">',
+        '<div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap"><span style="width:38px;height:38px;border-radius:12px;background:var(--brand-s);display:grid;place-items:center">',ic('ai',19,'#2563eb'),'</span>',
+        '<div style="flex:1;min-width:260px"><b style="font-size:15px">能力总览</b><p class="hint" style="margin-top:5px">这里不是商店，而是企业内部已启用 Agent 的能力地图。点击任意能力卡，可进入调用页或查看权限说明。</p></div>',
+        '<span class="tag t-b">按部门 + 职级管控</span></div>',
+        '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px">',
+          groups.map(function(g){ return '<div style="padding:12px;border-radius:12px;background:#f8fafc;border:1px solid var(--line2)"><b style="font-size:12.5px">'+esc(g[0])+'</b><p class="hint" style="margin:5px 0 0">'+esc(g[1])+'</p></div>'; }).join(''),
+        '</div>',
+      '</div></div>',
+      '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px">',
+      S.agents.map(function(a){
+        var c=canUse(a), fields=(a.f||[]).map(function(f){ return '<span class="tag t-b">'+esc(f.l)+'</span>'; }).join('');
+        return '<div class="card" style="box-shadow:none;border:1px solid var(--line);cursor:pointer" data-act="open-agent" data-id="'+attr(a.id)+'"><div class="bd">'+
+          '<div style="display:flex;gap:11px;align-items:flex-start">'+agentIcon(a,36)+
+          '<div style="flex:1;min-width:0"><b style="font-size:14px">'+esc(a.n)+'</b><div class="hint" style="margin-top:3px">'+esc(a.dept)+' · '+lvName(a.minLv)+'起 · '+esc(scopeText(a))+'</div></div>'+
+          (c.ok?'<span class="tag t-g">可调用状态：可用</span>':'<span class="tag t-o">可调用状态：受限</span>')+'</div>'+
+          '<p style="margin:10px 0;color:var(--sub);font-size:12.5px;line-height:1.7">'+esc(a.d)+'</p>'+
+          '<div style="font-size:12px;color:var(--mut);margin-bottom:8px"><b style="color:var(--ink)">输入字段：</b></div>'+
+          '<div class="chips">'+(fields||'<span class="tag t-n">无需额外输入</span>')+'</div>'+
+          '<div style="display:flex;align-items:center;gap:8px;margin-top:10px;border-top:1px solid var(--line2);padding-top:10px;font-size:11.5px;color:var(--mut)">'+
+            '<span>'+esc(c.why)+'</span><span class="grow"></span><span class="link">'+(c.ok?'进入调用 ›':'查看权限 ›')+'</span>'+
+          '</div></div></div>';
+      }).join(''),
+      '</div></div></div>']);
   }
 
   if(tab==='chain'){
@@ -3369,15 +3815,34 @@ function viewFormalOrg(){
 function viewPayrollAdmin(){
   if(!hasWorkstationPermission('salary.manage')) return '<div class="card fade"><div class="empty">当前账号没有工资维护权限</div></div>';
   var now=new Date(), month=now.getFullYear()+'-'+pad(now.getMonth()+1);
+  var d=S.payrollDraft||applyDepartmentLevelSalaryDraft(defaultPayrollDraft(month),true);
+  var salaryMember=MB[d.memberId]||MEMBERS[0]||{};
+  var salaryBand=salaryBandForMember(salaryMember), bonusSuggestion=projectBonusSuggestion(d.memberId,d.month);
+  var preview=S.payrollPreview, calc=preview&&preview.calculation, previewCurrent=!!preview&&S.payrollPreviewHash===payrollDraftHash(d);
+  function moneyField(label,id,value,required,hint,readonly){ return fld(label,'<input class="inp" id="'+id+'" inputmode="decimal" value="'+attr(value||'0.00')+'" '+(readonly?'readonly aria-readonly="true"':'')+'>',hint||'',required); }
   return j(['<div class="fade">',
-    '<div class="card"><div class="bd" style="display:flex;align-items:center;gap:12px"><button class="btn ghost" data-act="go" data-page="org">← 返回组织</button><div><b style="font-size:15px">录入工资与奖金</b><p class="hint" style="margin-top:4px">保存后仅本人和授权财务人员可见；普通同事无法查看他人薪酬。</p></div></div></div>',
-    '<div class="card" style="margin-top:16px"><div class="bd" style="max-width:820px">',
-      '<div class="frow"><div>'+fld('员工',fsel('salaryMember',MEMBERS.length?MEMBERS[0].id:'',memOpts()),'',1)+'</div><div>'+fld('月份','<input class="inp" id="salaryMonth" type="month" value="'+month+'">','',1)+'</div></div>',
-      '<div class="frow"><div>'+fld('基本工资','<input class="inp" id="salaryBase" type="number" min="0" value="0">','',1)+'</div><div>'+fld('绩效奖金','<input class="inp" id="salaryPerformance" type="number" min="0" value="0">')+'</div></div>',
-      '<div class="frow"><div>'+fld('项目奖金','<input class="inp" id="salaryProjectBonus" type="number" min="0" value="0">')+'</div><div>'+fld('其他奖励','<input class="inp" id="salaryOtherBonus" type="number" min="0" value="0">')+'</div></div>',
-      '<div class="frow"><div>'+fld('社保扣款','<input class="inp" id="salarySocial" type="number" min="0" value="0">')+'</div><div>'+fld('个人所得税','<input class="inp" id="salaryTax" type="number" min="0" value="0">')+'</div></div>',
-      '<div class="frow"><div>'+fld('其他扣款','<input class="inp" id="salaryOtherDeduction" type="number" min="0" value="0">')+'</div><div>'+fld('状态','<select class="sel" id="salaryStatus"><option value="draft">草稿</option><option value="processing">待发放</option><option value="paid">已发放</option></select>')+'</div></div>',
-      '<div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn" data-act="salary-save" '+(S.payrollSaving?'disabled':'')+'>'+ic('ok',15)+(S.payrollSaving?'正在保存…':'保存工资记录')+'</button></div>',
+    '<div class="card"><div class="bd" style="display:flex;align-items:center;gap:12px"><button class="btn ghost" data-act="go" data-page="org">← 返回组织</button><div><b style="font-size:15px">工资核算（部门+职级定薪）</b><p class="hint" style="margin-top:4px">基本工资由员工部门和职级自动带出；项目奖金来自奖金池建议，财务复核后确认工资单。</p></div></div></div>',
+    '<div class="card" style="margin-top:16px"><div class="bd" style="max-width:920px">',
+      '<div class="frow"><div>'+fld('员工',fsel('salaryMember',d.memberId,memOpts()),'',1)+'</div><div>'+fld('月份','<input class="inp" id="salaryMonth" type="month" value="'+attr(d.month)+'">','',1)+'</div></div>',
+      '<div data-salary-basis-card data-dept="'+attr(salaryBand.dept)+'" data-level="'+attr(salaryBand.level)+'" data-base="'+attr(salaryBand.base)+'" style="margin:12px 0 16px;padding:14px;border:1px solid #bfdbfe;border-radius:14px;background:linear-gradient(120deg,#eff6ff,#fff)">',
+        '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="width:36px;height:36px;border-radius:12px;background:var(--brand-s);display:grid;place-items:center">'+ic('money',18,'#2563eb')+'</span><div style="flex:1;min-width:240px"><b>部门+职级定薪</b><p class="hint" style="margin-top:4px">部门：'+esc(salaryBand.dept)+' · 职级：'+esc(salaryBand.levelName)+' · 基准月薪：¥ '+esc(salaryBand.baseSalary)+'</p></div><span class="tag t-b">自动带出</span></div>',
+        '<div class="hint" style="margin-top:10px;line-height:1.75">项目奖金池：按项目预算提取，结合任务难度、优先级、验收质量、效率和角色权重分配；财务确认后进入工资单。</div>',
+      '</div>',
+      '<h4 style="margin:18px 0 10px">收入</h4>',
+      '<div class="frow"><div>'+moneyField('基本工资（部门+职级自动带出）','salaryBase',d.baseSalary,1,'由员工部门和职级决定，财务不在工资单内手动改基本工资。',true)+'</div><div>'+moneyField('绩效奖金','salaryPerformance',d.performanceBonus)+'</div></div>',
+      '<div class="frow"><div>'+moneyField('项目奖金（奖金池分配）','salaryProjectBonus',d.projectBonus,0,'来自项目奖金池建议，可由财务复核确认。')+'</div><div>'+moneyField('其他奖励','salaryOtherBonus',d.otherBonus)+'</div></div>',
+      '<div style="margin:8px 0 12px;padding:12px;border-radius:12px;background:#f8fafc;border:1px solid var(--line2);display:flex;gap:12px;align-items:center;flex-wrap:wrap"><div style="flex:1;min-width:220px"><b style="font-size:13px">项目奖金池建议</b><p class="hint" style="margin-top:4px">建议金额 ¥ '+esc(moneyFixed(bonusSuggestion.amount))+' · 个人贡献任务 '+bonusSuggestion.tasks+' 项 · 奖金池 ¥ '+esc(moneyFixed(bonusSuggestion.pool))+'</p><p class="hint" style="margin-top:3px">'+esc(bonusSuggestion.rule)+'</p></div><button class="btn ghost" data-act="payroll-apply-bonus" data-amount="'+attr(moneyFixed(bonusSuggestion.amount))+'">采用建议</button></div>',
+      moneyField('其他收入','salaryOtherIncome',d.otherIncome),
+      '<h4 style="margin:18px 0 10px">缴费基数</h4><div class="frow"><div>'+moneyField('社保缴费基数','salarySocialBase',d.socialBase,1)+'</div><div>'+moneyField('公积金缴费基数','salaryHousingBase',d.housingFundBase,1)+'</div></div>',
+      '<h4 style="margin:18px 0 10px">税前扣除</h4><div class="frow"><div>'+moneyField('免税收入','salaryTaxExemptIncome',d.taxExemptIncome)+'</div><div>'+moneyField('专项附加扣除','salarySpecialAdditional',d.specialAdditionalDeduction)+'</div></div>',
+      '<div class="frow"><div>'+moneyField('其他法定扣除','salaryOtherStatutory',d.otherStatutoryDeduction)+'</div><div>'+moneyField('税收减免','salaryTaxRelief',d.taxRelief)+'</div></div>',
+      '<div class="frow"><div>'+moneyField('其他扣款','salaryOtherDeduction',d.otherDeduction)+'</div><div>'+fld('其他扣款原因','<input class="inp" id="salaryAdjustmentReason" value="'+attr(d.manualAdjustmentReason||'')+'" placeholder="有其他扣款时必填">')+'</div></div>',
+      (S.payrollOpeningRequired?j(['<div style="margin-top:18px;padding:14px;border-radius:12px;background:var(--warn-s)"><b>首次启用累计预扣：请补充年初至系统启用前的累计值</b><div class="frow" style="margin-top:10px"><div>',moneyField('累计收入','salaryOpeningIncome',d.openingCumulativeIncome,1),'</div><div>',moneyField('累计免税收入','salaryOpeningTaxExempt',d.openingCumulativeTaxExemptIncome,1),'</div></div><div class="frow"><div>',moneyField('累计专项扣除','salaryOpeningSpecial',d.openingCumulativeSpecialDeduction,1),'</div><div>',moneyField('累计专项附加扣除','salaryOpeningSpecialAdditional',d.openingCumulativeSpecialAdditionalDeduction,1),'</div></div><div class="frow"><div>',moneyField('累计其他法定扣除','salaryOpeningOtherStatutory',d.openingCumulativeOtherStatutoryDeduction,1),'</div><div>',moneyField('累计税收减免','salaryOpeningTaxRelief',d.openingCumulativeTaxRelief,1),'</div></div>',moneyField('累计已缴个税','salaryOpeningTaxWithheld',d.openingCumulativeTaxWithheld,1),'</div>']):''),
+      fld('备注','<input class="inp" id="salaryNote" value="'+attr(d.note||'')+'" placeholder="选填">'),
+      (S.payrollError?'<div class="alert" style="margin-top:12px">'+esc(S.payrollError)+'</div>':''),
+      (calc?j(['<div style="margin-top:16px;padding:16px;border-radius:13px;background:#f6f9ff"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><div><b>核算预览</b><div class="sm">入职日期 '+esc(preview.employee&&preview.employee.hireDate||'—')+' · 本年任职 '+Number(preview.employmentMonthsYtd||0)+' 个月</div></div><span class="tag t-g">参数 '+esc(preview.policy&&preview.policy.effectiveMonth||'')+'</span></div><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:9px;margin-top:14px">',
+        [['应发工资',calc.grossSalary],['社保公积金',calc.socialSecurity],['本期个税',calc.individualIncomeTax],['其他扣款',d.otherDeduction],['实发工资',calc.netSalary]].map(function(row,i){ return '<div style="padding:10px;border-radius:10px;background:#fff"><span class="sm">'+row[0]+'</span><b style="display:block;margin-top:4px;color:'+(i===4?'var(--brand)':'var(--ink)')+'">¥ '+Number(row[1]||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})+'</b></div>'; }).join(''),'</div><details style="margin-top:10px"><summary style="cursor:pointer;color:var(--brand);font-size:12px">查看计算明细</summary><div class="hint">养老 ¥ '+esc(calc.pensionEmployee||'0.00')+' · 医疗 ¥ '+esc(calc.medicalEmployee||'0.00')+' · 失业 ¥ '+esc(calc.unemploymentEmployee||'0.00')+' · 公积金 ¥ '+esc(calc.housingFundEmployee||'0.00')+' · 累计应纳税所得额 ¥ '+esc(calc.cumulativeTaxableIncome||'0.00')+'</div></details></div>']):''),
+      '<div style="display:flex;justify-content:flex-end;gap:9px;margin-top:16px"><button class="btn ghost" data-act="payroll-preview" '+(S.payrollPreviewBusy?'disabled':'')+'>'+(S.payrollPreviewBusy?'核算中…':'预览核算')+'</button><button class="btn soft" data-act="payroll-save-draft" '+(S.payrollSaving||!previewCurrent?'disabled':'')+'>保存草稿</button><button class="btn" data-act="payroll-confirm" '+(S.payrollSaving||!previewCurrent?'disabled':'')+'>确认工资单</button></div>',
     '</div></div></div>']);
 }
 function viewOrg(){
@@ -3521,13 +3986,38 @@ function modalHTML(){
   var c=S.confirm; if(!c) return '';
   return '<div class="mask" data-act="modal-cancel"><div class="modal" data-stop="1">'+
     '<b style="font-size:15px">'+esc(c.t)+'</b>'+
-    '<p style="margin:9px 0 18px;font-size:13px;color:var(--sub);line-height:1.7">'+esc(c.m)+'</p>'+
+    '<p style="margin:9px 0 18px;font-size:13px;color:var(--sub);line-height:1.7;white-space:pre-line">'+esc(c.m)+'</p>'+
     '<div style="display:flex;gap:9px;justify-content:flex-end">'+
     '<button class="btn ghost" data-act="modal-cancel">取消</button>'+
     '<button class="btn" style="background:'+(c.danger?'var(--risk)':'var(--brand)')+';box-shadow:none" data-act="modal-ok">'+esc(c.ok||'确认')+'</button>'+
     '</div></div></div>';
 }
 function ask(t,m,ok,fn,danger){ S.confirm={t:t,m:m,ok:ok,fn:fn,danger:danger}; render(); }
+function scrollToPayrollDetail(){
+  setTimeout(function(){
+    var node=el('payrollDetailCard');
+    if(node&&node.scrollIntoView) node.scrollIntoView({behavior:'smooth',block:'start'});
+  },40);
+}
+function showPayrollFocusDetail(focus){
+  var row=payrollRow(S.me,S.f.payMonth);
+  if(!row){ toast('当前身份暂无工资记录'); return; }
+  var totals=payrollTotals(row);
+  var gross=totals.gross, deductions=totals.deductions, net=totals.net;
+  var labels={net:'实发工资',gross:'应发工资',deductions:'扣款合计',performance:'绩效奖金',projectBonus:'项目奖金'};
+  var groups={
+    net:[['应发工资',gross],['扣款合计',-deductions],['实发工资',net]],
+    gross:[['基本工资',row.base],['绩效奖金',row.performance],['项目奖金',row.projectBonus],['其他奖励',row.otherBonus],['其他收入',row.otherIncome],['应发工资',gross]],
+    deductions:[['社保公积金',-totals.social],['个人所得税',-Number(row.tax||0)],['其他扣款',-Number(row.otherDeduction||0)],['扣款合计',-deductions]],
+    performance:[['绩效奖金',row.performance]],
+    projectBonus:[['项目奖金',row.projectBonus]]
+  };
+  var key=labels[focus]?focus:'net';
+  S.f.payFocus=key; S.payrollDetailsOpen=true;
+  var lines=(groups[key]||groups.net).map(function(item){ return item[0]+'：'+payrollMoney(item[1]); });
+  ask(labels[key]+'明细',String(row.month||'本月')+' 工资单\n\n'+lines.join('\n')+'\n\n仅显示当前登录员工本人薪资。','知道了',function(){ S.confirm=null; render(); });
+  scrollToPayrollDetail();
+}
 
 
 /* ---------------- 待办审批（可操作） ---------------- */
@@ -3740,16 +4230,27 @@ function taskCreateFailureMessage(error){
   var code=error&&typeof error.message==='string'?error.message:'';
   if(code==='forbidden'||code==='task_create_forbidden') return '当前账号没有任务下发权限，请由 CEO、管理员或项目负责人操作';
   if(code==='invalid_request') return '任务信息不完整，请检查负责人、日期和验收标准';
+  if(code==='real_write_not_configured'||code==='real_data_service_unavailable') return '真实数据写接口未配置，请检查服务器项目接口';
   return '任务创建失败，请稍后重试；若持续失败请联系管理员';
+}
+function projectCreateFailureMessage(error){
+  var code=error&&typeof error.message==='string'?error.message:'';
+  if(code==='forbidden'||code==='project_create_forbidden') return '当前账号没有项目创建权限，请由 CEO、管理员或项目负责人操作';
+  if(code==='invalid_request') return '项目信息不完整，请检查项目名称、负责人和日期';
+  if(code==='real_write_not_configured'||code==='real_data_service_unavailable') return '真实数据写接口未配置，请检查服务器项目接口';
+  if(code==='project_create_failed') return '项目数据写入失败，请检查 Supabase 项目表和权限策略';
+  return '项目创建失败，请稍后重试；若持续失败请联系管理员';
 }
 
 function profileLabels(value){
   return String(value||'').split(/[，,\n]+/).map(function(item){ return item.trim(); }).filter(Boolean);
 }
 function profileSkills(value){
-  var rows=profileLabels(value), skills=[];
+  var rows=String(value||'').split(/[\n,;\uFF0C\u3001\uFF1B]+/).map(function(item){ return item.trim(); }).filter(Boolean), skills=[];
   for(var i=0;i<rows.length;i++){
-    var parts=rows[i].split(/[:：]/), level=parseInt(parts.pop(),10), name=parts.join(':').trim();
+    var match=rows[i].match(/^(.+?)(?:\s*[:\uFF1A=]\s*|\s+)(?:L|l|\u7B49\u7EA7)?\s*([1-5])\s*(?:\u7EA7|\u5206|\u661F|\/5)?$/);
+    if(!match) return null;
+    var name=match[1].trim(), level=parseInt(match[2],10);
     if(!name||name.length>40||!Number.isInteger(level)||level<1||level>5) return null;
     skills.push({name:name,level:level});
   }
@@ -3802,7 +4303,13 @@ function saveWorkProfile(){
     var existing=member.workProfile||{};
     member.workProfile=Object.assign({},existing,savedProfile||input,{verifiedSkills:existing.verifiedSkills||[]});
     S.workProfileSaving=false; rebuildLookups(); render(); toast('工作画像已更新');
-  }).catch(function(){ S.workProfileSaving=false; render(); toast('工作画像保存失败，请稍后重试'); });
+  }).catch(function(error){
+    var code=error&&error.message?String(error.message):'';
+    var msg=code==='invalid_request'?'画像内容格式未通过服务器校验'
+      :(code==='unauthorized'?'登录状态已失效，请重新登录'
+      :(code==='profile_save_failed'?'画像服务写入失败，请稍后重试':'工作画像保存失败，请稍后重试'));
+    S.workProfileSaving=false; render(); toast(msg);
+  });
 }
 
 /* ---------------- 路由 ---------------- */
@@ -3866,9 +4373,11 @@ function render(){
   el('view').innerHTML=(VIEWS[S.page]||viewDash)()+modalHTML();
   LAST_RENDERED_PAGE=S.page;
   LAST_RENDERED_TASK_FOCUS=S.mobileTaskFocus;
+  persistUiState();
   if(pageChanged||taskFocusChanged) resetPagePosition();
   var cb=el('chatBox'); if(cb) cb.scrollTop=cb.scrollHeight;
   if(S.page==='set'&&!S.aiConfig.loaded&&!S.aiConfig.loading) setTimeout(function(){ loadAiConfig(false); },0);
+  if((S.page==='set'||S.page==='pay-admin')&&hasWorkstationPermission('salary.manage')) setTimeout(ensurePayrollPolicy,0);
 }
 
 /* ---------------- 交互 ---------------- */
@@ -3933,6 +4442,7 @@ function genPlan(){
 function sendChat(text){
   var t=text||(el('chatIn')?el('chatIn').value.trim():'');
   if(!t){ return; }
+  S.chatDraft='';
   S.chat.push({r:'u',t:t}); S.chatBusy=true; render();
   var sys='你是「量子星河」企业 AI 工作台的助理，服务于企业管理者与团队成员。回答务必：结构清晰、结论先行、可执行；'+
     '涉及任务时给出负责人角色、工期与验收标准；用中文；控制在 400 字以内。';
@@ -3943,11 +4453,11 @@ function sendChat(text){
     .then(function(){ S.chatBusy=false; render(); });
 }
 var REAL_WRITE_BLOCKED_ACTIONS={
-  'f-member':1,'f-project':1,'f-file':1,'f-customer':1,'f-activity':1,'f-agent':1,
+  'f-member':1,'f-file':1,'f-customer':1,'f-activity':1,'f-agent':1,
   'appr':1,'decision-pass':1,'decision-reject':1,'del-proj':1,'del-task':1,'del-doc':1,
   'dept-add':1,'dept-del':1,'del-member':1,'run-agent':1,'chain-run':1,
   'req-apply':1,'req-ok':1,'req-no':1,'perm-dept':1,'perm-revoke':1,
-  'save-schedule':1,'clear-demo':1,'reset':1,'restore-demo':1,'modal-ok':1
+  'save-schedule':1,'clear-demo':1,'reset':1,'restore-demo':1
 };
 function rejectLegacyWriteInRealMode(action){
   if(isDemoRuntime()||!REAL_WRITE_BLOCKED_ACTIONS[action]) return false;
@@ -3965,21 +4475,67 @@ function syncFormalDirectory(){
   });
 }
 function payrollInput(id){ var node=el(id); return node?node.value:''; }
-function saveFormalPayroll(){
-  if(S.payrollSaving) return;
+function readFormalPayrollDraft(){
   var memberNode=document.querySelector('[data-f="salaryMember"]');
-  var payload={memberId:memberNode?memberNode.value:'',month:payrollInput('salaryMonth'),
-    baseSalary:Number(payrollInput('salaryBase')),performanceBonus:Number(payrollInput('salaryPerformance')),
-    projectBonus:Number(payrollInput('salaryProjectBonus')),otherBonus:Number(payrollInput('salaryOtherBonus')),
-    socialSecurity:Number(payrollInput('salarySocial')),individualIncomeTax:Number(payrollInput('salaryTax')),
-    otherDeduction:Number(payrollInput('salaryOtherDeduction')),status:payrollInput('salaryStatus')};
-  if(!payload.memberId||!payload.month){ toast('请选择员工和工资月份'); return; }
-  S.payrollSaving=true; render();
-  Promise.resolve(WORKSTATION_GATEWAY.savePayroll(payload)).then(function(){
-    S.payrollSaving=false; S.page='org'; render(); toast('工资与奖金已保存，仅本人和授权财务人员可见');
-  }).catch(function(){
-    S.payrollSaving=false; render(); toast('工资保存失败，请检查金额和管理权限');
+  return {memberId:memberNode?memberNode.value:'',month:payrollInput('salaryMonth'),
+    baseSalary:payrollInput('salaryBase'),performanceBonus:payrollInput('salaryPerformance'),
+    projectBonus:payrollInput('salaryProjectBonus'),otherBonus:payrollInput('salaryOtherBonus'),otherIncome:payrollInput('salaryOtherIncome'),
+    socialBase:payrollInput('salarySocialBase'),housingFundBase:payrollInput('salaryHousingBase'),
+    taxExemptIncome:payrollInput('salaryTaxExemptIncome'),specialAdditionalDeduction:payrollInput('salarySpecialAdditional'),
+    otherStatutoryDeduction:payrollInput('salaryOtherStatutory'),taxRelief:payrollInput('salaryTaxRelief'),
+    otherDeduction:payrollInput('salaryOtherDeduction'),manualAdjustmentReason:payrollInput('salaryAdjustmentReason'),
+    openingCumulativeIncome:payrollInput('salaryOpeningIncome')||(S.payrollDraft&&S.payrollDraft.openingCumulativeIncome)||'',
+    openingCumulativeTaxExemptIncome:payrollInput('salaryOpeningTaxExempt')||(S.payrollDraft&&S.payrollDraft.openingCumulativeTaxExemptIncome)||'',
+    openingCumulativeSpecialDeduction:payrollInput('salaryOpeningSpecial')||(S.payrollDraft&&S.payrollDraft.openingCumulativeSpecialDeduction)||'',
+    openingCumulativeSpecialAdditionalDeduction:payrollInput('salaryOpeningSpecialAdditional')||(S.payrollDraft&&S.payrollDraft.openingCumulativeSpecialAdditionalDeduction)||'',
+    openingCumulativeOtherStatutoryDeduction:payrollInput('salaryOpeningOtherStatutory')||(S.payrollDraft&&S.payrollDraft.openingCumulativeOtherStatutoryDeduction)||'',
+    openingCumulativeTaxRelief:payrollInput('salaryOpeningTaxRelief')||(S.payrollDraft&&S.payrollDraft.openingCumulativeTaxRelief)||'',
+    openingCumulativeTaxWithheld:payrollInput('salaryOpeningTaxWithheld')||(S.payrollDraft&&S.payrollDraft.openingCumulativeTaxWithheld)||'',
+    note:payrollInput('salaryNote')};
+}
+function payrollDraftHash(draft){
+  var copy={}; Object.keys(draft||{}).sort().forEach(function(key){ copy[key]=String(draft[key]==null?'':draft[key]).trim(); });
+  return JSON.stringify(copy);
+}
+function payrollErrorMessage(error){
+  var code=error&&error.message||'';
+  if(code==='payroll_policy_missing') return '尚未启用薪资核算参数，请先到系统设置完成配置';
+  if(code==='missing_opening_cumulative') return '请补齐首次启用前的累计收入、扣除和已缴个税';
+  if(code==='missing_history') return '历史工资月份不连续，请先补齐缺失月份';
+  if(code==='confirmed_payroll_immutable') return '该月工资已经确认，不能再次修改';
+  if(code==='employee_hire_date_missing') return '员工入职日期缺失，请先同步或补齐员工档案';
+  if(code==='invalid_request') return '请检查金额和其他扣款原因';
+  if(code==='forbidden') return '当前账号没有工资维护权限';
+  return '工资核算服务暂时不可用，请稍后重试';
+}
+function previewPayrollCalculation(){
+  if(S.payrollPreviewBusy) return;
+  var draft=readFormalPayrollDraft();
+  if(!draft.memberId||!draft.month){ toast('请选择员工和工资月份'); return; }
+  S.payrollDraft=draft; S.payrollPreviewBusy=true; S.payrollPreview=null; S.payrollPreviewHash=''; S.payrollError=''; render();
+  Promise.resolve(WORKSTATION_GATEWAY.previewPayroll(Object.assign({},draft,{status:'draft'}))).then(function(result){
+    S.payrollPreviewBusy=false; S.payrollPreview=result; S.payrollOpeningRequired=!!result.openingRequired;
+    if(result.opening) Object.keys(result.opening).forEach(function(key){ S.payrollDraft[key]=result.opening[key]; });
+    S.payrollPreviewHash=payrollDraftHash(S.payrollDraft); render();
+  }).catch(function(error){
+    S.payrollPreviewBusy=false; S.payrollError=payrollErrorMessage(error);
+    if(error&&error.message==='missing_opening_cumulative') S.payrollOpeningRequired=true;
+    render();
   });
+}
+function saveCalculatedPayroll(status){
+  if(S.payrollSaving) return;
+  var draft=readFormalPayrollDraft(), hash=payrollDraftHash(draft);
+  if(!S.payrollPreview||hash!==S.payrollPreviewHash){ toast('数据已变化，请重新预览核算'); return; }
+  S.payrollDraft=draft; S.payrollSaving=true; S.payrollError=''; render();
+  Promise.resolve(WORKSTATION_GATEWAY.savePayroll(Object.assign({},draft,{status:status}))).then(function(result){
+    S.payrollSaving=false;
+    if(result&&result.memberId&&result.payroll){
+      S.payroll[result.memberId]=[result.payroll].concat(S.payroll[result.memberId]||[]).filter(function(row,index,rows){ return rows.findIndex(function(x){ return x.month===row.month; })===index; });
+    }
+    S.payrollPreview=null; S.payrollPreviewHash=''; render();
+    toast(status==='processing'?'工资单已确认，等待发放':'工资草稿已保存');
+  }).catch(function(error){ S.payrollSaving=false; S.payrollError=payrollErrorMessage(error); render(); });
 }
 document.addEventListener('click',function(e){
   if(e.target.closest&&e.target.closest('[data-stop]')&&!(e.target.closest('[data-act]'))) return;
@@ -4019,7 +4575,16 @@ document.addEventListener('click',function(e){
     toast('已切换到最近 '+S.f.dateDays+' 天');
   }
   else if(a==='sync-directory'){ syncFormalDirectory(); }
-  else if(a==='salary-save'){ saveFormalPayroll(); }
+  else if(a==='payroll-policy-save'){ savePayrollPolicy('saveDraft'); }
+  else if(a==='payroll-policy-activate'){ savePayrollPolicy('activate'); }
+  else if(a==='payroll-preview'){ previewPayrollCalculation(); }
+  else if(a==='payroll-save-draft'){ saveCalculatedPayroll('draft'); }
+  else if(a==='payroll-confirm'){ saveCalculatedPayroll('processing'); }
+  else if(a==='payroll-apply-bonus'){
+    S.payrollDraft=readFormalPayrollDraft();
+    S.payrollDraft.projectBonus=t.getAttribute('data-amount')||S.payrollDraft.projectBonus||'0.00';
+    S.payrollPreview=null; S.payrollPreviewHash=''; render(); toast('已采用项目奖金池建议');
+  }
   else if(a==='save-work-profile'){ saveWorkProfile(); }
   else if(a==='f-member'){ createMember(); }
   else if(a==='f-project'){ createProject(); }
@@ -4036,6 +4601,8 @@ document.addEventListener('click',function(e){
   else if(a==='f-auto'){ syncForm(); S.form.project.auto=Number(S.form.project.auto)?0:1; render(); }
   else if(a==='f-rmfile'){ syncForm(); S.form.file.files.splice(parseInt(t.getAttribute('data-i'),10),1); render(); }
   else if(a==='set'){ S.f[t.getAttribute('data-k')]=t.getAttribute('data-v'); render(); }
+  else if(a==='agent-filter'){ S.f.agentTab=t.getAttribute('data-tab')||'dir'; S.f.agentVis=t.getAttribute('data-vis')||'all'; render(); }
+  else if(a==='agent-perm-info'){ toast('权限范围由部门和职级决定，当前身份可在 Agent 目录查看可调用状态'); }
   else if(a==='project-risks'){ S.f.projSt='风险'; render(); toast('已筛选全部风险项目'); }
   else if(a==='insight-cycle'){
     var insightKey=t.getAttribute('data-k'), insightOptions=INSIGHT_FILTERS[insightKey]||[];
@@ -4183,7 +4750,7 @@ document.addEventListener('click',function(e){
   else if(a==='setme'){
     if(!workstationFeatures().identitySwitch){ S.menu=false; render(); return; }
     S.me=t.getAttribute('data-id'); S.menu=false; S.mobileNav=false; S.mobileTaskFocus=false; S.page='me';
-    S.f.meScope='todo'; S.f.meTab='all'; S.f.payMonth=''; S.f.payFocus='';
+    S.f.meScope='todo'; S.f.meTab='all'; S.f.payMonth=''; S.f.payFocus=''; S.payrollDetailsOpen=false;
     S.sel.task=null; S.curProj=null; render();
   }
   else if(a==='hide-helper'){ S.helper=false; renderNav(); }
@@ -4225,20 +4792,22 @@ document.addEventListener('click',function(e){
     S.curProj=t.getAttribute('data-id'); S.page='project'; render();
   }
   else if(a==='open-income'){
-    S.f.payMonth=t.getAttribute('data-month')||''; S.page='fin'; render();
+    S.f.payMonth=t.getAttribute('data-month')||''; S.f.payFocus='net'; S.payrollDetailsOpen=true; S.page='fin'; render(); scrollToPayrollDetail();
   }
   else if(a==='payroll-month'){
-    S.f.payMonth=t.getAttribute('data-month')||''; S.f.payFocus=''; render();
+    S.f.payMonth=t.getAttribute('data-month')||''; S.f.payFocus='net'; S.payrollDetailsOpen=true; render(); scrollToPayrollDetail();
   }
+  else if(a==='payroll-details-toggle'){ S.payrollDetailsOpen=!S.payrollDetailsOpen; render(); if(S.payrollDetailsOpen) scrollToPayrollDetail(); }
   else if(a==='payroll-focus'){
-    S.f.payFocus=t.getAttribute('data-focus')||''; render();
+    showPayrollFocusDetail(t.getAttribute('data-focus')||'net');
   }
   else if(a==='pick-task-go'){ S.sel.task=t.getAttribute('data-id'); S.page='execution'; render(); }
   else if(a==='goal-go'){ var gb=el('goalBox'); S.sch.goal=gb?gb.value.trim():''; S.page='sched'; render();
     if(S.sch.goal) setTimeout(genPlan,60); }
+  else if(a==='chat-session'){ toast('已选择会话；正式会话存储接入后可继续历史对话'); }
   else if(a==='chat'){ sendChat(); }
-  else if(a==='cap'){ var p=t.getAttribute('data-p'); var ci=el('chatIn'); if(ci){ ci.value=p; ci.focus(); } }
-  else if(a==='new-chat'){ S.chat=[]; render(); }
+  else if(a==='cap'){ var p=t.getAttribute('data-p'); var ci=el('chatIn'); if(ci){ ci.value=p; S.chatDraft=p; persistUiState(); ci.focus(); } }
+  else if(a==='new-chat'){ S.chat=[]; S.chatDraft=''; persistUiState(); render(); }
   else if(a==='save-schedule'){
     S.cfg.workday=parseInt(el('cfgWd').value,10)||5;
     S.cfg.parallel=parseInt(el('cfgPl').value,10)||3;
@@ -4281,6 +4850,11 @@ document.addEventListener('drop',function(e){
 });
 /* 筛选与搜索输入 */
 document.addEventListener('input',function(e){
+  if(e.target&&e.target.id==='chatIn'){
+    S.chatDraft=e.target.value;
+    persistUiState();
+    return;
+  }
   var lk=e.target.getAttribute&&e.target.getAttribute('data-login');
   if(lk==='user'||lk==='pass'){
     LOGIN[lk]=e.target.value;
@@ -4289,18 +4863,42 @@ document.addEventListener('input',function(e){
   var q=e.target.getAttribute&&e.target.getAttribute('data-q'); if(!q) return;
   S.f[q]=e.target.value;
   if(q==='gq'&&S.f.gq.trim()&&S.page!=='search') S.page='search';
+  persistUiState();
   reRenderKeepFocus();
 });
 document.addEventListener('change',function(e){
   var loginKey=e.target.getAttribute&&e.target.getAttribute('data-login');
   if(loginKey==='remember'){ LOGIN.remember=!!e.target.checked; return; }
-  if(e.target.id==='schProject'){ S.sch.projectId=e.target.value; return; }
+  if(e.target.id==='policyExampleConfirmed'){
+    S.payrollPolicyConfirmed=!!e.target.checked; render(); return;
+  }
+  if(e.target&&(/^salary/.test(e.target.id||'')||e.target.getAttribute&&e.target.getAttribute('data-f')==='salaryMember')){
+    if(e.target.getAttribute&&e.target.getAttribute('data-f')==='salaryMember'){
+      S.payrollDraft=applyDepartmentLevelSalaryDraft(readFormalPayrollDraft(),true);
+      S.payrollPreview=null; S.payrollPreviewHash=''; S.payrollError=''; persistUiState(); render(); return;
+    }
+    if(e.target.id==='salaryMonth'){
+      S.payrollDraft=applyDepartmentLevelSalaryDraft(readFormalPayrollDraft(),false);
+      S.payrollPreview=null; S.payrollPreviewHash=''; S.payrollError=''; persistUiState(); render(); return;
+    }
+    S.payrollPreview=null; S.payrollPreviewHash='';
+    var salaryDraftButton=document.querySelector('[data-act="payroll-save-draft"]'); if(salaryDraftButton) salaryDraftButton.disabled=true;
+    var salaryConfirmButton=document.querySelector('[data-act="payroll-confirm"]'); if(salaryConfirmButton) salaryConfirmButton.disabled=true;
+  }
+  if(e.target.id==='schProject'){ S.sch.projectId=e.target.value; persistUiState(); return; }
+  var assignment=e.target.getAttribute&&e.target.getAttribute('data-act')==='assign-member'?e.target:null;
+  if(assignment){
+    if(assignScheduleMember(assignment.getAttribute('data-task-id'),assignment.value)){
+      persistUiState(); render(); toast('已人工调整执行人，AI 推荐记录已保留');
+    }else toast('人员调整失败，请重新生成方案');
+    return;
+  }
   var pm=e.target.getAttribute&&e.target.getAttribute('data-perm');
   var lm=e.target.getAttribute&&e.target.getAttribute('data-lv');
   var dm=e.target.getAttribute&&e.target.getAttribute('data-dept');
   if(!isDemoRuntime()&&(pm||lm||dm)){ render(); toast('真实数据写接口未配置'); return; }
   var q=e.target.getAttribute&&e.target.getAttribute('data-q');
-  if(q&&e.target.tagName==='SELECT'){ S.f[q]=e.target.value; render(); return; }
+  if(q&&e.target.tagName==='SELECT'){ S.f[q]=e.target.value; persistUiState(); render(); return; }
   if(pm){ var ps=pm.split(':'), ag=S.agents.filter(function(x){ return x.id===ps[0]; })[0];
     if(ag){ if(ps[1]==='minLv') ag.minLv=parseInt(e.target.value,10)||1;
       else { ag.scope=e.target.value; if(ag.scope==='list'&&!(ag.depts||[]).length) ag.depts=[ag.dept]; }
@@ -4310,9 +4908,20 @@ document.addEventListener('change',function(e){
 });
 /* 表单实时预览（只更新预览节点，不打断输入焦点） */
 document.addEventListener('input',function(e){
+  if(e.target&&/^policy/.test(e.target.id||'')&&e.target.id!=='policyExampleConfirmed'){
+    S.payrollPolicyConfirmed=false; S.payrollPolicyExample=null;
+    var activate=document.querySelector('[data-act="payroll-policy-activate"]'); if(activate) activate.disabled=true;
+    return;
+  }
+  if(e.target&&(/^salary/.test(e.target.id||'')||e.target.getAttribute&&e.target.getAttribute('data-f')==='salaryMember')){
+    S.payrollPreview=null; S.payrollPreviewHash='';
+    var draftButton=document.querySelector('[data-act="payroll-save-draft"]'); if(draftButton) draftButton.disabled=true;
+    var confirmButton=document.querySelector('[data-act="payroll-confirm"]'); if(confirmButton) confirmButton.disabled=true;
+    return;
+  }
   if(S.page.indexOf('new-')!==0) return;
   if(!e.target.getAttribute||!e.target.getAttribute('data-f')) return;
-  syncForm(); var n=el('fpv'); if(n&&PREV[S.page]) n.innerHTML=PREV[S.page]();
+  syncForm(); persistUiState(); var n=el('fpv'); if(n&&PREV[S.page]) n.innerHTML=PREV[S.page]();
 });
 document.addEventListener('keydown',function(e){
   if(e.key==='Escape'&&S.mobileNav){
@@ -4386,6 +4995,7 @@ function startWorkstation(){
     }
   }
   S.form=blankForm();
+  restoreUiState();
   renderBrand();
   bootstrapDemoSession();
   if(startupNotice) setTimeout(function(){ toast(startupNotice); },0);

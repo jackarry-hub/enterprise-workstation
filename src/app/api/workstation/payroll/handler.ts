@@ -1,159 +1,175 @@
-import { NextResponse } from "next/server";
-
 import { getWorkspaceSession } from "@/features/auth/workspace-session";
+import {
+  calculatePayrollForSession,
+  parsePayrollSaveRequest,
+  type PayrollRequestContext,
+  type PayrollSaveRequest,
+} from "@/features/payroll-calculation/server-service";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+
+import { payrollFailure } from "./preview/handler";
 
 type PayrollSession = {
   member: { id: number };
+  organization: { id: string };
   permissionCodes: readonly string[];
 };
 
-type PayrollInput = {
-  actorMemberId: number;
-  employeeMemberId: number;
-  payrollMonth: string;
-  baseSalary: number;
-  performanceBonus: number;
-  projectBonus: number;
-  otherBonus: number;
-  socialSecurity: number;
-  individualIncomeTax: number;
-  otherDeduction: number;
-  bonus: number;
-  deductions: number;
-  netSalary: number;
-  status: "draft" | "processing" | "paid";
+type CalculatedPayroll = Awaited<ReturnType<typeof calculatePayrollForSession>>;
+
+type SaveCalculatedPayrollInput = {
+  context: PayrollRequestContext;
+  input: PayrollSaveRequest;
+  result: CalculatedPayroll;
 };
 
 export type WorkstationPayrollDependencies = {
   loadSession: () => Promise<PayrollSession | null>;
-  savePayroll: (input: PayrollInput) => Promise<unknown>;
+  calculate: (
+    context: PayrollRequestContext,
+    input: PayrollSaveRequest,
+  ) => Promise<CalculatedPayroll>;
+  saveCalculatedPayroll: (
+    input: SaveCalculatedPayrollInput,
+  ) => Promise<unknown>;
 };
 
-function money(value: unknown) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 100_000_000
-    ? Math.round(parsed * 100) / 100
-    : null;
-}
-
-function memberId(value: unknown) {
-  if (typeof value !== "string") return null;
-  const match = /^m([1-9]\d*)$/.exec(value);
-  if (!match) return null;
-  const parsed = Number(match[1]);
-  return Number.isSafeInteger(parsed) ? parsed : null;
-}
-
-function parsePayroll(value: unknown): Omit<PayrollInput, "actorMemberId"> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const body = value as Record<string, unknown>;
-  const employeeMemberId = memberId(body.memberId);
-  const payrollMonth = typeof body.month === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(body.month)
-    ? `${body.month}-01`
-    : null;
-  const baseSalary = money(body.baseSalary);
-  const performanceBonus = money(body.performanceBonus);
-  const projectBonus = money(body.projectBonus);
-  const otherBonus = money(body.otherBonus);
-  const socialSecurity = money(body.socialSecurity);
-  const individualIncomeTax = money(body.individualIncomeTax);
-  const otherDeduction = money(body.otherDeduction);
-  const status = ["draft", "processing", "paid"].includes(String(body.status))
-    ? body.status as PayrollInput["status"]
-    : null;
-  const values = [baseSalary, performanceBonus, projectBonus, otherBonus, socialSecurity, individualIncomeTax, otherDeduction];
-  if (!employeeMemberId || !payrollMonth || !status || values.some((item) => item === null)) return null;
-  const bonus = performanceBonus! + projectBonus! + otherBonus!;
-  const deductions = socialSecurity! + individualIncomeTax! + otherDeduction!;
-  const netSalary = baseSalary! + bonus - deductions;
-  if (netSalary < 0) return null;
-  return {
-    employeeMemberId,
-    payrollMonth,
-    baseSalary: baseSalary!,
-    performanceBonus: performanceBonus!,
-    projectBonus: projectBonus!,
-    otherBonus: otherBonus!,
-    socialSecurity: socialSecurity!,
-    individualIncomeTax: individualIncomeTax!,
-    otherDeduction: otherDeduction!,
-    bonus,
-    deductions,
-    netSalary,
+function json(value: unknown, status = 200) {
+  return Response.json(value, {
     status,
-  };
+    headers: { "Cache-Control": "no-store" },
+  });
 }
 
-export const defaultWorkstationPayrollDependencies: WorkstationPayrollDependencies = {
-  loadSession: getWorkspaceSession,
-  async savePayroll(input) {
-    const client = await getSupabaseServerClient();
-    const memberResult = await client.from("organization_members")
-      .select("organization_id")
-      .eq("id", input.actorMemberId)
-      .single();
-    if (memberResult.error || !memberResult.data) throw memberResult.error ?? new Error("organization_not_found");
-    const organizationId = memberResult.data.organization_id;
-    const profileResult = await client.from("employee_profiles")
-      .select("id")
-      .eq("organization_id", organizationId)
-      .eq("organization_member_id", input.employeeMemberId)
-      .is("deleted_at", null)
-      .single();
-    if (profileResult.error || !profileResult.data) throw profileResult.error ?? new Error("employee_not_found");
-
-    const values = {
-      organization_id: organizationId,
-      employee_profile_id: profileResult.data.id,
-      payroll_month: input.payrollMonth,
-      base_salary: input.baseSalary,
-      performance_bonus: input.performanceBonus,
-      project_bonus: input.projectBonus,
-      other_bonus: input.otherBonus,
-      social_security: input.socialSecurity,
-      individual_income_tax: input.individualIncomeTax,
-      other_deduction: input.otherDeduction,
-      bonus: input.bonus,
-      deductions: input.deductions,
-      net_salary: input.netSalary,
-      status: input.status,
-      paid_at: input.status === "paid" ? new Date().toISOString() : null,
-    };
-    const existing = await client.from("salary")
-      .select("id")
-      .eq("organization_id", organizationId)
-      .eq("employee_profile_id", profileResult.data.id)
-      .eq("payroll_month", input.payrollMonth)
-      .is("deleted_at", null)
-      .maybeSingle();
-    if (existing.error) throw existing.error;
-    const result = existing.data
-      ? await client.from("salary").update(values).eq("id", existing.data.id)
-      : await client.from("salary").insert(values);
-    if (result.error) throw result.error;
-    return { status: "saved", memberId: `m${input.employeeMemberId}`, month: input.payrollMonth.slice(0, 7) };
-  },
-};
+async function readRequest(request: Request) {
+  try {
+    return parsePayrollSaveRequest(await request.json());
+  } catch {
+    return null;
+  }
+}
 
 export function createWorkstationPayrollHandler(
   dependencies: WorkstationPayrollDependencies,
 ) {
   return async function savePayroll(request: Request) {
     const session = await dependencies.loadSession();
-    if (!session) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    if (!session) return json({ error: "unauthorized" }, 401);
     if (!session.permissionCodes.includes("salary.manage")) {
-      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+      return json({ error: "forbidden" }, 403);
     }
-    let body: unknown;
-    try { body = await request.json(); }
-    catch { return NextResponse.json({ error: "invalid_request" }, { status: 400 }); }
-    const input = parsePayroll(body);
-    if (!input) return NextResponse.json({ error: "invalid_request" }, { status: 400 });
+    const input = await readRequest(request);
+    if (!input) return json({ error: "invalid_request" }, 400);
+    const context = {
+      actorMemberId: session.member.id,
+      organizationPublicId: session.organization.id,
+    };
     try {
-      return NextResponse.json(await dependencies.savePayroll({ actorMemberId: session.member.id, ...input }));
-    } catch {
-      return NextResponse.json({ error: "payroll_update_failed" }, { status: 409 });
+      const result = await dependencies.calculate(context, input);
+      return json(await dependencies.saveCalculatedPayroll({
+        context,
+        input,
+        result,
+      }));
+    } catch (error) {
+      return payrollFailure(error);
     }
   };
 }
+
+export const defaultWorkstationPayrollDependencies: WorkstationPayrollDependencies = {
+  loadSession: getWorkspaceSession,
+  calculate: calculatePayrollForSession,
+  async saveCalculatedPayroll({ input, result }) {
+    const client = await getSupabaseServerClient();
+    const { calculation, normalizedInput, policy } = result;
+    const payload = {
+      memberId: input.memberId,
+      month: input.month,
+      status: input.status,
+      note: input.note,
+      policyId: policy.publicId,
+      policySnapshot: policy,
+      calculationSnapshot: {
+        input: normalizedInput,
+        result: calculation,
+        calculatedAt: new Date().toISOString(),
+      },
+      calculationVersion: result.calculationVersion,
+      baseSalary: normalizedInput.baseSalary,
+      performanceBonus: normalizedInput.performanceBonus,
+      projectBonus: normalizedInput.projectBonus,
+      otherBonus: normalizedInput.otherBonus,
+      otherIncome: normalizedInput.otherIncome,
+      socialBase: normalizedInput.socialBase,
+      housingFundBase: normalizedInput.housingFundBase,
+      taxExemptIncome: normalizedInput.taxExemptIncome,
+      specialAdditionalDeduction: normalizedInput.specialAdditionalDeduction,
+      otherStatutoryDeduction: normalizedInput.otherStatutoryDeduction,
+      taxRelief: normalizedInput.taxRelief,
+      otherDeduction: normalizedInput.otherDeduction,
+      manualAdjustmentReason: normalizedInput.manualAdjustmentReason,
+      employmentMonthsYtd: result.employmentMonthsYtd,
+      ...result.opening,
+      pensionEmployee: calculation.pensionEmployee,
+      medicalEmployee: calculation.medicalEmployee,
+      unemploymentEmployee: calculation.unemploymentEmployee,
+      housingFundEmployee: calculation.housingFundEmployee,
+      cumulativeTaxableIncome: calculation.cumulativeTaxableIncome,
+      individualIncomeTax: calculation.individualIncomeTax,
+    };
+    const saved = await client.rpc("save_salary_calculation_v1", {
+      p_payload: payload,
+    });
+    if (saved.error) {
+      const message = String(saved.error.message ?? "");
+      if (/Confirmed payroll is immutable/i.test(message)) {
+        const error = new Error("confirmed_payroll_immutable") as Error & {
+          code: string;
+        };
+        error.code = "confirmed_payroll_immutable";
+        throw error;
+      }
+      throw saved.error;
+    }
+    return {
+      status: input.status === "processing" ? "confirmed" : "draft",
+      publicId: String(saved.data),
+      memberId: `m${input.memberId}`,
+      payroll: {
+        month: input.month,
+        base: Number(normalizedInput.baseSalary),
+        performance: Number(normalizedInput.performanceBonus),
+        projectBonus: Number(normalizedInput.projectBonus),
+        otherBonus: Number(normalizedInput.otherBonus),
+        otherIncome: Number(normalizedInput.otherIncome),
+        grossSalary: Number(calculation.grossSalary),
+        gross: Number(calculation.grossSalary),
+        socialBase: Number(normalizedInput.socialBase),
+        housingFundBase: Number(normalizedInput.housingFundBase),
+        pensionEmployee: Number(calculation.pensionEmployee),
+        medicalEmployee: Number(calculation.medicalEmployee),
+        unemploymentEmployee: Number(calculation.unemploymentEmployee),
+        housingFundEmployee: Number(calculation.housingFundEmployee),
+        social: Number(calculation.socialSecurity),
+        taxExemptIncome: Number(normalizedInput.taxExemptIncome),
+        specialAdditionalDeduction: Number(
+          normalizedInput.specialAdditionalDeduction,
+        ),
+        otherStatutoryDeduction: Number(
+          normalizedInput.otherStatutoryDeduction,
+        ),
+        taxRelief: Number(normalizedInput.taxRelief),
+        cumulativeTaxableIncome: Number(calculation.cumulativeTaxableIncome),
+        tax: Number(calculation.individualIncomeTax),
+        otherDeduction: Number(normalizedInput.otherDeduction),
+        deductions: Number(calculation.deductions),
+        net: Number(calculation.netSalary),
+        calculationVersion: result.calculationVersion,
+        status: input.status === "processing" ? "待发放" : "草稿",
+        payDate: "",
+      },
+      calculation,
+    };
+  },
+};

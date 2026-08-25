@@ -2,6 +2,11 @@
   "use strict";
 
   if (window.location.protocol === "file:") return;
+  try {
+    if (new URLSearchParams(window.location.search).get("formal") !== "1") return;
+  } catch {
+    return;
+  }
 
   var bootstrap = null;
   var runtime = { authMode: "feishu", dataMode: "server" };
@@ -124,6 +129,12 @@
     return clone(task);
   }
 
+  function addProject(project) {
+    var rows = requireBootstrap().projects || [];
+    rows.unshift(project);
+    return clone(project);
+  }
+
   function mutateTask(taskId, action, input) {
     return request("/api/workstation/tasks/" + encodeURIComponent(taskId), {
       method: "PATCH",
@@ -168,8 +179,34 @@
     loadPayroll: function (memberId) {
       return clone(requireBootstrap().payroll[memberId] || []);
     },
+    loadPayrollPolicy: function () {
+      return request("/api/workstation/payroll/policy", { method: "GET" });
+    },
+    savePayrollPolicy: function (input) {
+      return request("/api/workstation/payroll/policy", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input || {}),
+      });
+    },
+    previewPayroll: function (input) {
+      return request("/api/workstation/payroll/preview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input || {}),
+      });
+    },
     syncDirectory: function () {
       return request("/api/workstation/directory-sync", { method: "POST" });
+    },
+    createProject: function (input) {
+      return request("/api/workstation/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input || {}),
+      }).then(function (result) {
+        return addProject(result.project);
+      });
     },
     createTask: function (input) {
       return request("/api/workstation/tasks", {
@@ -208,6 +245,18 @@
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(input || {}),
+      }).then(function (result) {
+        var data = requireBootstrap();
+        if (result.payroll && result.memberId === data.session.memberId) {
+          data.payroll[result.memberId] = [result.payroll]
+            .concat(data.payroll[result.memberId] || [])
+            .filter(function (row, index, rows) {
+              return rows.findIndex(function (candidate) {
+                return candidate.month === row.month;
+              }) === index;
+            });
+        }
+        return clone(result);
       });
     },
     saveWorkProfile: function (input) {

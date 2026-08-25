@@ -5,6 +5,29 @@ import test from "node:test";
 
 import { JSDOM } from "jsdom";
 
+test("skips the formal workstation adapter during local preview", async () => {
+  const source = await readFile(
+    path.join(process.cwd(), "public", "workstation-server-adapter.js"),
+    "utf8",
+  );
+  const requests = [];
+  const dom = new JSDOM("<!doctype html><script></script>", {
+    url: "http://127.0.0.1:3030/quantxy-ai-workbench-fused.html?v=local-preview",
+    runScripts: "outside-only",
+  });
+  dom.window.fetch = async (url) => {
+    requests.push(String(url));
+    throw new Error("local preview must not call formal workstation APIs");
+  };
+
+  dom.window.eval(source);
+
+  assert.deepEqual(requests, []);
+  assert.equal(dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER, undefined);
+  assert.equal(dom.window.QUANTXY_WORKSTATION_RUNTIME, undefined);
+  dom.window.close();
+});
+
 test("loads the formal employee session and sends task updates without trusting a browser actor", async () => {
   const source = await readFile(
     path.join(process.cwd(), "public", "workstation-server-adapter.js"),
@@ -22,7 +45,7 @@ test("loads the formal employee session and sends task updates without trusting 
     features: { identitySwitch: false, demoReset: false },
   };
   const dom = new JSDOM("<!doctype html><script></script>", {
-    url: "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html",
+    url: "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
     runScripts: "outside-only",
   });
   dom.window.fetch = async (url, init = {}) => {
@@ -95,8 +118,24 @@ test("loads the formal employee session and sends task updates without trusting 
         },
       });
     }
+    if (String(url) === "/api/workstation/payroll/policy") {
+      if (init.method === "PUT") {
+        return response(true, { status: "draft", publicId: "policy-1" });
+      }
+      return response(true, { active: { publicId: "policy-1" }, history: [] });
+    }
+    if (String(url) === "/api/workstation/payroll/preview") {
+      return response(true, {
+        employmentMonthsYtd: 8,
+        calculation: { grossSalary: "25000.00", netSalary: "20877.00" },
+      });
+    }
     if (String(url) === "/api/workstation/payroll") {
-      return response(true, { status: "saved" });
+      return response(true, {
+        status: "draft",
+        memberId: "m7",
+        payroll: { month: "2026-08", grossSalary: 25000, net: 20877 },
+      });
     }
     if (String(url) === "/api/workstation/work-profile") {
       return response(true, {
@@ -208,10 +247,26 @@ test("loads the formal employee session and sends task updates without trusting 
       errorCode: "send_failed",
     });
   }
+  const policy = await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.loadPayrollPolicy();
+  assert.equal(policy.active.publicId, "policy-1");
+  const savedPolicy = await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.savePayrollPolicy({
+    action: "saveDraft",
+    effectiveMonth: "2026-08",
+  });
+  assert.equal(savedPolicy.status, "draft");
+  const preview = await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.previewPayroll({
+    memberId: "m7",
+    month: "2026-08",
+  });
+  assert.equal(preview.calculation.netSalary, "20877.00");
   await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.savePayroll({
     memberId: "m7",
     month: "2026-08",
   });
+  assert.equal(
+    dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.loadPayroll("m7")[0].net,
+    20877,
+  );
   const batchCreated = await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.createTasks([
     { projectId: "p1", assigneeMemberId: "m7", title: "批量任务一" },
     { projectId: "p1", assigneeMemberId: "m8", title: "批量任务二" },
@@ -255,6 +310,9 @@ test("loads the formal employee session and sends task updates without trusting 
   assert.equal(requests.find(({ url }) => url === "/api/workstation/directory-sync").init.method, "POST");
   assert.equal(requests.find(({ url }) => url === "/api/workstation/tasks" && url !== "/api/workstation/tasks/t1").init.method, "POST");
   assert.equal(requests.find(({ url }) => url === "/api/workstation/payroll").init.method, "POST");
+  assert.equal(requests.find(({ url, init }) => url === "/api/workstation/payroll/policy" && init.method === "GET").init.method, "GET");
+  assert.equal(requests.find(({ url, init }) => url === "/api/workstation/payroll/policy" && init.method === "PUT").init.method, "PUT");
+  assert.equal(requests.find(({ url }) => url === "/api/workstation/payroll/preview").init.method, "POST");
   for (const taskId of ["t1", "t2"]) {
     const notifyRequest = requests.find(({ url }) => (
       url === `/api/workstation/tasks/${taskId}/notify`

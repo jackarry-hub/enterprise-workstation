@@ -5,24 +5,64 @@ import {
   parseWorkProfileInput,
   type WorkProfileInput,
 } from "@/features/work-profile/work-profile-schema";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
-type WorkProfileSession = { member: { id: number } };
+type WorkProfileSession = {
+  member: {
+    id: number;
+    employeeProfileId?: string;
+  };
+};
 
 export type WorkProfileUpdateDependencies = {
   loadSession: () => Promise<WorkProfileSession | null>;
-  saveProfile: (memberId: number, input: WorkProfileInput) => Promise<unknown>;
+  saveProfile: (
+    member: WorkProfileSession["member"],
+    input: WorkProfileInput,
+  ) => Promise<unknown>;
 };
+
+function safeErrorLabel(error: unknown) {
+  if (!error || typeof error !== "object") return "unknown";
+  const record = error as Record<string, unknown>;
+  const code = typeof record.code === "string" ? record.code : "";
+  const name = typeof record.name === "string" ? record.name : "";
+  const message = typeof record.message === "string" ? record.message : "";
+  return [code, name, message].filter(Boolean).join(" | ").slice(0, 240)
+    || "unknown";
+}
+
+function safeInputShape(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "not_object";
+  }
+  const body = value as Record<string, unknown>;
+  return JSON.stringify({
+    summary: typeof body.summary,
+    preferredTaskTypes: Array.isArray(body.preferredTaskTypes)
+      ? body.preferredTaskTypes.length
+      : typeof body.preferredTaskTypes,
+    growthGoals: Array.isArray(body.growthGoals)
+      ? body.growthGoals.length
+      : typeof body.growthGoals,
+    weeklyCapacityHours: typeof body.weeklyCapacityHours,
+    selfSkills: Array.isArray(body.selfSkills)
+      ? body.selfSkills.length
+      : typeof body.selfSkills,
+  });
+}
 
 export const defaultWorkProfileUpdateDependencies: WorkProfileUpdateDependencies = {
   loadSession: getWorkspaceSession,
-  async saveProfile(memberId, input) {
-    const client = await getSupabaseServerClient();
-    const profileResult = await client.from("employee_profiles")
+  async saveProfile(member, input) {
+    const client = getSupabaseServiceRoleClient();
+    let profileQuery = client.from("employee_profiles")
       .select("id, tenant_id, organization_id")
-      .eq("organization_member_id", memberId)
-      .is("deleted_at", null)
-      .single();
+      .is("deleted_at", null);
+    profileQuery = member.employeeProfileId
+      ? profileQuery.eq("public_id", member.employeeProfileId)
+      : profileQuery.eq("organization_member_id", member.id);
+    const profileResult = await profileQuery.single();
     if (profileResult.error || !profileResult.data) {
       throw profileResult.error ?? new Error("employee_profile_not_found");
     }
@@ -69,14 +109,16 @@ export function createWorkProfileUpdateHandler(
     }
     const input = parseWorkProfileInput(body);
     if (!input) {
+      console.warn("[work-profile] invalid input", safeInputShape(body));
       return NextResponse.json({ error: "invalid_request" }, { status: 400 });
     }
     try {
-      const profile = await dependencies.saveProfile(session.member.id, input);
+      const profile = await dependencies.saveProfile(session.member, input);
       return NextResponse.json({ profile }, {
         headers: { "cache-control": "no-store" },
       });
-    } catch {
+    } catch (error) {
+      console.error("[work-profile] save failed", safeErrorLabel(error));
       return NextResponse.json(
         { error: "profile_save_failed" },
         { status: 409 },
