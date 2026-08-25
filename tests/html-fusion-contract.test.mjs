@@ -6,7 +6,6 @@ import test from "node:test";
 
 const root = process.cwd();
 const outputPath = path.join(root, "quantxy-ai-workbench-fused.html");
-const deployedPath = path.join(root, "public", "quantxy-ai-workbench-fused.html");
 const sourcePath = "E:/xwechat_files/wxid_dlkzyugmv5rz22_ab99/msg/file/2026-08/quantxy-ai-workbench_10(1).html";
 const sourceHash = "7E2437FDC2D6E9688076D582AA683F12E9FAFB40994E2936DAB34A0A4CD44607";
 
@@ -183,12 +182,11 @@ test("persists agent center runs through the server-side AI audit path", async (
   assert.doesNotMatch(html, /localStorage\.setItem\(QXY_DEMO_DATA_KEY[\s\S]{0,120}agent_public_id/);
 });
 
-test("deploys the exact fused workstation HTML through the Next public directory", async () => {
-  const [source, deployed] = await Promise.all([
-    readFile(outputPath),
-    readFile(deployedPath),
-  ]);
-  assert.deepEqual(deployed, source);
+test("keeps the fused workstation HTML owned by the dynamic app route", async () => {
+  await assert.rejects(
+    readFile(path.join(root, "public", "quantxy-ai-workbench-fused.html")),
+    /ENOENT/,
+  );
 });
 
 test("offers an active secure-server entry instead of a dead file-mode form", async () => {

@@ -10,7 +10,7 @@
 核心原因不是 UI 好不好看，而是项目里还混合存在三套形态：
 
 1. Next.js 正式应用路由。
-2. `quantxy-ai-workbench-fused.html` / `public/quantxy-ai-workbench-fused.html` 单页融合工作台。
+2. `quantxy-ai-workbench-fused.html` 单页融合工作台；线上 `/quantxy-ai-workbench-fused.html` 由动态 App Route 接管，避免 public 静态副本绕过正式数据注入。
 3. Supabase 真实数据线路 + mock/localStorage/sessionStorage 演示线路。
 
 商用版必须做到：用户看到的每个入口，要么真实可用、真实鉴权、真实落库、可审计、可恢复；要么暂时不显示。不能让客户进入“看起来能用、实际不落库”的半演示状态。
@@ -56,7 +56,6 @@
 当前仓库仍有：
 
 - `quantxy-ai-workbench-fused.html`
-- `public/quantxy-ai-workbench-fused.html`
 - `public/workstation-server-adapter.js`
 
 融合 HTML 里还有大量 `localStorage`、`sessionStorage`、演示数据迁移、真实接口未配置提示、前端内存态 bootstrap 等逻辑。它能作为过渡壳，但不应作为长期商用主产品。
