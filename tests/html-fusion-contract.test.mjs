@@ -57,6 +57,7 @@ test("orders sidebar around the project task dispatch flow", async () => {
     "我的工作画像",
     "我的薪酬",
     "Agent 中心",
+    "AI 助理",
     "系统设置",
   ];
   let cursor = -1;

@@ -1503,7 +1503,7 @@ var NAV=[
   ['dash','总览 / 决策驾驶舱','dash'], ['org','组织与权限','org'],
   ['proj','项目中心','proj'], ['sched','AI 调度中心','ai'], ['task','任务中心','task'],
   ['me','员工工作台','user'], ['profile','我的工作画像','org'], ['fin','我的薪酬','money'],
-  ['flow','Agent 中心','flow'], ['set','系统设置','set'],
+  ['flow','Agent 中心','flow'], ['assistant','AI 助理','bot'], ['set','系统设置','set'],
   ['customers','客户与交付','org'], ['activities','活动推进','target'],
   ['decisions','业务决策中心','ok'], ['insight','数据洞察','chart'], ['kb','知识中心','book']
 ];
@@ -1561,8 +1561,8 @@ function renderNav(){
   nav.className='nav'+(S.mobileNav?' expanded':'');
   function desktopNavOrder(page){
     var isManagerFlow=isDemoRuntime()||hasWorkstationPermission('dashboard.read')||hasWorkstationPermission('organization.manage')||hasWorkstationPermission('project.read')||hasWorkstationPermission('task.manage');
-    var workflowOrder={dash:1,org:2,proj:3,sched:4,task:5,me:6,profile:7,fin:8,flow:9,set:10,customers:11,activities:12,decisions:13,insight:14,kb:15};
-    var personalOrder={me:1,task:2,profile:3,fin:4,flow:5,set:6};
+    var workflowOrder={dash:1,org:2,proj:3,sched:4,task:5,me:6,profile:7,fin:8,flow:9,assistant:10,set:11,customers:12,activities:13,decisions:14,insight:15,kb:16};
+    var personalOrder={me:1,task:2,profile:3,fin:4,flow:5,assistant:6,set:7};
     var order=(isManagerFlow?workflowOrder:personalOrder)[page];
     return order||((NAV.findIndex(function(item){ return item[0]===page; })+1)*10);
   }

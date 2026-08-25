@@ -1105,7 +1105,7 @@ test("keeps the four mobile destinations fixed while more opens only secondary m
     const panel = expandedNav.querySelector(".mobile-more-panel");
     assert.equal(expandedNav.classList.contains("expanded"), true);
     assert.ok(panel);
-    assert.equal(panel.querySelectorAll(".mobile-extra").length, 12);
+    assert.equal(panel.querySelectorAll(".mobile-extra").length, 13);
     assert.ok(panel.querySelector('[data-page="profile"]'));
     assert.equal(expandedNav.querySelectorAll(":scope > .mobile-core").length, 3);
     assert.ok(expandedNav.querySelector(":scope > [data-act=\"mobile-nav-more\"]"));
@@ -3456,7 +3456,7 @@ test("personal salary starts with the employee department and level before money
   }
 });
 
-test("formal manager navigation follows the project-to-task workflow and uses Agent Center wording", async () => {
+test("formal manager navigation keeps both Agent Center and AI assistant as separate tools", async () => {
   const dom = await openFormalWorkbench(
     "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
     formalBootstrap({
@@ -3478,9 +3478,10 @@ test("formal manager navigation follows the project-to-task workflow and uses Ag
       "我的工作画像",
       "我的薪酬",
       "Agent 中心",
-      "系统设置",
+      "AI 助理",
     ]);
-    assert.equal(navLabels.includes("AI 助理"), false);
+    assert.ok(navLabels.indexOf("AI 助理") > navLabels.indexOf("Agent 中心"));
+    assert.ok(navLabels.indexOf("系统设置") > navLabels.indexOf("AI 助理"));
     assert.equal(navLabels.includes("Agent Store"), false);
   } finally {
     dom.window.close();
