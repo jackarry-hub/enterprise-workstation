@@ -567,6 +567,7 @@ function formalBootstrap({
   taskId = "11111111-1111-4111-8111-111111111111",
   ownerId = memberId,
   permissions = ["task.execute", "payroll.read.self"],
+  primaryRole = "employee",
   notification = { status: "failed", errorCode: "send_failed" },
 } = {}) {
   const projectId = "22222222-2222-4222-8222-222222222222";
@@ -578,6 +579,7 @@ function formalBootstrap({
       dataMode: "server",
       memberId,
       permissions,
+      primaryRole,
     },
     members: [
       { id: memberId, n: "当前员工", r: "产品经理", dept: "产品中心", lv: 3 },
@@ -3483,6 +3485,82 @@ test("formal manager navigation keeps both Agent Center and AI assistant as sepa
     assert.ok(navLabels.indexOf("AI 助理") > navLabels.indexOf("Agent 中心"));
     assert.ok(navLabels.indexOf("系统设置") > navLabels.indexOf("AI 助理"));
     assert.equal(navLabels.includes("Agent Store"), false);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal employee navigation hides unavailable modules while keeping AI assistant and Agent Center", async () => {
+  const bootstrap = formalBootstrap({
+    permissions: ["task.execute", "salary.self"],
+    primaryRole: "employee",
+  });
+  bootstrap.members[0].lv = 1;
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    dom.window.Q.S.page = "me";
+    dom.window.Q.render();
+    const buttons = Array.from(dom.window.document.querySelectorAll(".nav button[data-page]"));
+    const pages = buttons.map((button) => button.getAttribute("data-page"));
+    for (const page of ["task", "me", "profile", "fin", "flow", "assistant", "set"]) {
+      assert.equal(pages.includes(page), true, `${page} should stay visible in formal navigation`);
+    }
+    for (const page of ["dash", "org", "proj", "sched", "kb", "customers", "activities", "decisions", "insight"]) {
+      assert.equal(pages.includes(page), false, `${page} should not clutter formal navigation`);
+    }
+
+    const byPage = Object.fromEntries(buttons.map((button) => [button.getAttribute("data-page"), button]));
+    byPage.flow.click();
+    assert.equal(dom.window.Q.S.page, "flow");
+    dom.window.document.querySelector('.nav button[data-page="assistant"]').click();
+    assert.equal(dom.window.Q.S.page, "assistant");
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal level permissions reveal project and scheduling modules progressively", async () => {
+  const bootstrap = formalBootstrap({
+    permissions: ["task.execute", "salary.self"],
+    primaryRole: "employee",
+  });
+  bootstrap.members[0].lv = 4;
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    const pages = Array.from(dom.window.document.querySelectorAll(".nav button[data-page]"))
+      .map((button) => button.getAttribute("data-page"));
+    for (const page of ["proj", "sched", "kb", "task", "me", "profile", "fin", "flow", "assistant"]) {
+      assert.equal(pages.includes(page), true, `${page} should be visible for a level 4 employee`);
+    }
+    for (const page of ["dash", "org"]) {
+      assert.equal(pages.includes(page), false, `${page} should stay hidden below level 5`);
+    }
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal CEO can use the full workstation skeleton by default", async () => {
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    formalBootstrap({
+      permissions: [],
+      primaryRole: "ceo",
+    }),
+  );
+  try {
+    const buttons = Array.from(dom.window.document.querySelectorAll(".nav button[data-page]"));
+    const byPage = Object.fromEntries(buttons.map((button) => [button.getAttribute("data-page"), button]));
+    for (const page of ["dash", "org", "proj", "sched", "task", "me", "profile", "fin", "flow", "assistant", "set", "kb"]) {
+      assert.ok(byPage[page], `${page} should be visible for CEO`);
+      assert.equal(byPage[page].getAttribute("data-disabled"), null, `${page} should be enabled for CEO`);
+    }
   } finally {
     dom.window.close();
   }
