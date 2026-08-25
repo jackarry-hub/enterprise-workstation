@@ -410,6 +410,7 @@ test("reserves Feishu cutover without activating a fake server adapter", async (
 test("redirects unauthenticated formal bootstrap to login instead of fail-closed data error", async () => {
   const html = await readFusionHtml();
 
+  assert.match(html, /workstation-server-adapter\.js\?v=auth-/);
   assert.match(html, /function redirectFormalLogin\(\)/);
   assert.match(html, /window\.QUANTXY_WORKSTATION_AUTH_REQUIRED/);
   assert.match(html, /String\(e&&e\.message\)==='unauthorized'/);
