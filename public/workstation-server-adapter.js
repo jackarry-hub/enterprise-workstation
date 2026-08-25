@@ -58,13 +58,19 @@
   }
 
   function redirectToLogin() {
-    window.location.assign(loginUrl());
+    var target = loginUrl();
+    try {
+      window.location.assign(target);
+    } catch {
+      window.location.href = target;
+    }
   }
 
   function readJson(response) {
     return response.json().catch(function () { return {}; }).then(function (body) {
       if (response.status === 401) {
-        redirectToLogin();
+        window.QUANTXY_WORKSTATION_AUTH_REQUIRED = true;
+        window.setTimeout(redirectToLogin, 0);
         throw new Error("unauthorized");
       }
       if (!response.ok) throw new Error(body.error || "workstation_unavailable");

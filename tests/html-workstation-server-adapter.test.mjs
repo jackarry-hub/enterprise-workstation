@@ -35,7 +35,9 @@ test("exposes a formal login redirect helper for unauthorized bootstrap", async 
   );
 
   assert.match(source, /function redirectToLogin\(\)/);
-  assert.match(source, /redirectToLogin\(\);\s*throw new Error\("unauthorized"\)/);
+  assert.match(source, /window\.QUANTXY_WORKSTATION_AUTH_REQUIRED = true/);
+  assert.match(source, /window\.setTimeout\(redirectToLogin, 0\)/);
+  assert.match(source, /throw new Error\("unauthorized"\)/);
   assert.match(source, /redirectToLogin:\s*redirectToLogin/);
 });
 

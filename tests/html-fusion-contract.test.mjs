@@ -411,6 +411,7 @@ test("redirects unauthenticated formal bootstrap to login instead of fail-closed
   const html = await readFusionHtml();
 
   assert.match(html, /function redirectFormalLogin\(\)/);
+  assert.match(html, /window\.QUANTXY_WORKSTATION_AUTH_REQUIRED/);
   assert.match(html, /String\(e&&e\.message\)==='unauthorized'/);
   assert.match(html, /redirectFormalLogin\(\); return;/);
   assert.match(html, /\/login\?next=/);

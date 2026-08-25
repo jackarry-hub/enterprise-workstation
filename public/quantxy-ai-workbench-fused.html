@@ -5007,7 +5007,7 @@ function startWorkstation(){
 }
 if(!isDemoRuntime()&&window.QUANTXY_WORKSTATION_SERVER_ADAPTER&&typeof window.QUANTXY_WORKSTATION_SERVER_ADAPTER.ready==='function'){
   window.QUANTXY_WORKSTATION_SERVER_ADAPTER.ready().then(startWorkstation).catch(function(e){
-    if(String(e&&e.message)==='unauthorized'){ redirectFormalLogin(); return; }
+    if(window.QUANTXY_WORKSTATION_AUTH_REQUIRED||String(e&&e.message)==='unauthorized'){ redirectFormalLogin(); return; }
     emptyDemoBusinessData(); S.serviceError='真实数据服务不可用'; S.form=blankForm(); renderBrand(); render();
   });
 }else startWorkstation();
