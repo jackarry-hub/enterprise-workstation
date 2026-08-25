@@ -4950,6 +4950,11 @@ if(MOBILE_SHELL_MEDIA){
 window.addEventListener('resize',syncMobileShell);
 
 /* ---------------- 启动 ---------------- */
+function redirectFormalLogin(){
+  var adapter=window.QUANTXY_WORKSTATION_SERVER_ADAPTER;
+  if(adapter&&typeof adapter.redirectToLogin==='function'){ adapter.redirectToLogin(); return; }
+  window.location.assign('/login?next='+encodeURIComponent(window.location.pathname+window.location.search));
+}
 function startWorkstation(){
   var demoClearedAtStartup=false, startupNotice='';
   var saved=null, legacyAiSecret=false, migratedLegacy=false, legacyDataPresent=false;
@@ -5001,7 +5006,8 @@ function startWorkstation(){
   if(startupNotice) setTimeout(function(){ toast(startupNotice); },0);
 }
 if(!isDemoRuntime()&&window.QUANTXY_WORKSTATION_SERVER_ADAPTER&&typeof window.QUANTXY_WORKSTATION_SERVER_ADAPTER.ready==='function'){
-  window.QUANTXY_WORKSTATION_SERVER_ADAPTER.ready().then(startWorkstation).catch(function(){
+  window.QUANTXY_WORKSTATION_SERVER_ADAPTER.ready().then(startWorkstation).catch(function(e){
+    if(String(e&&e.message)==='unauthorized'){ redirectFormalLogin(); return; }
     emptyDemoBusinessData(); S.serviceError='真实数据服务不可用'; S.form=blankForm(); renderBrand(); render();
   });
 }else startWorkstation();

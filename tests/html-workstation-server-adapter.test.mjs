@@ -28,6 +28,17 @@ test("skips the formal workstation adapter during local preview", async () => {
   dom.window.close();
 });
 
+test("exposes a formal login redirect helper for unauthorized bootstrap", async () => {
+  const source = await readFile(
+    path.join(process.cwd(), "public", "workstation-server-adapter.js"),
+    "utf8",
+  );
+
+  assert.match(source, /function redirectToLogin\(\)/);
+  assert.match(source, /redirectToLogin\(\);\s*throw new Error\("unauthorized"\)/);
+  assert.match(source, /redirectToLogin:\s*redirectToLogin/);
+});
+
 test("loads the formal employee session and sends task updates without trusting a browser actor", async () => {
   const source = await readFile(
     path.join(process.cwd(), "public", "workstation-server-adapter.js"),

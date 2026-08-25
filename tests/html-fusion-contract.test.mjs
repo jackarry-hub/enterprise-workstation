@@ -407,6 +407,15 @@ test("reserves Feishu cutover without activating a fake server adapter", async (
   assert.doesNotMatch(html, /var WORKSTATION_GATEWAY=createDemoGateway\(\)/);
 });
 
+test("redirects unauthenticated formal bootstrap to login instead of fail-closed data error", async () => {
+  const html = await readFusionHtml();
+
+  assert.match(html, /function redirectFormalLogin\(\)/);
+  assert.match(html, /String\(e&&e\.message\)==='unauthorized'/);
+  assert.match(html, /redirectFormalLogin\(\); return;/);
+  assert.match(html, /\/login\?next=/);
+});
+
 test("renders payroll policy and server calculation controls", async () => {
   const html = await readFusionHtml();
   for (const label of [

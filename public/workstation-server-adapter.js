@@ -57,10 +57,14 @@
     );
   }
 
+  function redirectToLogin() {
+    window.location.assign(loginUrl());
+  }
+
   function readJson(response) {
     return response.json().catch(function () { return {}; }).then(function (body) {
       if (response.status === 401) {
-        window.location.assign(loginUrl());
+        redirectToLogin();
         throw new Error("unauthorized");
       }
       if (!response.ok) throw new Error(body.error || "workstation_unavailable");
@@ -146,6 +150,7 @@
   window.QUANTXY_WORKSTATION_RUNTIME = runtime;
   window.QUANTXY_WORKSTATION_SERVER_ADAPTER = {
     ready: function () { return readyPromise; },
+    redirectToLogin: redirectToLogin,
     getSession: function () { return clone(requireBootstrap().session); },
     loadBootstrap: function () { return clone(requireBootstrap()); },
     loadMyDashboard: function (memberId) {
