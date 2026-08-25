@@ -41,6 +41,82 @@ test("exposes a formal login redirect helper for unauthorized bootstrap", async 
   assert.match(source, /redirectToLogin:\s*redirectToLogin/);
 });
 
+test("loads the formal bootstrap through XHR when fetch is unavailable", async () => {
+  const source = await readFile(
+    path.join(process.cwd(), "public", "workstation-server-adapter.js"),
+    "utf8",
+  );
+  const requests = [];
+  const bootstrap = {
+    session: {
+      authenticated: true,
+      authMode: "feishu",
+      dataMode: "server",
+      memberId: "m7",
+      permissions: [],
+    },
+    members: [{ id: "m7", n: "张云帆" }],
+    projects: [],
+    tasks: [],
+    payroll: { m7: [] },
+    features: { identitySwitch: false, demoReset: false },
+  };
+  const dom = new JSDOM("<!doctype html><script></script>", {
+    url: "https://work.quantumgalaxy.top/quantxy-ai-workbench-fused.html?formal=1",
+    runScripts: "outside-only",
+  });
+  dom.window.fetch = undefined;
+  dom.window.XMLHttpRequest = class FakeXMLHttpRequest {
+    constructor() {
+      this.headers = {};
+      this.readyState = 0;
+      this.responseText = "";
+      this.status = 0;
+      this.withCredentials = false;
+    }
+
+    open(method, url) {
+      this.method = method;
+      this.url = url;
+    }
+
+    setRequestHeader(name, value) {
+      this.headers[name.toLowerCase()] = value;
+    }
+
+    send(body) {
+      requests.push({
+        body,
+        headers: this.headers,
+        method: this.method,
+        url: this.url,
+        withCredentials: this.withCredentials,
+      });
+      this.status = 200;
+      this.responseText = JSON.stringify(bootstrap);
+      this.readyState = 4;
+      this.onreadystatechange();
+    }
+  };
+
+  dom.window.eval(source);
+
+  assert.equal(typeof dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER, "object");
+  await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.ready();
+  assert.deepEqual(requests, [{
+    body: null,
+    headers: {},
+    method: "GET",
+    url: "/api/workstation/bootstrap",
+    withCredentials: true,
+  }]);
+  assert.equal(
+    dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.getSession().memberId,
+    "m7",
+  );
+  dom.window.close();
+});
+
 test("loads the formal employee session and sends task updates without trusting a browser actor", async () => {
   const source = await readFile(
     path.join(process.cwd(), "public", "workstation-server-adapter.js"),

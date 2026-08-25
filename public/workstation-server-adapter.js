@@ -66,15 +66,52 @@
     }
   }
 
+  function handleJson(status, ok, body) {
+    if (status === 401) {
+      window.QUANTXY_WORKSTATION_AUTH_REQUIRED = true;
+      window.setTimeout(redirectToLogin, 0);
+      throw new Error("unauthorized");
+    }
+    if (!ok) throw new Error(body.error || "workstation_unavailable");
+    return body;
+  }
+
   function readJson(response) {
     return response.json().catch(function () { return {}; }).then(function (body) {
-      if (response.status === 401) {
-        window.QUANTXY_WORKSTATION_AUTH_REQUIRED = true;
-        window.setTimeout(redirectToLogin, 0);
-        throw new Error("unauthorized");
-      }
-      if (!response.ok) throw new Error(body.error || "workstation_unavailable");
-      return body;
+      return handleJson(response.status, response.ok, body);
+    });
+  }
+
+  function requestWithXhr(url, options) {
+    return new Promise(function (resolve, reject) {
+      var xhr = new window.XMLHttpRequest();
+      xhr.open(options.method || "GET", url, true);
+      xhr.withCredentials = true;
+      Object.keys(options.headers || {}).forEach(function (name) {
+        xhr.setRequestHeader(name, options.headers[name]);
+      });
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState !== 4) return;
+        var body = {};
+        try {
+          body = xhr.responseText ? JSON.parse(xhr.responseText) : {};
+        } catch {
+          body = {};
+        }
+        try {
+          resolve(handleJson(
+            xhr.status,
+            xhr.status >= 200 && xhr.status < 300,
+            body,
+          ));
+        } catch (error) {
+          reject(error);
+        }
+      };
+      xhr.onerror = function () {
+        reject(new Error("workstation_unavailable"));
+      };
+      xhr.send(options.body || null);
     });
   }
 
@@ -82,7 +119,13 @@
     var options = init || {};
     options.credentials = "same-origin";
     options.cache = "no-store";
-    return window.fetch(url, options).then(readJson);
+    if (typeof window.fetch === "function") {
+      return window.fetch(url, options).then(readJson);
+    }
+    if (typeof window.XMLHttpRequest === "function") {
+      return requestWithXhr(url, options);
+    }
+    return Promise.reject(new Error("workstation_unavailable"));
   }
 
   var readyPromise = request("/api/workstation/bootstrap").then(function (data) {
