@@ -3430,6 +3430,43 @@ test("formal route and unfinished form draft survive a refresh", async () => {
   }
 });
 
+test("formal assistant draft survives a refresh", async () => {
+  const bootstrap = formalBootstrap({ permissions: ["assistant.use"] });
+  const first = await openFormalWorkbenchWithStorage(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  let storage = {};
+  try {
+    first.window.Q.S.page = "assistant";
+    first.window.Q.render();
+    const chatInput = first.window.document.querySelector("#chatIn");
+    chatInput.value = "请帮我把本周任务整理成执行计划";
+    chatInput.dispatchEvent(new first.window.Event("input", { bubbles: true }));
+    storage = {
+      "qxy.workstation.ui.v1": first.window.localStorage.getItem("qxy.workstation.ui.v1"),
+    };
+    assert.ok(storage["qxy.workstation.ui.v1"], "assistant draft should be saved to localStorage");
+  } finally {
+    first.window.close();
+  }
+
+  const second = await openFormalWorkbenchWithStorage(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+    storage,
+  );
+  try {
+    assert.equal(second.window.Q.S.page, "assistant");
+    assert.equal(
+      second.window.document.querySelector("#chatIn").value,
+      "请帮我把本周任务整理成执行计划",
+    );
+  } finally {
+    second.window.close();
+  }
+});
+
 test("personal salary starts with the employee department and level before money details", async () => {
   const bootstrap = formalBootstrap({
     memberId: "salary-member",
@@ -3591,6 +3628,41 @@ test("Agent Center presents enterprise agents with capability, run log and permi
     }
     assert.match(viewText, /智能体能力|调用记录|权限范围/);
     assert.doesNotMatch(viewText, /商店|购买|安装|Agent Store/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("Agent Center summary chips are real clickable controls", async () => {
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    formalBootstrap({
+      permissions: ["dashboard.read", "agent.manage"],
+      primaryRole: "ceo",
+    }),
+  );
+  try {
+    const { S } = dom.window.Q;
+    S.page = "flow";
+    dom.window.Q.render();
+
+    const mine = dom.window.document.querySelector('[data-act="agent-filter"][data-vis="mine"]');
+    assert.ok(mine, "capability chip should be clickable");
+    mine.click();
+    assert.equal(S.f.agentTab, "dir");
+    assert.equal(S.f.agentVis, "mine");
+
+    const log = dom.window.document.querySelector('[data-act="set"][data-k="agentTab"][data-v="log"]');
+    assert.ok(log, "run log chip should switch tabs");
+    log.click();
+    assert.equal(S.f.agentTab, "log");
+    assert.match(dom.window.document.querySelector("#view").textContent, /运行记录/);
+
+    const perm = dom.window.document.querySelector('[data-act="set"][data-k="agentTab"][data-v="perm"]');
+    assert.ok(perm, "permission scope chip should switch tabs for CEO");
+    perm.click();
+    assert.equal(S.f.agentTab, "perm");
+    assert.match(dom.window.document.querySelector("#view").textContent, /权限管理|权限范围/);
   } finally {
     dom.window.close();
   }

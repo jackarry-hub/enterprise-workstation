@@ -479,7 +479,8 @@ function persistUiState(){
     localStorage.setItem(QXY_UI_STATE_KEY,JSON.stringify({
       page:S.page, form:S.form, tab:S.tab, f:S.f, sel:S.sel, sch:S.sch,
       curProj:S.curProj, curAgent:S.curAgent, curCustomer:S.curCustomer, curActivity:S.curActivity,
-      mobileTaskFocus:S.mobileTaskFocus, payrollDetailsOpen:S.payrollDetailsOpen, savedAt:Date.now()
+      mobileTaskFocus:S.mobileTaskFocus, payrollDetailsOpen:S.payrollDetailsOpen,
+      chatDraft:S.chatDraft||'', savedAt:Date.now()
     }));
     return true;
   }catch(e){ return false; }
@@ -500,6 +501,7 @@ function restoreUiState(){
   S.curProj=stored.curProj||null; S.curAgent=stored.curAgent||null;
   S.curCustomer=stored.curCustomer||null; S.curActivity=stored.curActivity||null;
   S.mobileTaskFocus=!!stored.mobileTaskFocus; S.payrollDetailsOpen=!!stored.payrollDetailsOpen;
+  S.chatDraft=typeof stored.chatDraft==='string'?stored.chatDraft:'';
   return true;
 }
 function defaultReviewer(task){
@@ -957,7 +959,7 @@ var S = {
   aiTest:null,
   sch:{ goal:'', deadline:fmt(addD(today(),45)), budget:30, must:'', busy:false, err:'',
         projectId:'', tasks:null, plans:null, pick:'A', from:'', issued:false, issuing:false },
-  chat:[], chatBusy:false, cmenu:false, form:null,
+  chat:[], chatDraft:'', chatBusy:false, cmenu:false, form:null,
   f:{ projCat:'all', projSt:'all', projQ:'', taskQ:'', taskOwn:'all', taskPri:'all', taskSt:'all',
       meScope:'todo', meTab:'all', payMonth:'', payFocus:'', kbQ:'', kbCat:'all', kbAdvanced:'0', kbRecommend:'0', orgQ:'', orgDept:'all', agentDept:'all', agentQ:'', agentTab:'dir', agentVis:'all',
       dashTab:'进行中', dateDays:'30', insightG:'日', insightScope:'全部业务', insightCompare:'前一周期', insightLine:'全部', insightChannel:'全部', insightRegion:'全部', gq:'', customerQ:'', customerSt:'all', activitySt:'all', decisionTab:'待我决策' },
@@ -984,7 +986,7 @@ function resetRuntimeUiState(page){
   S.page=page||'me'; S.menu=false; S.cmenu=false; S.topPanel=null; S.confirm=null; S.editId=null; S.deptMgr=false; S.helper=true;
   S.tab=defaultRuntimeTabs(); S.f=defaultRuntimeFilters(); S.sch=defaultRuntimeSchedule(); S.sel={task:null,wbs:null};
   S.curProj=null; S.curAgent=null; S.curCustomer=null; S.curActivity=null;
-  S.chat=[]; S.chatBusy=false; S.agentIn={}; S.agentOut=''; S.agentBusy=false;
+  S.chat=[]; S.chatDraft=''; S.chatBusy=false; S.agentIn={}; S.agentOut=''; S.agentBusy=false;
   S.chain=[]; S.chainIn=''; S.chainOut=[]; S.chainBusy=false; S.chainStep=0;
   S.aiKeyDraft=''; S.showKey=false; S.aiTest=null; S.notificationRetryBusy=false; S.workProfileSaving=false; S.form=blankForm();
   S.payrollDetailsOpen=false;
@@ -1906,35 +1908,6 @@ function viewSched(){
 
   return j(['<div class="grid fade" style="grid-template-columns:1fr 1fr 1fr">',left,wbs,list,'</div>',
 
-  '<div style="margin-top:16px">',alloc,'</div>',
-
-  '<div class="grid" style="grid-template-columns:1.05fr 1.6fr 1.1fr;margin-top:16px">',
-    '<div class="card" data-resource-utilization data-state="calculated"><div class="hd">',ic('chart',18,'#f59e0b'),'<h3>资源利用率</h3><div class="grow"></div><span class="sm">本方案</span></div>',
-    '<div class="bd" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center">',
-      [[pl.util,pl.util>85?'#ef4444':'#10b981','人员档期占用'],[Math.min(99,Math.round(pl.heads/Math.max(1,MEMBERS.length)*100)),'#7c3aed','团队投入占比'],[Math.min(99,Math.round(pl.peak/Math.max(1,Number(S.cfg.parallel)||1)*100)),'#10b981','并行峰值'],[Math.min(99,budUse),'#2563eb','预算使用']].map(function(x){
-        return '<div>'+ring(x[0],x[1],86)+'<div style="font-size:11.5px;color:var(--sub);margin-top:4px">'+x[2]+'</div></div>';
-      }).join(''),
-    '</div>',
-    '<div class="bd" style="border-top:1px solid var(--line2);padding-top:12px">',
-      '<div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--sub);margin-bottom:6px"><span>投入人力</span><b>'+pl.heads+' 人（峰值并行 '+pl.peak+' 人）</b></div>',
-      '<div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--sub);margin-bottom:6px"><span>项目工期</span><b>'+pl.days+' 天（至 '+pl.end+'）</b></div>',
-      '<div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--sub)"><span>关键路径任务</span><b>'+ts.filter(function(t){ return pl.map[t.id]&&pl.map[t.id].crit; }).length+' 项</b></div>',
-    '</div></div>',
-
-    '<div class="card"><div class="hd">',ic('link',18,'#2563eb'),'<h3>任务依赖关系图</h3><div class="grow"></div>',
-      '<span class="sm" style="display:flex;gap:12px"><span>● 正常</span><span style="color:var(--risk)">┄ 关键路径</span></span></div>',
-      '<div class="bd">',depGraph(ts,pl.map),'</div></div>',
-
-    '<div class="card"><div class="hd">',ic('bolt',18,'#7c3aed'),'<h3>AI 优化建议</h3></div><div class="bd" style="padding-top:8px">',
-      suggestions.map(function(x){
-        return '<div style="padding:11px;border-radius:11px;background:#f9fbff;margin-bottom:9px">'+
-          '<div style="display:flex;justify-content:space-between;gap:8px"><b style="font-size:13px">'+esc(x[0])+'</b><span class="tag '+x[3]+'">'+x[2]+'</span></div>'+
-          '<p style="margin:5px 0 6px;font-size:12px;color:var(--sub);line-height:1.6">'+esc(x[1])+'</p>'+
-          '<span style="font-size:11.5px;color:var(--brand)">'+esc(x[4])+'</span></div>';
-      }).join(''),
-    '</div></div>',
-  '</div>',
-
   '<div class="grid" style="grid-template-columns:1.9fr 1.1fr;margin-top:16px">',
     '<div class="card"><div class="hd">',ic('ai',18,'#2563eb'),'<h3>调度方案对比</h3><div class="grow"></div><span class="sm">选择方案后可一键下发</span></div>',
     '<div class="bd" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">',
@@ -1963,6 +1936,35 @@ function viewSched(){
           '<p style="margin:4px 0 5px;font-size:11.5px;color:var(--sub);line-height:1.6">'+esc(r[1])+'</p>'+
           '<span style="font-size:11px;color:var(--mut)">应对措施：'+esc(r[4])+'</span></div>'+
           '<div style="text-align:right"><span class="tag '+(r[2]==='高'?'t-r':'t-o')+'">'+r[2]+'</span><br><span style="font-size:11px;color:var(--mut)">概率 '+r[3]+'</span></div></div>';
+      }).join(''),
+    '</div></div>',
+  '</div>',
+
+  '<div style="margin-top:16px">',alloc,'</div>',
+
+  '<div class="grid" style="grid-template-columns:.85fr 1.55fr .95fr;margin-top:16px;align-items:start">',
+    '<div class="card" data-resource-utilization data-state="calculated"><div class="hd">',ic('chart',18,'#f59e0b'),'<h3>资源利用率</h3><div class="grow"></div><span class="sm">本方案</span></div>',
+    '<div class="bd" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center">',
+      [[pl.util,pl.util>85?'#ef4444':'#10b981','人员档期占用'],[Math.min(99,Math.round(pl.heads/Math.max(1,MEMBERS.length)*100)),'#7c3aed','团队投入占比'],[Math.min(99,Math.round(pl.peak/Math.max(1,Number(S.cfg.parallel)||1)*100)),'#10b981','并行峰值'],[Math.min(99,budUse),'#2563eb','预算使用']].map(function(x){
+        return '<div>'+ring(x[0],x[1],70)+'<div style="font-size:11px;color:var(--sub);margin-top:3px">'+x[2]+'</div></div>';
+      }).join(''),
+    '</div>',
+    '<div class="bd" style="border-top:1px solid var(--line2);padding-top:10px">',
+      '<div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--sub);margin-bottom:6px"><span>投入人力</span><b>'+pl.heads+' 人（峰值并行 '+pl.peak+' 人）</b></div>',
+      '<div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--sub);margin-bottom:6px"><span>项目工期</span><b>'+pl.days+' 天（至 '+pl.end+'）</b></div>',
+      '<div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--sub)"><span>关键路径任务</span><b>'+ts.filter(function(t){ return pl.map[t.id]&&pl.map[t.id].crit; }).length+' 项</b></div>',
+    '</div></div>',
+
+    '<div class="card"><div class="hd">',ic('link',18,'#2563eb'),'<h3>任务依赖关系图</h3><div class="grow"></div>',
+      '<span class="sm" style="display:flex;gap:12px"><span>● 正常</span><span style="color:var(--risk)">┄ 关键路径</span></span></div>',
+      '<div class="bd" style="max-height:250px;overflow:auto;padding-bottom:8px">',depGraph(ts,pl.map),'</div></div>',
+
+    '<div class="card"><div class="hd">',ic('bolt',18,'#7c3aed'),'<h3>AI 优化建议</h3></div><div class="bd" style="padding-top:8px;max-height:250px;overflow:auto">',
+      suggestions.map(function(x){
+        return '<div style="padding:10px;border-radius:11px;background:#f9fbff;margin-bottom:8px">'+
+          '<div style="display:flex;justify-content:space-between;gap:8px"><b style="font-size:13px">'+esc(x[0])+'</b><span class="tag '+x[3]+'">'+x[2]+'</span></div>'+
+          '<p style="margin:5px 0 6px;font-size:12px;color:var(--sub);line-height:1.6">'+esc(x[1])+'</p>'+
+          '<span style="font-size:11.5px;color:var(--brand)">'+esc(x[4])+'</span></div>';
       }).join(''),
     '</div></div>',
   '</div>',
@@ -2426,7 +2428,7 @@ function viewAssistant(){
       '</div>',
       '<div class="bd" style="border-top:1px solid var(--line2)">',
         '<div style="display:flex;gap:8px;align-items:flex-end">',
-        '<textarea class="ta" id="chatIn" style="min-height:52px;flex:1" placeholder="输入您的问题，或从右侧选择一项能力快速开始…"></textarea>',
+        '<textarea class="ta" id="chatIn" style="min-height:52px;flex:1" placeholder="输入您的问题，或从右侧选择一项能力快速开始…">'+esc(S.chatDraft||'')+'</textarea>',
         '<button class="btn" data-act="chat" style="height:44px" '+(S.chatBusy?'disabled':'')+'>'+ic('send',16)+'</button></div>',
         '<div class="chips" style="margin-top:10px">',
           caps.slice(0,4).map(function(c){ return '<button class="chip" data-act="cap" data-p="'+esc(c[3])+'">'+c[1]+'</button>'; }).join(''),
@@ -3306,7 +3308,7 @@ var PREV={'new-member':pvMember,'new-project':pvProject,'new-file':pvFile,'new-t
 /* ---------------- 职级与权限模型 ---------------- */
 var LEVELS=[{v:1,l:'L1 员工'},{v:2,l:'L2 主管'},{v:3,l:'L3 经理'},{v:4,l:'L4 总监'},{v:5,l:'L5 决策层'}];
 function lvName(v){ var x=LEVELS.filter(function(l){ return l.v===(v||1); })[0]; return x?x.l:'L1 员工'; }
-function isAdmin(mid){ var m=MB[mid||S.me]; return !!m && (m.r==='企业决策人' || (m.lv||1)>=4); }
+function isAdmin(mid){ var m=MB[mid||S.me]; return isWorkstationCEO() || (!!m && (m.r==='企业决策人' || (m.lv||1)>=4)); }
 /* 调用权限判定：决策层直通 → 单独授权 → 职级门槛 → 部门范围 */
 function canUse(a,mid){
   var m=MB[mid||S.me];
@@ -3431,8 +3433,12 @@ function viewAgents(){
     '<span class="grow"></span>',
     '<span class="sm">按「部门 + 职级」判定调用权限，当前身份可调用 <b style="color:var(--ink)">',okN,'/',S.agents.length,'</b> 个</span>',
   '</div>',
-  '<div class="bd" style="display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--line2);font-size:12px;color:var(--sub)">',
-    '<span class="tag t-b">企业已启用智能体</span><span>智能体能力</span><span>调用记录</span><span>权限范围</span><span class="grow"></span><span>企业内部 AI 中控台，由权限和职级统一管理。</span>',
+  '<div class="bd" style="display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--line2);font-size:12px;color:var(--sub);flex-wrap:wrap">',
+    '<button class="chip '+(tab==='dir'&&(S.f.agentVis||'all')==='all'?'on':'')+'" data-act="agent-filter" data-tab="dir" data-vis="all">企业已启用智能体</button>',
+    '<button class="chip '+(tab==='dir'&&(S.f.agentVis||'all')==='mine'?'on':'')+'" data-act="agent-filter" data-tab="dir" data-vis="mine">智能体能力</button>',
+    '<button class="chip '+(tab==='log'?'on':'')+'" data-act="set" data-k="agentTab" data-v="log">调用记录</button>',
+    isAdmin()?'<button class="chip '+(tab==='perm'?'on':'')+'" data-act="set" data-k="agentTab" data-v="perm">权限范围</button>':'<button class="chip" data-act="agent-perm-info">权限范围</button>',
+    '<span class="grow"></span><span>企业内部 AI 中控台，由权限和职级统一管理。</span>',
   '</div>',
   '<div class="tabs">',
     [['dir','Agent 目录'],['chain','编排流水线'],['log','运行记录']].concat(isAdmin()?[['perm','权限管理'+(pend.length?' ('+pend.length+')':'')]]:[]).map(function(x){
@@ -4300,6 +4306,7 @@ function genPlan(){
 function sendChat(text){
   var t=text||(el('chatIn')?el('chatIn').value.trim():'');
   if(!t){ return; }
+  S.chatDraft='';
   S.chat.push({r:'u',t:t}); S.chatBusy=true; render();
   var sys='你是「量子星河」企业 AI 工作台的助理，服务于企业管理者与团队成员。回答务必：结构清晰、结论先行、可执行；'+
     '涉及任务时给出负责人角色、工期与验收标准；用中文；控制在 400 字以内。';
@@ -4453,6 +4460,8 @@ document.addEventListener('click',function(e){
   else if(a==='f-auto'){ syncForm(); S.form.project.auto=Number(S.form.project.auto)?0:1; render(); }
   else if(a==='f-rmfile'){ syncForm(); S.form.file.files.splice(parseInt(t.getAttribute('data-i'),10),1); render(); }
   else if(a==='set'){ S.f[t.getAttribute('data-k')]=t.getAttribute('data-v'); render(); }
+  else if(a==='agent-filter'){ S.f.agentTab=t.getAttribute('data-tab')||'dir'; S.f.agentVis=t.getAttribute('data-vis')||'all'; render(); }
+  else if(a==='agent-perm-info'){ toast('权限范围由部门和职级决定，当前身份可在 Agent 目录查看可调用状态'); }
   else if(a==='project-risks'){ S.f.projSt='风险'; render(); toast('已筛选全部风险项目'); }
   else if(a==='insight-cycle'){
     var insightKey=t.getAttribute('data-k'), insightOptions=INSIGHT_FILTERS[insightKey]||[];
@@ -4656,8 +4665,8 @@ document.addEventListener('click',function(e){
     if(S.sch.goal) setTimeout(genPlan,60); }
   else if(a==='chat-session'){ toast('已选择会话；正式会话存储接入后可继续历史对话'); }
   else if(a==='chat'){ sendChat(); }
-  else if(a==='cap'){ var p=t.getAttribute('data-p'); var ci=el('chatIn'); if(ci){ ci.value=p; ci.focus(); } }
-  else if(a==='new-chat'){ S.chat=[]; render(); }
+  else if(a==='cap'){ var p=t.getAttribute('data-p'); var ci=el('chatIn'); if(ci){ ci.value=p; S.chatDraft=p; persistUiState(); ci.focus(); } }
+  else if(a==='new-chat'){ S.chat=[]; S.chatDraft=''; persistUiState(); render(); }
   else if(a==='save-schedule'){
     S.cfg.workday=parseInt(el('cfgWd').value,10)||5;
     S.cfg.parallel=parseInt(el('cfgPl').value,10)||3;
@@ -4700,6 +4709,11 @@ document.addEventListener('drop',function(e){
 });
 /* 筛选与搜索输入 */
 document.addEventListener('input',function(e){
+  if(e.target&&e.target.id==='chatIn'){
+    S.chatDraft=e.target.value;
+    persistUiState();
+    return;
+  }
   var lk=e.target.getAttribute&&e.target.getAttribute('data-login');
   if(lk==='user'||lk==='pass'){
     LOGIN[lk]=e.target.value;
