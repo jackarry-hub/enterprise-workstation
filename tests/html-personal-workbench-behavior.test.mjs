@@ -308,6 +308,49 @@ test("previews and confirms a server-calculated payroll", async () => {
   }
 });
 
+test("payroll admin derives base salary from department and level and frames project bonus as a bonus pool", async () => {
+  const bootstrap = formalBootstrap({
+    memberId: "salary-admin",
+    permissions: ["salary.manage", "salary.self"],
+    primaryRole: "ceo",
+  });
+  bootstrap.members = [
+    { id: "member-product-l3", n: "产品三级", r: "产品经理", dept: "产品中心", lv: 3 },
+    { id: "member-rd-l4", n: "研发四级", r: "算法工程师", dept: "研发中心", lv: 4 },
+    { id: "salary-admin", n: "薪资管理员", r: "CEO", dept: "管理层", lv: 5 },
+  ];
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    const { S } = dom.window.Q;
+    S.page = "pay-admin";
+    S.payrollDraft = null;
+    dom.window.Q.render();
+
+    const firstBasis = dom.window.document.querySelector("[data-salary-basis-card]");
+    assert.equal(firstBasis?.getAttribute("data-dept"), "产品中心");
+    assert.equal(firstBasis?.getAttribute("data-level"), "3");
+    assert.equal(firstBasis?.getAttribute("data-base"), "22000");
+    assert.match(firstBasis.textContent, /部门\+职级|项目奖金池|任务难度|验收质量|效率/);
+    assert.equal(dom.window.document.querySelector("#salaryBase").value, "22000.00");
+    assert.equal(dom.window.document.querySelector("#salaryBase").readOnly, true);
+
+    const select = dom.window.document.querySelector('[data-f="salaryMember"]');
+    select.value = "member-rd-l4";
+    select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+
+    const secondBasis = dom.window.document.querySelector("[data-salary-basis-card]");
+    assert.equal(secondBasis?.getAttribute("data-dept"), "研发中心");
+    assert.equal(secondBasis?.getAttribute("data-level"), "4");
+    assert.equal(secondBasis?.getAttribute("data-base"), "35000");
+    assert.equal(dom.window.document.querySelector("#salaryBase").value, "35000.00");
+  } finally {
+    dom.window.close();
+  }
+});
+
 test("shows a payroll calculation entry only for formal salary managers", async () => {
   const managerBootstrap = formalBootstrap({
     memberId: "m7",
@@ -1444,6 +1487,14 @@ test("shows only the selected identity payroll and clears stale month selection"
   const dom = await openWorkbench();
   try {
     const { S, gateway } = dom.window.Q;
+    S.payroll.m1 = [
+      { month: "2026-08", base: 11111, performance: 0, projectBonus: 0, otherBonus: 0, social: 0, tax: 0, otherDeduction: 0, net: 11111, status: "待发放", payDate: "" },
+      { month: "2026-07", base: 22222, performance: 0, projectBonus: 0, otherBonus: 0, social: 0, tax: 0, otherDeduction: 0, net: 22222, status: "已发放", payDate: "2026-07-10" },
+    ];
+    S.payroll.m2 = [
+      { month: "2026-08", base: 33333, performance: 0, projectBonus: 0, otherBonus: 0, social: 0, tax: 0, otherDeduction: 0, net: 33333, status: "待发放", payDate: "" },
+      { month: "2026-07", base: 44444, performance: 0, projectBonus: 0, otherBonus: 0, social: 0, tax: 0, otherDeduction: 0, net: 44444, status: "已发放", payDate: "2026-07-10" },
+    ];
     S.me = "m1";
     S.page = "fin";
     dom.window.Q.render();

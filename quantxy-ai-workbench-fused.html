@@ -992,8 +992,96 @@ function resetRuntimeUiState(page){
   S.payrollDetailsOpen=false;
 }
 
-var PAYROLL_BASE={m1:22000,m2:24000,m3:30000,m4:23000,m5:21000,m6:22000,m7:19000,
-  m8:28000,m9:18000,m10:16500,m11:19000,m12:20000,m13:18000,m14:45000};
+var SALARY_GRADE_MATRIX={
+  '管理层':{1:18000,2:22000,3:28000,4:36000,5:45000},
+  '产品中心':{1:15000,2:18000,3:22000,4:30000,5:42000},
+  '研发中心':{1:19000,2:23000,3:28000,4:35000,5:48000},
+  '数据中心':{1:19000,2:24000,3:30000,4:38000,5:50000},
+  '质量中心':{1:16500,2:19000,3:24000,4:30000,5:38000},
+  '运维中心':{1:16000,2:20000,3:26000,4:34000,5:43000},
+  '市场部':{1:14000,2:18000,3:24000,4:32000,5:42000},
+  '销售部':{1:12000,2:16000,3:22000,4:30000,5:40000},
+  '客服部':{1:10000,2:13500,3:18000,4:24000,5:32000},
+  '财务部':{1:13000,2:17000,3:23000,4:30000,5:39000},
+  '法务部':{1:15000,2:20000,3:28000,4:36000,5:48000},
+  '人力资源':{1:12000,2:16000,3:22000,4:30000,5:39000},
+  '行政部':{1:9000,2:12000,3:16000,4:22000,5:30000}
+};
+var DEFAULT_SALARY_GRADE={1:12000,2:16000,3:22000,4:30000,5:42000};
+var BONUS_POOL_POLICY={projectPoolRate:0.08,priority:{P0:1.5,P1:1.2,P2:1},roleLead:1.15};
+function moneyFixed(value){
+  return Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2,useGrouping:false});
+}
+function memberLevelValue(member){
+  var raw=parseInt(member&&(member.lv||member.level),10);
+  return Math.max(1,Math.min(5,isFinite(raw)?raw:1));
+}
+function memberDeptName(member){
+  return String(member&&(member.dept||member.department)||'未分配部门');
+}
+function salaryBandForMember(member){
+  var dept=memberDeptName(member), level=memberLevelValue(member);
+  var matrix=SALARY_GRADE_MATRIX[dept]||DEFAULT_SALARY_GRADE;
+  var base=Number(matrix[level]||DEFAULT_SALARY_GRADE[level]||DEFAULT_SALARY_GRADE[1]);
+  var targetRate=level>=5?0.20:(level>=3?0.15:0.10);
+  var performanceTarget=Math.round(base*targetRate);
+  return {dept:dept,level:level,levelName:lvName(level),base:base,baseSalary:moneyFixed(base),
+    performanceTarget:performanceTarget,performanceTargetText:moneyFixed(performanceTarget),
+    policy:'部门+职级定基本工资，项目奖金池按任务贡献分配'};
+}
+function taskBonusWeight(task){
+  task=task||{};
+  var priority=BONUS_POOL_POLICY.priority[task.pri]||1;
+  var days=Math.max(1,Number(task.days||task.dur||diffD(new Date(task.s||today()),new Date(task.e||today()))||1));
+  var progress=Number(task.pr||0);
+  var quality=Number(task.qualityScore||task.score||0);
+  var qualityWeight=quality?Math.max(0.7,Math.min(1.3,quality/90)):1;
+  var efficiency=progress>=100?1.12:1;
+  var project=PB[task.p]||{};
+  var leadWeight=project.own===task.own?BONUS_POOL_POLICY.roleLead:1;
+  return Math.max(1,Math.round(days*priority*qualityWeight*efficiency*leadWeight*10)/10);
+}
+function projectBonusTasks(month){
+  var targetMonth=String(month||'').slice(0,7);
+  return (S.tasks||[]).filter(function(task){
+    if(!(task.st==='已完成'||task.st==='待验收'||Number(task.pr||0)>=100)) return false;
+    if(!targetMonth) return true;
+    var mark=String(task.reviewedAt||task.submittedAt||task.e||'').slice(0,7);
+    return !mark||mark===targetMonth;
+  });
+}
+function projectBonusSuggestion(memberId,month){
+  var tasks=projectBonusTasks(month);
+  var projectMap={}, totalBudget=0, totalWeight=0, memberWeight=0, memberTasks=0;
+  tasks.forEach(function(task){
+    var project=PB[task.p]||{};
+    if(project.id&&!projectMap[project.id]){ projectMap[project.id]=1; totalBudget+=Number(project.bud||0)*10000; }
+    var weight=taskBonusWeight(task);
+    totalWeight+=weight;
+    if(task.own===memberId){ memberWeight+=weight; memberTasks++; }
+  });
+  var pool=Math.round(totalBudget*BONUS_POOL_POLICY.projectPoolRate);
+  var amount=totalWeight?Math.round(pool*memberWeight/totalWeight):0;
+  return {pool:pool,amount:amount,tasks:memberTasks,totalTasks:tasks.length,weight:memberWeight,totalWeight:totalWeight,
+    rule:'奖金池=项目预算×'+Math.round(BONUS_POOL_POLICY.projectPoolRate*100)+'%，再按任务难度、优先级、验收质量、效率与角色权重分配'};
+}
+function defaultPayrollDraft(month,memberId){
+  var now=new Date(), currentMonth=now.getFullYear()+'-'+pad(now.getMonth()+1);
+  return {memberId:memberId||(MEMBERS.length?MEMBERS[0].id:''),month:month||currentMonth,baseSalary:'0.00',performanceBonus:'0.00',projectBonus:'0.00',otherBonus:'0.00',otherIncome:'0.00',
+    socialBase:'0.00',housingFundBase:'0.00',taxExemptIncome:'0.00',specialAdditionalDeduction:'0.00',otherStatutoryDeduction:'0.00',taxRelief:'0.00',otherDeduction:'0.00',manualAdjustmentReason:'',
+    openingCumulativeIncome:'',openingCumulativeTaxExemptIncome:'',openingCumulativeSpecialDeduction:'',openingCumulativeSpecialAdditionalDeduction:'',openingCumulativeOtherStatutoryDeduction:'',openingCumulativeTaxRelief:'',openingCumulativeTaxWithheld:'',note:''};
+}
+function applyDepartmentLevelSalaryDraft(draft,force){
+  draft=Object.assign(defaultPayrollDraft(),draft||{});
+  var member=MB[draft.memberId]||MEMBERS[0]||{};
+  var band=salaryBandForMember(member), bonus=projectBonusSuggestion(draft.memberId,draft.month);
+  var next=Object.assign({},draft);
+  if(force||!String(next.baseSalary||'').trim()||Number(next.baseSalary)<=0) next.baseSalary=band.baseSalary;
+  if(force||!String(next.socialBase||'').trim()||Number(next.socialBase)<=0) next.socialBase=band.baseSalary;
+  if(force||!String(next.housingFundBase||'').trim()||Number(next.housingFundBase)<=0) next.housingFundBase=band.baseSalary;
+  if(force||!String(next.projectBonus||'').trim()||Number(next.projectBonus)<=0) next.projectBonus=moneyFixed(bonus.amount);
+  return next;
+}
 function payrollMonth(offset){
   var d=new Date(); d.setDate(1); d.setMonth(d.getMonth()+offset);
   return d.getFullYear()+'-'+pad(d.getMonth()+1);
@@ -1001,7 +1089,7 @@ function payrollMonth(offset){
 function seedPayroll(){
   var out={};
   MEMBERS.forEach(function(member,index){
-    var base=PAYROLL_BASE[member.id]||18000;
+    var base=salaryBandForMember(member).base;
     out[member.id]=[-2,-1,0].map(function(offset,monthIndex){
       var performance=1800+((index+monthIndex)%5)*600;
       var projectBonus=((index+monthIndex)%4)*900;
@@ -2563,9 +2651,10 @@ function viewFin(){
     return String(b.month||'').localeCompare(String(a.month||''));
   });
   var member=MB[S.me]||{n:'当前员工'};
+  var band=salaryBandForMember(member);
   var selected=payrollRow(S.me,S.f.payMonth);
   var salaryIdentity='<div class="card fade" data-salary-identity style="margin-bottom:16px"><div class="bd" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
-    av(member.n||'员',1)+'<div style="flex:1;min-width:220px"><b style="font-size:16px">'+esc(member.n||'当前员工')+'</b><p class="hint" style="margin-top:4px">部门：'+esc(member.dept||'未分配部门')+' · 职级：'+esc(lvName(member.lv||1))+' · 岗位：'+esc(member.r||'员工')+'</p></div>'+
+    av(member.n||'员',1)+'<div style="flex:1;min-width:220px"><b style="font-size:16px">'+esc(member.n||'当前员工')+'</b><p class="hint" style="margin-top:4px">部门：'+esc(band.dept)+' · 职级：'+esc(band.levelName)+' · 岗位：'+esc(member.r||'员工')+'</p><p class="hint" style="margin-top:3px">薪资档位：'+esc(band.dept)+' L'+band.level+' · 基准月薪 '+payrollMoney(band.base)+' · 项目奖金池按任务贡献结算</p></div>'+
     '<span class="tag t-b">薪资仅本人可见</span></div></div>';
   if(!rows.length){
     return payrollManagerEntry()+salaryIdentity+'<div class="card fade"><div class="hd"><h3>我的薪酬</h3></div><div class="bd"><div class="grid payroll-summary-grid" data-payroll-summary style="grid-template-columns:repeat(5,1fr)"></div></div><div class="empty">当前身份暂无工资记录</div></div>';
@@ -3684,18 +3773,23 @@ function viewFormalOrg(){
 function viewPayrollAdmin(){
   if(!hasWorkstationPermission('salary.manage')) return '<div class="card fade"><div class="empty">当前账号没有工资维护权限</div></div>';
   var now=new Date(), month=now.getFullYear()+'-'+pad(now.getMonth()+1);
-  var d=S.payrollDraft||{memberId:MEMBERS.length?MEMBERS[0].id:'',month:month,baseSalary:'0.00',performanceBonus:'0.00',projectBonus:'0.00',otherBonus:'0.00',otherIncome:'0.00',
-    socialBase:'0.00',housingFundBase:'0.00',taxExemptIncome:'0.00',specialAdditionalDeduction:'0.00',otherStatutoryDeduction:'0.00',taxRelief:'0.00',otherDeduction:'0.00',manualAdjustmentReason:'',
-    openingCumulativeIncome:'',openingCumulativeTaxExemptIncome:'',openingCumulativeSpecialDeduction:'',openingCumulativeSpecialAdditionalDeduction:'',openingCumulativeOtherStatutoryDeduction:'',openingCumulativeTaxRelief:'',openingCumulativeTaxWithheld:'',note:''};
+  var d=S.payrollDraft||applyDepartmentLevelSalaryDraft(defaultPayrollDraft(month),true);
+  var salaryMember=MB[d.memberId]||MEMBERS[0]||{};
+  var salaryBand=salaryBandForMember(salaryMember), bonusSuggestion=projectBonusSuggestion(d.memberId,d.month);
   var preview=S.payrollPreview, calc=preview&&preview.calculation, previewCurrent=!!preview&&S.payrollPreviewHash===payrollDraftHash(d);
-  function moneyField(label,id,value,required){ return fld(label,'<input class="inp" id="'+id+'" inputmode="decimal" value="'+attr(value||'0.00')+'">','',required); }
+  function moneyField(label,id,value,required,hint,readonly){ return fld(label,'<input class="inp" id="'+id+'" inputmode="decimal" value="'+attr(value||'0.00')+'" '+(readonly?'readonly aria-readonly="true"':'')+'>',hint||'',required); }
   return j(['<div class="fade">',
-    '<div class="card"><div class="bd" style="display:flex;align-items:center;gap:12px"><button class="btn ghost" data-act="go" data-page="org">← 返回组织</button><div><b style="font-size:15px">工资核算</b><p class="hint" style="margin-top:4px">填写收入和法定扣除基础，社保、公积金、个税与实发工资由服务器统一计算。</p></div></div></div>',
+    '<div class="card"><div class="bd" style="display:flex;align-items:center;gap:12px"><button class="btn ghost" data-act="go" data-page="org">← 返回组织</button><div><b style="font-size:15px">工资核算（部门+职级定薪）</b><p class="hint" style="margin-top:4px">基本工资由员工部门和职级自动带出；项目奖金来自奖金池建议，财务复核后确认工资单。</p></div></div></div>',
     '<div class="card" style="margin-top:16px"><div class="bd" style="max-width:920px">',
       '<div class="frow"><div>'+fld('员工',fsel('salaryMember',d.memberId,memOpts()),'',1)+'</div><div>'+fld('月份','<input class="inp" id="salaryMonth" type="month" value="'+attr(d.month)+'">','',1)+'</div></div>',
+      '<div data-salary-basis-card data-dept="'+attr(salaryBand.dept)+'" data-level="'+attr(salaryBand.level)+'" data-base="'+attr(salaryBand.base)+'" style="margin:12px 0 16px;padding:14px;border:1px solid #bfdbfe;border-radius:14px;background:linear-gradient(120deg,#eff6ff,#fff)">',
+        '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="width:36px;height:36px;border-radius:12px;background:var(--brand-s);display:grid;place-items:center">'+ic('money',18,'#2563eb')+'</span><div style="flex:1;min-width:240px"><b>部门+职级定薪</b><p class="hint" style="margin-top:4px">部门：'+esc(salaryBand.dept)+' · 职级：'+esc(salaryBand.levelName)+' · 基准月薪：¥ '+esc(salaryBand.baseSalary)+'</p></div><span class="tag t-b">自动带出</span></div>',
+        '<div class="hint" style="margin-top:10px;line-height:1.75">项目奖金池：按项目预算提取，结合任务难度、优先级、验收质量、效率和角色权重分配；财务确认后进入工资单。</div>',
+      '</div>',
       '<h4 style="margin:18px 0 10px">收入</h4>',
-      '<div class="frow"><div>'+moneyField('基本工资','salaryBase',d.baseSalary,1)+'</div><div>'+moneyField('绩效奖金','salaryPerformance',d.performanceBonus)+'</div></div>',
-      '<div class="frow"><div>'+moneyField('项目奖金','salaryProjectBonus',d.projectBonus)+'</div><div>'+moneyField('其他奖励','salaryOtherBonus',d.otherBonus)+'</div></div>',
+      '<div class="frow"><div>'+moneyField('基本工资（部门+职级自动带出）','salaryBase',d.baseSalary,1,'由员工部门和职级决定，财务不在工资单内手动改基本工资。',true)+'</div><div>'+moneyField('绩效奖金','salaryPerformance',d.performanceBonus)+'</div></div>',
+      '<div class="frow"><div>'+moneyField('项目奖金（奖金池分配）','salaryProjectBonus',d.projectBonus,0,'来自项目奖金池建议，可由财务复核确认。')+'</div><div>'+moneyField('其他奖励','salaryOtherBonus',d.otherBonus)+'</div></div>',
+      '<div style="margin:8px 0 12px;padding:12px;border-radius:12px;background:#f8fafc;border:1px solid var(--line2);display:flex;gap:12px;align-items:center;flex-wrap:wrap"><div style="flex:1;min-width:220px"><b style="font-size:13px">项目奖金池建议</b><p class="hint" style="margin-top:4px">建议金额 ¥ '+esc(moneyFixed(bonusSuggestion.amount))+' · 个人贡献任务 '+bonusSuggestion.tasks+' 项 · 奖金池 ¥ '+esc(moneyFixed(bonusSuggestion.pool))+'</p><p class="hint" style="margin-top:3px">'+esc(bonusSuggestion.rule)+'</p></div><button class="btn ghost" data-act="payroll-apply-bonus" data-amount="'+attr(moneyFixed(bonusSuggestion.amount))+'">采用建议</button></div>',
       moneyField('其他收入','salaryOtherIncome',d.otherIncome),
       '<h4 style="margin:18px 0 10px">缴费基数</h4><div class="frow"><div>'+moneyField('社保缴费基数','salarySocialBase',d.socialBase,1)+'</div><div>'+moneyField('公积金缴费基数','salaryHousingBase',d.housingFundBase,1)+'</div></div>',
       '<h4 style="margin:18px 0 10px">税前扣除</h4><div class="frow"><div>'+moneyField('免税收入','salaryTaxExemptIncome',d.taxExemptIncome)+'</div><div>'+moneyField('专项附加扣除','salarySpecialAdditional',d.specialAdditionalDeduction)+'</div></div>',
@@ -4444,6 +4538,11 @@ document.addEventListener('click',function(e){
   else if(a==='payroll-preview'){ previewPayrollCalculation(); }
   else if(a==='payroll-save-draft'){ saveCalculatedPayroll('draft'); }
   else if(a==='payroll-confirm'){ saveCalculatedPayroll('processing'); }
+  else if(a==='payroll-apply-bonus'){
+    S.payrollDraft=readFormalPayrollDraft();
+    S.payrollDraft.projectBonus=t.getAttribute('data-amount')||S.payrollDraft.projectBonus||'0.00';
+    S.payrollPreview=null; S.payrollPreviewHash=''; render(); toast('已采用项目奖金池建议');
+  }
   else if(a==='save-work-profile'){ saveWorkProfile(); }
   else if(a==='f-member'){ createMember(); }
   else if(a==='f-project'){ createProject(); }
@@ -4732,6 +4831,14 @@ document.addEventListener('change',function(e){
     S.payrollPolicyConfirmed=!!e.target.checked; render(); return;
   }
   if(e.target&&(/^salary/.test(e.target.id||'')||e.target.getAttribute&&e.target.getAttribute('data-f')==='salaryMember')){
+    if(e.target.getAttribute&&e.target.getAttribute('data-f')==='salaryMember'){
+      S.payrollDraft=applyDepartmentLevelSalaryDraft(readFormalPayrollDraft(),true);
+      S.payrollPreview=null; S.payrollPreviewHash=''; S.payrollError=''; persistUiState(); render(); return;
+    }
+    if(e.target.id==='salaryMonth'){
+      S.payrollDraft=applyDepartmentLevelSalaryDraft(readFormalPayrollDraft(),false);
+      S.payrollPreview=null; S.payrollPreviewHash=''; S.payrollError=''; persistUiState(); render(); return;
+    }
     S.payrollPreview=null; S.payrollPreviewHash='';
     var salaryDraftButton=document.querySelector('[data-act="payroll-save-draft"]'); if(salaryDraftButton) salaryDraftButton.disabled=true;
     var salaryConfirmButton=document.querySelector('[data-act="payroll-confirm"]'); if(salaryConfirmButton) salaryConfirmButton.disabled=true;
