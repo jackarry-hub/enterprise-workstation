@@ -117,6 +117,49 @@ test("loads the formal bootstrap through XHR when fetch is unavailable", async (
   dom.window.close();
 });
 
+test("uses embedded formal bootstrap when browser request APIs are unavailable", async () => {
+  const source = await readFile(
+    path.join(process.cwd(), "public", "workstation-server-adapter.js"),
+    "utf8",
+  );
+  const bootstrap = {
+    session: {
+      authenticated: true,
+      authMode: "feishu",
+      dataMode: "server",
+      memberId: "m7",
+      permissions: ["task.manage"],
+    },
+    members: [{ id: "m7", n: "董佳瑶", r: "CEO" }],
+    projects: [{ id: "p1", n: "真实项目", own: "m7" }],
+    tasks: [{ id: "t1", n: "真实任务", own: "m7", createdBy: "m7", reviewer: "m7", st: "进行中" }],
+    payroll: { m7: [] },
+    features: { identitySwitch: false, demoReset: false },
+  };
+  const dom = new JSDOM("<!doctype html><script></script>", {
+    url: "https://work.quantumgalaxy.top/quantxy-ai-workbench-fused.html?formal=1",
+    runScripts: "outside-only",
+  });
+  dom.window.fetch = undefined;
+  dom.window.XMLHttpRequest = undefined;
+  dom.window.__QUANTXY_SERVER_BOOTSTRAP__ = bootstrap;
+
+  dom.window.eval(source);
+
+  assert.equal(typeof dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER, "object");
+  const ready = await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.ready();
+  assert.equal(ready.session.memberId, "m7");
+  assert.equal(
+    dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.loadBootstrap().projects[0].n,
+    "真实项目",
+  );
+  assert.equal(
+    dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.loadMyTask("m7", "t1").n,
+    "真实任务",
+  );
+  dom.window.close();
+});
+
 test("loads the formal employee session and sends task updates without trusting a browser actor", async () => {
   const source = await readFile(
     path.join(process.cwd(), "public", "workstation-server-adapter.js"),

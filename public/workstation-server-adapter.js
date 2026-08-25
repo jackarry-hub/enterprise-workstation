@@ -11,6 +11,7 @@
 
   var bootstrap = null;
   var runtime = { authMode: "feishu", dataMode: "server" };
+  var embeddedBootstrap = window.__QUANTXY_SERVER_BOOTSTRAP__ || null;
 
   function clone(value) {
     return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -131,7 +132,9 @@
     return Promise.reject(new Error("workstation_unavailable"));
   }
 
-  var readyPromise = request("/api/workstation/bootstrap").then(function (data) {
+  var readyPromise = (embeddedBootstrap
+    ? Promise.resolve(embeddedBootstrap)
+    : request("/api/workstation/bootstrap")).then(function (data) {
     bootstrap = data;
     return data;
   });
