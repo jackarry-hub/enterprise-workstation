@@ -177,6 +177,8 @@ a{color:inherit;text-decoration:none}
 .btn:disabled{opacity:.55;cursor:not-allowed}
 .quick-create .btn{white-space:nowrap}
 .me{display:flex;align-items:center;gap:9px;position:relative}
+.me>button{white-space:nowrap;flex:0 0 auto}
+.me .nm,.me .rl{display:block;white-space:nowrap}
 .me .nm{font-size:13px;font-weight:600;line-height:1.2}
 .me .rl{font-size:11px;color:var(--mut)}
 .menu{position:absolute;right:0;top:48px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:var(--sh);
@@ -417,7 +419,7 @@ tr:last-child td{border-bottom:0}
   </div>
 </div>
 <div class="toast" id="toast"></div>
-<script src="/workstation-server-adapter.js"></script>
+<script src="/workstation-server-adapter.js?v=formal-gate"></script>
 <script>
 /* =========================================================
    量子星河 QuantXY · AI 企业工作台
@@ -3524,13 +3526,13 @@ function viewAgents(){
   '</div>',
   '<div class="bd" style="display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--line2);font-size:12px;color:var(--sub);flex-wrap:wrap">',
     '<button class="chip '+(tab==='dir'&&(S.f.agentVis||'all')==='all'?'on':'')+'" data-act="agent-filter" data-tab="dir" data-vis="all">企业已启用智能体</button>',
-    '<button class="chip '+(tab==='dir'&&(S.f.agentVis||'all')==='mine'?'on':'')+'" data-act="agent-filter" data-tab="dir" data-vis="mine">智能体能力</button>',
+    '<button class="chip '+(tab==='cap'?'on':'')+'" data-act="set" data-k="agentTab" data-v="cap">智能体能力</button>',
     '<button class="chip '+(tab==='log'?'on':'')+'" data-act="set" data-k="agentTab" data-v="log">调用记录</button>',
     isAdmin()?'<button class="chip '+(tab==='perm'?'on':'')+'" data-act="set" data-k="agentTab" data-v="perm">权限范围</button>':'<button class="chip" data-act="agent-perm-info">权限范围</button>',
     '<span class="grow"></span><span>企业内部 AI 中控台，由权限和职级统一管理。</span>',
   '</div>',
   '<div class="tabs">',
-    [['dir','Agent 目录'],['chain','编排流水线'],['log','运行记录']].concat(isAdmin()?[['perm','权限管理'+(pend.length?' ('+pend.length+')':'')]]:[]).map(function(x){
+    [['dir','Agent 目录'],['cap','能力总览'],['chain','编排流水线'],['log','运行记录']].concat(isAdmin()?[['perm','权限管理'+(pend.length?' ('+pend.length+')':'')]]:[]).map(function(x){
       return '<button class="'+(tab===x[0]?'on':'')+'" data-act="set" data-k="agentTab" data-v="'+x[0]+'">'+x[1]+'</button>'; }).join(''),
   '</div>']);
 
@@ -3571,6 +3573,39 @@ function viewAgents(){
           '</div></div></div>';
       }).join('') : '<div class="empty" style="grid-column:1/-1">没有匹配的 Agent</div>',
     '</div></div>']);
+  }
+
+  if(tab==='cap'){
+    var groups=[
+      ['项目调度','任务拆解、智能派单、项目复盘，服务项目从目标到验收的闭环'],
+      ['协同通知','飞书通知与流程编排，保证任务下发、催办、验收能触达员工'],
+      ['组织薪资','员工画像、薪资核算、报账审核，连接能力证据与财务复核'],
+      ['知识问答','企业知识库问答，支撑制度、流程、项目材料的引用检索']
+    ];
+    return head+j(['<div class="bd" data-agent-capabilities style="padding-top:14px">',
+      '<div class="card" style="box-shadow:none;border:1px solid var(--line);margin-bottom:14px"><div class="bd">',
+        '<div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap"><span style="width:38px;height:38px;border-radius:12px;background:var(--brand-s);display:grid;place-items:center">',ic('ai',19,'#2563eb'),'</span>',
+        '<div style="flex:1;min-width:260px"><b style="font-size:15px">能力总览</b><p class="hint" style="margin-top:5px">这里不是商店，而是企业内部已启用 Agent 的能力地图。点击任意能力卡，可进入调用页或查看权限说明。</p></div>',
+        '<span class="tag t-b">按部门 + 职级管控</span></div>',
+        '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px">',
+          groups.map(function(g){ return '<div style="padding:12px;border-radius:12px;background:#f8fafc;border:1px solid var(--line2)"><b style="font-size:12.5px">'+esc(g[0])+'</b><p class="hint" style="margin:5px 0 0">'+esc(g[1])+'</p></div>'; }).join(''),
+        '</div>',
+      '</div></div>',
+      '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px">',
+      S.agents.map(function(a){
+        var c=canUse(a), fields=(a.f||[]).map(function(f){ return '<span class="tag t-b">'+esc(f.l)+'</span>'; }).join('');
+        return '<div class="card" style="box-shadow:none;border:1px solid var(--line);cursor:pointer" data-act="open-agent" data-id="'+attr(a.id)+'"><div class="bd">'+
+          '<div style="display:flex;gap:11px;align-items:flex-start">'+agentIcon(a,36)+
+          '<div style="flex:1;min-width:0"><b style="font-size:14px">'+esc(a.n)+'</b><div class="hint" style="margin-top:3px">'+esc(a.dept)+' · '+lvName(a.minLv)+'起 · '+esc(scopeText(a))+'</div></div>'+
+          (c.ok?'<span class="tag t-g">可调用状态：可用</span>':'<span class="tag t-o">可调用状态：受限</span>')+'</div>'+
+          '<p style="margin:10px 0;color:var(--sub);font-size:12.5px;line-height:1.7">'+esc(a.d)+'</p>'+
+          '<div style="font-size:12px;color:var(--mut);margin-bottom:8px"><b style="color:var(--ink)">输入字段：</b></div>'+
+          '<div class="chips">'+(fields||'<span class="tag t-n">无需额外输入</span>')+'</div>'+
+          '<div style="display:flex;align-items:center;gap:8px;margin-top:10px;border-top:1px solid var(--line2);padding-top:10px;font-size:11.5px;color:var(--mut)">'+
+            '<span>'+esc(c.why)+'</span><span class="grow"></span><span class="link">'+(c.ok?'进入调用 ›':'查看权限 ›')+'</span>'+
+          '</div></div></div>';
+      }).join(''),
+      '</div></div></div>']);
   }
 
   if(tab==='chain'){

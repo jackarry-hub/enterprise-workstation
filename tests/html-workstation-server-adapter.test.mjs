@@ -5,6 +5,29 @@ import test from "node:test";
 
 import { JSDOM } from "jsdom";
 
+test("skips the formal workstation adapter during local preview", async () => {
+  const source = await readFile(
+    path.join(process.cwd(), "public", "workstation-server-adapter.js"),
+    "utf8",
+  );
+  const requests = [];
+  const dom = new JSDOM("<!doctype html><script></script>", {
+    url: "http://127.0.0.1:3030/quantxy-ai-workbench-fused.html?v=local-preview",
+    runScripts: "outside-only",
+  });
+  dom.window.fetch = async (url) => {
+    requests.push(String(url));
+    throw new Error("local preview must not call formal workstation APIs");
+  };
+
+  dom.window.eval(source);
+
+  assert.deepEqual(requests, []);
+  assert.equal(dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER, undefined);
+  assert.equal(dom.window.QUANTXY_WORKSTATION_RUNTIME, undefined);
+  dom.window.close();
+});
+
 test("loads the formal employee session and sends task updates without trusting a browser actor", async () => {
   const source = await readFile(
     path.join(process.cwd(), "public", "workstation-server-adapter.js"),
@@ -22,7 +45,7 @@ test("loads the formal employee session and sends task updates without trusting 
     features: { identitySwitch: false, demoReset: false },
   };
   const dom = new JSDOM("<!doctype html><script></script>", {
-    url: "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html",
+    url: "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
     runScripts: "outside-only",
   });
   dom.window.fetch = async (url, init = {}) => {

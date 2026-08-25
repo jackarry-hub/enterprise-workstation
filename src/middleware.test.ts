@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { isStandaloneAuthorizedPath } from "@/middleware";
+import {
+  getLocalPreviewAccessPendingRedirect,
+  isLocalPreviewWorkstationPath,
+  isStandaloneAuthorizedPath,
+} from "@/middleware";
 
 describe("standalone workstation middleware boundary", () => {
   it("protects the fused workstation with Feishu while self-authorizing APIs stay reachable", () => {
@@ -24,5 +28,43 @@ describe("standalone workstation middleware boundary", () => {
     expect(isStandaloneAuthorizedPath("/api/workstation/admin")).toBe(false);
     expect(isStandaloneAuthorizedPath("/dashboard")).toBe(false);
     expect(isStandaloneAuthorizedPath("/login")).toBe(false);
+  });
+
+  it("lets the non-formal fused workstation use demo preview auth", () => {
+    expect(
+      isLocalPreviewWorkstationPath(
+        "/quantxy-ai-workbench-fused.html",
+        new URLSearchParams("v=salary-grade"),
+      ),
+    ).toBe(true);
+    expect(
+      isLocalPreviewWorkstationPath(
+        "/quantxy-ai-workbench-fused.html",
+        new URLSearchParams("formal=1"),
+      ),
+    ).toBe(false);
+  });
+
+  it("rescues local preview tabs stuck on auth_error access pending", () => {
+    expect(
+      getLocalPreviewAccessPendingRedirect(
+        new URL("http://localhost:3030/access-pending?reason=auth_error"),
+      )?.pathname,
+    ).toBe("/quantxy-ai-workbench-fused.html");
+    expect(
+      getLocalPreviewAccessPendingRedirect(
+        new URL("http://127.0.0.1:3030/access-pending?reason=auth_error"),
+      )?.searchParams.get("v"),
+    ).toBe("local-preview");
+    expect(
+      getLocalPreviewAccessPendingRedirect(
+        new URL("https://work.quantumgalaxy.top/access-pending?reason=auth_error"),
+      ),
+    ).toBeNull();
+    expect(
+      getLocalPreviewAccessPendingRedirect(
+        new URL("http://localhost:3030/access-pending?reason=not_provisioned"),
+      ),
+    ).toBeNull();
   });
 });

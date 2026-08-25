@@ -32,7 +32,19 @@ function loginDestination(request: NextRequest) {
 
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
-  if (isStandaloneAuthorizedPath(pathname)) return NextResponse.next();
+  if (
+    isStandaloneAuthorizedPath(pathname)
+    || isLocalPreviewWorkstationPath(pathname, request.nextUrl.searchParams)
+  ) {
+    return NextResponse.next();
+  }
+
+  const localPreviewRedirect = getLocalPreviewAccessPendingRedirect(
+    request.nextUrl,
+  );
+  if (localPreviewRedirect) {
+    return NextResponse.redirect(localPreviewRedirect);
+  }
 
   const { response, supabase, subject } = await updateSupabaseSession(request);
 
@@ -104,6 +116,35 @@ export function isStandaloneAuthorizedPath(pathname: string) {
     || pathname === "/api/demo-auth/logout"
     || pathname === "/api/ai/config"
     || pathname === "/api/ai/chat";
+}
+
+export function isLocalPreviewWorkstationPath(
+  pathname: string,
+  searchParams: URLSearchParams,
+) {
+  return pathname === "/quantxy-ai-workbench-fused.html"
+    && searchParams.get("formal") !== "1";
+}
+
+export function getLocalPreviewAccessPendingRedirect(url: URL) {
+  if (
+    url.pathname !== "/access-pending"
+    || url.searchParams.get("reason") !== "auth_error"
+    || !isLocalPreviewHost(url.hostname)
+  ) {
+    return null;
+  }
+
+  const destination = new URL("/quantxy-ai-workbench-fused.html", url);
+  destination.searchParams.set("v", "local-preview");
+  return destination;
+}
+
+function isLocalPreviewHost(hostname: string) {
+  return hostname === "localhost"
+    || hostname === "127.0.0.1"
+    || hostname === "::1"
+    || hostname === "[::1]";
 }
 
 export const config = {

@@ -2,6 +2,11 @@
   "use strict";
 
   if (window.location.protocol === "file:") return;
+  try {
+    if (new URLSearchParams(window.location.search).get("formal") !== "1") return;
+  } catch {
+    return;
+  }
 
   var bootstrap = null;
   var runtime = { authMode: "feishu", dataMode: "server" };

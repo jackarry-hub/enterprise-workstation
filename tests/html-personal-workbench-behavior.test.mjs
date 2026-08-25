@@ -3697,11 +3697,12 @@ test("Agent Center summary chips are real clickable controls", async () => {
     S.page = "flow";
     dom.window.Q.render();
 
-    const mine = dom.window.document.querySelector('[data-act="agent-filter"][data-vis="mine"]');
-    assert.ok(mine, "capability chip should be clickable");
-    mine.click();
-    assert.equal(S.f.agentTab, "dir");
-    assert.equal(S.f.agentVis, "mine");
+    const capability = dom.window.document.querySelector('[data-act="set"][data-k="agentTab"][data-v="cap"]');
+    assert.ok(capability, "capability chip should open a real capability overview");
+    capability.click();
+    assert.equal(S.f.agentTab, "cap");
+    assert.match(dom.window.document.querySelector("#view").textContent, /能力总览/);
+    assert.match(dom.window.document.querySelector("#view").textContent, /输入字段|可调用状态/);
 
     const log = dom.window.document.querySelector('[data-act="set"][data-k="agentTab"][data-v="log"]');
     assert.ok(log, "run log chip should switch tabs");

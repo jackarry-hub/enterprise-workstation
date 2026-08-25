@@ -324,6 +324,14 @@ test("keeps formal task deep links and notification retry inside the safe gatewa
   assert.doesNotMatch(html, /open_id|provider_error|providerError/);
 });
 
+test("keeps the top identity label horizontal in narrow desktop panels", async () => {
+  const html = await readFusionHtml();
+  assert.match(
+    html,
+    /\.me \.nm,\s*\.me \.rl\{[^}]*white-space:nowrap/,
+  );
+});
+
 test("replaces corporate finance with personal salary and bonus detail", async () => {
   const html = await readFusionHtml();
   const start = html.indexOf("function viewFin()");
