@@ -1,6 +1,6 @@
 begin;
 
-select plan(29);
+select plan(38);
 
 insert into public.tenants (name, slug, status)
 values
@@ -114,6 +114,40 @@ join (values
 ) as seed(user_id, employee_no, display_name, email, phone, employment_status, departure_date, deleted_at)
   on seed.user_id = member.user_id;
 
+insert into public.employee_profiles (
+  tenant_id, organization_id, employee_no, display_name, work_email, phone,
+  job_title, employment_status, hire_date, salary_grade_code, job_level, skills
+)
+select
+  tenant.id,
+  organization.id,
+  'PVT-A-UNBOUND',
+  'Tenant A unbound manager',
+  'a.unbound.private@example.test',
+  '13800000009',
+  'Privacy unbound manager',
+  'active',
+  date '2024-01-15',
+  'P6',
+  6,
+  '{}'::text[]
+from public.tenants tenant
+join public.organizations organization
+  on organization.tenant_id = tenant.id
+ and organization.slug = 'employee-privacy-primary'
+where tenant.slug = 'employee-privacy-a';
+
+update public.employee_profiles profile
+set manager_employee_id = manager.id
+from public.employee_profiles manager
+where profile.tenant_id = manager.tenant_id
+  and profile.organization_id = manager.organization_id
+  and (
+    (profile.employee_no = 'PVT-A-EMP' and manager.employee_no = 'PVT-A-DEPARTED')
+    or (profile.employee_no = 'PVT-A-HR' and manager.employee_no = 'PVT-A-SUSP')
+    or (profile.employee_no = 'PVT-A-ADMIN' and manager.employee_no = 'PVT-A-UNBOUND')
+  );
+
 update public.employee_private_profiles private
 set sensitive_hr_notes = 'confidential employee note'
 from public.employee_profiles profile
@@ -155,13 +189,36 @@ select has_function('public', 'current_employee_directory', array[]::name[], 'di
 select has_function('public', 'current_employee_private_profile', array['uuid']::name[], 'private RPC accepts exactly one public employee target');
 select ok(
   has_function_privilege('authenticated', 'public.current_employee_directory()', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.current_employee_directory()', 'EXECUTE'),
+  and not has_function_privilege('anon', 'public.current_employee_directory()', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.current_employee_directory()', 'EXECUTE'),
   'only authenticated callers can execute the directory RPC'
 );
 select ok(
   has_function_privilege('authenticated', 'public.current_employee_private_profile(uuid)', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.current_employee_private_profile(uuid)', 'EXECUTE'),
+  and not has_function_privilege('anon', 'public.current_employee_private_profile(uuid)', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.current_employee_private_profile(uuid)', 'EXECUTE'),
   'only authenticated callers can execute the private RPC'
+);
+select ok(
+  not has_table_privilege('anon', 'public.employee_private_profiles', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+  and not has_table_privilege('authenticated', 'public.employee_private_profiles', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+  and not has_table_privilege('service_role', 'public.employee_private_profiles', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'),
+  'anon, authenticated, and service role have no private profile table privilege'
+);
+select ok(
+  not has_sequence_privilege('anon', 'public.employee_private_profiles_id_seq', 'USAGE,SELECT,UPDATE')
+  and not has_sequence_privilege('authenticated', 'public.employee_private_profiles_id_seq', 'USAGE,SELECT,UPDATE')
+  and not has_sequence_privilege('service_role', 'public.employee_private_profiles_id_seq', 'USAGE,SELECT,UPDATE'),
+  'anon, authenticated, and service role have no private profile identity sequence privilege'
+);
+select ok(
+  not has_function_privilege('anon', 'public.touch_employee_private_profiles_updated_at()', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.touch_employee_private_profiles_updated_at()', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.touch_employee_private_profiles_updated_at()', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.sync_employee_profile_private_legacy_fields()', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.sync_employee_profile_private_legacy_fields()', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.sync_employee_profile_private_legacy_fields()', 'EXECUTE'),
+  'no API role can bypass private protections through trigger functions'
 );
 select is(
   (select array_to_string(proconfig, ',') from pg_proc where oid = 'public.current_employee_directory()'::regprocedure),
@@ -190,7 +247,46 @@ select lives_ok(
   $$ select public_id, display_name, department_id, job_title, employment_status from public.employee_profiles $$,
   'ordinary employee retains the public legacy projection during migration'
 );
-select is((select count(*) from public.current_employee_directory()), 4::bigint, 'directory is current-organization only and excludes departed, suspended, other-organization, and other-tenant rows');
+select is((select count(*) from public.current_employee_directory()), 5::bigint, 'directory is current-organization only and includes an active unbound profile while excluding departed, suspended, other-organization, and other-tenant rows');
+select ok(
+  exists (
+    select 1
+    from public.current_employee_directory() directory
+    where directory.employee_no = 'PVT-A-UNBOUND'
+      and directory.employment_status = 'active'
+  ),
+  'active unbound employee profile is visible in the directory'
+);
+select ok(
+  not exists (
+    select 1
+    from public.current_employee_directory() directory
+    where directory.employee_no = 'PVT-A-EMP'
+      and (directory.manager_employee_public_id is not null or directory.manager_display_name is not null)
+  ),
+  'departed manager does not appear in the directory result'
+);
+select ok(
+  not exists (
+    select 1
+    from public.current_employee_directory() directory
+    where directory.employee_no = 'PVT-A-HR'
+      and (directory.manager_employee_public_id is not null or directory.manager_display_name is not null)
+  ),
+  'suspended manager does not appear in the directory result'
+);
+select ok(
+  exists (
+    select 1
+    from public.current_employee_directory() directory
+    where directory.employee_no = 'PVT-A-ADMIN'
+      and directory.manager_display_name = 'Tenant A unbound manager'
+      and directory.manager_employee_public_id = (
+        select public_id from public.employee_profiles where employee_no = 'PVT-A-UNBOUND'
+      )
+  ),
+  'active unbound manager remains visible in the directory result'
+);
 select ok(
   not exists (
     select 1
@@ -290,9 +386,21 @@ reset role;
 
 select set_config('request.jwt.claim.sub', '94000000-0000-4000-8000-000000000002', true);
 set local role authenticated;
+select throws_ok(
+  $$ update public.employee_profiles set work_email = 'blocked-private-write@example.test' where employee_no = 'PVT-A-EMP' $$,
+  '42501',
+  'HR cannot update a legacy private employee field directly'
+);
+select lives_ok(
+  $$ update public.employee_profiles set job_title = 'Privacy-safe HR update' where employee_no = 'PVT-A-EMP' $$,
+  'HR can update an explicitly granted safe public employee field'
+);
+reset role;
 update public.employee_profiles
 set deleted_at = clock_timestamp()
 where employee_no = 'PVT-A-EMP';
+select set_config('request.jwt.claim.sub', '94000000-0000-4000-8000-000000000002', true);
+set local role authenticated;
 select is(
   (select count(*) from public.current_employee_private_profile((select public_id from public.employee_profiles where employee_no = 'PVT-A-EMP'))),
   0::bigint,

@@ -38,7 +38,8 @@ alter table public.employee_private_profiles force row level security;
 -- No caller receives direct table privileges.  Security-definer RPCs below are
 -- the only authenticated read boundary, while trusted sync/payroll jobs retain
 -- their legacy profile-column compatibility during the staged move.
-revoke all on table public.employee_private_profiles from public, anon, authenticated;
+revoke all on table public.employee_private_profiles from public, anon, authenticated, service_role;
+revoke all on sequence public.employee_private_profiles_id_seq from public, anon, authenticated, service_role;
 
 create or replace function public.touch_employee_private_profiles_updated_at()
 returns trigger
@@ -178,11 +179,10 @@ as $$
    and profile.organization_id = member.organization_id
    and profile.deleted_at is null
    and profile.employment_status in ('probation', 'active', 'on_leave')
-  join public.organization_members target_member
+  left join public.organization_members target_member
     on target_member.tenant_id = profile.tenant_id
    and target_member.organization_id = profile.organization_id
    and target_member.id = profile.organization_member_id
-   and target_member.status in ('active', 'invited')
   left join public.departments department
     on department.tenant_id = profile.tenant_id
    and department.organization_id = profile.organization_id
@@ -193,9 +193,25 @@ as $$
    and manager.organization_id = profile.organization_id
    and manager.id = profile.manager_employee_id
    and manager.deleted_at is null
+   and manager.employment_status in ('probation', 'active', 'on_leave')
+   and (
+     manager.organization_member_id is null
+     or exists (
+       select 1
+       from public.organization_members manager_member
+       where manager_member.tenant_id = manager.tenant_id
+         and manager_member.organization_id = manager.organization_id
+         and manager_member.id = manager.organization_member_id
+         and manager_member.status in ('active', 'invited')
+     )
+   )
   where member.tenant_id = (select public.current_tenant_id())
     and member.user_id = (select auth.uid())
     and member.status = 'active'
+    and (
+      profile.organization_member_id is null
+      or target_member.status in ('active', 'invited')
+    )
   order by profile.employee_no;
 $$;
 
@@ -250,10 +266,10 @@ as $$
     );
 $$;
 
-revoke all on function public.touch_employee_private_profiles_updated_at() from public, anon, authenticated;
-revoke all on function public.sync_employee_profile_private_legacy_fields() from public, anon, authenticated;
-revoke all on function public.current_employee_directory() from public, anon, authenticated;
-revoke all on function public.current_employee_private_profile(uuid) from public, anon, authenticated;
+revoke all on function public.touch_employee_private_profiles_updated_at() from public, anon, authenticated, service_role;
+revoke all on function public.sync_employee_profile_private_legacy_fields() from public, anon, authenticated, service_role;
+revoke all on function public.current_employee_directory() from public, anon, authenticated, service_role;
+revoke all on function public.current_employee_private_profile(uuid) from public, anon, authenticated, service_role;
 grant execute on function public.current_employee_directory() to authenticated;
 grant execute on function public.current_employee_private_profile(uuid) to authenticated;
 
@@ -262,6 +278,7 @@ grant execute on function public.current_employee_private_profile(uuid) to authe
 revoke select on table public.employee_profiles from public, anon, authenticated;
 revoke select (work_email, phone, hire_date, departure_date, salary_grade_code, job_level)
   on table public.employee_profiles from public, anon, authenticated;
+revoke insert, update on table public.employee_profiles from public, anon, authenticated;
 grant select (
   id,
   public_id,
@@ -281,4 +298,32 @@ grant select (
   created_at,
   updated_at,
   deleted_at
+) on table public.employee_profiles to authenticated;
+grant insert (
+  tenant_id,
+  organization_id,
+  organization_member_id,
+  employee_no,
+  display_name,
+  avatar_url,
+  department_id,
+  position_template_id,
+  job_title,
+  manager_employee_id,
+  employment_type,
+  employment_status,
+  skills
+) on table public.employee_profiles to authenticated;
+grant update (
+  organization_member_id,
+  employee_no,
+  display_name,
+  avatar_url,
+  department_id,
+  position_template_id,
+  job_title,
+  manager_employee_id,
+  employment_type,
+  employment_status,
+  skills
 ) on table public.employee_profiles to authenticated;
