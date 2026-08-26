@@ -29,8 +29,6 @@
 - Modify: `src/config/navigation.ts`
 - Modify: `src/features/operations/role-access.ts`
 - Modify: `src/middleware.ts`
-- Create: `supabase/migrations/202608260042_distributed_rate_limits.sql`
-- Create: `supabase/tests/distributed_rate_limits.sql`
 - Delete: `src/app/(workspace)/leave/page.tsx`
 - Delete: `src/app/(workspace)/attendance/page.tsx`
 - Delete: `src/app/(workspace)/attendance/page.test.tsx`
@@ -144,7 +142,7 @@ git commit -m "test: require clean database security verification"
 - Modify: `package.json`
 
 **Interfaces:**
-- Produces `verify:commercial:local`: `npm ci`, `db:migrate:dry-run`, typecheck, lint, production build, unit, coverage, `db:test` with pgTAP/RLS denial, integration, desktop and emulated-mobile E2E, a11y, dependency scan, secret scan and load harness.
+- Produces preliminary `verify:commercial:preflight`: `npm ci`, migration dry-run, typecheck, lint, build, unit/coverage, DB/RLS, integration, desktop/emulated-mobile E2E, a11y and scans; no load/artifact/final evidence claim. Task7 exclusively creates full `verify:commercial:local` GREEN with load/artifact validators.
 - Produces authorized `verify:commercial:staging`: isolated Staging smoke, OAuth/webhook, Storage, security, backup restore, canary and real-device evidence only; it returns `BLOCKED` without approved Staging configuration.
 - Produces final `verify:commercial`, which validates hash/version-linked local and Staging evidence plus RPO/RTO, artifact manifest and canary; missing or unsigned evidence hard-fails with `commercial_evidence_blocked`.
 - Task7 owns the load runner, thresholds, manifest/OpenAPI/template/checksum validators and their tests; Task3 local verification is preliminary until Task7 artifacts validate.
@@ -169,9 +167,8 @@ CI pins Node version from the repository policy, caches npm only, starts local S
 - [ ] **Step 4: Verify GREEN and validate workflow syntax**
 
 Run: `node --test scripts/verify-commercial.test.mjs`
-Run: `npm run verify:commercial:local`
-Run: `npm run verify:commercial`
-Expected: local gate exits 0 from a clean Local/CI environment; final command is BLOCKED until authorized Staging/restore/canary/real-device evidence is present, never falsely GREEN.
+Run: `npm run verify:commercial:preflight`
+Expected: preflight passes only preliminary checks; Task7 owns full local GREEN.
 
 - [ ] **Step 5: Commit**
 
@@ -185,6 +182,8 @@ git commit -m "ci: add QuantXY commercial release gate"
 **Files:**
 - Modify: `next.config.ts`
 - Modify: `src/middleware.ts`
+- Create: `supabase/migrations/202608260042_distributed_rate_limits.sql`
+- Create: `supabase/tests/distributed_rate_limits.sql`
 - Create: `src/features/security/distributed-rate-limit.ts`
 - Create: `src/features/security/distributed-rate-limit.test.ts`
 - Create: `src/features/security/csrf-origin.ts`
