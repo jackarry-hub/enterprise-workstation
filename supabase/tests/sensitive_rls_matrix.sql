@@ -1,6 +1,6 @@
 begin;
 
-select plan(139);
+select plan(147);
 
 insert into public.tenants (name, slug, status)
 values
@@ -746,6 +746,12 @@ select ok(has_table_privilege('service_role', 'public.agent_invocations', 'SELEC
 select ok(not has_table_privilege('service_role', 'public.agent_invocations', 'UPDATE,DELETE,TRUNCATE'), 'service role cannot mutate or truncate Agent invocations');
 select ok(has_table_privilege('service_role', 'public.agent_execution_logs', 'SELECT,INSERT'), 'service role can read and append Agent execution logs');
 select ok(not has_table_privilege('service_role', 'public.agent_execution_logs', 'UPDATE,DELETE,TRUNCATE'), 'service role cannot mutate or truncate Agent execution logs');
+select ok(
+  has_function_privilege('service_role', 'public.run_agent_invocation_recovery()', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.run_agent_invocation_recovery()', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.run_agent_invocation_recovery()', 'EXECUTE'),
+  'only service role can execute the all-tenant Agent recovery scheduler'
+);
 
 set local role service_role;
 select lives_ok($$ insert into public.agent_invocations (tenant_id, organization_id, agent_id, actor_member_id, status, input_summary, model_code, prompt_version, tool_scope, started_at, completed_at) values ((select tenant_id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select organization_id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select id from public.organization_members where user_id = '93000000-0000-4000-8000-000000000007'::uuid), 'running', 'security-fixture-invocation', 'deepseek-chat', 'v1', '{"tools":["task.read"]}'::jsonb, clock_timestamp(), null) returning id $$, 'service role appends the explicit running Agent invocation header');
@@ -791,8 +797,22 @@ insert into public.agent_invocations (
   tenant_id, organization_id, agent_id, actor_member_id, status, input_summary,
   model_code, prompt_version, tool_scope, started_at, completed_at
 )
-select tenant_id, organization_id, agent_id, actor_member_id, 'running', 'security-recovery-stale',
+select tenant_id, organization_id, agent_id, actor_member_id, 'running', 'security-recovery-ancient',
+  model_code, prompt_version, tool_scope, clock_timestamp() - interval '26 days', null
+from public.agent_invocations where input_summary = 'security-fixture-invocation';
+insert into public.agent_invocations (
+  tenant_id, organization_id, agent_id, actor_member_id, status, input_summary,
+  model_code, prompt_version, tool_scope, started_at, completed_at
+)
+select tenant_id, organization_id, agent_id, actor_member_id, 'running', 'security-recovery-stale-a',
   model_code, prompt_version, tool_scope, clock_timestamp() - interval '2 hours', null
+from public.agent_invocations where input_summary = 'security-fixture-invocation';
+insert into public.agent_invocations (
+  tenant_id, organization_id, agent_id, actor_member_id, status, input_summary,
+  model_code, prompt_version, tool_scope, started_at, completed_at
+)
+select tenant_id, organization_id, agent_id, actor_member_id, 'running', 'security-recovery-stale-b',
+  model_code, prompt_version, tool_scope, clock_timestamp() - interval '90 minutes', null
 from public.agent_invocations where input_summary = 'security-fixture-invocation';
 insert into public.agent_invocations (
   tenant_id, organization_id, agent_id, actor_member_id, status, input_summary,
@@ -801,13 +821,21 @@ insert into public.agent_invocations (
 select tenant_id, organization_id, agent_id, actor_member_id, 'running', 'security-recovery-fresh',
   model_code, prompt_version, tool_scope, clock_timestamp(), null
 from public.agent_invocations where input_summary = 'security-fixture-invocation';
-select is((select count(*) from public.recover_stale_agent_invocations((select tenant_id from public.agent_invocations where input_summary = 'security-fixture-invocation'), clock_timestamp() - interval '1 hour', 10)), 1::bigint, 'bounded service recovery transitions exactly the stale running header');
-select is((select status from public.agent_invocations where input_summary = 'security-recovery-stale'), 'failed', 'stale header becomes a terminal recovery timeout');
-select is((select error_code from public.agent_invocations where input_summary = 'security-recovery-stale'), 'recovery_timeout', 'recovery marks a safe timeout code');
+select is((select count(*) from public.recover_stale_agent_invocations((select tenant_id from public.agent_invocations where input_summary = 'security-fixture-invocation'), clock_timestamp() - interval '1 hour', 1)), 1::bigint, 'bounded direct recovery claims exactly one oldest stranded header');
+select is((select status from public.agent_invocations where input_summary = 'security-recovery-ancient'), 'failed', 'a stranded header older than 25 days becomes terminal without overflow');
+select is((select latency_ms from public.agent_invocations where input_summary = 'security-recovery-ancient'), 2147483647, 'ancient recovery clamps elapsed milliseconds before the integer cast');
+select is((select count(*) from public.agent_invocations where input_summary in ('security-recovery-stale-a', 'security-recovery-stale-b') and status = 'running'), 2::bigint, 'bounded direct recovery leaves later stale headers for the scheduled worker');
+select set_config('test.agent_recovery_run_result', (select lock_acquired::text || ':' || recovered_invocations::text from public.run_agent_invocation_recovery()), true);
+select is(split_part(current_setting('test.agent_recovery_run_result'), ':', 1), 'true', 'service scheduler acquires the advisory recovery lock');
+select is(split_part(current_setting('test.agent_recovery_run_result'), ':', 2), '2', 'service scheduler recovers the remaining stale headers across active tenants');
+select is((select count(*) from public.agent_invocations where input_summary in ('security-recovery-stale-a', 'security-recovery-stale-b') and status = 'failed' and error_code = 'recovery_timeout'), 2::bigint, 'scheduled recovery leaves stranded headers as audited terminal timeouts');
 select is((select status from public.agent_invocations where input_summary = 'security-recovery-fresh'), 'running', 'recovery cannot touch fresh running work');
-select is((select count(*) from public.agent_execution_logs where event_type = 'invocation.recovered_timeout' and invocation_id = (select id from public.agent_invocations where input_summary = 'security-recovery-stale')), 1::bigint, 'recovery appends a lifecycle audit event');
+select is((select status from public.agent_invocations where input_summary = 'security-fixture-invocation'), 'succeeded', 'scheduled recovery cannot touch an already terminal invocation');
+select is((select count(*) from public.agent_execution_logs where event_type = 'invocation.recovered_timeout' and invocation_id in (select id from public.agent_invocations where input_summary in ('security-recovery-ancient', 'security-recovery-stale-a', 'security-recovery-stale-b'))), 3::bigint, 'direct and scheduled recovery append one lifecycle audit event per terminal transition');
+select is((select recovered_invocations from public.run_agent_invocation_recovery()), 0, 'a retry is idempotent after all eligible stale headers are terminal');
 select is((select count(*) from public.recover_stale_agent_invocations(current_setting('test.salary_privacy_b_tenant_id')::bigint, clock_timestamp() - interval '1 hour', 10)), 0::bigint, 'recovery cannot cross into a different tenant');
 select throws_ok($$ select * from public.recover_stale_agent_invocations((select tenant_id from public.agent_invocations where input_summary = 'security-fixture-invocation'), clock_timestamp(), 101) $$, '22023', 'recovery rejects an unbounded limit');
+select throws_ok($$ select * from public.recover_stale_agent_invocations((select tenant_id from public.agent_invocations where input_summary = 'security-fixture-invocation'), clock_timestamp() - interval '1 hour', null) $$, '22023', 'recovery rejects an explicit null limit');
 select throws_ok($$ select * from public.recover_stale_agent_invocations((select tenant_id from public.agent_invocations where input_summary = 'security-fixture-invocation'), clock_timestamp(), 10) $$, '22023', 'recovery rejects a fresh cutoff that could touch active provider work');
 reset role;
 

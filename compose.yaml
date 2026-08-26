@@ -21,6 +21,7 @@ services:
       FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:?FEISHU_APP_SECRET is required}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY is required}
       AI_CONFIG_ENCRYPTION_KEY: ${AI_CONFIG_ENCRYPTION_KEY:?AI_CONFIG_ENCRYPTION_KEY is required}
+      AGENT_INVOCATION_RECOVERY_CRON_SECRET: ${AGENT_INVOCATION_RECOVERY_CRON_SECRET:?AGENT_INVOCATION_RECOVERY_CRON_SECRET is required}
       WORKSTATION_ALLOW_MOCK_DATA: ${WORKSTATION_ALLOW_MOCK_DATA:-false}
       WORKSTATION_DEMO_ENABLED: ${WORKSTATION_DEMO_ENABLED:-false}
       WORKSTATION_DEMO_USERNAME: ${WORKSTATION_DEMO_USERNAME:-admin}
@@ -41,3 +42,22 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  agent-invocation-recovery:
+    image: curlimages/curl:8.10.1
+    restart: unless-stopped
+    depends_on:
+      workstation:
+        condition: service_healthy
+    environment:
+      AGENT_INVOCATION_RECOVERY_CRON_SECRET: ${AGENT_INVOCATION_RECOVERY_CRON_SECRET:?AGENT_INVOCATION_RECOVERY_CRON_SECRET is required}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        while true; do
+          curl --fail --silent --show-error --output /dev/null --request POST \
+            --header "Authorization: Bearer $$AGENT_INVOCATION_RECOVERY_CRON_SECRET" \
+            http://workstation:3000/api/internal/agent-invocation-recovery || true
+          sleep 300
+        done

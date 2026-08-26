@@ -29,7 +29,7 @@
 - `2026-08-26-quantxy-05-approvals-expenses-payroll.md` — versioned approvals, expense payment/finance review and locked/snapshotted payroll, excluding a payroll engine/designer.
 - `2026-08-26-quantxy-06-knowledge.md` — tenant Storage, scan/quarantine, OCR/parse, permissions, vector/citations and lifecycle cleanup.
 - `2026-08-26-quantxy-07-ai-assistant-scheduler.md` — persistent conversations and governed queue/scheduler with human confirmation for eight high-risk actions.
-- `2026-08-26-quantxy-08-agent-runtime.md` — immutable lifecycle, allowlists/budgets/human controls/Kill Switch; autonomous multi-Agent collaboration Deferred.
+- `2026-08-26-quantxy-08-agent-runtime.md` — remaining Agent runtime work: allowlists/budgets/human controls/Kill Switch; autonomous multi-Agent collaboration Deferred. Plan01 owns the already-delivered immutable invocation ledger and its service-authenticated stale-running recovery schedule.
 - `2026-08-26-quantxy-09-analytics-settings-pwa.md` — desktop plus true mobile workflows, PWA security/cache behavior and real-device matrix.
 - `2026-08-26-quantxy-10-cutover-release.md` — consumes the shared guard; migration safety, separate local/Staging/final evidence gates, authorized fused retirement, canary/runbooks and delivery bundle.
 
