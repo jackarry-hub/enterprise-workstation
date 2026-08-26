@@ -7,6 +7,7 @@ export type OrganizationCommandType =
 type CommandBase = {
   type: OrganizationCommandType;
   idempotencyKey: string;
+  reason: string;
 };
 
 export type CreateDepartmentCommand = CommandBase & {
@@ -15,6 +16,7 @@ export type CreateDepartmentCommand = CommandBase & {
   name: string;
   description: string;
   sortOrder: number;
+  version: 0;
 };
 
 export type UpdateDepartmentCommand = CommandBase & {

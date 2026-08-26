@@ -11,7 +11,15 @@ export async function POST(request: Request) {
   try {
     const client = await getSupabaseServerClient();
     const session = await getWorkspaceSession();
-    const body: unknown = await request.clone().json();
+    let body: unknown;
+    try {
+      body = await request.clone().json();
+    } catch {
+      return Response.json(
+        { error: "invalid_request" },
+        { status: 400, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     if (!body || typeof body !== "object" || Array.isArray(body)
       || (body as Record<string, unknown>).type !== "assign_member_role") {
       return Response.json(
