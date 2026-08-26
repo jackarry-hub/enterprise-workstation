@@ -276,11 +276,14 @@ git commit -m "feat: complete real payroll administration"
 - Modify: `src/features/expenses/expense-dialog.tsx`
 - Modify: `src/features/salary/payroll-workspace.tsx`
 - Create: `src/app/api/cron/approval-exceptions/route.ts`
+- Create: `src/app/api/cron/approval-exceptions/route.test.ts`
+- Modify: `vercel.json`
 - Create: `tests/e2e/commercial-finance-controls.spec.ts`
 
 **Interfaces:**
 - Produces migration/RPCs `transfer_current_approval`, `withdraw_current_approval`, `expire_pending_approvals`, `reassign_departed_approver`, `finance_review_current_expense`, `mark_current_expense_paid`, `lock_current_payroll_batch`, `publish_current_payroll_batch`, `unpublish_current_payroll_batch` and `export_current_payroll_batch`.
 - Produces immutable template versions/submission snapshots/basic conditional branches and payroll `lock|publish|unpublish` UI, worker and APIs with self-only employee read, encrypted/watermarked export and audit.
+- `vercel.json` owns the authenticated cron schedule; the cron route iterates tenants with retry/idempotency and concurrent-claim protection.
 
 - [ ] **Step 1: Write failing snapshot, branch, transfer/withdraw/timeout and payroll lifecycle tests**
 
@@ -306,6 +309,7 @@ Evaluate server-owned basic conditions, snapshot template/form/approver data at 
 - [ ] **Step 4: Verify GREEN**
 
 Run: `npx vitest run src/features/approvals src/features/expenses src/features/salary`
+Run: `npx vitest run src/app/api/cron/approval-exceptions/route.test.ts`
 Run: `npm run db:test`
 Run: `npx playwright test tests/e2e/approvals.spec.ts tests/e2e/expenses.spec.ts tests/e2e/payroll-calculation.spec.ts tests/e2e/commercial-finance-controls.spec.ts --project=chrome`
 Expected: transfer, withdrawal, timeout/departed-approver reassignment, finance review/payment and payroll lock/publish/unpublish/export persist after refresh and each state/audit is asserted.
@@ -313,6 +317,6 @@ Expected: transfer, withdrawal, timeout/departed-approver reassignment, finance 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260037_commercial_finance_controls.sql supabase/tests/approval_workflow.sql supabase/tests/expense_workflow.sql supabase/tests/sensitive_rls_matrix.sql src/features/approvals src/features/expenses src/features/salary tests/e2e/approvals.spec.ts tests/e2e/expenses.spec.ts tests/e2e/payroll-calculation.spec.ts
+git add vercel.json supabase/migrations/202608260037_commercial_finance_controls.sql supabase/tests/approval_workflow.sql supabase/tests/expense_workflow.sql supabase/tests/sensitive_rls_matrix.sql src/app/api/cron/approval-exceptions src/features/approvals src/features/expenses src/features/salary tests/e2e/approvals.spec.ts tests/e2e/expenses.spec.ts tests/e2e/payroll-calculation.spec.ts tests/e2e/commercial-finance-controls.spec.ts
 git commit -m "feat: complete commercial finance controls"
 ```

@@ -26,6 +26,8 @@
 **Files:**
 - Create: `tests/unit/commercial-source-boundary.test.ts`
 - Create: `tests/unit/excluded-scope-public-surface.test.ts`
+- Create: `scripts/scan-formal-public-surface.mjs`
+- Create: `scripts/scan-formal-public-surface.test.mjs`
 - Modify: `src/config/navigation.ts`
 - Modify: `src/features/operations/role-access.ts`
 - Modify: `src/middleware.ts`
@@ -42,6 +44,10 @@
 - Modify: `src/app/(workspace)/help/page.tsx`
 - Modify: `src/features/settings/settings-workspace.tsx`
 - Modify: `src/features/salary/payroll-workspace.tsx`
+- Modify: `src/features/settings/components/permission-matrix.tsx`
+- Modify: `src/features/salary/components/payroll-aside.tsx`
+- Modify: `src/features/approvals/approvals-workspace.tsx`
+- Modify: `src/features/approvals/approval-meta.ts`
 
 **Interfaces:**
 - `/` and role home routes resolve to Next workspaces only.
@@ -70,6 +76,8 @@ Delete the leave/attendance App Routes and public E2E route coverage; remove all
 
 Run: `npx vitest run tests/unit/commercial-source-boundary.test.ts`
 Run: `npx vitest run tests/unit/excluded-scope-public-surface.test.ts`
+Run: `node --test scripts/scan-formal-public-surface.test.mjs`
+Run: `node scripts/scan-formal-public-surface.mjs --formal-imports --built-public-output --terms "leave|attendance|请假|考勤" --allowlist "supabase/migrations,supabase/tests,docs/audit"`
 Run: `npm run build`
 Run: `rg -n -i "leave|attendance" .next README.md docs src/features/help src/features/settings src/features/salary`
 Expected: only supported public routes build, excluded-scope source/link checks are empty, and fused assets are still present.
@@ -77,7 +85,7 @@ Expected: only supported public routes build, excluded-scope source/link checks 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add README.md docs/企业工作站使用说明.md docs/企业工作站使用说明.docx scripts/build_usage_manual.py src/app/layout.tsx 'src/app/(workspace)/leave' 'src/app/(workspace)/attendance' 'src/app/(workspace)/help/page.tsx' src/config/navigation.ts src/features/help/help-center.tsx src/features/settings/settings-workspace.tsx src/features/salary/payroll-workspace.tsx src/features/operations/role-access.ts src/middleware.ts tests/e2e/attendance.spec.ts tests/unit/commercial-source-boundary.test.ts tests/unit/excluded-scope-public-surface.test.ts
+git add README.md docs/企业工作站使用说明.md docs/企业工作站使用说明.docx scripts/build_usage_manual.py scripts/scan-formal-public-surface.mjs scripts/scan-formal-public-surface.test.mjs src/app/layout.tsx 'src/app/(workspace)/leave' 'src/app/(workspace)/attendance' 'src/app/(workspace)/help/page.tsx' src/config/navigation.ts src/features/help/help-center.tsx src/features/settings src/features/salary src/features/approvals src/features/operations/role-access.ts src/middleware.ts tests/e2e/attendance.spec.ts tests/unit/commercial-source-boundary.test.ts tests/unit/excluded-scope-public-surface.test.ts
 git commit -m "refactor: remove excluded public leave and attendance scope"
 ```
 
@@ -216,7 +224,9 @@ expect(await throttleLoginAbuse(ip)).toMatchObject({ status: 429 });
 - [ ] **Step 2: Verify RED**
 
 Run: `npx vitest run src/app/api/health/ready/route.test.ts src/features/security/distributed-rate-limit.test.ts src/features/security/csrf-origin.test.ts`
+Run: `npx vitest run src/app/auth/login/feishu/route.test.ts`
 Run: `npm run test:security`
+Run: `npm run db:test`
 Run: `npm run build`
 Expected: readiness route is absent and security-header assertion fails.
 
@@ -226,7 +236,9 @@ Compose uses `read_only`, tmpfs for required writable paths, `cap_drop: [ALL]`, 
 
 - [ ] **Step 4: Verify GREEN and inspect the built container**
 
-Run: `npx vitest run src/app/api/health/ready/route.test.ts`
+Run: `npx vitest run src/app/api/health/ready/route.test.ts src/features/security/distributed-rate-limit.test.ts src/features/security/csrf-origin.test.ts src/app/auth/login/feishu/route.test.ts`
+Run: `npm run test:security`
+Run: `npm run db:test`
 Run: `npm run build`
 Run: `docker compose config`
 Expected: tests/build/config exit 0 and readiness fails when DB/migration checks are unhealthy.
@@ -401,11 +413,13 @@ git commit -m "docs: add commercial operations and acceptance package"
 - Delete: `public/workstation-server-adapter.js`
 - Modify: `tests/unit/commercial-source-boundary.test.ts`
 - Modify: `scripts/verify-commercial-evidence.mjs`
+- Modify: `scripts/verify-commercial-evidence.test.mjs`
 - Modify: `scripts/verify-commercial.test.mjs`
+- Create: `docs/operations/external-release-manifest.schema.json`
 - Modify: `docs/operations/commercial-delivery-manifest.md`
 
 **Interfaces:**
-- Produces a non-self-referential prospective retirement patch digest stored in an external append-only release manifest. Authorization binds that digest; commit the deletion candidate; then bind fresh final-commit Staging/canary evidence to its immutable commit digest. Final verify runs only after that evidence. Fused presence/reachability always makes final `verify:commercial` BLOCKED.
+- Produces a non-self-referential prospective patch digest in the external append-only manifest defined by `external-release-manifest.schema.json`; the tracked delivery index is frozen before the candidate (or excluded from canonical digest). Fused presence/reachability always makes final `verify:commercial` BLOCKED.
 
 - [ ] **Step 1: Write failing retirement-authorization tests**
 
@@ -413,27 +427,33 @@ git commit -m "docs: add commercial operations and acceptance package"
 expect(await assertFusedRetirementEvidence({ authorization: null })).toMatchObject({ status: "BLOCKED" });
 expect(await assertFusedRetirementEvidence({ canary: "failed" })).toMatchObject({ status: "BLOCKED" });
 expect(await assertFusedRetirementEvidence({ prospectiveTreeHash, stagingTreeHash: "other" })).toMatchObject({ status: "BLOCKED" });
+expect(await verifyCommercial({ fusedPresent: true })).toMatchObject({ status: "BLOCKED" });
 ```
 
 - [ ] **Step 2: Verify BLOCKED before deletion**
 
 Run: `npm run verify:commercial`
+Run: `node --test scripts/verify-commercial-evidence.test.mjs scripts/verify-commercial.test.mjs tests/unit/commercial-source-boundary.test.ts`
 Expected: `commercial_evidence_blocked` until prospective digest authorization, parity/data validation, rollback and pre-retirement evidence are present.
 
 - [ ] **Step 3: Delete fused assets only after evidence and explicit authorization**
 
-Record authorization against the prospective digest in the append-only manifest, commit only listed deletion assets, then collect fresh Staging/canary evidence bound to the immutable deletion commit digest. Retain historical database data/migrations and update source-boundary verifier to require no fused reachability.
+Record authorization against prospective digest, apply deletion and create the immutable candidate now:
 
-- [ ] **Step 4: Verify final candidate**
+```bash
+git add -A src/app/quantxy-ai-workbench-fused.html quantxy-ai-workbench-fused.html public/workstation-server-adapter.js tests/unit/commercial-source-boundary.test.ts scripts/verify-commercial-evidence.mjs scripts/verify-commercial-evidence.test.mjs scripts/verify-commercial.test.mjs
+git commit -m "refactor: retire authorized fused workstation"
+```
+
+Retain historical DB/migrations and update source-boundary verifier to require no fused reachability.
+
+- [ ] **Step 4: Collect final-commit external evidence, then verify**
 
 Run: `npm run verify:commercial:local`
 Run: `npm run verify:commercial:staging`
 Run: `npm run verify:commercial`
 Expected: final succeeds only after post-deletion local/source-boundary plus fresh final-commit Staging/canary evidence are hash-bound; otherwise remains BLOCKED.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Report external result; do not commit tracked files**
 
-```bash
-git add -A src/app/quantxy-ai-workbench-fused.html quantxy-ai-workbench-fused.html public/workstation-server-adapter.js tests/unit/commercial-source-boundary.test.ts scripts/verify-commercial-evidence.mjs scripts/verify-commercial.test.mjs docs/operations/commercial-delivery-manifest.md
-git commit -m "refactor: retire authorized fused workstation"
-```
+Record only the external append-only manifest result/signature and report it; no tracked commit follows final evidence.
