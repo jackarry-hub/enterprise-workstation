@@ -881,14 +881,18 @@ export function createWorkstationBootstrapHandler(
         ? error as { queryName?: unknown; requestId?: unknown; diagnostic?: unknown }
         : {};
       logBootstrapError("workstation_bootstrap_failed", {
-        requestId: typeof failure.requestId === "string" ? failure.requestId : requestId,
+        requestId,
         query: typeof failure.queryName === "string" ? failure.queryName : "bootstrap",
         ...(failure.diagnostic && typeof failure.diagnostic === "object"
           ? failure.diagnostic as Record<string, unknown>
           : safeErrorDiagnostic(error)),
       });
       return NextResponse.json(
-        { error: "workstation_unavailable" },
+        {
+          error: "workstation_unavailable",
+          code: "workstation_bootstrap_failed",
+          requestId,
+        },
         { status: 500 },
       );
     }

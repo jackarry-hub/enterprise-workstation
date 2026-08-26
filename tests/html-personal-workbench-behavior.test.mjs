@@ -2009,6 +2009,50 @@ test("fails closed without demo data or demo auth when real mode has no server a
   }
 });
 
+test("formal fatal bootstrap response preserves the adapter request ID and hides database detail", async () => {
+  const html = await readRealModeHtml();
+  const adapterSource = await readFile(
+    path.join(process.cwd(), "public", "workstation-server-adapter.js"),
+    "utf8",
+  );
+  const requestId = "a1111111-1111-4111-8111-111111111131";
+  const dom = new JSDOM(html, {
+    url: "http://127.0.0.1:3011/quantxy-ai-workbench-fused.html?formal=1",
+    runScripts: "dangerously",
+    pretendToBeVisual: true,
+    beforeParse(window) {
+      window.scrollTo = () => {};
+      window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+      window.fetch = async (url) => {
+        if (String(url) === "/api/workstation/bootstrap") {
+          return response(false, {
+            error: "workstation_unavailable",
+            code: "workstation_bootstrap_failed",
+            requestId,
+            message: "relation employee_profiles does not exist",
+            details: "database detail must not escape",
+          }, 500);
+        }
+        if (String(url) === "/api/ai/config") return response(true, {
+          provider: "deepseek", apiBaseUrl: "https://api.deepseek.com", model: "deepseek-v4-flash",
+          keyConfigured: false, keyHint: null, updatedAt: null, canManage: false,
+        });
+        return response(false, { error: "unexpected_request" }, 404);
+      };
+      window.eval(adapterSource);
+    },
+  });
+  try {
+    await waitFor(() => dom.window.Q && /请求 ID/.test(dom.window.document.querySelector("#view")?.textContent || ""));
+    const text = dom.window.document.querySelector("#view").textContent;
+    assert.match(text, /workstation_bootstrap_failed/);
+    assert.match(text, new RegExp(requestId));
+    assert.doesNotMatch(text, /relation employee_profiles|does not exist|database detail/i);
+  } finally {
+    dom.window.close();
+  }
+});
+
 test("uses an injected server adapter for real session and business data without touching demo auth", async () => {
   const html = await readRealModeHtml();
   const requests = [];
@@ -3915,6 +3959,107 @@ test("formal route dependency guard keeps successful empty detail states distinc
     }
   } finally {
     dom.window.close();
+  }
+});
+
+test("formal dependency registry blocks every direct backing-module edge independently", async () => {
+  const requestId = "a1111111-1111-4111-8111-111111111132";
+  const bootstrap = formalBootstrap({
+    permissions: ["dashboard.read", "task.manage", "salary.manage", "project.manage", "organization.manage", "agent.manage"],
+  });
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    const cases = [
+      ["dash", "projects", "项目数据"], ["dash", "tasks", "任务数据"], ["dash", "directory", "组织目录"],
+      ["proj", "projects", "项目数据"], ["proj", "tasks", "任务数据"], ["proj", "directory", "组织目录"],
+      ["project", "projects", "项目数据"], ["project", "tasks", "任务数据"], ["project", "directory", "组织目录"],
+      ["sched", "projects", "项目数据"], ["sched", "tasks", "任务数据"], ["sched", "directory", "组织目录"],
+      ["task", "tasks", "任务数据"], ["task", "projects", "项目数据"], ["task", "directory", "组织目录"],
+      ["execution", "tasks", "任务数据"], ["execution", "projects", "项目数据"], ["execution", "directory", "组织目录"],
+      ["me", "tasks", "任务数据"], ["me", "projects", "项目数据"], ["me", "salary", "薪资数据"], ["me", "directory", "组织目录"],
+      ["profile", "directory", "组织目录"], ["org", "directory", "组织目录"], ["org", "tasks", "任务数据"],
+      ["fin", "salary", "薪资数据"], ["fin", "directory", "组织目录"],
+      ["pay-admin", "salary", "薪资数据"], ["pay-admin", "projects", "项目数据"], ["pay-admin", "tasks", "任务数据"], ["pay-admin", "directory", "组织目录"],
+      ["kb", "knowledge", "知识库数据"], ["kb", "directory", "组织目录"], ["flow", "agents", "Agent 数据"], ["flow", "directory", "组织目录"], ["agent", "agents", "Agent 数据"], ["agent", "directory", "组织目录"],
+      ["assistant", "knowledge", "知识库数据"], ["assistant", "directory", "组织目录"], ["customers", "projects", "项目数据"], ["customers", "directory", "组织目录"], ["decisions", "projects", "项目数据"], ["decisions", "directory", "组织目录"],
+      ["search", "projects", "项目数据"], ["search", "tasks", "任务数据"], ["search", "knowledge", "知识库数据"], ["search", "agents", "Agent 数据"], ["search", "directory", "组织目录"],
+      ["new-member", "directory", "组织目录"], ["new-project", "projects", "项目数据"], ["new-project", "directory", "组织目录"],
+      ["new-task", "projects", "项目数据"], ["new-task", "tasks", "任务数据"], ["new-task", "directory", "组织目录"],
+      ["new-agent", "agents", "Agent 数据"], ["new-agent", "directory", "组织目录"], ["new-file", "knowledge", "知识库数据"],
+      ["activities", "projects", "项目数据"], ["activities", "tasks", "任务数据"],
+      ["new-customer", "projects", "项目数据"], ["new-customer", "directory", "组织目录"],
+      ["new-activity", "projects", "项目数据"], ["new-activity", "directory", "组织目录"],
+    ];
+    for (const [page, module, label] of cases) {
+      dom.window.Q.S.moduleErrors = {
+        [module]: { code: "workstation_module_unavailable", requestId },
+      };
+      assert.equal(Object.keys(dom.window.Q.S.moduleErrors).length, 1, `${page}/${module} must not be masked`);
+      if (page === "search") {
+        dom.window.Q.S.page = "me";
+        dom.window.Q.render();
+        const input = dom.window.document.querySelector('.search input[data-q="gq"]');
+        input.value = "依赖守卫";
+        input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      } else {
+        dom.window.Q.S.page = page;
+        dom.window.Q.render();
+      }
+      assert.equal(dom.window.Q.S.page, page, `${page} direct route should remain selected`);
+      const text = dom.window.document.querySelector("#view").textContent;
+      assert.match(text, new RegExp(`${label}暂时不可用`), `${page}/${module}`);
+      assert.match(text, new RegExp(requestId), `${page}/${module}`);
+    }
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal restored payroll admin checks each dependency independently", async () => {
+  const requestId = "a1111111-1111-4111-8111-111111111133";
+  for (const [module, label] of [["salary", "薪资数据"], ["projects", "项目数据"], ["tasks", "任务数据"], ["directory", "组织目录"]]) {
+    const bootstrap = formalBootstrap({ permissions: ["salary.manage", "project.manage", "task.manage"] });
+    bootstrap.moduleErrors = { [module]: { code: "workstation_module_unavailable", requestId } };
+    const dom = await openFormalWorkbenchWithStorage(
+      "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+      bootstrap,
+      { "qxy.workstation.ui.v1": JSON.stringify({ page: "pay-admin", savedAt: Date.now() }) },
+    );
+    try {
+      assert.equal(dom.window.Q.S.page, "pay-admin");
+      const text = dom.window.document.querySelector("#view").textContent;
+      assert.match(text, new RegExp(`${label}暂时不可用`));
+      assert.match(text, new RegExp(requestId));
+    } finally {
+      dom.window.close();
+    }
+  }
+});
+
+test("formal restored project and execution detail routes check every backing module independently", async () => {
+  const requestId = "a1111111-1111-4111-8111-111111111134";
+  for (const [page, module, label] of [
+    ["project", "projects", "项目数据"], ["project", "tasks", "任务数据"], ["project", "directory", "组织目录"],
+    ["execution", "tasks", "任务数据"], ["execution", "projects", "项目数据"], ["execution", "directory", "组织目录"],
+  ]) {
+    const bootstrap = formalBootstrap({ permissions: ["task.manage", "project.manage"] });
+    bootstrap.moduleErrors = { [module]: { code: "workstation_module_unavailable", requestId } };
+    const dom = await openFormalWorkbenchWithStorage(
+      "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+      bootstrap,
+      { "qxy.workstation.ui.v1": JSON.stringify({ page, savedAt: Date.now() }) },
+    );
+    try {
+      assert.equal(dom.window.Q.S.page, page);
+      const text = dom.window.document.querySelector("#view").textContent;
+      assert.match(text, new RegExp(`${label}暂时不可用`));
+      assert.match(text, new RegExp(requestId));
+    } finally {
+      dom.window.close();
+    }
   }
 });
 

@@ -7,7 +7,7 @@ import {
 } from "@/lib/runtime/workstation-mode";
 
 const SERVER_ADAPTER_SCRIPT =
-  '<script src="/workstation-server-adapter.js?v=server-embed-85755e6"></script>';
+  '<script src="/workstation-server-adapter.js?v=server-embed-c3-fatal-guard"></script>';
 
 function readFusedWorkbenchHtml() {
   return readFile(

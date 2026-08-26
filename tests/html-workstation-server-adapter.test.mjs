@@ -41,6 +41,39 @@ test("exposes a formal login redirect helper for unauthorized bootstrap", async 
   assert.match(source, /redirectToLogin:\s*redirectToLogin/);
 });
 
+test("preserves fatal bootstrap code and request ID without forwarding database text", async () => {
+  const source = await readFile(
+    path.join(process.cwd(), "public", "workstation-server-adapter.js"),
+    "utf8",
+  );
+  const requestId = "a1111111-1111-4111-8111-111111111130";
+  const dom = new JSDOM("<!doctype html><script></script>", {
+    url: "https://work.quantumgalaxy.top/quantxy-ai-workbench-fused.html?formal=1",
+    runScripts: "outside-only",
+  });
+  dom.window.fetch = async () => response(false, {
+    error: "workstation_unavailable",
+    code: "workstation_bootstrap_failed",
+    requestId,
+    message: "relation employee_profiles does not exist",
+    details: "database detail must not escape",
+  });
+
+  dom.window.eval(source);
+
+  await assert.rejects(
+    dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.ready(),
+    (error) => {
+      assert.equal(error.message, "workstation_bootstrap_failed");
+      assert.equal(error.code, "workstation_bootstrap_failed");
+      assert.equal(error.requestId, requestId);
+      assert.doesNotMatch(String(error.message), /relation|database detail/i);
+      return true;
+    },
+  );
+  dom.window.close();
+});
+
 test("loads the formal bootstrap through XHR when fetch is unavailable", async () => {
   const source = await readFile(
     path.join(process.cwd(), "public", "workstation-server-adapter.js"),

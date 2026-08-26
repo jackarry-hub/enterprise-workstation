@@ -12,6 +12,11 @@
   var bootstrap = null;
   var runtime = { authMode: "feishu", dataMode: "server" };
   var embeddedBootstrap = window.__QUANTXY_SERVER_BOOTSTRAP__ || null;
+  var bootstrapErrorCodes = {
+    workstation_bootstrap_failed: true,
+    workstation_unavailable: true,
+  };
+  var requestIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
   function clone(value) {
     return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -69,13 +74,26 @@
     }
   }
 
+  function bootstrapFailure(body) {
+    var value = body && typeof body === "object" ? body : {};
+    var code = typeof value.code === "string" && bootstrapErrorCodes[value.code]
+      ? value.code
+      : "workstation_unavailable";
+    var error = new Error(code);
+    error.code = code;
+    if (typeof value.requestId === "string" && requestIdPattern.test(value.requestId)) {
+      error.requestId = value.requestId;
+    }
+    return error;
+  }
+
   function handleJson(status, ok, body) {
     if (status === 401) {
       window.QUANTXY_WORKSTATION_AUTH_REQUIRED = true;
       window.setTimeout(redirectToLogin, 0);
       throw new Error("unauthorized");
     }
-    if (!ok) throw new Error(body.error || "workstation_unavailable");
+    if (!ok) throw bootstrapFailure(body);
     return body;
   }
 

@@ -146,6 +146,41 @@ describe("workstation bootstrap route", () => {
     await expect(response.json()).resolves.toEqual(expected);
   });
 
+  it("returns the logged fatal request ID with a stable safe code and no database detail", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let loggedRequestId = "";
+    const response = await createWorkstationBootstrapHandler({
+      loadSession: async () => ({ member: { id: 7 } }),
+      loadBootstrap: async (_session, requestId) => {
+        loggedRequestId = requestId ?? "";
+        throw Object.assign(new Error("database detail must not escape"), {
+          queryName: "employee_profiles",
+          requestId,
+          diagnostic: { errorCode: "42P01", errorType: "PostgrestError" },
+        });
+      },
+    })();
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body).toEqual({
+      error: "workstation_unavailable",
+      code: "workstation_bootstrap_failed",
+      requestId: loggedRequestId,
+    });
+    expect(error).toHaveBeenCalledWith(
+      "workstation_bootstrap_failed",
+      expect.objectContaining({
+        requestId: loggedRequestId,
+        query: "employee_profiles",
+        errorCode: "42P01",
+        errorType: "PostgrestError",
+      }),
+    );
+    expect(JSON.stringify(body)).not.toContain("database detail must not escape");
+    error.mockRestore();
+  });
+
   it("loads visible notification rows through the authenticated client and exposes only safe fields", async () => {
     const members = query({
       data: [{

@@ -426,7 +426,7 @@ tr:last-child td{border-bottom:0}
   </div>
 </div>
 <div class="toast" id="toast"></div>
-<script src="/workstation-server-adapter.js?v=server-embed-85755e6"></script>
+<script src="/workstation-server-adapter.js?v=server-embed-c3-fatal-guard"></script>
 <script>
 /* =========================================================
    量子星河 QuantXY · AI 企业工作台
@@ -772,13 +772,13 @@ function logoutDemo(){
 }
 function bootstrapDemoSession(){
   if(!isDemoRuntime()){
-    if(WORKSTATION_GATEWAY.serviceUnavailable){ S.serviceError='真实数据服务未配置'; render(); return; }
+    if(WORKSTATION_GATEWAY.serviceUnavailable){ S.serviceError={code:'workstation_unavailable',requestId:''}; render(); return; }
     try{
       var session=WORKSTATION_GATEWAY.getSession();
-      if(!session||session.authenticated!==true||!session.memberId){ S.serviceError='真实身份会话不可用，请从飞书工作台重新进入'; render(); return; }
+      if(!session||session.authenticated!==true||!session.memberId){ S.serviceError={code:'workstation_unavailable',requestId:''}; render(); return; }
       LOGIN.checked=true; LOGIN.authenticated=true; S.me=session.memberId; S.serviceError=''; render();
       S.aiConfig.loaded=false; loadAiConfig(true);
-    }catch(e){ S.serviceError='真实数据服务不可用'; render(); }
+    }catch(e){ S.serviceError=safeServiceFailure(e); render(); }
     return;
   }
   if(location.protocol==='file:'){
@@ -1663,8 +1663,8 @@ function hasLevelAccess(level){ return isDemoRuntime()||isWorkstationCEO()||curr
 function formalPageAllowed(page){
   if(isDemoRuntime()) return true;
   if(isWorkstationCEO()) return true;
-  if(page==='me'||page==='task'||page==='fin'||page==='profile'||page==='assistant'||page==='flow') return true;
-  if(page==='proj'||page==='kb') return hasWorkstationPermission('project.read')||hasLevelAccess(3);
+  if(page==='me'||page==='task'||page==='execution'||page==='fin'||page==='profile'||page==='assistant'||page==='flow') return true;
+  if(page==='proj'||page==='project'||page==='kb'||page==='new-file') return hasWorkstationPermission('project.read')||hasLevelAccess(3);
   if(page==='dash') return hasWorkstationPermission('dashboard.read')||hasLevelAccess(5);
   if(page==='sched') return hasWorkstationPermission('task.manage')||hasLevelAccess(4);
   if(page==='org') return hasWorkstationPermission('organization.manage')||hasLevelAccess(5);
@@ -3579,11 +3579,14 @@ var MODULE_LABELS={
 };
 /* Salary covers payroll rows plus the current classification and policy lookups. */
 var PAGE_MODULE_DEPENDENCIES={
-  proj:['projects'], project:['projects','tasks'], activities:['projects','tasks'],
-  sched:['projects','tasks','directory'], task:['tasks'], execution:['tasks'], me:['tasks','projects','salary'],
-  profile:['directory'], org:['directory'], fin:['salary'],'pay-admin':['salary'],
-  kb:['knowledge'], flow:['agents'], agent:['agents'], 'new-project':['projects'],
-  'new-task':['projects','tasks','directory'], 'new-agent':['agents','directory'], 'new-file':['knowledge']
+  dash:['projects','tasks','directory'], proj:['projects','tasks','directory'], project:['projects','tasks','directory'], activities:['projects','tasks','directory'],
+  sched:['projects','tasks','directory'], task:['tasks','projects','directory'], execution:['tasks','projects','directory'], me:['tasks','projects','salary','directory'],
+  assistant:['knowledge','directory'], customers:['projects','directory'], decisions:['projects','directory'],
+  profile:['directory'], org:['directory','tasks'], fin:['salary','directory'],'pay-admin':['salary','projects','tasks','directory'],
+  kb:['knowledge','directory'], flow:['agents','directory'], agent:['agents','directory'], search:['projects','tasks','knowledge','agents','directory'],
+  'new-member':['directory'], 'new-project':['projects','directory'],
+  'new-task':['projects','tasks','directory'], 'new-agent':['agents','directory'],
+  'new-file':['knowledge'], 'new-customer':['projects','directory'], 'new-activity':['projects','directory']
 };
 function moduleDependencyUnavailable(modules){
   for(var i=0;i<(modules||[]).length;i++){
@@ -4404,7 +4407,15 @@ var VIEWS={dash:viewDash,proj:viewProj,sched:viewSched,task:viewTask,me:viewMe,e
   'new-member':viewNewMember,'new-project':viewNewProject,'new-file':viewNewFile,'new-task':viewNewTask,
   'new-customer':viewNewCustomer,'new-activity':viewNewActivity,
   'new-agent':viewNewAgent, agent:viewAgentRun, project:viewProject, search:viewSearch};
+var SAFE_BOOTSTRAP_FAILURE_CODES={workstation_bootstrap_failed:1,workstation_unavailable:1};
+var REQUEST_ID_PATTERN=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function safeServiceFailure(error){
+  var code=error&&SAFE_BOOTSTRAP_FAILURE_CODES[error.code]?error.code:'workstation_unavailable';
+  var requestId=error&&typeof error.requestId==='string'&&REQUEST_ID_PATTERN.test(error.requestId)?error.requestId:'';
+  return {code:code,requestId:requestId};
+}
 function renderServiceUnavailable(){
+  var failure=typeof S.serviceError==='object'&&S.serviceError?S.serviceError:{code:'workstation_unavailable',requestId:''};
   var gate=el('loginGate'), app=document.querySelector('.app');
   if(gate){ gate.hidden=true; gate.innerHTML=''; }
   if(app) app.classList.remove('auth-hidden');
@@ -4414,7 +4425,9 @@ function renderServiceUnavailable(){
     '<div class="fade" style="min-height:70vh;display:grid;place-items:center">',
       '<div class="card" style="max-width:560px;text-align:center;padding:38px 34px">',
         '<h2 style="margin:0 0 8px">真实数据服务不可用</h2>',
-        '<p style="margin:0;color:var(--sub);line-height:1.8">',esc(S.serviceError||'真实数据服务未配置'),'。系统已停止加载演示数据，请联系管理员完成飞书身份与服务端数据适配。</p>',
+        '<p style="margin:0;color:var(--sub);line-height:1.8">工作站暂时无法加载。系统已停止加载演示数据，请联系管理员完成飞书身份与服务端数据适配。</p>',
+        '<p style="margin:12px 0 0;font-family:ui-monospace,monospace;font-size:12px;color:var(--mut)">错误代码：',esc(failure.code),'</p>',
+        failure.requestId?'<p data-workstation-fatal-request-id style="margin:8px 0 0;font-family:ui-monospace,monospace;font-size:12px;color:var(--mut)">请求 ID：'+esc(failure.requestId)+'</p>':'',
       '</div>',
     '</div>'
   ]);
@@ -5046,10 +5059,10 @@ function startWorkstation(){
   var saved=null, legacyAiSecret=false, migratedLegacy=false, legacyDataPresent=false;
   if(!isDemoRuntime()){
     emptyDemoBusinessData(); S.demoCleared=false;
-    if(WORKSTATION_GATEWAY.serviceUnavailable){ S.serviceError='真实数据服务未配置'; }
+    if(WORKSTATION_GATEWAY.serviceUnavailable){ S.serviceError={code:'workstation_unavailable',requestId:''}; }
     else{
       try{ hydrateServerBootstrap(WORKSTATION_GATEWAY.loadBootstrap()); startupNotice=applyTaskDeepLink(); }
-      catch(e){ S.serviceError='真实数据服务不可用'; }
+      catch(e){ S.serviceError=safeServiceFailure(e); }
     }
   }else{
     try{ demoClearedAtStartup=localStorage.getItem(QXY_DEMO_CLEARED_KEY)==='1'; }catch(e){}
@@ -5094,7 +5107,7 @@ function startWorkstation(){
 if(!isDemoRuntime()&&window.QUANTXY_WORKSTATION_SERVER_ADAPTER&&typeof window.QUANTXY_WORKSTATION_SERVER_ADAPTER.ready==='function'){
   window.QUANTXY_WORKSTATION_SERVER_ADAPTER.ready().then(startWorkstation).catch(function(e){
     if(window.QUANTXY_WORKSTATION_AUTH_REQUIRED||String(e&&e.message)==='unauthorized'){ redirectFormalLogin(); return; }
-    emptyDemoBusinessData(); S.serviceError='真实数据服务不可用'; S.form=blankForm(); renderBrand(); render();
+    emptyDemoBusinessData(); S.serviceError=safeServiceFailure(e); S.form=blankForm(); renderBrand(); render();
   });
 }else startWorkstation();
 return {S:S, render:render, schedule:schedule, makePlans:makePlans,gateway:WORKSTATION_GATEWAY,runtime:WORKSTATION_RUNTIME};
