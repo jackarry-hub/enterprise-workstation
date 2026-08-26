@@ -1,6 +1,6 @@
 begin;
 
-select plan(64);
+select plan(86);
 
 insert into public.tenants (name, slug, status)
 values
@@ -590,6 +590,36 @@ select throws_ok($$ update public.agent_execution_logs set message = 'mutated' $
 select throws_ok($$ delete from public.agent_execution_logs $$, '42501', 'authenticated callers cannot directly delete Agent execution logs');
 select throws_ok($$ select nextval('public.agent_invocations_id_seq') $$, '42501', 'authenticated callers cannot consume the Agent invocation identity sequence');
 select throws_ok($$ select nextval('public.agent_execution_logs_id_seq') $$, '42501', 'authenticated callers cannot consume the Agent execution log identity sequence');
+reset role;
+
+select set_config('request.jwt.claim.sub', '93000000-0000-4000-8000-000000000001', true);
+set local role authenticated;
+select throws_ok($$ select system_prompt from public.agent_definitions $$, '42501', 'authenticated callers cannot read Agent system prompts');
+select lives_ok($$ select id, public_id, model_code, tool_scope from public.agent_definitions $$, 'authenticated callers can read safe Agent definition columns');
+select throws_ok($$ insert into public.agent_definitions default values $$, '42501', 'authenticated callers cannot directly insert Agent definitions');
+select throws_ok($$ update public.agent_definitions set name = 'mutated' $$, '42501', 'authenticated callers cannot directly update Agent definitions');
+select throws_ok($$ delete from public.agent_definitions $$, '42501', 'authenticated callers cannot directly delete Agent definitions');
+select throws_ok($$ insert into public.agent_permissions default values $$, '42501', 'authenticated callers cannot directly insert Agent permissions');
+select throws_ok($$ update public.agent_permissions set min_job_level = 1 $$, '42501', 'authenticated callers cannot directly update Agent permissions');
+select throws_ok($$ delete from public.agent_permissions $$, '42501', 'authenticated callers cannot directly delete Agent permissions');
+reset role;
+
+select ok(has_table_privilege('service_role', 'public.agent_invocations', 'SELECT,INSERT'), 'service role can read and append Agent invocations');
+select ok(not has_table_privilege('service_role', 'public.agent_invocations', 'UPDATE,DELETE,TRUNCATE'), 'service role cannot mutate or truncate Agent invocations');
+select ok(has_table_privilege('service_role', 'public.agent_execution_logs', 'SELECT,INSERT'), 'service role can read and append Agent execution logs');
+select ok(not has_table_privilege('service_role', 'public.agent_execution_logs', 'UPDATE,DELETE,TRUNCATE'), 'service role cannot mutate or truncate Agent execution logs');
+
+set local role service_role;
+select lives_ok($$ insert into public.agent_invocations (tenant_id, organization_id, agent_id, actor_member_id, status, started_at, completed_at) select agent.tenant_id, agent.organization_id, agent.id, member.id, 'succeeded', clock_timestamp(), clock_timestamp() from public.agent_definitions agent join public.organization_members member on member.tenant_id = agent.tenant_id and member.organization_id = agent.organization_id and member.status = 'active' limit 1 $$, 'service role can append an Agent invocation');
+select throws_ok($$ insert into public.agent_invocations (tenant_id, organization_id, agent_id, actor_member_id, status, started_at) select agent.tenant_id, agent.organization_id, agent.id, member.id, 'succeeded', clock_timestamp() from public.agent_definitions agent join public.organization_members member on member.tenant_id = agent.tenant_id and member.organization_id = agent.organization_id and member.status = 'active' limit 1 $$, '23514', 'terminal Agent invocation requires completed_at');
+select throws_ok($$ insert into public.agent_invocations (tenant_id, organization_id, agent_id, actor_member_id, status, started_at, completed_at) select agent.tenant_id, agent.organization_id, agent.id, member.id, 'queued', clock_timestamp(), clock_timestamp() from public.agent_definitions agent join public.organization_members member on member.tenant_id = agent.tenant_id and member.organization_id = agent.organization_id and member.status = 'active' limit 1 $$, '23514', 'queued Agent invocation cannot have completed_at');
+select throws_ok($$ update public.agent_invocations set status = 'failed' $$, '42501', 'service role cannot update Agent invocations');
+select throws_ok($$ delete from public.agent_invocations $$, '42501', 'service role cannot delete Agent invocations');
+select throws_ok($$ truncate public.agent_invocations $$, '42501', 'service role cannot truncate Agent invocations');
+select lives_ok($$ insert into public.agent_execution_logs (tenant_id, organization_id, invocation_id, event_type) select invocation.tenant_id, invocation.organization_id, invocation.id, 'security.append_test' from public.agent_invocations invocation order by invocation.id desc limit 1 $$, 'service role can append an Agent execution log');
+select throws_ok($$ update public.agent_execution_logs set event_type = 'mutated' $$, '42501', 'service role cannot update Agent execution logs');
+select throws_ok($$ delete from public.agent_execution_logs $$, '42501', 'service role cannot delete Agent execution logs');
+select throws_ok($$ truncate public.agent_execution_logs $$, '42501', 'service role cannot truncate Agent execution logs');
 reset role;
 
 select * from finish();

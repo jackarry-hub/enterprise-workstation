@@ -81,14 +81,17 @@ function authorizationClient(overrides: Partial<Record<string, Row[]>> = {}) {
           filters.push([column, value]);
           return builder;
         },
+        filtered: () => (rows[table] ?? []).filter((row) => filters.every(([column, value]) => (
+          Array.isArray(value) ? value.includes(row[column]) : row[column] === value
+        ))),
         maybeSingle: async () => {
           calls.push({ table, filters });
-          const data = rows[table] ?? [];
+          const data = builder.filtered();
           return { data: data[0] ?? null, error: null };
         },
         then: <T>(resolve: (value: { data: Row[]; error: null }) => T) => {
           calls.push({ table, filters });
-          return Promise.resolve({ data: rows[table] ?? [], error: null }).then(resolve);
+          return Promise.resolve({ data: builder.filtered(), error: null }).then(resolve);
         },
       };
       return builder;

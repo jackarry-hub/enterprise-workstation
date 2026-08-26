@@ -1,0 +1,53 @@
+import { describe, expect, it } from "vitest";
+
+import { evaluateAgentInvocationAccess } from "@/features/agents/agent-invocation-policy";
+
+const subject = {
+  memberId: 10,
+  departmentId: 44,
+  jobLevel: 5,
+  roleCodes: ["employee"],
+};
+
+describe("evaluateAgentInvocationAccess", () => {
+  it("does not let a member-only grant authorize another employee", () => {
+    expect(evaluateAgentInvocationAccess(subject, {
+      status: "enabled", minJobLevel: 1, configured: true,
+      rules: [{ scopeType: "member", memberId: 11, departmentId: null, roleCode: null, minJobLevel: 1 }],
+    })).toEqual({ canInvoke: false, reason: "agent_forbidden" });
+  });
+
+  it("requires each matching rule to meet its own job level", () => {
+    expect(evaluateAgentInvocationAccess(subject, {
+      status: "enabled", minJobLevel: 1, configured: true,
+      rules: [
+        { scopeType: "member", memberId: 10, departmentId: null, roleCode: null, minJobLevel: 6 },
+        { scopeType: "dept", memberId: null, departmentId: 44, roleCode: null, minJobLevel: 7 },
+      ],
+    })).toEqual({ canInvoke: false, reason: "agent_forbidden" });
+  });
+
+  it("authorizes a matching department rule and applies a member rule minimum independently", () => {
+    expect(evaluateAgentInvocationAccess(subject, {
+      status: "enabled", minJobLevel: 1, configured: true,
+      rules: [{ scopeType: "dept", memberId: null, departmentId: 44, roleCode: null, minJobLevel: 5 }],
+    })).toEqual({ canInvoke: true, reason: "" });
+    expect(evaluateAgentInvocationAccess(subject, {
+      status: "enabled", minJobLevel: 1, configured: true,
+      rules: [{ scopeType: "member", memberId: 10, departmentId: null, roleCode: null, minJobLevel: 6 }],
+    })).toEqual({ canInvoke: false, reason: "agent_forbidden" });
+  });
+
+  it("authorizes valid role and department rules but never disabled or invalid definitions", () => {
+    const roleRule = { scopeType: "role" as const, memberId: null, departmentId: null, roleCode: "employee", minJobLevel: 5 };
+    expect(evaluateAgentInvocationAccess(subject, {
+      status: "enabled", minJobLevel: 5, configured: true, rules: [roleRule],
+    })).toEqual({ canInvoke: true, reason: "" });
+    expect(evaluateAgentInvocationAccess(subject, {
+      status: "disabled", minJobLevel: 1, configured: true, rules: [roleRule],
+    })).toEqual({ canInvoke: false, reason: "agent_disabled" });
+    expect(evaluateAgentInvocationAccess(subject, {
+      status: "enabled", minJobLevel: 1, configured: false, rules: [roleRule],
+    })).toEqual({ canInvoke: false, reason: "agent_not_configured" });
+  });
+});

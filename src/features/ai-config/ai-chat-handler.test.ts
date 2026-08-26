@@ -257,6 +257,8 @@ describe("handleAiChat", () => {
         inputSummary: "把官网项目拆成任务",
         outputSummary: "已生成任务拆解方案",
         errorCode: "",
+        startedAt: expect.any(String),
+        completedAt: expect.any(String),
       }),
     ]);
     expect(providerBody).toMatchObject({
@@ -320,6 +322,34 @@ describe("handleAiChat", () => {
     await expect(response.json()).resolves.toEqual({
       error: "agent_invocation_log_failed",
     });
+  });
+
+  it("records terminal timestamps for an Agent timeout", async () => {
+    const record = await configuredRecord();
+    const recorded: Array<Record<string, unknown>> = [];
+    const response = await handleAiChat(request({
+      agent_public_id: "33333333-3333-4333-8333-333333333333",
+      messages: [{ role: "user", content: "运行 Agent" }],
+    }), {
+      session: executiveWorkspaceSession,
+      encryptionKey,
+      store: { get: async () => record },
+      fetchImpl: async () => { throw new DOMException("timed out", "TimeoutError"); },
+      consumeRateLimit: () => true,
+      authorizeAgentInvocation: async () => ({
+        definitionId: 81, tenantId: 2, organizationId: 3, version: "v1",
+        systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: [],
+      }),
+      recordAgentInvocation: async (payload) => { recorded.push(payload as unknown as Record<string, unknown>); },
+    });
+
+    expect(response.status).toBe(504);
+    expect(recorded).toEqual([expect.objectContaining({
+      status: "failed", errorCode: "upstream_timeout", startedAt: expect.any(String), completedAt: expect.any(String),
+    })]);
+    expect(new Date(String(recorded[0].completedAt)).getTime()).toBeGreaterThanOrEqual(
+      new Date(String(recorded[0].startedAt)).getTime(),
+    );
   });
 
   it("returns one stable error after two malformed or truncated structured responses", async () => {

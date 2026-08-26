@@ -133,6 +133,8 @@ export type WorkstationAgentRow = {
   invocationCount: number;
   successRate: number;
   status: string;
+  canInvoke: boolean;
+  denialReason: string;
 };
 
 export type WorkstationAgentInvocationRow = {
@@ -518,6 +520,8 @@ export function buildServerBootstrap(
       ],
       abilities: [...agent.capabilities],
       promptVersion: agent.promptVersion,
+      canInvoke: agent.canInvoke,
+      denialReason: agent.denialReason,
     })),
     runs: (rows.agentInvocations ?? []).map((run) => ({
       id: agentPublicIds.get(run.agentId) ?? "",

@@ -225,6 +225,8 @@ describe("formal workstation bootstrap", () => {
             invocationCount: 12,
             successRate: 98.5,
             status: "enabled",
+            canInvoke: true,
+            denialReason: "",
           },
         ],
         agentInvocations: [

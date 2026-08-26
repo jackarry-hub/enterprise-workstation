@@ -27,6 +27,8 @@ export type AgentInvocationLogPayload = {
   latencyMs: number;
   errorCode: string;
   authorizedAgent: AuthorizedAgent;
+  startedAt: string;
+  completedAt: string;
 };
 
 type ChatMessage = {
@@ -121,7 +123,7 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
       );
 
       if (upstream.status === 401 || upstream.status === 403) {
-        const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, {
+        const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, startedAt, {
           status: "failed",
           outputSummary: "",
           latencyMs: Date.now() - startedAt,
@@ -131,7 +133,7 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
         return json({ error: "upstream_auth_failed" }, 502);
       }
       if (!upstream.ok) {
-        const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, {
+        const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, startedAt, {
           status: "failed",
           outputSummary: "",
           latencyMs: Date.now() - startedAt,
@@ -146,7 +148,7 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
         data = await upstream.json();
       } catch {
         if (attempt + 1 < attemptLimit) continue;
-        const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, {
+        const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, startedAt, {
           status: "failed",
           outputSummary: "",
           latencyMs: Date.now() - startedAt,
@@ -156,7 +158,7 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
         return json({ error: "upstream_invalid_response" }, 502);
       }
       if (!parsed.structuredOutput || isValidStructuredResponse(data)) {
-        const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, {
+        const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, startedAt, {
           status: "succeeded",
           outputSummary: outputSummary(data),
           usage: usage(data),
@@ -167,7 +169,7 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
         return json(data);
       }
     }
-    const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, {
+    const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, startedAt, {
       status: "failed",
       outputSummary: "",
       latencyMs: Date.now() - startedAt,
@@ -180,14 +182,14 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
       error instanceof DOMException
       && (error.name === "TimeoutError" || error.name === "AbortError")
     ) {
-      const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, {
+      const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, startedAt, {
         status: "failed", outputSummary: "", latencyMs: Date.now() - startedAt,
         errorCode: "upstream_timeout",
       });
       if (!recorded) return json({ error: "agent_invocation_log_failed" }, 500);
       return json({ error: "upstream_timeout" }, 504);
     }
-    const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, {
+    const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, startedAt, {
       status: "failed", outputSummary: "", latencyMs: Date.now() - startedAt,
       errorCode: "upstream_unavailable",
     });
@@ -343,6 +345,7 @@ async function recordAgentInvocation(
   parsed: ParsedChatRequest,
   modelCode: string,
   authorizedAgent: AuthorizedAgent | null,
+  startedAt: number,
   result: {
     status: AgentInvocationLogPayload["status"];
     outputSummary: string;
@@ -367,6 +370,8 @@ async function recordAgentInvocation(
       latencyMs: result.latencyMs,
       errorCode: result.errorCode,
       authorizedAgent,
+      startedAt: new Date(startedAt).toISOString(),
+      completedAt: new Date().toISOString(),
     });
     return true;
   } catch {

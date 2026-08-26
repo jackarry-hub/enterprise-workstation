@@ -44,6 +44,8 @@ export function createAgentInvocationRecorder(
       cost_amount: 0,
       latency_ms: payload.latencyMs,
       error_code: payload.errorCode,
+      started_at: payload.startedAt,
+      completed_at: payload.completedAt,
     });
 
     if (!insertResult || insertResult.error) {

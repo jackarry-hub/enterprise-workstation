@@ -30,6 +30,8 @@ describe("createAgentInvocationRecorder", () => {
       outputTokens: 60,
       latencyMs: 800,
       errorCode: "",
+      startedAt: "2026-08-26T01:00:00.000Z",
+      completedAt: "2026-08-26T01:00:00.800Z",
       authorizedAgent: {
         definitionId: 91,
         tenantId: 2,
@@ -57,6 +59,8 @@ describe("createAgentInvocationRecorder", () => {
       cost_amount: 0,
       latency_ms: 800,
       error_code: "",
+      started_at: "2026-08-26T01:00:00.000Z",
+      completed_at: "2026-08-26T01:00:00.800Z",
     });
   });
 
@@ -78,6 +82,8 @@ describe("createAgentInvocationRecorder", () => {
       outputTokens: 0,
       latencyMs: 10,
       errorCode: "upstream_failed",
+      startedAt: "2026-08-26T01:00:00.000Z",
+      completedAt: "2026-08-26T01:00:00.010Z",
       authorizedAgent: {
         definitionId: 91, tenantId: 2, organizationId: 3, version: "v1",
         systemPrompt: "server prompt", model: "deepseek-chat", toolCodes: [],

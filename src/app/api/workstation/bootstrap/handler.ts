@@ -3,6 +3,10 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import { getWorkspaceSession } from "@/features/auth/workspace-session";
+import {
+  evaluateAgentInvocationAccess,
+  type AgentInvocationRule,
+} from "@/features/agents/agent-invocation-policy";
 import { buildServerBootstrap } from "@/features/workstation/server-bootstrap";
 import {
   getSupabaseServerClient,
@@ -391,7 +395,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
         .in("status", ["enabled", "disabled"])
         .order("updated_at", { ascending: false })),
       optionalBootstrapQuery("agent_permissions", client.from("agent_permissions")
-        .select("agent_id, scope_type, min_job_level, department_id, member_id")
+        .select("agent_id, scope_type, min_job_level, department_id, role_code, member_id")
         .is("deleted_at", null)),
       optionalBootstrapQuery("agent_invocations", client.from("agent_invocations")
         .select("agent_id, actor_member_id, status, latency_ms, output_summary, started_at")
@@ -500,7 +504,23 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       departments: string[];
       memberIds: number[];
     }>();
+    const invocationRulesByAgent = new Map<number, AgentInvocationRule[]>();
     for (const row of agentPermissionsResult.data ?? []) {
+      const agentId = Number(row.agent_id);
+      const scopeType = String(row.scope_type);
+      const minJobLevel = Number(row.min_job_level);
+      if (Number.isSafeInteger(agentId) && ["all", "dept", "role", "member"].includes(scopeType)
+        && Number.isSafeInteger(minJobLevel) && minJobLevel >= 1 && minJobLevel <= 20) {
+        const rules = invocationRulesByAgent.get(agentId) ?? [];
+        rules.push({
+          scopeType: scopeType as AgentInvocationRule["scopeType"],
+          departmentId: row.department_id === null ? null : numberOrNull(row.department_id),
+          roleCode: typeof row.role_code === "string" ? row.role_code : null,
+          memberId: row.member_id === null ? null : numberOrNull(row.member_id),
+          minJobLevel,
+        });
+        invocationRulesByAgent.set(agentId, rules);
+      }
       const previous = permissionsByAgent.get(row.agent_id) ?? {
         scope: "all",
         minJobLevel: Number(row.min_job_level ?? 1),
@@ -540,6 +560,11 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
     const agentModuleFailed = Boolean(
       agentsResult.moduleError || agentPermissionsResult.moduleError || agentInvocationsResult.moduleError,
     );
+    const currentMember = (membersResult.data ?? []).find((row) =>
+      Number(row.organization_member_id) === session.member.id,
+    );
+    const currentDepartmentId = currentMember ? numberOrNull(currentMember.department_id) : null;
+    const currentJobLevel = currentMember ? numberOrNull(currentMember.job_level) : null;
 
     return buildServerBootstrap(
       {
@@ -664,6 +689,19 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
         agents: (agentsResult.data ?? []).map((row) => {
           const permission = permissionsByAgent.get(row.id);
           const stats = invocationsByAgent.get(row.id);
+          const access = currentDepartmentId !== null && currentJobLevel !== null
+            ? evaluateAgentInvocationAccess({
+              memberId: session.member.id,
+              departmentId: currentDepartmentId,
+              jobLevel: currentJobLevel,
+              roleCodes: session.roleCodes,
+            }, {
+              status: String(row.status),
+              minJobLevel: Number(row.min_job_level),
+              configured: row.status === "enabled",
+              rules: invocationRulesByAgent.get(Number(row.id)) ?? [],
+            })
+            : { canInvoke: false, reason: "agent_not_configured" as const };
           return {
             id: row.id,
             publicId: row.public_id,
@@ -685,6 +723,8 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
               ? Math.round((stats.succeeded / stats.total) * 1000) / 10
               : 100,
             status: row.status,
+            canInvoke: access.canInvoke,
+            denialReason: access.reason,
           };
         }),
         agentInvocations: (agentInvocationsResult.data ?? []).map((row) => ({

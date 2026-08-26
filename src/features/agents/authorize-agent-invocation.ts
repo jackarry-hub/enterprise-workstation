@@ -1,4 +1,8 @@
 import { isAllowedAiModel, type AiModel } from "@/features/ai-config/ai-config-types";
+import {
+  evaluateAgentInvocationAccess,
+  type AgentInvocationRule,
+} from "@/features/agents/agent-invocation-policy";
 import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
 
 type QueryResult<T> = PromiseLike<{ data: T | null; error: unknown }>;
@@ -76,34 +80,6 @@ function parseToolCodes(value: unknown): string[] | null {
     unique.add(tool);
   }
   return [...unique];
-}
-
-function matchesPermission(
-  permission: ScopedRow,
-  memberId: number,
-  departmentId: number | null,
-  roleCodes: ReadonlySet<string>,
-  jobLevel: number,
-): boolean {
-  const minimum = positiveInteger(permission.min_job_level);
-  if (!minimum || minimum > 20 || jobLevel < minimum) return false;
-  switch (permission.scope_type) {
-    case "all":
-      return permission.department_id === null
-        && permission.member_id === null
-        && permission.role_code === null;
-    case "dept":
-      return departmentId !== null && positiveInteger(permission.department_id) === departmentId
-        && permission.member_id === null && permission.role_code === null;
-    case "member":
-      return positiveInteger(permission.member_id) === memberId
-        && permission.department_id === null && permission.role_code === null;
-    case "role":
-      return typeof permission.role_code === "string" && roleCodes.has(permission.role_code)
-        && permission.department_id === null && permission.member_id === null;
-    default:
-      return false;
-  }
 }
 
 /**
@@ -215,14 +191,26 @@ export async function authorizeAgentInvocation(
       .eq("tenant_id", tenantId).eq("organization_id", organizationId).eq("agent_id", definitionId)
       .is("deleted_at", null),
   );
-  const allowed = permissions.some((permission) => (
-    positiveInteger(permission.tenant_id) === tenantId
-    && positiveInteger(permission.organization_id) === organizationId
-    && positiveInteger(permission.agent_id) === definitionId
-    && permission.deleted_at === null
-    && matchesPermission(permission, memberId, departmentId, roleCodes, jobLevel)
-  ));
-  if (!allowed) forbidden();
+  const rules = permissions.flatMap((permission): AgentInvocationRule[] => {
+    if (positiveInteger(permission.tenant_id) !== tenantId
+      || positiveInteger(permission.organization_id) !== organizationId
+      || positiveInteger(permission.agent_id) !== definitionId || permission.deleted_at !== null
+      || !["all", "dept", "role", "member"].includes(String(permission.scope_type))) return [];
+    const minJobLevel = positiveInteger(permission.min_job_level);
+    if (!minJobLevel) return [];
+    return [{
+      scopeType: permission.scope_type as AgentInvocationRule["scopeType"],
+      departmentId: permission.department_id === null ? null : positiveInteger(permission.department_id),
+      roleCode: typeof permission.role_code === "string" ? permission.role_code : null,
+      memberId: permission.member_id === null ? null : positiveInteger(permission.member_id),
+      minJobLevel,
+    }];
+  });
+  if (!evaluateAgentInvocationAccess({
+    memberId, departmentId, jobLevel, roleCodes: [...roleCodes],
+  }, {
+    status: agent.status, minJobLevel: agentMinimum, configured: true, rules,
+  }).canInvoke) forbidden();
 
   return {
     definitionId,

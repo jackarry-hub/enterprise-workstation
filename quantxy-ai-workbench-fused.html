@@ -3442,8 +3442,13 @@ var PREV={'new-member':pvMember,'new-project':pvProject,'new-file':pvFile,'new-t
 var LEVELS=[{v:1,l:'L1 员工'},{v:2,l:'L2 主管'},{v:3,l:'L3 经理'},{v:4,l:'L4 总监'},{v:5,l:'L5 决策层'}];
 function lvName(v){ var level=Math.max(1,Math.min(20,parseInt(v,10)||1)),x=LEVELS.filter(function(l){ return l.v===level; })[0]; return x?x.l:'L'+level; }
 function isAdmin(mid){ var m=MB[mid||S.me]; return isWorkstationCEO() || (!!m && (m.r==='企业决策人' || (m.lv||1)>=4)); }
-/* 调用权限判定：决策层直通 → 单独授权 → 职级门槛 → 部门范围 */
 function canUse(a,mid){
+  if(!isDemoRuntime()){
+    if(mid&&mid!==S.me) return {ok:0,why:'仅服务端可判定其他身份权限'};
+    if(a.canInvoke===true) return {ok:1,why:'服务端已授权'};
+    var reason={agent_disabled:'Agent 已停用',agent_not_configured:'Agent 待配置',agent_forbidden:'当前身份未获调用授权'}[a.denialReason]||'当前 Agent 不可调用';
+    return {ok:0,why:reason};
+  }
   var m=MB[mid||S.me];
   if(!m) return {ok:0,why:'身份无效'};
   if(m.r==='企业决策人') return {ok:1,why:'决策层可调用全部 Agent'};
@@ -3616,7 +3621,7 @@ function viewAgents(){
           '<div style="display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--mut);padding-top:9px;border-top:1px solid var(--line2)">'+
           (c.ok? '<span>调用 '+num(a.runs)+' 次</span><span>成功率 '+a.ok+'%</span><span style="flex:1"></span><span class="link">立即调用 ›</span>'
                : '<span style="flex:1;color:var(--warn)">'+esc(c.why)+'</span>'+
-                 (req?'<span class="tag t-o">申请审批中</span>':'<button class="tag t-b" style="cursor:pointer" data-act="req-apply" data-id="'+attr(a.id)+'">申请权限</button>'))+
+                 ((a.denialReason==='agent_disabled'||a.denialReason==='agent_not_configured')?'<span class="tag t-n">等待管理员配置</span>':(req?'<span class="tag t-o">申请审批中</span>':'<button class="tag t-b" style="cursor:pointer" data-act="req-apply" data-id="'+attr(a.id)+'">申请权限</button>')))+
           '</div></div></div>';
       }).join('') : '<div class="empty" style="grid-column:1/-1">'+(S.agents.length?'没有匹配的 Agent':'暂无已启用 Agent')+'</div>',
     '</div></div>']);

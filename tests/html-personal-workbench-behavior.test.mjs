@@ -655,7 +655,7 @@ function formalBootstrap({
   ].map((n, index) => ({
     id: `agent-${index + 1}`, n, dept: "企业级", ic: "bot", on: 1, runs: 0, ok: 100,
     scope: "all", minLv: 1, grant: [], depts: [], d: `${n} 的服务端定义`, sys: "server",
-    f: [{ k: "input", l: "输入", t: "ta" }], abilities: [], promptVersion: "v1",
+    f: [{ k: "input", l: "输入", t: "ta" }], abilities: [], promptVersion: "v1", canInvoke: true, denialReason: "",
   })),
 } = {}) {
   const projectId = "22222222-2222-4222-8222-222222222222";
@@ -3787,6 +3787,25 @@ test("formal Agent Center renders a module error with its server request ID", as
   } finally {
     dom.window.close();
   }
+});
+
+test("formal Agent Center trusts server canInvoke and marks disabled or unconfigured Agents unavailable", async () => {
+  const bootstrap = formalBootstrap({ permissions: ["agent.manage"] });
+  bootstrap.agents = [
+    { id: "disabled", n: "已停用 Agent", dept: "企业级", on: 0, minLv: 1, grant: [bootstrap.session.memberId], canInvoke: false, denialReason: "agent_disabled", d: "", f: [] },
+    { id: "pending", n: "待配置 Agent", dept: "企业级", on: 1, minLv: 1, grant: [bootstrap.session.memberId], canInvoke: false, denialReason: "agent_not_configured", d: "", f: [] },
+  ];
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1", bootstrap,
+  );
+  try {
+    dom.window.Q.S.page = "flow";
+    dom.window.Q.render();
+    const text = dom.window.document.querySelector("#view").textContent;
+    assert.match(text, /Agent 已停用/);
+    assert.match(text, /Agent 待配置/);
+    assert.equal(dom.window.document.querySelectorAll('[data-act="open-agent"]').length, 0);
+  } finally { dom.window.close(); }
 });
 
 test("Agent Center summary chips are real clickable controls", async () => {
