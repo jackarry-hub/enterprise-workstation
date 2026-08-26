@@ -18,6 +18,13 @@ export type AiConfigUpdateCommand = {
   requestId: string;
 };
 
+export class AiConfigStoreError extends Error {
+  constructor(readonly code: string | undefined) {
+    super("AI configuration command failed");
+    this.name = "AiConfigStoreError";
+  }
+}
+
 type AiConfigUpdateRow = {
   provider: typeof AI_PROVIDER;
   api_base_url: typeof AI_BASE_URL;
@@ -36,7 +43,7 @@ export function sanitizeAiConfig(
     apiBaseUrl: AI_BASE_URL,
     model: record?.model_name ?? "deepseek-v4-flash",
     keyConfigured: Boolean(record?.encrypted_api_key && record.api_key_iv),
-    keyHint: record?.key_hint ?? null,
+    keyHint: canManage ? record?.key_hint ?? null : null,
     updatedAt: record?.updated_at ?? null,
     canManage,
   };
@@ -66,7 +73,7 @@ export function createAiConfigStore(client: SupabaseClient) {
           request_id: command.requestId,
         },
       );
-      if (error || !data) throw new Error("保存模型配置失败");
+      if (error || !data) throw new AiConfigStoreError(error?.code);
       const row = data as AiConfigUpdateRow;
       return {
         provider: row.provider,

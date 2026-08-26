@@ -61,6 +61,7 @@ describe("PUT /api/ai/config", () => {
 
     const response = await PUT(new Request("https://workspace.test/api/ai/config", {
       method: "PUT",
+      headers: { "Idempotency-Key": "30000000-0000-4000-8000-000000000003" },
       body: JSON.stringify({ model: "deepseek-chat" }),
     }));
 
@@ -87,5 +88,36 @@ describe("PUT /api/ai/config", () => {
     );
     expect(serviceClient.rpc).not.toHaveBeenCalled();
     expect(mocks.createClient).not.toHaveBeenCalled();
+  });
+
+  it("returns a safe 403 when database authorization is revoked after the session was loaded", async () => {
+    const authenticatedClient = {
+      rpc: vi.fn().mockResolvedValue({
+        data: null,
+        error: {
+          code: "42501",
+          message: "permission was revoked after session creation",
+          details: "sensitive database detail",
+        },
+      }),
+    };
+    mocks.getSupabaseServerClient.mockResolvedValue(authenticatedClient);
+    mocks.getWorkspaceApiSession.mockResolvedValue(aiAdminSession);
+    mocks.getAiConfigEnv.mockReturnValue({
+      encryptionKey: new Uint8Array(32).fill(1),
+      supabaseServiceRoleKey: "must-not-be-used-for-put",
+    });
+
+    const response = await PUT(new Request("https://workspace.test/api/ai/config", {
+      method: "PUT",
+      headers: { "Idempotency-Key": "30000000-0000-4000-8000-000000000004" },
+      body: JSON.stringify({ model: "deepseek-chat" }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body).toEqual({ error: "forbidden" });
+    expect(JSON.stringify(body)).not.toContain("permission was revoked");
+    expect(JSON.stringify(body)).not.toContain("sensitive database detail");
   });
 });

@@ -3,7 +3,10 @@ import type {
   AiConfigStore,
   AiConfigUpdateCommand,
 } from "@/features/ai-config/ai-config-store";
-import { sanitizeAiConfig } from "@/features/ai-config/ai-config-store";
+import {
+  AiConfigStoreError,
+  sanitizeAiConfig,
+} from "@/features/ai-config/ai-config-store";
 import {
   AI_PROVIDER,
   isAllowedAiModel,
@@ -38,6 +41,9 @@ export async function handlePutAiConfig(
   if (!session) return json({ error: "unauthorized" }, 401);
   if (!canManage(session)) return json({ error: "forbidden" }, 403);
 
+  const requestId = request.headers.get("Idempotency-Key");
+  if (!isUuid(requestId)) return json({ error: "invalid_idempotency_key" }, 400);
+
   const body = await readObject(request);
   if (!body || !isAllowedAiModel(body.model)) {
     return json({ error: "invalid_model" }, 400);
@@ -52,7 +58,7 @@ export async function handlePutAiConfig(
     model: body.model,
     encryptedKey: null,
     keyHint: null,
-    requestId: crypto.randomUUID(),
+    requestId,
   };
 
   if (typeof apiKey === "string") {
@@ -65,8 +71,12 @@ export async function handlePutAiConfig(
     next.keyHint = encrypted.hint;
   }
 
-  const saved = await deps.store.update(next);
-  return json({ ...saved, canManage: true });
+  try {
+    const saved = await deps.store.update(next);
+    return json({ ...saved, canManage: true });
+  } catch (error) {
+    return mapCommandError(error);
+  }
 }
 
 function canManage(session: WorkspaceSession) {
@@ -80,6 +90,19 @@ function isValidApiKey(value: unknown): value is string {
     && value.startsWith("sk-")
     && value.length >= 12
     && value.length <= 300;
+}
+
+function isUuid(value: string | null): value is string {
+  return typeof value === "string"
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function mapCommandError(error: unknown): Response {
+  if (!(error instanceof AiConfigStoreError)) throw error;
+  if (error.code === "42501") return json({ error: "forbidden" }, 403);
+  if (error.code === "23505") return json({ error: "duplicate_request" }, 409);
+  if (error.code?.startsWith("22")) return json({ error: "invalid_request" }, 400);
+  throw error;
 }
 
 async function readObject(request: Request) {

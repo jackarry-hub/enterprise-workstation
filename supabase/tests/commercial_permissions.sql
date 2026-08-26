@@ -1,6 +1,6 @@
 begin;
 
-select plan(31);
+select plan(32);
 
 select is(
   (
@@ -616,6 +616,16 @@ select is(
   ),
   0::bigint,
   'an invalid envelope leaves no audit event'
+);
+select is(
+  (
+    select config.model_name
+    from public.ai_provider_configs config
+    join public.tenants tenant on tenant.public_id = config.tenant_id
+    where tenant.slug = 'quantxy' and config.provider = 'deepseek'
+  ),
+  'deepseek-chat',
+  'a duplicate idempotency key leaves the original configuration unchanged'
 );
 select is(
   (

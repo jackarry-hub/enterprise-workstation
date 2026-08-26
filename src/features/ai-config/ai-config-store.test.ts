@@ -124,4 +124,27 @@ describe("createAiConfigStore", () => {
       updatedAt: "2026-08-17T13:00:00.000Z",
     });
   });
+
+  it("preserves a database authorization code without exposing its message", async () => {
+    const client = {
+      rpc() {
+        return Promise.resolve({
+          data: null,
+          error: {
+            code: "42501",
+            message: "permission revoked after the browser loaded",
+            details: "sensitive database context",
+          },
+        });
+      },
+    } as unknown as SupabaseClient;
+
+    await expect(createAiConfigStore(client).update({
+      provider: "deepseek",
+      model: "deepseek-chat",
+      encryptedKey: null,
+      keyHint: null,
+      requestId: "20000000-0000-4000-8000-000000000002",
+    })).rejects.toMatchObject({ code: "42501" });
+  });
 });

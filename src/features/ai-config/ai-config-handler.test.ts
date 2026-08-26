@@ -5,6 +5,7 @@ import {
   handlePutAiConfig,
 } from "@/features/ai-config/ai-config-handler";
 import type { AiConfigUpdateCommand } from "@/features/ai-config/ai-config-store";
+import { AiConfigStoreError } from "@/features/ai-config/ai-config-store";
 import type {
   AiConfigRecord,
   PublicAiConfig,
@@ -112,7 +113,17 @@ describe("AI configuration handlers", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ canManage: false });
+    const body = await response.json();
+
+    expect(body).toMatchObject({
+      canManage: false,
+      keyConfigured: true,
+      model: "deepseek-v4-flash",
+      keyHint: null,
+    });
+    expect(JSON.stringify(body)).not.toContain("stored-ciphertext");
+    expect(JSON.stringify(body)).not.toContain("stored-iv");
+    expect(JSON.stringify(body)).not.toContain("8bcf");
   });
 
   it("rejects an active employee without ai.config.manage before any configuration write", async () => {
@@ -152,6 +163,7 @@ describe("AI configuration handlers", () => {
     const response = await handlePutAiConfig(
       new Request("https://workspace.test/api/ai/config", {
         method: "PUT",
+        headers: { "Idempotency-Key": "30000000-0000-4000-8000-000000000001" },
         body: JSON.stringify({ model: "deepseek-chat" }),
       }),
       fixture.value,
@@ -164,9 +176,7 @@ describe("AI configuration handlers", () => {
       encryptedKey: null,
       keyHint: null,
     });
-    expect(fixture.command()?.requestId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-    );
+    expect(fixture.command()?.requestId).toBe("30000000-0000-4000-8000-000000000001");
     expect(fixture.saved()).toBeNull();
   });
 
@@ -176,6 +186,7 @@ describe("AI configuration handlers", () => {
     const response = await handlePutAiConfig(
       new Request("https://workspace.test/api/ai/config", {
         method: "PUT",
+        headers: { "Idempotency-Key": "30000000-0000-4000-8000-000000000002" },
         body: JSON.stringify({
           model: "deepseek-reasoner",
           apiKey: submitted,
@@ -224,5 +235,68 @@ describe("AI configuration handlers", () => {
     expect(keyResponse.status).toBe(400);
     expect(invalidModel.saved()).toBeNull();
     expect(invalidKey.saved()).toBeNull();
+  });
+
+  it("rejects a missing or malformed Idempotency-Key before calling the command store", async () => {
+    const missing = deps();
+    const missingResponse = await handlePutAiConfig(
+      new Request("https://workspace.test/api/ai/config", {
+        method: "PUT",
+        body: JSON.stringify({ model: "deepseek-chat" }),
+      }),
+      missing.value,
+    );
+    const malformed = deps();
+    const malformedResponse = await handlePutAiConfig(
+      new Request("https://workspace.test/api/ai/config", {
+        method: "PUT",
+        headers: { "Idempotency-Key": "not-a-uuid" },
+        body: JSON.stringify({ model: "deepseek-chat" }),
+      }),
+      malformed.value,
+    );
+
+    expect(missingResponse.status).toBe(400);
+    expect(await missingResponse.json()).toEqual({ error: "invalid_idempotency_key" });
+    expect(malformedResponse.status).toBe(400);
+    expect(await malformedResponse.json()).toEqual({ error: "invalid_idempotency_key" });
+    expect(missing.command()).toBeNull();
+    expect(malformed.command()).toBeNull();
+  });
+
+  it("maps duplicate and invalid command errors to safe stable responses", async () => {
+    const duplicate = await handlePutAiConfig(
+      new Request("https://workspace.test/api/ai/config", {
+        method: "PUT",
+        headers: { "Idempotency-Key": "30000000-0000-4000-8000-000000000005" },
+        body: JSON.stringify({ model: "deepseek-chat" }),
+      }),
+      {
+        session: aiAdminSession,
+        encryptionKey,
+        store: {
+          update: async () => { throw new AiConfigStoreError("23505"); },
+        },
+      },
+    );
+    const invalid = await handlePutAiConfig(
+      new Request("https://workspace.test/api/ai/config", {
+        method: "PUT",
+        headers: { "Idempotency-Key": "30000000-0000-4000-8000-000000000006" },
+        body: JSON.stringify({ model: "deepseek-chat" }),
+      }),
+      {
+        session: aiAdminSession,
+        encryptionKey,
+        store: {
+          update: async () => { throw new AiConfigStoreError("22023"); },
+        },
+      },
+    );
+
+    expect(duplicate.status).toBe(409);
+    expect(await duplicate.json()).toEqual({ error: "duplicate_request" });
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toEqual({ error: "invalid_request" });
   });
 });
