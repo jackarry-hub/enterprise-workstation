@@ -74,6 +74,14 @@ describe("durable Feishu directory worker", () => {
     expect(result).toEqual({ runId: null, cursor: null, status: "no_work", retryAfter, reason: "locked" });
   });
 
+  it("reports actorless scheduled work without inventing a run", async () => {
+    const result = await startFeishuFullSync(dependencies({
+      acquire: async () => ({ acquired: false, runId: null, cursor: null, attempt: 0, reason: "actorless", retryAfter: null }),
+    }));
+
+    expect(result).toEqual({ runId: null, cursor: null, status: "no_work", retryAfter: null, reason: "actorless" });
+  });
+
   it("heartbeats the exact lease before fetch and before fenced apply", async () => {
     const calls: string[] = [];
     const result = await startFeishuFullSync(dependencies({

@@ -1755,6 +1755,7 @@ declare
   v_superseded_running boolean := false;
   v_ready_rechecks integer := 0;
   v_matching_connections bigint := 0;
+  v_actor_eligible_connections bigint := 0;
   v_locked_eligible boolean := false;
 begin
   if p_mode not in ('full', 'incremental', 'reconcile')
@@ -1762,6 +1763,52 @@ begin
      or nullif(btrim(p_provider_tenant_key), '') is null
      or ((p_organization_public_id is null) <> (p_actor_auth_user_id is null)) then
     raise exception 'sync_claim_invalid' using errcode = '22023';
+  end if;
+  -- Exact interactive callers must be authorized before any ready/active/backoff
+  -- diagnostic can disclose a durable run. The locked candidate is revalidated
+  -- again below with row locks before mutation.
+  if p_actor_auth_user_id is not null then
+    if public.active_workspace_organization_id(p_actor_auth_user_id) is distinct from (
+         select organization.id
+           from public.organizations organization
+          where organization.public_id = p_organization_public_id
+       ) or not exists (
+         select 1
+           from public.organizations organization
+           join public.tenants tenant
+             on tenant.id = organization.tenant_id and tenant.status = 'active'
+           join public.organization_members member
+             on member.tenant_id = organization.tenant_id
+            and member.organization_id = organization.id
+           join public.external_identities identity
+             on identity.tenant_id = member.tenant_id
+            and identity.organization_id = member.organization_id
+            and identity.organization_member_id = member.id
+            and identity.auth_user_id = member.user_id
+            and identity.status = 'active'
+           join public.identity_providers provider
+             on provider.tenant_id = identity.tenant_id
+            and provider.id = identity.identity_provider_id
+            and provider.provider_code = 'feishu'
+            and provider.status = 'active'
+            and provider.provider_tenant_key = p_provider_tenant_key
+           join public.member_roles assignment
+             on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+           join public.roles role
+             on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
+           join public.role_permissions rp
+             on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
+           join public.permissions permission on permission.id = rp.permission_id
+          where organization.public_id = p_organization_public_id
+            and member.user_id = p_actor_auth_user_id
+            and member.status = 'active'
+            and identity.provider_tenant_key = p_provider_tenant_key
+            and role.is_enabled
+            and (role.organization_id is null or role.organization_id = organization.id)
+            and permission.code = 'organization.manage'
+       ) then
+      raise exception 'forbidden' using errcode = '42501';
+    end if;
   end if;
   if p_mode = 'incremental' and (p_cursor is null or p_cursor !~ '^[1-9][0-9]{0,18}$') then
     return jsonb_build_object(
@@ -1836,6 +1883,39 @@ begin
          or (candidate_lease.status = 'running' and candidate_lease.lease_expires_at <= now())
          or (candidate_lease.status = 'retry' and candidate_lease.retry_after <= now())
        )
+       and (
+         p_organization_public_id is not null
+         or exists (
+           select 1
+             from public.organization_members candidate_member
+             join public.external_identities candidate_identity
+               on candidate_identity.tenant_id = candidate_member.tenant_id
+              and candidate_identity.organization_id = candidate_member.organization_id
+              and candidate_identity.organization_member_id = candidate_member.id
+              and candidate_identity.identity_provider_id = connection.identity_provider_id
+              and candidate_identity.auth_user_id = candidate_member.user_id
+              and candidate_identity.status = 'active'
+              and candidate_identity.provider_tenant_key = p_provider_tenant_key
+             join public.member_roles candidate_assignment
+               on candidate_assignment.tenant_id = candidate_member.tenant_id
+              and candidate_assignment.member_id = candidate_member.id
+             join public.roles candidate_role
+               on candidate_role.tenant_id = candidate_assignment.tenant_id
+              and candidate_role.id = candidate_assignment.role_id
+             join public.role_permissions candidate_rp
+               on candidate_rp.tenant_id = candidate_assignment.tenant_id
+              and candidate_rp.role_id = candidate_assignment.role_id
+             join public.permissions candidate_permission
+               on candidate_permission.id = candidate_rp.permission_id
+            where candidate_member.tenant_id = connection.tenant_id
+              and candidate_member.organization_id = connection.organization_id
+              and candidate_member.status = 'active'
+              and candidate_member.user_id is not null
+              and candidate_role.is_enabled
+              and (candidate_role.organization_id is null or candidate_role.organization_id = connection.organization_id)
+              and candidate_permission.code = 'organization.manage'
+         )
+       )
        order by connection.last_sync_at nulls first, connection.id
        for update of connection skip locked limit 1;
 
@@ -1873,6 +1953,39 @@ begin
              or (candidate_lease.status = 'running' and candidate_lease.lease_expires_at <= now())
              or (candidate_lease.status = 'retry' and candidate_lease.retry_after <= now())
            )
+           and (
+             p_organization_public_id is not null
+             or exists (
+               select 1
+                 from public.organization_members candidate_member
+                 join public.external_identities candidate_identity
+                   on candidate_identity.tenant_id = candidate_member.tenant_id
+                  and candidate_identity.organization_id = candidate_member.organization_id
+                  and candidate_identity.organization_member_id = candidate_member.id
+                  and candidate_identity.identity_provider_id = connection.identity_provider_id
+                  and candidate_identity.auth_user_id = candidate_member.user_id
+                  and candidate_identity.status = 'active'
+                  and candidate_identity.provider_tenant_key = p_provider_tenant_key
+                 join public.member_roles candidate_assignment
+                   on candidate_assignment.tenant_id = candidate_member.tenant_id
+                  and candidate_assignment.member_id = candidate_member.id
+                 join public.roles candidate_role
+                   on candidate_role.tenant_id = candidate_assignment.tenant_id
+                  and candidate_role.id = candidate_assignment.role_id
+                 join public.role_permissions candidate_rp
+                   on candidate_rp.tenant_id = candidate_assignment.tenant_id
+                  and candidate_rp.role_id = candidate_assignment.role_id
+                 join public.permissions candidate_permission
+                   on candidate_permission.id = candidate_rp.permission_id
+                where candidate_member.tenant_id = connection.tenant_id
+                  and candidate_member.organization_id = connection.organization_id
+                  and candidate_member.status = 'active'
+                  and candidate_member.user_id is not null
+                  and candidate_role.is_enabled
+                  and (candidate_role.organization_id is null or candidate_role.organization_id = connection.organization_id)
+                  and candidate_permission.code = 'organization.manage'
+             )
+           )
       ) into v_locked_eligible;
       if v_locked_eligible then
         return jsonb_build_object(
@@ -1907,6 +2020,39 @@ begin
            (lease.status = 'running' and lease.lease_expires_at > now())
            or (lease.status = 'retry' and (lease.retry_after is null or lease.retry_after > now()))
          )
+         and (
+           p_organization_public_id is not null
+           or exists (
+             select 1
+               from public.organization_members candidate_member
+               join public.external_identities candidate_identity
+                 on candidate_identity.tenant_id = candidate_member.tenant_id
+                and candidate_identity.organization_id = candidate_member.organization_id
+                and candidate_identity.organization_member_id = candidate_member.id
+                and candidate_identity.identity_provider_id = connection.identity_provider_id
+                and candidate_identity.auth_user_id = candidate_member.user_id
+                and candidate_identity.status = 'active'
+                and candidate_identity.provider_tenant_key = p_provider_tenant_key
+               join public.member_roles candidate_assignment
+                 on candidate_assignment.tenant_id = candidate_member.tenant_id
+                and candidate_assignment.member_id = candidate_member.id
+               join public.roles candidate_role
+                 on candidate_role.tenant_id = candidate_assignment.tenant_id
+                and candidate_role.id = candidate_assignment.role_id
+               join public.role_permissions candidate_rp
+                 on candidate_rp.tenant_id = candidate_assignment.tenant_id
+                and candidate_rp.role_id = candidate_assignment.role_id
+               join public.permissions candidate_permission
+                 on candidate_permission.id = candidate_rp.permission_id
+              where candidate_member.tenant_id = connection.tenant_id
+                and candidate_member.organization_id = connection.organization_id
+                and candidate_member.status = 'active'
+                and candidate_member.user_id is not null
+                and candidate_role.is_enabled
+                and (candidate_role.organization_id is null or candidate_role.organization_id = connection.organization_id)
+                and candidate_permission.code = 'organization.manage'
+           )
+         )
        order by case when lease.status = 'running' then 0 else 1 end,
                 coalesce(lease.lease_expires_at, lease.retry_after), connection.id
        limit 1;
@@ -1932,6 +2078,57 @@ begin
          and provider.provider_tenant_key = p_provider_tenant_key
          and connection.external_tenant_key = p_provider_tenant_key
          and (p_organization_public_id is null or organization.public_id = p_organization_public_id);
+      if p_organization_public_id is null then
+        select count(*) into v_actor_eligible_connections
+          from public.directory_connections connection
+          join public.identity_providers provider
+            on provider.tenant_id = connection.tenant_id
+           and provider.id = connection.identity_provider_id
+          join public.tenants tenant on tenant.id = connection.tenant_id and tenant.status = 'active'
+          join public.organizations organization
+            on organization.tenant_id = connection.tenant_id
+           and organization.id = connection.organization_id
+         where connection.status = 'active'
+           and provider.provider_code = 'feishu' and provider.status = 'active'
+           and provider.provider_tenant_key = p_provider_tenant_key
+           and connection.external_tenant_key = p_provider_tenant_key
+           and exists (
+             select 1
+               from public.organization_members candidate_member
+               join public.external_identities candidate_identity
+                 on candidate_identity.tenant_id = candidate_member.tenant_id
+                and candidate_identity.organization_id = candidate_member.organization_id
+                and candidate_identity.organization_member_id = candidate_member.id
+                and candidate_identity.identity_provider_id = connection.identity_provider_id
+                and candidate_identity.auth_user_id = candidate_member.user_id
+                and candidate_identity.status = 'active'
+                and candidate_identity.provider_tenant_key = p_provider_tenant_key
+               join public.member_roles candidate_assignment
+                 on candidate_assignment.tenant_id = candidate_member.tenant_id
+                and candidate_assignment.member_id = candidate_member.id
+               join public.roles candidate_role
+                 on candidate_role.tenant_id = candidate_assignment.tenant_id
+                and candidate_role.id = candidate_assignment.role_id
+               join public.role_permissions candidate_rp
+                 on candidate_rp.tenant_id = candidate_assignment.tenant_id
+                and candidate_rp.role_id = candidate_assignment.role_id
+               join public.permissions candidate_permission
+                 on candidate_permission.id = candidate_rp.permission_id
+              where candidate_member.tenant_id = connection.tenant_id
+                and candidate_member.organization_id = connection.organization_id
+                and candidate_member.status = 'active'
+                and candidate_member.user_id is not null
+                and candidate_role.is_enabled
+                and (candidate_role.organization_id is null or candidate_role.organization_id = connection.organization_id)
+                and candidate_permission.code = 'organization.manage'
+           );
+        if v_matching_connections > 0 and v_actor_eligible_connections = 0 then
+          return jsonb_build_object(
+            'acquired', false, 'runId', null, 'cursor', p_cursor, 'attempt', 0,
+            'reason', 'actorless', 'retryAfter', null
+          );
+        end if;
+      end if;
       if v_matching_connections > 0 then
         return jsonb_build_object(
           'acquired', false, 'runId', null, 'cursor', p_cursor, 'attempt', 0,
@@ -1984,34 +2181,45 @@ begin
   end if;
 
   if p_actor_auth_user_id is not null then
-    if public.active_workspace_organization_id(p_actor_auth_user_id) is distinct from v_connection.organization_id
-       or not exists (
-         select 1 from public.organization_members member
-          join public.member_roles assignment
-            on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
-          join public.roles role
-            on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
-          join public.role_permissions rp
-           on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
-         join public.permissions permission on permission.id = rp.permission_id
-        where member.tenant_id = v_connection.tenant_id
-           and member.user_id = p_actor_auth_user_id and member.status = 'active'
-           and member.organization_id = v_connection.organization_id
-           and role.is_enabled
-           and (role.organization_id is null or role.organization_id = v_connection.organization_id)
-           and permission.code = 'organization.manage'
-       ) then
+    if public.active_workspace_organization_id(p_actor_auth_user_id) is distinct from v_connection.organization_id then
       raise exception 'forbidden' using errcode = '42501';
     end if;
-    v_actor := p_actor_auth_user_id;
+    select member.user_id, member.id into v_actor, v_actor_member_id
+      from public.organization_members member
+      join public.external_identities identity
+        on identity.tenant_id = member.tenant_id
+       and identity.organization_id = member.organization_id
+       and identity.organization_member_id = member.id
+       and identity.auth_user_id = member.user_id
+       and identity.status = 'active'
+       and identity.identity_provider_id = v_connection.identity_provider_id
+       and identity.provider_tenant_key = p_provider_tenant_key
+      join public.member_roles assignment
+        on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+      join public.roles role
+        on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
+      join public.role_permissions rp
+        on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
+      join public.permissions permission on permission.id = rp.permission_id
+     where member.tenant_id = v_connection.tenant_id
+       and member.organization_id = v_connection.organization_id
+       and member.user_id = p_actor_auth_user_id
+       and member.status = 'active'
+       and role.is_enabled
+       and (role.organization_id is null or role.organization_id = v_connection.organization_id)
+       and permission.code = 'organization.manage'
+     order by member.id
+     for share of member, identity, assignment, role, rp limit 1;
+    if not found then raise exception 'forbidden' using errcode = '42501'; end if;
   else
-    select member.user_id into v_actor
+    select member.user_id, member.id into v_actor, v_actor_member_id
       from public.organization_members member
       join public.external_identities identity
         on identity.tenant_id = member.tenant_id and identity.organization_member_id = member.id
        and identity.organization_id = member.organization_id and identity.status = 'active'
        and identity.auth_user_id = member.user_id
        and identity.identity_provider_id = v_connection.identity_provider_id
+       and identity.provider_tenant_key = p_provider_tenant_key
       join public.member_roles assignment
         on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
       join public.roles role
@@ -2025,16 +2233,10 @@ begin
         and role.is_enabled
         and (role.organization_id is null or role.organization_id = v_connection.organization_id)
         and permission.code = 'organization.manage'
-     order by member.id limit 1;
-    if v_actor is null then raise exception 'sync_actor_missing' using errcode = '42501'; end if;
+     order by member.id
+     for share of member, identity, assignment, role, rp limit 1;
+    if not found then raise exception 'sync_actor_missing' using errcode = '42501'; end if;
   end if;
-
-  select member.id into strict v_actor_member_id
-    from public.organization_members member
-   where member.tenant_id = v_connection.tenant_id
-     and member.organization_id = v_connection.organization_id
-     and member.user_id = v_actor
-     and member.status = 'active';
 
   v_run_id := gen_random_uuid();
   v_previous_cursor := v_lease.cursor;
@@ -2057,7 +2259,7 @@ begin
     if found then
       perform public.append_audit_log(
         v_connection.tenant_id, v_connection.organization_id,
-        v_lease.actor_auth_user_id, v_superseded_run.actor_member_id,
+        v_actor, v_actor_member_id,
         'directory.sync_failed', 'directory_sync_run', v_superseded_run.id::text,
         v_superseded_run.public_id, null,
         jsonb_build_object(

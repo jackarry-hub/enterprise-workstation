@@ -1,6 +1,6 @@
 begin;
 
-select plan(113);
+select plan(123);
 
 select has_table('public', 'feishu_oauth_attempts', 'OAuth attempts are durable');
 select has_table('public', 'feishu_webhook_events', 'provider events are durable');
@@ -212,6 +212,12 @@ insert into auth.users (
     '98000000-0000-4000-8000-000000000002', 'authenticated', 'authenticated',
     'feishu-control-scheduler@example.test', crypt('local-test-password', gen_salt('bf')), now(),
     '{}'::jsonb, '{}'::jsonb, now(), now()
+  ),
+  (
+    '00000000-0000-0000-0000-000000000000',
+    '98000000-0000-4000-8000-000000000003', 'authenticated', 'authenticated',
+    'feishu-control-recovery@example.test', crypt('local-test-password', gen_salt('bf')), now(),
+    '{}'::jsonb, '{}'::jsonb, now(), now()
   );
 insert into public.organization_members (tenant_id, organization_id, user_id, status)
 select tenant.id, organization.id, '98000000-0000-4000-8000-000000000001'::uuid, 'active'
@@ -225,6 +231,12 @@ select tenant.id, organization.id, '98000000-0000-4000-8000-000000000002'::uuid,
   join public.organizations organization
     on organization.tenant_id = tenant.id and organization.slug = 'feishu-control-b'
  where tenant.slug = 'feishu-control-test-b';
+insert into public.organization_members (tenant_id, organization_id, user_id, status)
+select tenant.id, organization.id, '98000000-0000-4000-8000-000000000003'::uuid, 'active'
+  from public.tenants tenant
+  join public.organizations organization
+    on organization.tenant_id = tenant.id and organization.slug = 'feishu-control-b'
+ where tenant.slug = 'feishu-control-test-b';
 insert into public.member_roles (tenant_id, member_id, role_id)
 select member.tenant_id, member.id, role.id
   from public.organization_members member
@@ -232,7 +244,8 @@ select member.tenant_id, member.id, role.id
     on role.tenant_id = member.tenant_id and role.organization_id = member.organization_id
  where member.user_id in (
    '98000000-0000-4000-8000-000000000001'::uuid,
-   '98000000-0000-4000-8000-000000000002'::uuid
+   '98000000-0000-4000-8000-000000000002'::uuid,
+   '98000000-0000-4000-8000-000000000003'::uuid
  ) and role.code = 'feishu_control_manager';
 insert into public.employee_profiles (
   public_id, tenant_id, organization_id, organization_member_id,
@@ -272,6 +285,20 @@ select member.tenant_id, member.organization_id, member.id, provider.id,
     on provider.tenant_id = member.tenant_id and provider.provider_code = 'feishu'
   join public.organizations organization on organization.id = member.organization_id
  where member.user_id = '98000000-0000-4000-8000-000000000002'::uuid
+    and organization.slug = 'feishu-control-b';
+insert into public.external_identities (
+  tenant_id, organization_id, organization_member_id, identity_provider_id,
+  provider_subject, provider_tenant_key, provider_match_keys,
+  auth_user_id, status
+)
+select member.tenant_id, member.organization_id, member.id, provider.id,
+       'open_id:ou-control-recovery', provider.provider_tenant_key,
+       array['open_id:ou-control-recovery'], member.user_id, 'active'
+  from public.organization_members member
+  join public.identity_providers provider
+    on provider.tenant_id = member.tenant_id and provider.provider_code = 'feishu'
+  join public.organizations organization on organization.id = member.organization_id
+ where member.user_id = '98000000-0000-4000-8000-000000000003'::uuid
    and organization.slug = 'feishu-control-b';
 insert into public.feishu_access_grants (tenant_id, organization_id, organization_member_id, status)
 select member.tenant_id, member.organization_id, member.id, 'queued'
@@ -333,12 +360,38 @@ select throws_ok(
   '42501', 'forbidden',
   'disabled exact role plus enabled wrong-organization role cannot authorize an interactive claim'
 );
-select throws_ok(
-  $$ select public.claim_feishu_sync_work(
+select set_config(
+  'test.feishu_actor_filtered_claim',
+  public.claim_feishu_sync_work(
     'full', null, 'feishu-control-provider', 120, null, null
-  ) $$,
-  '42501', 'sync_actor_missing',
-  'scheduled actor selection rejects disabled and wrong-organization manager roles'
+  )::text,
+  true
+);
+select is(
+  current_setting('test.feishu_actor_filtered_claim')::jsonb ->> 'acquired',
+  'true',
+  'scheduled claim skips an actorless disabled-role older connection'
+);
+select is(
+  current_setting('test.feishu_actor_filtered_claim')::jsonb ->> 'organizationId',
+  (select public_id::text from public.organizations where slug = 'feishu-control-b'),
+  'scheduled claim acquires the ready connection with an authoritative actor'
+);
+select is(
+  current_setting('test.feishu_actor_filtered_claim')::jsonb ->> 'actorAuthUserId',
+  '98000000-0000-4000-8000-000000000002',
+  'scheduled claim records the first valid active manager instead of the disabled actor'
+);
+select public.apply_feishu_directory_sync_fenced(
+  (current_setting('test.feishu_actor_filtered_claim')::jsonb ->> 'runId')::uuid,
+  (select public_id from public.organizations where slug = 'feishu-control-b'),
+  '98000000-0000-4000-8000-000000000002',
+  '{"complete":true,"departments":[],"positions":[],"employees":[]}'::jsonb
+);
+select public.finish_feishu_sync_work(
+  (current_setting('test.feishu_actor_filtered_claim')::jsonb ->> 'runId')::uuid,
+  null, 'completed', null,
+  (select public_id from public.organizations where slug = 'feishu-control-b')
 );
 reset role;
 update public.roles set is_enabled = true
@@ -424,6 +477,15 @@ select set_config(
   true
 );
 select is(current_setting('test.feishu_control_claim')::jsonb ->> 'acquired', 'true', 'exact organization work is durably claimed');
+select throws_ok(
+  $$ select public.claim_feishu_sync_work(
+    'full', null, 'feishu-control-provider', 120,
+    (select public_id from public.organizations where slug = 'feishu-control-a'),
+    '98000000-0000-4000-8000-000000000002'
+  ) $$,
+  '42501', 'forbidden',
+  'an existing exact active lease remains hidden from an actor bound to another organization'
+);
 select is(
   (select count(*) from public.directory_sync_runs run where run.public_id = (current_setting('test.feishu_control_claim')::jsonb ->> 'runId')::uuid and run.request_id = run.public_id),
   1::bigint,
@@ -489,12 +551,25 @@ select is(
 update public.feishu_sync_leases
    set lease_expires_at = now() - interval '1 second', attempt = 3
  where run_id = (current_setting('test.feishu_incremental_claim')::jsonb ->> 'runId')::uuid;
+update public.external_identities identity set status = 'revoked', auth_user_id = null
+  from public.organization_members member
+ where member.id = identity.organization_member_id
+   and member.user_id = '98000000-0000-4000-8000-000000000002'::uuid
+   and identity.organization_id = (select id from public.organizations where slug = 'feishu-control-b');
+update public.organization_members set status = 'revoked'
+ where user_id = '98000000-0000-4000-8000-000000000002'::uuid
+   and organization_id = (select id from public.organizations where slug = 'feishu-control-b');
+select is(
+  (select status from public.organization_members where user_id = '98000000-0000-4000-8000-000000000002'::uuid),
+  'revoked',
+  'old takeover actor is revoked before recovery'
+);
 select set_config(
   'test.feishu_takeover_claim',
   public.claim_feishu_sync_work(
     'full', null, 'feishu-control-provider', 120,
     (select public_id from public.organizations where slug = 'feishu-control-b'),
-    '98000000-0000-4000-8000-000000000002'
+    '98000000-0000-4000-8000-000000000003'
   )::text,
   true
 );
@@ -518,6 +593,15 @@ select is(
   1::bigint,
   'expired takeover appends exactly one terminal audit for the old run'
 );
+select is(
+  (
+    select actor_auth_user_id from public.audit_logs audit
+     where audit.request_id = (current_setting('test.feishu_incremental_claim')::jsonb ->> 'runId')::uuid
+       and audit.action = 'directory.sync_failed'
+  ),
+  '98000000-0000-4000-8000-000000000003'::uuid,
+  'takeover audit is attributed to the new active actor'
+);
 select ok(
   exists (
     select 1 from public.feishu_sync_leases lease
@@ -531,7 +615,7 @@ select set_config(
   public.claim_feishu_sync_work(
     'full', null, 'feishu-control-provider', 120,
     (select public_id from public.organizations where slug = 'feishu-control-b'),
-    '98000000-0000-4000-8000-000000000002'
+    '98000000-0000-4000-8000-000000000003'
   )::text,
   true
 );
@@ -727,7 +811,10 @@ reset role;
 -- skip, never evidence that concurrency passed.
 select set_config('test.feishu_dblink_available', 'false', true);
 select set_config('test.feishu_fair_busy', '-1', true);
+select set_config('test.feishu_apply_busy', '-1', true);
+select set_config('test.feishu_apply_probe', 'false', true);
 select set_config('test.feishu_finish_busy', '-1', true);
+select set_config('test.feishu_finish_probe', 'false', true);
 select set_config('test.feishu_lock_a', '{}'::jsonb::text, true);
 select set_config('test.feishu_lock_b', '{}'::jsonb::text, true);
 select set_config('test.feishu_apply', '{}'::jsonb::text, true);
@@ -747,6 +834,11 @@ declare
   v_takeover jsonb;
   v_takeover_retry jsonb;
   v_takeover_proof jsonb;
+  v_drain jsonb;
+  v_connection_name text;
+  v_drain_wait integer;
+  v_worker_pid integer;
+  v_waiting_on_lock boolean;
 begin
   begin
     select namespace.nspname into v_extension_schema
@@ -771,6 +863,8 @@ begin
       into v_status using 'feishu_lock_a', 'dbname=' || current_database();
     execute format('select %I.dblink_connect($1, $2)', v_extension_schema)
       into v_status using 'feishu_lock_b', 'dbname=' || current_database();
+    execute format('select %I.dblink_connect($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_c', 'dbname=' || current_database();
   exception when others then
     perform set_config('test.feishu_dblink_gate', sqlstate, true);
     begin
@@ -783,17 +877,33 @@ begin
         into v_status using 'feishu_lock_b';
     exception when others then null;
     end;
+    begin
+      execute format('select %I.dblink_disconnect($1)', v_extension_schema)
+        into v_status using 'feishu_lock_c';
+    exception when others then null;
+    end;
     return;
   end;
 
   perform set_config('test.feishu_dblink_available', 'true', true);
   begin
+    foreach v_connection_name in array array['feishu_lock_a', 'feishu_lock_b', 'feishu_lock_c'] loop
+      execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+        into v_status using v_connection_name, 'set statement_timeout = ''5s''';
+      execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+        into v_status using v_connection_name, 'set lock_timeout = ''1s''';
+    end loop;
+    execute format(
+      'select pid from %I.dblink($1, $2) as remote(pid integer)',
+      v_extension_schema
+    ) into v_worker_pid using 'feishu_lock_b', 'select pg_backend_pid()';
     execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
       into v_status using 'feishu_lock_a', $seed$
         delete from public.tenants where slug = 'feishu-lock-test';
         delete from auth.users where id in (
           '99000000-0000-4000-8000-000000000001',
-          '99000000-0000-4000-8000-000000000002'
+          '99000000-0000-4000-8000-000000000002',
+          '99000000-0000-4000-8000-000000000003'
         );
         insert into public.tenants (name, slug, status)
           values ('Feishu lock tenant', 'feishu-lock-test', 'active');
@@ -815,7 +925,7 @@ begin
           tenant_id, organization_id, code, name, description, is_system, is_enabled
         )
           select tenant.id, organization.id, 'feishu_lock_manager_' || right(organization.slug, 1), 'Feishu lock manager',
-                 'Feishu lock manager', false, true
+                 'Feishu lock manager', false, organization.slug <> 'feishu-lock-a'
             from public.tenants tenant
             join public.organizations organization on organization.tenant_id = tenant.id
            where tenant.slug = 'feishu-lock-test';
@@ -839,6 +949,12 @@ begin
             '99000000-0000-4000-8000-000000000002', 'authenticated', 'authenticated',
             'feishu-lock-b@example.test', crypt('local-test-password', gen_salt('bf')), now(),
             '{}'::jsonb, '{}'::jsonb, now(), now()
+          ),
+          (
+            '00000000-0000-0000-0000-000000000000',
+            '99000000-0000-4000-8000-000000000003', 'authenticated', 'authenticated',
+            'feishu-lock-recovery@example.test', crypt('local-test-password', gen_salt('bf')), now(),
+            '{}'::jsonb, '{}'::jsonb, now(), now()
           );
         insert into public.organization_members (tenant_id, organization_id, user_id, status)
           select tenant.id, organization.id, actor.user_id, 'active'
@@ -846,7 +962,8 @@ begin
             join public.organizations organization on organization.tenant_id = tenant.id
             join (values
               ('feishu-lock-a', '99000000-0000-4000-8000-000000000001'::uuid),
-              ('feishu-lock-b', '99000000-0000-4000-8000-000000000002'::uuid)
+              ('feishu-lock-b', '99000000-0000-4000-8000-000000000002'::uuid),
+              ('feishu-lock-b', '99000000-0000-4000-8000-000000000003'::uuid)
             ) actor(organization_slug, user_id) on actor.organization_slug = organization.slug
            where tenant.slug = 'feishu-lock-test';
         insert into public.member_roles (tenant_id, member_id, role_id)
@@ -856,24 +973,30 @@ begin
               on role.tenant_id = member.tenant_id and role.organization_id = member.organization_id
            where member.user_id in (
              '99000000-0000-4000-8000-000000000001',
-             '99000000-0000-4000-8000-000000000002'
+             '99000000-0000-4000-8000-000000000002',
+             '99000000-0000-4000-8000-000000000003'
            );
         insert into public.external_identities (
           tenant_id, organization_id, organization_member_id, identity_provider_id,
           provider_subject, provider_tenant_key, provider_match_keys, auth_user_id, status
         )
           select member.tenant_id, member.organization_id, member.id, provider.id,
-                 case when member.user_id = '99000000-0000-4000-8000-000000000001'
-                   then 'open_id:ou-lock-manager-a' else 'open_id:ou-lock-manager-b' end,
+                 case member.user_id
+                   when '99000000-0000-4000-8000-000000000001' then 'open_id:ou-lock-manager-a'
+                   when '99000000-0000-4000-8000-000000000002' then 'open_id:ou-lock-manager-b'
+                   else 'open_id:ou-lock-recovery-b' end,
                  provider.provider_tenant_key,
-                 array[case when member.user_id = '99000000-0000-4000-8000-000000000001'
-                   then 'open_id:ou-lock-manager-a' else 'open_id:ou-lock-manager-b' end],
+                 array[case member.user_id
+                   when '99000000-0000-4000-8000-000000000001' then 'open_id:ou-lock-manager-a'
+                   when '99000000-0000-4000-8000-000000000002' then 'open_id:ou-lock-manager-b'
+                   else 'open_id:ou-lock-recovery-b' end],
                  member.user_id, 'active'
             from public.organization_members member
             join public.identity_providers provider on provider.tenant_id = member.tenant_id
            where member.user_id in (
              '99000000-0000-4000-8000-000000000001',
-             '99000000-0000-4000-8000-000000000002'
+             '99000000-0000-4000-8000-000000000002',
+             '99000000-0000-4000-8000-000000000003'
            );
         insert into public.directory_connections (
           tenant_id, organization_id, identity_provider_id, provider_type,
@@ -887,8 +1010,59 @@ begin
            where tenant.slug = 'feishu-lock-test';
       $seed$;
 
-    -- Session A claims and keeps organization A locked. Session B must skip it
-    -- and return organization B before A commits.
+    -- Organization A has only a disabled-role actor. Pre-lock it as well, then
+    -- prove the unscoped scheduler immediately claims valid organization B.
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_a', 'begin';
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_a', $lock$
+        do $remote$
+        begin
+          perform 1
+            from public.directory_connections connection
+            join public.organizations organization
+              on organization.tenant_id = connection.tenant_id
+             and organization.id = connection.organization_id
+           where organization.public_id = '99000000-0000-4000-8000-000000000011'
+           for update of connection;
+        end
+        $remote$
+      $lock$;
+
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_b', 'begin';
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_b', 'set local role service_role';
+    execute format('select %I.dblink_send_query($1, $2)', v_extension_schema)
+      into v_integer using 'feishu_lock_b', $query$
+        select public.claim_feishu_sync_work(
+          'full', null, 'feishu-lock-provider', 120, null, null
+        )
+      $query$;
+    perform pg_sleep(0.05);
+    execute format('select %I.dblink_is_busy($1)', v_extension_schema)
+      into v_integer using 'feishu_lock_b';
+    perform set_config('test.feishu_fair_busy', v_integer::text, true);
+    if v_integer <> 0 then
+      raise exception 'feishu_fair_claim_blocked' using errcode = '55000';
+    end if;
+    execute format(
+      'select result from %I.dblink_get_result($1) as remote(result jsonb)',
+      v_extension_schema
+    ) into v_claim_b using 'feishu_lock_b';
+    perform set_config('test.feishu_lock_b', v_claim_b::text, true);
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_a', 'rollback';
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_b', 'commit';
+
+    -- Enable A only after fairness is proven, then create the exact run used
+    -- by the independent apply/finish acquisition-order scenarios.
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_a', $enable$
+        update public.roles set is_enabled = true
+         where code = 'feishu_lock_manager_a'
+      $enable$;
     execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
       into v_status using 'feishu_lock_a', 'begin';
     execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
@@ -906,64 +1080,100 @@ begin
       v_extension_schema
     ) into v_claim_a using 'feishu_lock_a';
     perform set_config('test.feishu_lock_a', v_claim_a::text, true);
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_a', 'commit';
 
+    -- Pre-lock the connection, start apply asynchronously, then prove a third
+    -- session can still NOWAIT-lock lease and run: apply is blocked before both.
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_a', 'begin';
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_a', $lock$
+        do $remote$
+        begin
+          perform 1 from public.directory_connections connection
+           where connection.organization_id = (
+             select id from public.organizations
+              where public_id = '99000000-0000-4000-8000-000000000011'
+           )
+           for update of connection;
+        end
+        $remote$
+      $lock$;
     execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
       into v_status using 'feishu_lock_b', 'begin';
     execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
       into v_status using 'feishu_lock_b', 'set local role service_role';
     execute format('select %I.dblink_send_query($1, $2)', v_extension_schema)
-      into v_integer using 'feishu_lock_b', $query$
-        select public.claim_feishu_sync_work(
-          'full', null, 'feishu-lock-provider', 120, null, null
-        )
-      $query$;
-    perform pg_sleep(0.05);
-    execute format('select %I.dblink_is_busy($1)', v_extension_schema)
-      into v_integer using 'feishu_lock_b';
-    perform set_config('test.feishu_fair_busy', v_integer::text, true);
-    if v_integer <> 0 then
-      -- Release the blocker and drain the asynchronous result before the
-      -- fail-closed error enters the common cleanup path.
-      execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
-        into v_status using 'feishu_lock_a', 'rollback';
-      execute format(
-        'select result from %I.dblink_get_result($1) as remote(result jsonb)',
-        v_extension_schema
-      ) into v_claim_b using 'feishu_lock_b';
-      execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
-        into v_status using 'feishu_lock_b', 'rollback';
-      raise exception 'feishu_fair_claim_blocked' using errcode = '55000';
-    end if;
-    execute format(
-      'select result from %I.dblink_get_result($1) as remote(result jsonb)',
-      v_extension_schema
-    ) into v_claim_b using 'feishu_lock_b';
-    perform set_config('test.feishu_lock_b', v_claim_b::text, true);
-    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
-      into v_status using 'feishu_lock_a', 'commit';
-    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
-      into v_status using 'feishu_lock_b', 'commit';
-
-    -- Apply holds connection -> lease -> run. Concurrent finish must wait on
-    -- the same connection-first order and then complete after apply commits.
-    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
-      into v_status using 'feishu_lock_a', 'begin';
-    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
-      into v_status using 'feishu_lock_a', 'set local role service_role';
-    execute format('select %I.dblink_send_query($1, $2)', v_extension_schema)
-      into v_integer using 'feishu_lock_a', format($query$
+      into v_integer using 'feishu_lock_b', format($query$
         select public.apply_feishu_directory_sync_fenced(
           %L::uuid, '99000000-0000-4000-8000-000000000011',
           '99000000-0000-4000-8000-000000000001',
           '{"complete":true,"departments":[],"positions":[],"employees":[]}'::jsonb
         )
       $query$, v_claim_a ->> 'runId');
+    v_drain_wait := 0;
+    v_waiting_on_lock := false;
+    loop
+      select exists (
+        select 1 from pg_catalog.pg_stat_activity activity
+         where activity.pid = v_worker_pid and activity.wait_event_type = 'Lock'
+      ) into v_waiting_on_lock;
+      exit when v_waiting_on_lock or v_drain_wait >= 100;
+      v_drain_wait := v_drain_wait + 1;
+      perform pg_sleep(0.01);
+    end loop;
+    if not v_waiting_on_lock then
+      raise exception 'feishu_apply_not_observed_waiting_on_connection' using errcode = '55000';
+    end if;
+    execute format('select %I.dblink_is_busy($1)', v_extension_schema)
+      into v_integer using 'feishu_lock_b';
+    perform set_config('test.feishu_apply_busy', v_integer::text, true);
+    if v_integer <> 1 then
+      raise exception 'feishu_apply_did_not_wait_on_connection' using errcode = '55000';
+    end if;
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_c', 'begin';
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_c', format($probe$
+        do $remote$
+        begin
+          perform 1 from public.feishu_sync_leases lease
+           where lease.run_id = %L::uuid for update nowait;
+          perform 1 from public.directory_sync_runs run
+           where run.public_id = %L::uuid for update nowait;
+        end
+        $remote$
+      $probe$, v_claim_a ->> 'runId', v_claim_a ->> 'runId');
+    perform set_config('test.feishu_apply_probe', 'true', true);
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_c', 'rollback';
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_a', 'commit';
     execute format(
       'select result from %I.dblink_get_result($1) as remote(result jsonb)',
       v_extension_schema
-    ) into v_apply using 'feishu_lock_a';
+    ) into v_apply using 'feishu_lock_b';
     perform set_config('test.feishu_apply', v_apply::text, true);
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_b', 'commit';
 
+    -- Repeat the same acquisition-order proof for finish after apply committed.
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_a', 'begin';
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_a', $lock$
+        do $remote$
+        begin
+          perform 1 from public.directory_connections connection
+           where connection.organization_id = (
+             select id from public.organizations
+              where public_id = '99000000-0000-4000-8000-000000000011'
+           )
+           for update of connection;
+        end
+        $remote$
+      $lock$;
     execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
       into v_status using 'feishu_lock_b', 'begin';
     execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
@@ -975,23 +1185,42 @@ begin
           '99000000-0000-4000-8000-000000000011'
         )
       $query$, v_claim_a ->> 'runId');
-    perform pg_sleep(0.05);
+    v_drain_wait := 0;
+    v_waiting_on_lock := false;
+    loop
+      select exists (
+        select 1 from pg_catalog.pg_stat_activity activity
+         where activity.pid = v_worker_pid and activity.wait_event_type = 'Lock'
+      ) into v_waiting_on_lock;
+      exit when v_waiting_on_lock or v_drain_wait >= 100;
+      v_drain_wait := v_drain_wait + 1;
+      perform pg_sleep(0.01);
+    end loop;
+    if not v_waiting_on_lock then
+      raise exception 'feishu_finish_not_observed_waiting_on_connection' using errcode = '55000';
+    end if;
     execute format('select %I.dblink_is_busy($1)', v_extension_schema)
       into v_integer using 'feishu_lock_b';
     perform set_config('test.feishu_finish_busy', v_integer::text, true);
     if v_integer <> 1 then
-      -- A completed asynchronous command must be consumed before rollback;
-      -- otherwise cleanup itself can fail with a pending-result error.
-      execute format(
-        'select result from %I.dblink_get_result($1) as remote(result jsonb)',
-        v_extension_schema
-      ) into v_finish using 'feishu_lock_b';
-      execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
-        into v_status using 'feishu_lock_a', 'rollback';
-      execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
-        into v_status using 'feishu_lock_b', 'rollback';
       raise exception 'feishu_finish_did_not_wait' using errcode = '55000';
     end if;
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_c', 'begin';
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_c', format($probe$
+        do $remote$
+        begin
+          perform 1 from public.feishu_sync_leases lease
+           where lease.run_id = %L::uuid for update nowait;
+          perform 1 from public.directory_sync_runs run
+           where run.public_id = %L::uuid for update nowait;
+        end
+        $remote$
+      $probe$, v_claim_a ->> 'runId', v_claim_a ->> 'runId');
+    perform set_config('test.feishu_finish_probe', 'true', true);
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_c', 'rollback';
     execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
       into v_status using 'feishu_lock_a', 'commit';
     execute format(
@@ -1011,6 +1240,23 @@ begin
          where run_id = %L::uuid
       $query$, v_claim_b ->> 'runId');
     execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_a', $revoke$
+        update public.external_identities identity
+           set status = 'revoked', auth_user_id = null
+          from public.organization_members member
+         where member.id = identity.organization_member_id
+           and member.user_id = '99000000-0000-4000-8000-000000000002'::uuid
+           and identity.organization_id = (
+             select id from public.organizations where public_id = '99000000-0000-4000-8000-000000000012'
+           );
+        update public.organization_members
+           set status = 'revoked'
+         where user_id = '99000000-0000-4000-8000-000000000002'::uuid
+           and organization_id = (
+             select id from public.organizations where public_id = '99000000-0000-4000-8000-000000000012'
+           );
+      $revoke$;
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
       into v_status using 'feishu_lock_a', 'begin';
     execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
       into v_status using 'feishu_lock_a', 'set local role service_role';
@@ -1019,7 +1265,7 @@ begin
         select public.claim_feishu_sync_work(
           'full', null, 'feishu-lock-provider', 120,
           '99000000-0000-4000-8000-000000000012',
-          '99000000-0000-4000-8000-000000000002'
+          '99000000-0000-4000-8000-000000000003'
         )
       $query$;
     execute format(
@@ -1039,7 +1285,7 @@ begin
         select public.claim_feishu_sync_work(
           'full', null, 'feishu-lock-provider', 120,
           '99000000-0000-4000-8000-000000000012',
-          '99000000-0000-4000-8000-000000000002'
+          '99000000-0000-4000-8000-000000000003'
         )
       $query$;
     execute format(
@@ -1063,12 +1309,25 @@ begin
            where request_id = %L::uuid and action = 'directory.sync_failed'
              and metadata ->> 'code' = 'lease_expired_superseded'
         ),
+        'auditActor', (
+          select actor_auth_user_id from public.audit_logs
+           where request_id = %L::uuid and action = 'directory.sync_failed'
+             and metadata ->> 'code' = 'lease_expired_superseded'
+        ),
+        'oldActorStatus', (
+          select member.status
+            from public.organization_members member
+            join public.organizations organization on organization.id = member.organization_id
+           where member.user_id = '99000000-0000-4000-8000-000000000002'::uuid
+             and organization.public_id = '99000000-0000-4000-8000-000000000012'
+        ),
         'leaseRunId', (select run_id from public.feishu_sync_leases where run_id = %L::uuid),
         'leaseAttempt', (select attempt from public.feishu_sync_leases where run_id = %L::uuid)
       )
     $query$,
       v_claim_b ->> 'runId', v_claim_b ->> 'runId', v_claim_b ->> 'runId',
-      v_claim_b ->> 'runId', v_takeover ->> 'runId', v_takeover ->> 'runId');
+      v_claim_b ->> 'runId', v_claim_b ->> 'runId',
+      v_takeover ->> 'runId', v_takeover ->> 'runId');
     perform set_config('test.feishu_takeover_proof', v_takeover_proof::text, true);
 
     execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
@@ -1076,45 +1335,74 @@ begin
         delete from public.tenants where slug = 'feishu-lock-test';
         delete from auth.users where id in (
           '99000000-0000-4000-8000-000000000001',
-          '99000000-0000-4000-8000-000000000002'
+          '99000000-0000-4000-8000-000000000002',
+          '99000000-0000-4000-8000-000000000003'
         );
       $cleanup$;
     execute format('select %I.dblink_disconnect($1)', v_extension_schema)
       into v_status using 'feishu_lock_a';
     execute format('select %I.dblink_disconnect($1)', v_extension_schema)
       into v_status using 'feishu_lock_b';
+    execute format('select %I.dblink_disconnect($1)', v_extension_schema)
+      into v_status using 'feishu_lock_c';
   exception when others then
-    begin
-      execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
-        into v_status using 'feishu_lock_a', 'rollback';
-    exception when others then null;
-    end;
-    begin
-      execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
-        into v_status using 'feishu_lock_b', 'rollback';
-    exception when others then null;
-    end;
+    -- Once the capability gate has passed, every behavior failure is fatal.
+    -- First cancel and drain any outstanding async result so cleanup itself
+    -- cannot block behind the scenario that just failed.
+    foreach v_connection_name in array array['feishu_lock_a', 'feishu_lock_b', 'feishu_lock_c'] loop
+      begin
+        execute format('select %I.dblink_cancel_query($1)', v_extension_schema)
+          into v_status using v_connection_name;
+      exception when others then null;
+      end;
+    end loop;
+    foreach v_connection_name in array array['feishu_lock_a', 'feishu_lock_b', 'feishu_lock_c'] loop
+      v_drain_wait := 0;
+      loop
+        begin
+          execute format('select %I.dblink_is_busy($1)', v_extension_schema)
+            into v_integer using v_connection_name;
+        exception when others then
+          v_integer := 0;
+        end;
+        exit when v_integer = 0 or v_drain_wait >= 100;
+        v_drain_wait := v_drain_wait + 1;
+        perform pg_sleep(0.01);
+      end loop;
+      begin
+        execute format(
+          'select result from %I.dblink_get_result($1) as remote(result jsonb)',
+          v_extension_schema
+        ) into v_drain using v_connection_name;
+      exception when others then null;
+      end;
+    end loop;
+    foreach v_connection_name in array array['feishu_lock_a', 'feishu_lock_b', 'feishu_lock_c'] loop
+      begin
+        execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+          into v_status using v_connection_name, 'rollback';
+      exception when others then null;
+      end;
+    end loop;
     begin
       execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
         into v_status using 'feishu_lock_a', $cleanup$
           delete from public.tenants where slug = 'feishu-lock-test';
           delete from auth.users where id in (
             '99000000-0000-4000-8000-000000000001',
-            '99000000-0000-4000-8000-000000000002'
+            '99000000-0000-4000-8000-000000000002',
+            '99000000-0000-4000-8000-000000000003'
           );
         $cleanup$;
     exception when others then null;
     end;
-    begin
-      execute format('select %I.dblink_disconnect($1)', v_extension_schema)
-        into v_status using 'feishu_lock_a';
-    exception when others then null;
-    end;
-    begin
-      execute format('select %I.dblink_disconnect($1)', v_extension_schema)
-        into v_status using 'feishu_lock_b';
-    exception when others then null;
-    end;
+    foreach v_connection_name in array array['feishu_lock_a', 'feishu_lock_b', 'feishu_lock_c'] loop
+      begin
+        execute format('select %I.dblink_disconnect($1)', v_extension_schema)
+          into v_status using v_connection_name;
+      exception when others then null;
+      end;
+    end loop;
     raise;
   end;
 end;
@@ -1136,8 +1424,20 @@ select case when current_setting('test.feishu_dblink_available') = 'true'
   else ok(true, 'unscoped live organization proof # SKIP dblink extension or local connection unavailable')
 end;
 select case when current_setting('test.feishu_dblink_available') = 'true'
+  then is(current_setting('test.feishu_lock_b')::jsonb ->> 'actorAuthUserId', '99000000-0000-4000-8000-000000000002', 'unscoped live session skips disabled-role A and selects the valid B actor')
+  else ok(true, 'unscoped live actor proof # SKIP dblink extension or local connection unavailable')
+end;
+select case when current_setting('test.feishu_dblink_available') = 'true'
   then isnt(current_setting('test.feishu_lock_b')::jsonb ->> 'runId', current_setting('test.feishu_lock_a')::jsonb ->> 'runId', 'fair live claims create distinct exact-connection runs')
   else ok(true, 'fair live distinct-run proof # SKIP dblink extension or local connection unavailable')
+end;
+select case when current_setting('test.feishu_dblink_available') = 'true'
+  then is(current_setting('test.feishu_apply_busy')::integer, 1, 'apply waits behind the pre-locked connection')
+  else ok(true, 'live apply connection-first wait proof # SKIP dblink extension or local connection unavailable')
+end;
+select case when current_setting('test.feishu_dblink_available') = 'true'
+  then is(current_setting('test.feishu_apply_probe')::boolean, true, 'apply leaves lease and run unlocked while waiting for the connection')
+  else ok(true, 'live apply lock-order probe # SKIP dblink extension or local connection unavailable')
 end;
 select case when current_setting('test.feishu_dblink_available') = 'true'
   then is(current_setting('test.feishu_apply')::jsonb ->> 'status', 'completed', 'live fenced apply completes before finish overlap releases')
@@ -1146,6 +1446,10 @@ end;
 select case when current_setting('test.feishu_dblink_available') = 'true'
   then is(current_setting('test.feishu_finish_busy')::integer, 1, 'finish waits behind the apply connection-first lock')
   else ok(true, 'live apply finish lock proof # SKIP dblink extension or local connection unavailable')
+end;
+select case when current_setting('test.feishu_dblink_available') = 'true'
+  then is(current_setting('test.feishu_finish_probe')::boolean, true, 'finish leaves lease and run unlocked while waiting for the connection')
+  else ok(true, 'live finish lock-order probe # SKIP dblink extension or local connection unavailable')
 end;
 select case when current_setting('test.feishu_dblink_available') = 'true'
   then is(current_setting('test.feishu_finish')::jsonb ->> 'status', 'completed', 'waiting finish completes after live apply commits')
@@ -1176,6 +1480,14 @@ select case when current_setting('test.feishu_dblink_available') = 'true'
     'live takeover owns one replacement lease and one old-run terminal audit'
   )
   else ok(true, 'live takeover durable proof # SKIP dblink extension or local connection unavailable')
+end;
+select case when current_setting('test.feishu_dblink_available') = 'true'
+  then ok(
+    current_setting('test.feishu_takeover_proof')::jsonb ->> 'oldActorStatus' = 'revoked'
+    and current_setting('test.feishu_takeover_proof')::jsonb ->> 'auditActor' = '99000000-0000-4000-8000-000000000003',
+    'live takeover succeeds after old actor revocation and audits the new active actor'
+  )
+  else ok(true, 'live takeover actor proof # SKIP dblink extension or local connection unavailable')
 end;
 select case when current_setting('test.feishu_dblink_available') = 'true'
   then is(current_setting('test.feishu_takeover_retry')::jsonb ->> 'reason', 'active_lease', 'lost-response live retry observes replacement active lease')

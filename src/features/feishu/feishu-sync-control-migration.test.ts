@@ -135,7 +135,12 @@ describe("Feishu synchronization control migration", () => {
       expect(block).toContain("role.is_enabled");
       expect(block).toContain("role.organization_id is null");
     }
-    expect(claim.match(/join public\.roles role/g)).toHaveLength(2);
+    expect(claim.match(/join public\.roles role/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(claim.indexOf("if p_actor_auth_user_id is not null")).toBeLessThan(claim.indexOf("'reason', 'active_lease'"));
+    const lockedExactActorStart = claim.lastIndexOf("if p_actor_auth_user_id is not null");
+    const lockedExactActor = claim.slice(lockedExactActorStart, claim.indexOf("  else\n    select member.user_id", lockedExactActorStart));
+    expect(lockedExactActor).toContain("identity.identity_provider_id = v_connection.identity_provider_id");
+    expect(lockedExactActor).toContain("identity.provider_tenant_key = p_provider_tenant_key");
     expect(finalPolicies.match(/join public\.roles role/g)).toHaveLength(6);
     expect(finalPolicies.match(/role\.is_enabled/g)).toHaveLength(6);
     expect(finalPolicies.match(/role\.organization_id is null/g)).toHaveLength(6);
@@ -214,6 +219,28 @@ describe("Feishu synchronization control migration", () => {
     expect(claim).toContain("'code', 'lease_expired_superseded'");
     expect(claim).toContain("'supersededbyrunid', v_run_id");
     expect(claim).toContain("'directory.sync_failed'");
+    expect(claim).toMatch(/perform public\.append_audit_log\([\s\S]*?v_connection\.tenant_id, v_connection\.organization_id,[\s\S]*?v_actor, v_actor_member_id,[\s\S]*?'directory\.sync_failed'/);
+    expect(claim).not.toMatch(/v_lease\.actor_auth_user_id, v_superseded_run\.actor_member_id,[\s\S]*?'directory\.sync_failed'/);
+  });
+
+  it("filters unscoped candidates by a real scheduled manager and revalidates after locking", () => {
+    const sql = migration();
+    const claimStart = sql.lastIndexOf("create function public.claim_feishu_sync_work(");
+    const claim = sql.slice(claimStart, sql.indexOf("create or replace function public.heartbeat_feishu_sync_work", claimStart));
+    const candidate = claim.slice(claim.indexOf("loop"), claim.indexOf("for update of connection skip locked") + "for update of connection skip locked".length);
+    const postLock = claim.slice(claim.indexOf("for update of run"), claim.indexOf("v_run_id := gen_random_uuid()"));
+
+    expect(candidate).toContain("join public.external_identities candidate_identity");
+    expect(candidate).toContain("from public.organization_members candidate_member");
+    expect(candidate).toContain("join public.roles candidate_role");
+    expect(candidate).toContain("candidate_identity.status = 'active'");
+    expect(candidate).toContain("candidate_identity.provider_tenant_key = p_provider_tenant_key");
+    expect(candidate).toContain("candidate_member.status = 'active'");
+    expect(candidate).toContain("candidate_role.is_enabled");
+    expect(candidate).toContain("candidate_role.organization_id is null");
+    expect(candidate).toContain("candidate_permission.code = 'organization.manage'");
+    expect(postLock).toContain("for share of member, identity, assignment, role, rp");
+    expect(claim).toContain("'reason', 'actorless'");
   });
 
   it("keeps live fairness, lock-overlap and takeover proofs capability-gated but fail-closed", () => {
@@ -228,7 +255,16 @@ describe("Feishu synchronization control migration", () => {
     expect(pgTap).toContain("expired live lease terminalizes its old run");
     expect(pgTap).toContain("raise;");
     expect(pgTap).toContain("# skip dblink extension or local connection unavailable");
-    expect(pgTap).toMatch(/if v_integer <> 0 then[\s\S]*?'feishu_lock_a', 'rollback'[\s\S]*?dblink_get_result[\s\S]*?'feishu_lock_b', 'rollback'[\s\S]*?raise exception 'feishu_fair_claim_blocked'/);
-    expect(pgTap).toMatch(/if v_integer <> 1 then[\s\S]*?dblink_get_result[\s\S]*?'feishu_lock_a', 'rollback'[\s\S]*?'feishu_lock_b', 'rollback'[\s\S]*?raise exception 'feishu_finish_did_not_wait'/);
+    expect(pgTap).toContain("feishu_lock_c");
+    expect(pgTap).toContain("set statement_timeout = ''5s''");
+    expect(pgTap).toContain("set lock_timeout = ''1s''");
+    expect(pgTap).toContain("dblink_cancel_query");
+    expect(pgTap).toMatch(/dblink_cancel_query[\s\S]*?dblink_get_result[\s\S]*?'rollback'[\s\S]*?dblink_disconnect[\s\S]*?raise;/);
+    expect(pgTap).toContain("test.feishu_apply_probe");
+    expect(pgTap).toContain("test.feishu_finish_probe");
+    expect(pgTap).toContain("wait_event_type = 'lock'");
+    expect(pgTap).toContain("for update nowait");
+    expect(pgTap).toContain("old takeover actor is revoked before recovery");
+    expect(pgTap).toContain("takeover audit is attributed to the new active actor");
   });
 });
