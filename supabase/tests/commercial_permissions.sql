@@ -1,6 +1,6 @@
 begin;
 
-select plan(32);
+select plan(37);
 
 select is(
   (
@@ -446,13 +446,91 @@ select is(
   'disabled role holds the commercial permission before workspace aggregation'
 );
 
+insert into public.organizations (tenant_id, name, slug)
+select tenant.id, 'Commercial secondary organization', 'commercial-baseline-org-secondary'
+from public.tenants tenant
+where tenant.slug = 'commercial-baseline-test';
+
+insert into public.roles (
+  tenant_id, organization_id, code, name, description, is_system, is_enabled
+)
+select tenant.id, organization.id, seed.code, seed.name, seed.description, false, true
+from public.tenants tenant
+join public.organizations organization on organization.tenant_id = tenant.id
+cross join (values
+  ('same_org_reviewer', 'Same organization reviewer', 'Scoped role for the member organization'),
+  ('other_org_reviewer', 'Other organization reviewer', 'Scoped role for a different organization')
+) as seed(code, name, description)
+where tenant.slug = 'commercial-baseline-test'
+  and (
+    (organization.slug = 'commercial-baseline-org' and seed.code = 'same_org_reviewer')
+    or (
+      organization.slug = 'commercial-baseline-org-secondary'
+      and seed.code = 'other_org_reviewer'
+    )
+  );
+
+insert into public.role_permissions (tenant_id, role_id, permission_id)
+select tenant.id, role.id, permission.id
+from public.tenants tenant
+join public.roles role
+  on role.tenant_id = tenant.id and role.code = 'same_org_reviewer'
+join public.permissions permission on permission.code = 'approval.submit'
+where tenant.slug = 'commercial-baseline-test';
+
+select lives_ok(
+  $$
+    insert into public.member_roles (tenant_id, member_id, role_id)
+    select tenant.id, member.id, role.id
+    from public.tenants tenant
+    join public.employee_profiles profile
+      on profile.tenant_id = tenant.id and profile.employee_no = 'COM-EMPLOYEE'
+    join public.organization_members member
+      on member.tenant_id = profile.tenant_id and member.id = profile.organization_member_id
+    join public.roles role
+      on role.tenant_id = tenant.id and role.code = 'same_org_reviewer'
+    where tenant.slug = 'commercial-baseline-test'
+  $$,
+  'same-organization scoped role assignment is accepted'
+);
+
+select throws_ok(
+  $$
+    insert into public.member_roles (tenant_id, member_id, role_id)
+    select tenant.id, member.id, role.id
+    from public.tenants tenant
+    join public.employee_profiles profile
+      on profile.tenant_id = tenant.id and profile.employee_no = 'COM-EMPLOYEE'
+    join public.organization_members member
+      on member.tenant_id = profile.tenant_id and member.id = profile.organization_member_id
+    join public.roles role
+      on role.tenant_id = tenant.id and role.code = 'other_org_reviewer'
+    where tenant.slug = 'commercial-baseline-test'
+  $$,
+  '23514',
+  'Member role organization must be global or match the member organization',
+  'cross-organization scoped role assignment is rejected'
+);
+
 select set_config(
   'request.jwt.claim.sub', '22000000-0000-4000-8000-000000000001', true
 );
 
 select ok(
   (public.current_workspace_access() -> 'permissionCodes') ? 'task.manage',
-  'current workspace access keeps permissions from the enabled employee role'
+  'current workspace access keeps permissions from the enabled global employee role'
+);
+select ok(
+  (public.current_workspace_access() -> 'roleCodes') ? 'employee',
+  'current workspace access includes an assigned global role'
+);
+select ok(
+  (public.current_workspace_access() -> 'roleCodes') ? 'same_org_reviewer',
+  'current workspace access includes an assigned same-organization role'
+);
+select ok(
+  (public.current_workspace_access() -> 'permissionCodes') ? 'approval.submit',
+  'current workspace access includes permissions from an assigned same-organization role'
 );
 select ok(
   not ((public.current_workspace_access() -> 'permissionCodes') ? 'agent.orchestrate'),

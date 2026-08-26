@@ -277,15 +277,42 @@ describe("parseWorkspaceAccess", () => {
     ).toBe("https://cdn.example.test/avatar.png");
   });
 
+  it("keeps a bounded custom membership role without letting it become the primary role", () => {
+    const session = parseWorkspaceAccess({
+      ...base,
+      roleCodes: ["employee", "project_observer"],
+    });
+
+    expect(session).toMatchObject({
+      roleCodes: ["employee", "project_observer"],
+      primaryRole: "employee",
+      landingPath: "/execution",
+    });
+  });
+
   it.each([
     ["admin-only", ["admin"]],
-    ["unknown", ["superuser"]],
-    ["mixed known and unknown", ["employee", "superuser"]],
+    ["unknown-only", ["superuser"]],
     ["duplicate", ["employee", "employee"]],
     ["wrong item type", ["employee", 7]],
     ["not an array", "employee"],
   ])("rejects %s role codes", (_label, roleCodes) => {
     expect(parseWorkspaceAccess({ ...base, roleCodes })).toBeNull();
+  });
+
+  it.each([
+    ["empty", ""],
+    ["uppercase", "Project_observer"],
+    ["whitespace", "project observer"],
+    ["punctuation", "project-observer"],
+    ["too long", `r${"x".repeat(64)}`],
+  ])("rejects malformed custom membership role codes: %s", (_label, roleCode) => {
+    expect(
+      parseWorkspaceAccess({
+        ...base,
+        roleCodes: ["employee", roleCode],
+      }),
+    ).toBeNull();
   });
 
   it.each([

@@ -1,8 +1,10 @@
 import type {
+  CustomWorkspaceRoleCode,
   DatabaseRoleCode,
   WorkspaceActor,
   WorkspacePermissionCode,
   WorkspaceRole,
+  WorkspaceRoleCode,
   WorkspaceSession,
 } from "@/features/auth/workspace-session-types";
 
@@ -87,6 +89,7 @@ const UUID_PATTERN =
   /^(?!00000000-0000-0000-0000-000000000000$)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
 const SALARY_GRADE_PATTERN = /^[A-Z][A-Z0-9]{1,11}$/;
+const CUSTOM_WORKSPACE_ROLE_CODE_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
 
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -121,6 +124,30 @@ function enumArray<T extends string>(
     if (seen.has(parsedItem)) return null;
     seen.add(parsedItem);
     parsed.push(parsedItem);
+  }
+  return parsed;
+}
+
+function workspaceRoleCodeArray(value: unknown): WorkspaceRoleCode[] | null {
+  if (!Array.isArray(value)) return null;
+
+  const parsed: WorkspaceRoleCode[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (
+      !nonEmptyText(item)
+      || seen.has(item)
+      || (!databaseRoles.has(item as DatabaseRoleCode)
+        && !CUSTOM_WORKSPACE_ROLE_CODE_PATTERN.test(item))
+    ) {
+      return null;
+    }
+    seen.add(item);
+    parsed.push(
+      databaseRoles.has(item as DatabaseRoleCode)
+        ? item as DatabaseRoleCode
+        : item as CustomWorkspaceRoleCode,
+    );
   }
   return parsed;
 }
@@ -192,7 +219,7 @@ export function parseWorkspaceAccess(value: unknown): WorkspaceSession | null {
     return null;
   }
 
-  const roleCodes = enumArray(raw.roleCodes, databaseRoles);
+  const roleCodes = workspaceRoleCodeArray(raw.roleCodes);
   const permissionCodes = enumArray(raw.permissionCodes, workspacePermissions);
   const skills = skillArray(raw.skills);
   const salaryGradeCode = optionalSalaryGradeCode(raw.salaryGradeCode);

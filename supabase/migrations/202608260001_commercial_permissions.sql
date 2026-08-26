@@ -158,6 +158,54 @@ where public.is_commercial_baseline_system_role(
   role.is_system, role.is_enabled, role.organization_id, role.code
 );
 
+create or replace function public.enforce_member_role_organization_compatibility()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_member_organization_id bigint;
+  v_role_organization_id bigint;
+begin
+  select member.organization_id
+  into v_member_organization_id
+  from public.organization_members member
+  where member.tenant_id = new.tenant_id
+    and member.id = new.member_id
+  for share;
+  if not found then
+    return new;
+  end if;
+
+  select role.organization_id
+  into v_role_organization_id
+  from public.roles role
+  where role.tenant_id = new.tenant_id
+    and role.id = new.role_id
+  for share;
+  if not found then
+    return new;
+  end if;
+
+  if v_role_organization_id is not null
+     and v_role_organization_id is distinct from v_member_organization_id then
+    raise exception 'Member role organization must be global or match the member organization'
+      using errcode = '23514';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.enforce_member_role_organization_compatibility()
+  from public, anon, authenticated;
+
+drop trigger if exists member_roles_organization_compatibility on public.member_roles;
+create trigger member_roles_organization_compatibility
+before insert or update of tenant_id, member_id, role_id on public.member_roles
+for each row execute function public.enforce_member_role_organization_compatibility();
+
 create or replace function public.current_workspace_access()
 returns jsonb
 language sql
@@ -185,26 +233,28 @@ as $$
     'authProvider', provider.auth_provider,
     'providerSubject', external.provider_subject,
     'roleCodes', coalesce((
-      select array_agg(distinct role.code)
+      select array_agg(distinct r.code)
       from public.member_roles assignment
-      join public.roles role
-        on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
+      join public.roles r
+        on r.tenant_id = assignment.tenant_id and r.id = assignment.role_id
       where assignment.tenant_id = member.tenant_id
         and assignment.member_id = member.id
-        and role.is_enabled
+        and r.is_enabled
+        and (r.organization_id is null or r.organization_id = member.organization_id)
     ), '{}'::text[]),
     'permissionCodes', coalesce((
       select array_agg(distinct permission.code)
       from public.member_roles assignment
-      join public.roles role
-        on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
+      join public.roles r
+        on r.tenant_id = assignment.tenant_id and r.id = assignment.role_id
       join public.role_permissions role_permission
         on role_permission.tenant_id = assignment.tenant_id
        and role_permission.role_id = assignment.role_id
       join public.permissions permission on permission.id = role_permission.permission_id
       where assignment.tenant_id = member.tenant_id
         and assignment.member_id = member.id
-        and role.is_enabled
+        and r.is_enabled
+        and (r.organization_id is null or r.organization_id = member.organization_id)
     ), '{}'::text[])
   )
   from public.external_identities external
