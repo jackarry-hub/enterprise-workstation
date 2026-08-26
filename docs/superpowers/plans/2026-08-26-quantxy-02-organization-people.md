@@ -20,7 +20,51 @@
 
 ---
 
-### Task 1: Split public directory data from private employee PII
+### Task 1: Establish the shared fail-closed environment and database command guard
+
+**Files:**
+- Create: `scripts/environment-guard.mjs`
+- Create: `scripts/environment-guard.test.mjs`
+- Create: `scripts/db-command-runner.mjs`
+- Create: `scripts/db-command-runner.test.mjs`
+- Modify: `package.json`
+
+**Interfaces:**
+- Produces `assertSafeDatabaseTarget({ command, environment, databaseUrl }): EnvironmentFingerprint`; `unknown`, `internal` and `production` always throw `environment_mutation_forbidden` before opening a DB connection.
+- Produces exactly `db:reset:test`, `db:migrate:dry-run`, `db:test`, `db:seed:validate`, `db:rollback:test`; Local/CI-Test may mutate only their isolated target, while Staging accepts only its explicit non-destructive validation context.
+
+- [ ] **Step 1: Write failing fail-closed command tests**
+
+```js
+await assert.rejects(() => runDbCommand({ command: "db:reset:test", environment: "unknown" }), /environment_mutation_forbidden/);
+await assert.rejects(() => runDbCommand({ command: "db:test", environment: "production" }), /environment_mutation_forbidden/);
+await assert.rejects(() => runDbCommand({ command: "db:seed:validate", environment: "internal" }), /environment_mutation_forbidden/);
+```
+
+- [ ] **Step 2: Verify RED**
+
+Run: `node --test scripts/environment-guard.test.mjs scripts/db-command-runner.test.mjs`
+Expected: the common guard and safe named commands do not exist.
+
+- [ ] **Step 3: Implement the one shared guard and package commands**
+
+Parse an explicit environment marker plus URL/host fingerprint. Reject unknown, Internal and Customer Production before invoking Supabase/PostgreSQL tools; do not infer safety from a name alone. Permit only isolated Local/CI-Test reset/seed/rollback and an explicitly non-mutating Staging dry run. All later plans consume these commands and must not create another environment guard.
+
+- [ ] **Step 4: Verify GREEN**
+
+Run: `node --test scripts/environment-guard.test.mjs scripts/db-command-runner.test.mjs`
+Run: `npm run db:migrate:dry-run`
+Run: `npm run db:test`
+Expected: safe Local/CI-Test commands work; unknown/Internal/Production hard-fail before mutation.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add scripts/environment-guard.mjs scripts/environment-guard.test.mjs scripts/db-command-runner.mjs scripts/db-command-runner.test.mjs package.json
+git commit -m "test: add fail-closed database command guard"
+```
+
+### Task 2: Split public directory data from private employee PII
 
 **Files:**
 - Create: `supabase/migrations/202608260005_employee_private_profiles.sql`
@@ -64,7 +108,7 @@ git add supabase/migrations/202608260005_employee_private_profiles.sql supabase/
 git commit -m "security: isolate employee private profiles"
 ```
 
-### Task 2: Make Feishu directory synchronization fail closed and observable
+### Task 3: Make Feishu directory synchronization fail closed and observable
 
 **Files:**
 - Modify: `src/features/feishu/directory-sync.test.ts`
@@ -105,7 +149,7 @@ git add src/features/feishu/directory-sync.test.ts src/features/feishu/directory
 git commit -m "fix: make directory synchronization fail closed"
 ```
 
-### Task 3: Add department, position, and role commands
+### Task 4: Add department, position, and role commands
 
 **Files:**
 - Create: `supabase/migrations/202608260006_organization_commands.sql`
@@ -150,7 +194,7 @@ git add supabase/migrations/202608260006_organization_commands.sql supabase/test
 git commit -m "feat: add audited organization commands"
 ```
 
-### Task 4: Secure work-profile updates and add skill verification
+### Task 5: Secure work-profile updates and add skill verification
 
 **Files:**
 - Modify: `src/app/api/workstation/work-profile/handler.test.ts`
@@ -194,7 +238,7 @@ git add src/app/api/workstation/work-profile/handler.test.ts src/app/api/worksta
 git commit -m "feat: secure profiles and verify employee skills"
 ```
 
-### Task 5: Replace the Next people empty shell with real responsive pages
+### Task 6: Replace the Next people empty shell with real responsive pages
 
 **Files:**
 - Modify: `src/app/(workspace)/people/page.tsx`
@@ -206,7 +250,7 @@ git commit -m "feat: secure profiles and verify employee skills"
 - Modify: `tests/e2e/people.spec.ts`
 
 **Interfaces:**
-- Consumes public/private repositories and organization commands from Tasks 1-4.
+- Consumes public/private repositories and organization commands from Tasks 2-5; Task8 extends this UI with manager/supervisor capabilities and cross-department E2E coverage.
 - Produces server-backed list/detail UI with desktop table and mobile cards.
 
 - [ ] **Step 1: Write failing real-session rendering tests**
@@ -240,20 +284,26 @@ git add 'src/app/(workspace)/people/page.tsx' src/features/hr/people-workspace.t
 git commit -m "feat: connect the people workspace to real data"
 ```
 
-### Task 6: Complete Feishu OAuth and resilient directory synchronization
+### Task 7: Complete Feishu OAuth and resilient directory synchronization
 
 **Files:**
 - Create: `supabase/migrations/202608260034_feishu_sync_control.sql`
 - Create: `supabase/tests/feishu_sync_control.sql`
-- Create: `src/features/feishu/oauth-handler.ts`
+- Modify: `src/app/auth/login/feishu/handler.ts`
+- Modify: `src/app/auth/login/feishu/route.ts`
+- Modify: `src/app/auth/login/feishu/route.test.ts`
+- Modify: `src/app/auth/callback/route.ts`
+- Modify: `src/app/auth/callback/route.test.ts`
 - Modify: `src/features/feishu/directory-sync.ts`
-- Create: `src/app/api/workstation/feishu/oauth/callback/route.ts`
+- Create: `src/features/feishu/directory-sync-worker.ts`
+- Create: `src/features/feishu/directory-sync-worker.test.ts`
 - Create: `src/app/api/workstation/feishu/webhook/route.ts`
+- Create: `src/app/api/workstation/feishu/webhook/route.test.ts`
 - Create: `src/app/(workspace)/people/sync-issues/page.tsx`
 
 **Interfaces:**
 - Produces `startFeishuFullSync`, `resumeFeishuIncrementalSync(cursor)` and `reconcileFeishuDirectory` with `{ runId, cursor, status, retryAfter }`.
-- Produces signed webhook event persistence keyed by provider event ID, an out-of-order sequence guard, and `revokeDepartedMemberAccess(memberPublicId, eventId)`.
+- Extends the canonical `/auth/login/feishu` and `/auth/callback` flow; produces signed webhook persistence keyed by provider event ID, an out-of-order sequence guard, scheduled reconciliation worker/cron, and `revokeDepartedMemberAccess(memberPublicId, eventId)`.
 
 - [ ] **Step 1: Write failing OAuth, webhook, move/offboarding and reconciliation tests**
 
@@ -265,17 +315,17 @@ expect(await memberAfterOffboarding(event)).toMatchObject({ access: "revoked" })
 
 - [ ] **Step 2: Verify RED**
 
-Run: `npx vitest run src/features/feishu src/app/api/workstation/feishu`
+Run: `npx vitest run src/app/auth/login/feishu src/app/auth/callback src/features/feishu src/app/api/workstation/feishu`
 Run: `npm run db:test`
 Expected: OAuth/webhook control state, conflict UI and revocation path are absent.
 
 - [ ] **Step 3: Implement controlled OAuth and synchronization lifecycle**
 
-Use the isolated environment's Feishu app only. Persist OAuth state/nonce, cursor, attempts, backoff, failures and reconciliation differences; reject invalid signatures, dedupe events, order by provider sequence, reconcile full snapshots, and audit department move, transfer, conflict resolution and immediate departure revoke. Keep Feishu-owned fields read-only while showing a manager-authorized conflict resolution UI.
+Use the isolated environment's Feishu app only. Extend the canonical login/callback routes rather than creating a parallel callback. Persist OAuth state/nonce, cursor, attempts, backoff, failures and reconciliation differences; reject invalid signatures, dedupe events, order by provider sequence, and run scheduled incremental/full reconciliation. Audit department move, transfer, conflict resolution and immediate departure revoke; revoke active Session, refresh token and queued access grants in the same offboarding transaction. Keep Feishu-owned fields read-only while showing a manager-authorized conflict resolution UI.
 
 - [ ] **Step 4: Verify GREEN in Local and authorized Staging**
 
-Run: `npx vitest run src/features/feishu src/app/api/workstation/feishu`
+Run: `npx vitest run src/app/auth/login/feishu src/app/auth/callback src/features/feishu src/app/api/workstation/feishu`
 Run: `npm run db:test`
 Run: `npx playwright test tests/e2e/directory-sync.spec.ts --project=chrome`
 Expected: Local uses synthetic identities through the real adapter/persistence path; Staging verification is blocked pending isolated OAuth/webhook credentials, never production credentials.
@@ -283,6 +333,54 @@ Expected: Local uses synthetic identities through the real adapter/persistence p
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260034_feishu_sync_control.sql supabase/tests/feishu_sync_control.sql src/features/feishu src/app/api/workstation/feishu 'src/app/(workspace)/people/sync-issues/page.tsx' tests/e2e/directory-sync.spec.ts
+git add supabase/migrations/202608260034_feishu_sync_control.sql supabase/tests/feishu_sync_control.sql src/app/auth/login/feishu src/app/auth/callback src/features/feishu src/app/api/workstation/feishu 'src/app/(workspace)/people/sync-issues/page.tsx' tests/e2e/directory-sync.spec.ts
 git commit -m "feat: add resilient Feishu OAuth directory sync"
+```
+
+### Task 8: Add direct-manager mapping and a distinct supervisor scope
+
+**Files:**
+- Create: `supabase/migrations/202608260041_manager_supervisor_scope.sql`
+- Modify: `supabase/tests/organization_commands.sql`
+- Modify: `src/features/auth/workspace-session-types.ts`
+- Modify: `src/features/auth/workspace-access.ts`
+- Create: `src/features/organization/manager-scope-handler.ts`
+- Create: `src/features/organization/manager-scope-handler.test.ts`
+- Create: `src/app/api/workstation/organization/members/[memberId]/manager/route.ts`
+- Modify: `tests/e2e/people.spec.ts`
+
+**Interfaces:**
+- Produces a nullable direct-manager foreign key and `supervisor` role/scope, distinct from `employee`, `department_head`, `hr`, `finance`, `admin` and `owner`.
+- Produces `canReadSupervisorScope(session, memberPublicId)` and audited `assignCurrentMemberManager(memberPublicId, managerPublicId, expectedVersion, requestId)`; RLS enforces direct-report/department scope and rejects cross-department enumeration.
+
+- [ ] **Step 1: Write failing role and cross-department scope tests**
+
+```ts
+expect(await assignManager(crossDepartmentSupervisor)).toMatchObject({ status: 403 });
+expect(await readDirectReport(supervisorSession)).toMatchObject({ status: 200 });
+expect(await readPeerInOtherDepartment(supervisorSession)).toMatchObject({ status: 404 });
+```
+
+- [ ] **Step 2: Verify RED**
+
+Run: `npx vitest run src/features/organization/manager-scope-handler.test.ts src/features/auth/workspace-access.test.ts`
+Run: `npm run db:test`
+Expected: direct-manager mapping and a distinct supervisor scope do not exist.
+
+- [ ] **Step 3: Implement database, session, API and RLS scope**
+
+Add tenant/org-safe manager FK constraints, roles and policies. Map direct manager from Feishu synchronization but retain an audited conflict-safe command. Do not substitute owner/admin for supervisor; API/session capabilities and all queries enforce the declared scope.
+
+- [ ] **Step 4: Verify GREEN**
+
+Run: `npx vitest run src/features/organization src/features/auth`
+Run: `npm run db:test`
+Run: `npx playwright test tests/e2e/people.spec.ts --project=chrome`
+Expected: employee, supervisor, department head, HR, finance, admin and owner behave distinctly; cross-tenant and cross-department reads fail.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add supabase/migrations/202608260041_manager_supervisor_scope.sql supabase/tests/organization_commands.sql src/features/auth src/features/organization src/app/api/workstation/organization/members tests/e2e/people.spec.ts
+git commit -m "feat: add direct manager and supervisor scope"
 ```

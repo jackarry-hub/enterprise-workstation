@@ -48,7 +48,7 @@ Add composite tenant/org foreign keys, directory/member/department/role grants, 
 
 - [ ] **Step 4: Verify GREEN**
 
-Run: `npm run db:reset`
+Run: `npm run db:reset:test`
 Run: `npm run db:test`
 Expected: author/manager/published-reader cases pass; unrelated and cross-tenant reads return zero.
 

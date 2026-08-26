@@ -258,10 +258,24 @@ git commit -m "feat: complete real payroll administration"
 - Modify: `src/features/expenses/expense-command-handler.ts`
 - Create: `src/features/salary/payroll-batch-handler.ts`
 - Create: `src/features/salary/payroll-batch-handler.test.ts`
+- Create: `src/features/approvals/approval-exception-worker.ts`
+- Create: `src/features/approvals/approval-exception-worker.test.ts`
+- Create: `src/features/expenses/finance-review-handler.ts`
+- Create: `src/features/expenses/finance-review-handler.test.ts`
+- Create: `src/app/api/workstation/approvals/[approvalId]/transfer/route.ts`
+- Create: `src/app/api/workstation/approvals/[approvalId]/withdraw/route.ts`
+- Create: `src/app/api/workstation/expenses/[expenseId]/finance-review/route.ts`
+- Create: `src/app/api/workstation/payroll/batches/[batchId]/lock/route.ts`
+- Create: `src/app/api/workstation/payroll/batches/[batchId]/publish/route.ts`
+- Create: `src/app/api/workstation/payroll/batches/[batchId]/unpublish/route.ts`
+- Create: `src/app/api/workstation/payroll/batches/[batchId]/export/route.ts`
+- Create: `src/features/approvals/approval-exception-panel.tsx`
+- Create: `src/features/expenses/finance-review-panel.tsx`
+- Create: `src/features/salary/payroll-batch-panel.tsx`
 
 **Interfaces:**
-- Produces immutable template versions and submission snapshots, basic conditional branches, transfer/withdraw/timeout/departed-approver transitions and idempotent commands.
-- Produces payroll batch `lock|publish|unpublish` commands with immutable payment snapshot, self-only employee read, encrypted/watermarked export and audit.
+- Produces migration/RPCs `transfer_current_approval`, `withdraw_current_approval`, `expire_pending_approvals`, `reassign_departed_approver`, `finance_review_current_expense`, `mark_current_expense_paid`, `lock_current_payroll_batch`, `publish_current_payroll_batch`, `unpublish_current_payroll_batch` and `export_current_payroll_batch`.
+- Produces immutable template versions/submission snapshots/basic conditional branches and payroll `lock|publish|unpublish` UI, worker and APIs with self-only employee read, encrypted/watermarked export and audit.
 
 - [ ] **Step 1: Write failing snapshot, branch, transfer/withdraw/timeout and payroll lifecycle tests**
 
@@ -270,6 +284,8 @@ expect(await submitAgainstEditedTemplate()).toMatchObject({ templateVersion: 2, 
 expect((await transferFromDepartedApprover()).status).toBe(200);
 expect((await publishUnlockedBatch()).status).toBe(422);
 expect(employeeExport).toContain("CONFIDENTIAL");
+expect(await expireAndReassignDepartedApprover()).toMatchObject({ status: "pending", auditAction: "approval.approver_reassigned" });
+expect(await financeReviewAsEmployee()).toMatchObject({ status: 403 });
 ```
 
 - [ ] **Step 2: Verify RED**

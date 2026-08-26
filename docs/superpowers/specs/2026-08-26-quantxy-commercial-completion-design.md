@@ -126,7 +126,7 @@ Browser
   - `analytics.read`
   - `settings.manage`
 - 普通员工只能读取自己的薪资、本人敏感资料、本人参与的审批和被授权的 Agent 输出。
-- HR、Finance、Admin 的范围必须明确，不使用“任何 active member”作为管理权限。
+- 员工、直属主管（supervisor）、部门负责人、HR、Finance、Admin/Owner 的范围必须明确；直属主管由 direct-manager mapping 决定，不使用 Owner 代替，也不使用“任何 active member”作为管理权限。
 
 ### 4.2 数据隔离
 
@@ -175,7 +175,7 @@ Browser
 ### 4.7 迁移与环境保护
 
 - 环境固定为 Local、CI/Test、Staging、Internal、Customer Production，且数据库、Storage、飞书应用和 AI 密钥均隔离；Staging 只使用合成企业数据。
-- `db:reset:test`、DROP、TRUNCATE 与测试 seed 必须先识别环境；一旦识别为 Internal 或 Customer Production 必须硬失败。
+- 在 Plan02 首个可执行任务中建立唯一共享的 fail-closed environment/DB command guard；`db:reset:test`、DROP、TRUNCATE 与测试 seed 必须先识别环境，unknown、Internal 或 Customer Production 一律在建立连接前硬失败。后续计划只能消费该 guard，不能另建绕过或重复实现。
 - 正式库只允许评审后的前向迁移。新增字段先允许 NULL 或提供安全默认值；回填必须可重复、可中断、分批、可观测，并有迁移前备份、dry run、数量/完整性验证和 rollback 或 forward-repair 方案。
 - 所有迁移先在 Local 和 Staging 验证；未经明确授权不得在 Internal 或 Customer Production 执行。
 
@@ -467,7 +467,7 @@ Agent 运行必须执行工具/数据白名单、单次 Token/费用预算、最
 - 验收容量为约 100 名员工、50 名同时活跃用户、20 个并发业务写入、10 个并发 AI/Agent 排队任务；目标负载下非 AI API P95 `<=800ms`、主要移动流程 P95 可交互 `<=3s`、非 AI API 错误率 `<0.5%`。
 - 初期 RPO `<=24h`、RTO `<=4h`；Internal 试用前必须完成一次备份恢复演练。AI 不可用时项目、任务、CRM 和审批仍可使用。
 - 适用门禁依次运行 `npm run test:unit`、`npm run test:coverage`、`npm run typecheck`、`npm run lint`、`npm run build`、`npm run test:security`、`npm run test:rls`、`npm run test:e2e`、`npm audit --omit=dev`、`git diff --check`；仅在需验证干净安装时运行 `npm ci`。
-- 数据库门禁为 `npm run db:reset:test`、`npm run db:migrate:dry-run`、`npm run db:test`、`npm run db:seed:validate`、`npm run db:rollback:test`。最终 `npm run verify:commercial` 必须覆盖 clean install、生产 build、unit/coverage、pgTAP/RLS 拒绝、集成、桌面/移动 E2E、a11y、依赖/secret scan、迁移 dry-run、负载阈值、备份恢复证据、Staging smoke 与 release artifact manifest。
+- 数据库门禁为 `npm run db:reset:test`、`npm run db:migrate:dry-run`、`npm run db:test`、`npm run db:seed:validate`、`npm run db:rollback:test`。`verify:commercial:local` 覆盖 clean install、typecheck、lint、生产 build、unit/coverage、pgTAP/RLS 拒绝、集成、桌面/模拟移动 E2E、a11y、依赖/secret scan、迁移 dry-run 与负载 harness；授权的 `verify:commercial:staging` 覆盖 Staging smoke、OAuth/Webhook、Storage、安全、备份恢复、canary 与真机。最终 `verify:commercial` 必须验证与候选 commit 匹配的签名/哈希证据、RPO/RTO 和 release artifact manifest；缺少 Staging/恢复/canary/真机证据时必须 BLOCKED。
 
 ## 10. 迁移与发布策略
 
@@ -502,7 +502,7 @@ Agent 运行必须执行工具/数据白名单、单次 Token/费用预算、最
 - 单元、HTML、类型、lint、build、数据库、API 集成和浏览器 E2E 全部通过。
 - 飞书、DeepSeek、Storage 在 Staging 有真实成功与失败证据。
 - 备份恢复演练、告警、日志脱敏和安全配置有书面证据。
-- fused 正式入口已下线。
+- fused 正式入口只在功能对等、数据验证、Staging canary、可验证回滚和明确授权均有签名/哈希证据后下线；缺任何一项则保留迁移资产并处于 BLOCKED。
 - 桌面端与移动 PWA 在目标视口、真实设备、性能和可访问性门禁中通过。
 - 用户明确批准生产发布。
 

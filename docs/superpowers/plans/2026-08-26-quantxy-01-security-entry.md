@@ -313,3 +313,9 @@ Expected: all commands exit 0.
 git add src/features/commercial/module-capabilities.ts src/features/commercial/module-capabilities.test.ts src/features/auth/server-route-access.ts src/features/auth/server-route-access.test.ts 'src/app/(workspace)/layout.tsx' src/config/navigation.ts src/features/operations/role-access.ts src/middleware.ts
 git commit -m "feat: centralize commercial module access"
 ```
+
+## Completed Task Appendix (authoritative execution status)
+
+Tasks 1-6 and every checklist step in those tasks are complete and independently reviewed at implementation HEAD `5467c97`. Their historical unchecked boxes are retained only as the original implementation record; they are not an execution queue and must not be rerun or rewritten. This appendix is the authoritative completion marker for Plan01.
+
+Plan01 completion does **not** open Internal or Customer Production release gates. Plan10 still owns the remaining environment-command verification, migration safety, security/performance/recovery evidence, Staging canary and explicit-authorized retirement/release decisions.

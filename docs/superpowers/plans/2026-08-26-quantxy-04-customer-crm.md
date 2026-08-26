@@ -50,7 +50,7 @@ Use composite tenant/org foreign keys, soft archive timestamps, decimal opportun
 
 - [ ] **Step 4: Verify GREEN**
 
-Run: `npm run db:reset`
+Run: `npm run db:reset:test`
 Run: `npm run db:test`
 Expected: cross-tenant reads return zero, duplicate normalized customer fails, direct writes are denied.
 
@@ -209,8 +209,12 @@ git commit -m "feat: connect customer CRM to real data"
 - Create: `src/features/customers/crm-import-export-handler.test.ts`
 - Create: `src/app/api/workstation/customers/import/route.ts`
 - Create: `src/app/api/workstation/customers/export/route.ts`
+- Create: `src/app/api/workstation/customers/[customerId]/contracts/route.ts`
+- Create: `src/app/api/workstation/customers/[customerId]/source-links/route.ts`
+- Modify: `src/features/customers/components/customer-detail-dialog.tsx`
 
 **Interfaces:**
+- Defines QuantXY PostgreSQL as the authoritative CRM source; produces `customer_contracts` and `crm_source_links` tables with tenant/org composite FKs to customers, contacts, opportunities and projects, FORCE RLS and immutable provenance/audit.
 - Produces ownership transfer, contact PII projection, stage-history, contract/source/project link, archive/restore and audit RPCs.
 - Produces `validateCrmImport(rows, tenantId)` and `requestCrmExport(scope, idempotencyKey)` with permission-scoped columns and export audit.
 
@@ -220,6 +224,7 @@ git commit -m "feat: connect customer CRM to real data"
 expect((await transferCustomer(unassignedEmployee)).status).toBe(403);
 expect(opportunityStageHistory).toContainEqual(expect.objectContaining({ from: "qualified", to: "proposal" }));
 expect(await exportAsUnassigned()).toMatchObject({ status: 403 });
+expect(await createContractForOtherTenant()).toMatchObject({ status: 404 });
 ```
 
 - [ ] **Step 2: Verify RED**
@@ -230,7 +235,7 @@ Expected: CRM governance and controlled import/export surfaces are absent.
 
 - [ ] **Step 3: Implement tenant-safe governance**
 
-Normalize dedupe keys, preserve ownership-transfer and opportunity-stage history, restrict contact PII, and link each customer/opportunity to permitted contract/project source records. Validate imports before one transaction per accepted row; export only authorized projections, watermark sensitive exports and append audit. Archive rather than hard-delete business entities and allow authorized restore.
+Normalize dedupe keys, preserve ownership-transfer and opportunity-stage history, restrict contact PII, and make QuantXY CRM the authoritative record while modeling contracts and source provenance as first-class tenant-scoped entities. Enforce composite FKs/RLS in RPCs and contract/source APIs; render authorized contract/project provenance in customer detail. Validate imports before one transaction per accepted row; export only authorized projections, watermark sensitive exports and append audit. Archive rather than hard-delete business entities and allow authorized restore.
 
 - [ ] **Step 4: Verify GREEN**
 
@@ -242,6 +247,6 @@ Expected: dedupe, transfer, stage history, PII restrictions, import/export audit
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260036_crm_governance.sql supabase/tests/customer_crm.sql src/features/customers src/app/api/workstation/customers/import/route.ts src/app/api/workstation/customers/export/route.ts tests/e2e/customers.spec.ts
+git add supabase/migrations/202608260036_crm_governance.sql supabase/tests/customer_crm.sql src/features/customers src/app/api/workstation/customers tests/e2e/customers.spec.ts
 git commit -m "feat: add commercial CRM governance"
 ```

@@ -252,11 +252,22 @@ git commit -m "feat: deliver AI assistant and scheduler workspaces"
 - Create: `src/features/ai-runtime/queue-handler.test.ts`
 - Create: `src/features/ai-runtime/human-confirmation.ts`
 - Create: `src/features/ai-runtime/human-confirmation.test.ts`
+- Create: `src/features/ai-runtime/high-risk-tool-dispatcher.ts`
+- Create: `src/features/ai-runtime/high-risk-tool-dispatcher.test.ts`
+- Create: `src/features/ai-runtime/tools/send-message.ts`
+- Create: `src/features/ai-runtime/tools/modify-business-data.ts`
+- Create: `src/features/ai-runtime/tools/create-approval.ts`
+- Create: `src/features/ai-runtime/tools/publish-content.ts`
+- Create: `src/features/ai-runtime/tools/modify-permission.ts`
+- Create: `src/features/ai-runtime/tools/delete-material.ts`
+- Create: `src/features/ai-runtime/tools/export-data.ts`
+- Create: `src/features/ai-runtime/tools/create-payment-record.ts`
 - Create: `src/app/api/workstation/ai/runs/[runId]/confirm/route.ts`
 
 **Interfaces:**
 - Produces tenant/user/department quota, queue, schedule, lock, cancel, retry and dead-letter controls with terminal retention metadata.
-- Produces `requireHumanConfirmation(run, operation)` for `send_message`, `modify_business_data`, `create_approval`, `publish_content`, `modify_permission`, `delete_material`, `export_data`, `create_payment_record`.
+- Produces central `dispatchHighRiskTool({ actorId, tenantId, resourceId, action, payloadHash, confirmationId })`, with adapters for `send_message`, `modify_business_data`, `create_approval`, `publish_content`, `modify_permission`, `delete_material`, `export_data`, `create_payment_record`.
+- Produces one-time `requireHumanConfirmation({ actorId, tenantId, resourceId, action, payloadHash })`; confirmation is fresh and bound to the exact actor/tenant/resource/action/payload, and writes both confirmation and execution audits.
 
 - [ ] **Step 1: Write failing queue, timeout, fallback, budget, retention/evaluation/takeover and confirmation tests**
 
@@ -264,6 +275,9 @@ git commit -m "feat: deliver AI assistant and scheduler workspaces"
 expect(await queueAtConcurrencyLimit()).toMatchObject({ status: "queued" });
 expect(await executeWithoutConfirmation("export_data")).toMatchObject({ code: "human_confirmation_required" });
 expect(await exhaustedDepartmentBudget()).toMatchObject({ status: "rate_limited" });
+expect(await replayConfirmation("export_data")).toMatchObject({ code: "human_confirmation_replayed" });
+expect(await useExpiredConfirmation("create_payment_record")).toMatchObject({ code: "human_confirmation_expired" });
+expect(await confirmForTenantAThenExecuteTenantB()).toMatchObject({ code: "human_confirmation_mismatch" });
 ```
 
 - [ ] **Step 2: Verify RED**
@@ -274,14 +288,14 @@ Expected: durable queue, quotas, DLQ, evaluation/takeover and universal high-ris
 
 - [ ] **Step 3: Implement bounded runtime governance**
 
-Persist queued/running/terminal state, scheduled time, idempotency, timeout/cancel/retry/DLQ, worker lock and model fallback. Enforce token/cost/concurrency budgets per tenant, department and user; retain conversations/runs by policy, persist evaluation cases and route failures to a human takeover queue. Require an audited, fresh human confirmation before every named high-risk operation; no client flag bypasses it.
+Persist queued/running/terminal state, scheduled time, idempotency, timeout/cancel/retry/DLQ, worker lock and model fallback. Enforce token/cost/concurrency budgets per tenant, department and user; retain conversations/runs by policy, persist evaluation cases and route failures to a human takeover queue. Route every high-risk action through the central dispatcher; it validates a fresh one-time bound confirmation, rejects replay/expiry/mismatch, invokes the matching server adapter and atomically records confirmation plus execution audit. No client flag or direct adapter call bypasses it.
 
 - [ ] **Step 4: Verify GREEN and load boundary**
 
 Run: `npx vitest run src/features/ai-runtime src/features/ai-assistant src/features/ai-scheduler`
 Run: `npm run db:test`
 Run: `npx playwright test tests/e2e/ai-assistant.spec.ts tests/e2e/ai-scheduler.spec.ts --project=chrome`
-Expected: ten concurrent AI/Agent jobs expose queue status, non-AI workflows remain available during AI failure, and all eight protected operations require confirmation/audit.
+Expected: ten concurrent AI/Agent jobs expose queue status, non-AI workflows remain available during AI failure, and each of the eight protected adapters rejects missing/replayed/expired/cross-tenant confirmations while recording confirmation/execution audit.
 
 - [ ] **Step 5: Commit**
 

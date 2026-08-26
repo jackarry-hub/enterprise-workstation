@@ -252,11 +252,11 @@ git commit -m "feat: deliver the real Agent Center"
 - Modify: `src/features/agents/agent-runtime-handler.test.ts`
 - Create: `src/features/agents/agent-kill-switch.ts`
 - Create: `src/features/agents/agent-kill-switch.test.ts`
-- Create: `src/app/api/workstation/agents/[agentId]/kill-switch/route.ts`
+- Create: `src/app/api/workstation/agents/runtime/kill-switch/route.ts`
 
 **Interfaces:**
 - Produces draft/test/published/retired lifecycle, tenant tool/data allowlists, secret references, budget/time/step/depth/concurrency limits and cancellation.
-- Produces human nodes, tool authorization audit, compensation handlers, loop detection, pre-publish evaluation and tenant-wide `setAgentKillSwitch(enabled, reason)`.
+- Produces tenant-level admin-only `setTenantAgentKillSwitch(enabled, reason, requestId)`, requiring `agent.runtime.kill`; it atomically stops new claims, records queued/running cancellation/recovery semantics and appends immutable audit. Agent-specific stop is separate and never substitutes for the tenant control.
 
 - [ ] **Step 1: Write failing lifecycle, allowlist, budget, loop, cancellation, human-node and Kill Switch tests**
 
@@ -265,6 +265,8 @@ expect((await invokeRetiredVersion()).status).toBe(409);
 expect(await invokeDisallowedTool()).toMatchObject({ code: "agent_tool_forbidden" });
 expect(await runBeyondStepLimit()).toMatchObject({ status: "failed", errorCode: "agent_step_limit" });
 expect((await invokeAfterKillSwitch()).status).toBe(503);
+expect(await toggleOtherTenantKillSwitch()).toMatchObject({ status: 404 });
+expect(await workerClaimAfterTenantSwitch()).toMatchObject({ claimed: false, reason: "tenant_kill_switch" });
 ```
 
 - [ ] **Step 2: Verify RED**
@@ -275,7 +277,7 @@ Expected: lifecycle/control limits and emergency stop behavior are incomplete.
 
 - [ ] **Step 3: Implement server-enforced runtime controls**
 
-Pin immutable published versions; run only authorized allowlisted tools and data scopes. Count budget, elapsed time, steps, recursion depth and tenant concurrency server-side; support cancel and human nodes, append safe tool/authorization logs, invoke compensations where defined, terminate detected loops and block all starts when the audited Kill Switch is active. Store secret references only, never secret values.
+Pin immutable published versions; run only authorized allowlisted tools and data scopes. Count budget, elapsed time, steps, recursion depth and tenant concurrency server-side; support cancel and human nodes, append safe tool/authorization logs, invoke compensations where defined and terminate detected loops. The tenant admin RPC/route requires `agent.runtime.kill`, updates the tenant switch and claim lease atomically, blocks new work, marks queued work cancelled, signals running work to cooperatively cancel and records resumable recovery handling without deleting append-only logs. Store secret references only, never secret values.
 
 - [ ] **Step 4: Verify GREEN**
 

@@ -21,28 +21,34 @@
 
 ---
 
-### Task 1: Conditionally retire the fused formal route and production mock reachability
+### Task 1: Establish non-destructive parity/source boundaries and remove excluded public scope
 
 **Files:**
-- Delete: `src/app/quantxy-ai-workbench-fused.html/route.ts`
-- Delete: `src/app/quantxy-ai-workbench-fused.html/route-support.ts`
-- Delete: `src/app/quantxy-ai-workbench-fused.html/route.test.ts`
-- Delete: `quantxy-ai-workbench-fused.html`
-- Delete: `public/workstation-server-adapter.js`
 - Create: `tests/unit/commercial-source-boundary.test.ts`
+- Create: `tests/unit/excluded-scope-public-surface.test.ts`
 - Modify: `src/config/navigation.ts`
 - Modify: `src/features/operations/role-access.ts`
 - Modify: `src/middleware.ts`
+- Delete: `src/app/(workspace)/leave/page.tsx`
+- Delete: `src/app/(workspace)/attendance/page.tsx`
+- Delete: `src/app/(workspace)/attendance/page.test.tsx`
+- Delete: `tests/e2e/attendance.spec.ts`
+- Modify: `README.md`
+- Modify: `scripts/build_usage_manual.py`
+- Modify: `src/app/layout.tsx`
+- Modify: `src/features/help/help-center.tsx`
+- Modify: `src/app/(workspace)/help/page.tsx`
 
 **Interfaces:**
 - `/` and role home routes resolve to Next workspaces only.
-- Source-boundary test scans production imports for forbidden mock/fixture/local business repositories.
+- Source-boundary/parity tests scan the formal Next.js dependency graph for forbidden mock/fixture/local business repositories and assert no formal navigation, metadata, README/manual/generator/help or dead link points to leave/attendance.
+- Fused route/assets remain preserved as an explicitly quarantined migration exception: they cannot appear in formal navigation or the formal Next.js dependency graph, and this task must not delete or mutate them.
 
 - [ ] **Step 1: Write the failing production-source boundary test**
 
 ```ts
 expect(forbiddenProductionImports).toEqual([]);
-expect(formalRoutes).not.toContain("/quantxy-ai-workbench-fused.html");
+expect(fusedAssets).toEqual(expect.arrayContaining(["quantxy-ai-workbench-fused.html", "workstation-server-adapter.js"]));
 expect(formalRoutes).not.toContain("/leave");
 expect(formalRoutes).not.toContain("/attendance");
 ```
@@ -50,23 +56,23 @@ expect(formalRoutes).not.toContain("/attendance");
 - [ ] **Step 2: Verify RED**
 
 Run: `npx vitest run tests/unit/commercial-source-boundary.test.ts`
-Expected: fused route, formal adapter, fixture imports and excluded routes are reported.
+Expected: forbidden production imports, excluded public references and dead links are reported; fused assets remain present.
 
-- [ ] **Step 3: Prove retirement prerequisites before authorized deletion**
+- [ ] **Step 3: Remove excluded public routes and references without touching historical data**
 
-Keep historical Git commits and documentation as recovery evidence. Test-only fixture utilities may remain only under test paths; no production page or feature entry imports them. Do not delete fused assets until functionality parity, data validation, Staging canary success, a tested rollback path and explicit authorization are all recorded; leave/attendance public routes, metadata, navigation, keywords and dead links must still be removed while historical database data may remain.
+Delete the leave/attendance App Routes and public E2E route coverage; remove all public navigation, metadata, README/manual/generator/help references and dead links. Preserve historical database tables/migrations and all fused assets. Test-only fixture utilities may remain only under test paths; no production page or feature entry imports them.
 
 - [ ] **Step 4: Verify GREEN and route build**
 
 Run: `npx vitest run tests/unit/commercial-source-boundary.test.ts`
 Run: `npm run build`
-Expected: only Next routes build and forbidden production imports are empty.
+Expected: only supported public routes build, excluded-scope source/link checks are empty, and fused assets are still present.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add -A quantxy-ai-workbench-fused.html public/workstation-server-adapter.js src/app/quantxy-ai-workbench-fused.html src/config/navigation.ts src/features/operations/role-access.ts src/middleware.ts tests/unit/commercial-source-boundary.test.ts
-git commit -m "refactor: retire the fused formal workstation"
+git add README.md scripts/build_usage_manual.py src/app/layout.tsx 'src/app/(workspace)/leave' 'src/app/(workspace)/attendance' 'src/app/(workspace)/help/page.tsx' src/config/navigation.ts src/features/help/help-center.tsx src/features/operations/role-access.ts src/middleware.ts tests/e2e/attendance.spec.ts tests/unit/commercial-source-boundary.test.ts tests/unit/excluded-scope-public-surface.test.ts
+git commit -m "refactor: remove excluded public leave and attendance scope"
 ```
 
 ### Task 2: Make clean database reset and security invariants mandatory
@@ -78,10 +84,9 @@ git commit -m "refactor: retire the fused formal workstation"
 - Create: `supabase/tests/workflow_transactions.sql`
 - Create: `scripts/verify-database-reset.mjs`
 - Create: `scripts/verify-database-reset.test.mjs`
-- Modify: `package.json`
 
 **Interfaces:**
-- Produces `db:reset:test`, `db:migrate:dry-run`, `db:test`, `db:seed:validate` and `db:rollback:test`, each of which validates the target and rejects unsafe Internal/Production targets before database work begins.
+- Consumes Plan02's only shared `scripts/environment-guard.mjs` and named DB commands; produces DB invariant verification without creating a second environment guard or redefining package commands.
 - Seed creates only deterministic non-production tenant/roles/test identities and is idempotent.
 
 - [ ] **Step 1: Write failing seed-presence and invariant tests**
@@ -94,13 +99,13 @@ assert.equal(await canUpdateAuditAsAuthenticated(), false);
 
 - [ ] **Step 2: Verify RED**
 
-Run: `node --test scripts/verify-database-reset.test.mjs`
+Run: `node --test scripts/environment-guard.test.mjs scripts/db-command-runner.test.mjs scripts/verify-database-reset.test.mjs`
 Run: `npm run db:reset:test`
 Expected: seed file is missing and security invariants report remaining tables.
 
 - [ ] **Step 3: Add safe seed, invariants, and verify script**
 
-The guard parses the configured environment fingerprint, accepts Local/CI-Test by default and Staging only under its explicit command context, hard-fails Internal/Production, then runs reset/dry-run/pgTAP and exits non-zero on missing RLS/FORCE RLS/policy/grant/audit constraints.
+Import the Plan02 guard and add seed/invariant assertions only: missing RLS/FORCE RLS/policy/grant/audit constraints fail closed. Do not duplicate target parsing, package command definitions or any DB mutation bypass.
 
 - [ ] **Step 4: Verify GREEN twice for idempotency**
 
@@ -114,7 +119,7 @@ Expected: all safe DB commands pass twice where idempotency applies and all Inte
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/seed.sql supabase/tests/schema_security_invariants.sql supabase/tests/audit_immutability.sql supabase/tests/workflow_transactions.sql scripts/verify-database-reset.mjs scripts/verify-database-reset.test.mjs package.json
+git add supabase/seed.sql supabase/tests/schema_security_invariants.sql supabase/tests/audit_immutability.sql supabase/tests/workflow_transactions.sql scripts/verify-database-reset.mjs scripts/verify-database-reset.test.mjs
 git commit -m "test: require clean database security verification"
 ```
 
@@ -122,39 +127,45 @@ git commit -m "test: require clean database security verification"
 
 **Files:**
 - Create: `.github/workflows/commercial-ci.yml`
-- Create: `scripts/verify-commercial-source.mjs`
-- Create: `scripts/verify-commercial-source.test.mjs`
+- Create: `scripts/verify-commercial-local.mjs`
+- Create: `scripts/verify-commercial-staging.mjs`
+- Create: `scripts/verify-commercial-evidence.mjs`
+- Create: `scripts/verify-commercial.test.mjs`
 - Modify: `package.json`
 
 **Interfaces:**
-- Produces `npm run verify:commercial` executing clean install, production build, unit/coverage, pgTAP/RLS denial, integration, desktop/mobile E2E, accessibility, dependency/secret scan, migration dry-run, load thresholds, restoration evidence, Staging smoke and release artifact manifest.
+- Produces `verify:commercial:local`: `npm ci`, `db:migrate:dry-run`, typecheck, lint, production build, unit, coverage, `db:test` with pgTAP/RLS denial, integration, desktop and emulated-mobile E2E, a11y, dependency scan, secret scan and load harness.
+- Produces authorized `verify:commercial:staging`: isolated Staging smoke, OAuth/webhook, Storage, security, backup restore, canary and real-device evidence only; it returns `BLOCKED` without approved Staging configuration.
+- Produces final `verify:commercial`, which validates hash/version-linked local and Staging evidence plus RPO/RTO, artifact manifest and canary; missing or unsigned evidence hard-fails with `commercial_evidence_blocked`.
 
 - [ ] **Step 1: Write failing command-order and failure-propagation tests**
 
 ```js
-assert.deepEqual(commercialSteps, ["clean-install", "db:migrate:dry-run", "test:unit", "test:coverage", "test:rls", "typecheck", "lint", "build", "test:security", "test:e2e", "a11y", "secret-scan", "load", "restore-evidence", "staging-smoke", "artifact-manifest"]);
-assert.equal(await runWithFailingStep("lint"), 1);
+assert.deepEqual(localCommercialSteps, ["npm-ci", "db-migrate-dry-run", "typecheck", "lint", "build", "unit", "coverage", "db-test-pgtap-rls", "integration", "desktop-e2e", "emulated-mobile-e2e", "a11y", "dependency-scan", "secret-scan", "load-harness"]);
+assert.deepEqual(stagingCommercialSteps, ["staging-smoke", "oauth-webhook", "storage", "security", "backup-restore", "canary", "real-device"]);
+await assert.rejects(() => verifyCommercial({ stagingEvidence: null }), /commercial_evidence_blocked/);
 ```
 
 - [ ] **Step 2: Verify RED**
 
-Run: `node --test scripts/verify-commercial-source.test.mjs`
+Run: `node --test scripts/verify-commercial.test.mjs`
 Expected: commercial verification script/workflow is absent.
 
 - [ ] **Step 3: Implement the workflow and ordered local runner**
 
-CI pins Node version from the repository policy, caches npm only, starts local Supabase, never receives production secrets, uploads Playwright traces on failure, and cancels later steps after the first failure.
+CI pins Node version from the repository policy, caches npm only, starts local Supabase, never receives production secrets, uploads Playwright traces on failure, and cancels later steps after the first failure. Implement the exact local list above, store commit/migration/config hashes in an evidence manifest, and keep Staging invocation separate behind explicit authorization. The final verifier accepts only signed/hashed Staging restore, canary, RPO/RTO, real-device and artifact evidence matching the candidate commit.
 
 - [ ] **Step 4: Verify GREEN and validate workflow syntax**
 
-Run: `node --test scripts/verify-commercial-source.test.mjs`
+Run: `node --test scripts/verify-commercial.test.mjs`
+Run: `npm run verify:commercial:local`
 Run: `npm run verify:commercial`
-Expected: ordered gate exits 0 from a clean local environment.
+Expected: local gate exits 0 from a clean Local/CI environment; final command is BLOCKED until authorized Staging/restore/canary/real-device evidence is present, never falsely GREEN.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add .github/workflows/commercial-ci.yml scripts/verify-commercial-source.mjs scripts/verify-commercial-source.test.mjs package.json
+git add .github/workflows/commercial-ci.yml scripts/verify-commercial-local.mjs scripts/verify-commercial-staging.mjs scripts/verify-commercial-evidence.mjs scripts/verify-commercial.test.mjs package.json
 git commit -m "ci: add QuantXY commercial release gate"
 ```
 
@@ -215,7 +226,7 @@ git commit -m "security: harden runtime and readiness"
 - Create: `docs/operations/staging-evidence-template.md`
 
 **Interfaces:**
-- Produces deterministic local identities for owner/admin/department_head/employee/hr/finance in two tenants.
+- Produces deterministic local identities for owner/admin/supervisor/department_head/employee/hr/finance in two tenants; supervisor is the Plan02 direct-manager scope and is never substituted by owner.
 - Produces evidence manifest with commit, migration hashes, test commands, timestamps, result counts and artifact paths.
 
 - [ ] **Step 1: Write failing end-to-end journey and evidence-manifest tests**
@@ -239,9 +250,9 @@ Use local Supabase only, never intercept business APIs, isolate rows by test-run
 
 - [ ] **Step 4: Run the final local commercial gate**
 
-Run: `npm run verify:commercial`
+Run: `npm run verify:commercial:local`
 Run: `node scripts/collect-commercial-evidence.mjs`
-Expected: zero failed tests, zero forbidden source paths, migration hashes present, desktop/mobile journey artifacts recorded.
+Expected: zero failed local tests, zero forbidden source paths, migration hashes present, desktop/emulated-mobile journey artifacts recorded; final commercial verification remains blocked until authorized Staging evidence is present.
 
 - [ ] **Step 5: Commit the harness and checklists, not generated evidence**
 
@@ -258,11 +269,11 @@ git commit -m "test: add full commercial acceptance evidence"
 - Modify: `docs/commercial-database-sop.md`
 
 **Interfaces:**
-- Produces exact operator steps for a user-authorized future Staging run and restore drill.
+- Produces exact operator steps and `verify:commercial:staging` evidence contract for a user-authorized isolated Staging run, restore drill and canary; absent authorization/configuration returns `BLOCKED` rather than success.
 
 - [ ] **Step 1: Write the release checklist assertions**
 
-The checklist must require commit hash, migration hash, separate Staging secrets, demo=false, DB/RLS pass, browser matrix pass, Feishu send/receive evidence, DeepSeek success/failure evidence, Storage evidence, backup ID, restore result, RPO/RTO, and explicit production authorization.
+The checklist must require candidate commit/config/migration hashes, separate Staging secrets, demo=false, DB/RLS pass, browser matrix pass, Feishu send/receive evidence, DeepSeek success/failure evidence, Storage evidence, backup ID, restore result, canary result, real-device evidence, RPO/RTO, signed operator attestation and explicit production authorization.
 
 - [ ] **Step 2: Validate that no production action is embedded**
 
@@ -271,13 +282,13 @@ Expected: commands are presented only under explicit approval gates and no comma
 
 - [ ] **Step 3: Add the exact read-only/preflight and approval boundaries**
 
-Document environment fingerprint checks, database target verification, backup-before-migration, rollback boundary, secret redaction, and stop conditions.
+Document environment fingerprint checks, database target verification, backup-before-migration, rollback boundary, secret redaction, canary stop/rollback boundary, hashed evidence capture and `BLOCKED` stop conditions when isolated credentials or authorization are unavailable.
 
 - [ ] **Step 4: Verify documentation and repository status**
 
 Run: `git diff --check`
-Run: `npm run verify:commercial`
-Expected: documentation has no whitespace errors and the full gate remains green.
+Run: `npm run verify:commercial:local`
+Expected: documentation has no whitespace errors and the local gate remains green; Staging verification remains an explicit authorized gate.
 
 - [ ] **Step 5: Commit**
 
@@ -289,20 +300,34 @@ git commit -m "docs: add staging and recovery validation runbooks"
 ### Task 7: Prove commercial acceptance, operational readiness and handoff package
 
 **Files:**
-- Create: `scripts/environment-guard.mjs`
-- Create: `scripts/verify-commercial.mjs`
-- Create: `scripts/verify-commercial.test.mjs`
 - Create: `tests/load/commercial-thresholds.yml`
 - Create: `docs/operations/commercial-delivery-manifest.md`
-- Create: `docs/operations/system-architecture.md`
-- Create: `docs/operations/database-er-and-dictionary.md`
-- Create: `docs/operations/permission-and-feishu-sync-matrix.md`
-- Create: `docs/operations/admin-and-employee-guides.md`
-- Create: `docs/operations/deployment-security-performance-third-party.md`
+- Create: `docs/operations/architecture.md`
+- Create: `docs/operations/database-er.md`
+- Create: `docs/operations/data-dictionary.md`
+- Create: `docs/operations/permission-matrix.md`
+- Create: `docs/operations/feishu-sync-rules.md`
+- Create: `docs/operations/openapi.yaml`
+- Create: `docs/operations/admin-manual.md`
+- Create: `docs/operations/employee-manual.md`
+- Create: `docs/operations/import-templates/customers.csv`
+- Create: `docs/operations/import-templates/employees.xlsx`
+- Create: `docs/operations/deployment-manual.md`
+- Create: `docs/operations/backup-restore-manual.md`
+- Create: `docs/operations/incident-response.md`
+- Create: `docs/operations/release-runbook.md`
+- Create: `docs/operations/rollback-runbook.md`
+- Create: `docs/operations/security-test-report.md`
+- Create: `docs/operations/performance-test-report.md`
+- Create: `docs/operations/third-party-services.md`
+- Create: `docs/operations/secret-locations.md`
+- Create: `docs/operations/third-party-fees.md`
+- Create: `docs/operations/known-limitations.md`
+- Create: `docs/operations/commercial-acceptance-checklist.md`
 
 **Interfaces:**
-- Produces safe named DB commands, a commercial verifier and release manifest; no command may reset/drop/truncate/seed an Internal or Customer Production target.
-- Produces evidence and delivery documents: architecture/ER/data dictionary, permission matrix, Feishu sync/API documentation, administrator/employee guides, import templates, deployment/backup/recovery/incident/release/rollback runbooks, security/performance reports, third-party services/fees, redacted secret-location inventory, known limitations and acceptance checklist.
+- Consumes Plan02's shared DB guard and Task3 verifier; no command may reset/drop/truncate/seed an Internal or Customer Production target.
+- Produces the individually version-linked and hash-listed delivery artifacts named above. The manifest maps every artifact to candidate commit, migration hash, author/date, checksum and its validation command; `secret-locations.md` records only location/purpose, never secret values.
 
 - [ ] **Step 1: Write failing environment guard, load and manifest tests**
 
@@ -315,23 +340,65 @@ expect(manifest.requiredEvidence).toContain("backup_restore");
 - [ ] **Step 2: Verify RED**
 
 Run: `node --test scripts/verify-commercial.test.mjs`
-Run: `npm run verify:commercial`
-Expected: safe command naming, full evidence aggregation and commercial thresholds are not yet fully enforced.
+Run: `npm run verify:commercial:local`
+Expected: full evidence aggregation, artifact-hash validation and commercial thresholds are not yet fully enforced.
 
 - [ ] **Step 3: Implement guarded verification and operational preparation**
 
-Guard every DB command by environment fingerprint; require reviewed forward migration, backup, dry run, resumable/observable batch backfill, integrity count and repair/rollback record. Wire CSRF/XSS/CSP/security headers, login/rate-limit tests, dependency/secret scans, unit/coverage/build/RLS/integration/desktop/mobile/a11y E2E, and load thresholds (100 staff, 50 active, 20 concurrent writes, 10 queued AI/Agent, non-AI P95 <=800ms, error rate <0.5%, mobile P95 interactive <=3s). Require automatic backup/restore evidence for RPO <=24h and RTO <=4h, monitoring/alerts, Staging smoke, canary, runbooks, 7-day observation, handoff/training and import templates.
+Consume the Plan02 guard; require reviewed forward migration, backup, dry run, resumable/observable batch backfill, integrity count and repair/rollback record. Wire CSRF/XSS/CSP/security headers, login/rate-limit tests, dependency/secret scans, unit/coverage/build/RLS/integration/desktop/mobile/a11y E2E, and load thresholds (100 staff, 50 active, 20 concurrent writes, 10 queued AI/Agent, non-AI P95 <=800ms, error rate <0.5%, mobile P95 interactive <=3s). Fill every individual artifact, validate required sections and checksum/version linkage in the manifest. Require automatic backup/restore evidence for RPO <=24h and RTO <=4h, monitoring/alerts, Staging smoke, canary, runbooks, 7-day observation, handoff/training and import templates.
 
 - [ ] **Step 4: Verify GREEN in permitted environments**
 
 Run: `npm ci`
-Run: `npm run verify:commercial`
+Run: `npm run verify:commercial:local`
 Run: `git diff --check`
-Expected: Local/CI verification proves every command and evidence item; Staging smoke/canary and real-device/OAuth/Storage/security evidence require isolated authorized configuration; Internal/Customer Production remains untouched without explicit authorization.
+Expected: Local/CI verification proves local commands and artifact completeness; `verify:commercial:staging` and final `verify:commercial` are BLOCKED until signed/hash-matched Staging smoke/canary, restore, RPO/RTO and real-device/OAuth/Storage/security evidence exists. Internal/Customer Production remains untouched without explicit authorization.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add scripts/environment-guard.mjs scripts/verify-commercial.mjs scripts/verify-commercial.test.mjs tests/load/commercial-thresholds.yml docs/operations
+git add tests/load/commercial-thresholds.yml docs/operations
 git commit -m "docs: add commercial operations and acceptance package"
+```
+
+### Task 8: Retire fused assets only after authorized evidence closure
+
+**Files:**
+- Delete: `src/app/quantxy-ai-workbench-fused.html/route.ts`
+- Delete: `src/app/quantxy-ai-workbench-fused.html/route-support.ts`
+- Delete: `src/app/quantxy-ai-workbench-fused.html/route.test.ts`
+- Delete: `quantxy-ai-workbench-fused.html`
+- Delete: `public/workstation-server-adapter.js`
+- Modify: `tests/unit/commercial-source-boundary.test.ts`
+- Modify: `docs/operations/commercial-delivery-manifest.md`
+
+**Interfaces:**
+- Consumes signed/hash-matched parity, data-validation, Staging canary, rollback and explicit retirement authorization evidence. Missing any item is `BLOCKED`; it is never a GREEN path.
+
+- [ ] **Step 1: Write failing retirement-authorization tests**
+
+```ts
+expect(await assertFusedRetirementEvidence({ authorization: null })).toMatchObject({ status: "BLOCKED" });
+expect(await assertFusedRetirementEvidence({ canary: "failed" })).toMatchObject({ status: "BLOCKED" });
+```
+
+- [ ] **Step 2: Verify BLOCKED before deletion**
+
+Run: `npm run verify:commercial`
+Expected: `commercial_evidence_blocked` until parity, data validation, Staging canary, tested rollback and explicit authorization evidence are all present.
+
+- [ ] **Step 3: Delete fused assets only after evidence and explicit authorization**
+
+Record the authorization ID, evidence hashes and candidate commit in the delivery manifest. Then delete only the listed fused assets, retain historical database data/migrations, and update the source-boundary test to require no fused reachability.
+
+- [ ] **Step 4: Verify final candidate**
+
+Run: `npm run verify:commercial`
+Expected: succeeds only when the final evidence bundle and authorization are valid; otherwise remains BLOCKED.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A src/app/quantxy-ai-workbench-fused.html quantxy-ai-workbench-fused.html public/workstation-server-adapter.js tests/unit/commercial-source-boundary.test.ts docs/operations/commercial-delivery-manifest.md
+git commit -m "refactor: retire authorized fused workstation"
 ```

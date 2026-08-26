@@ -23,7 +23,7 @@
 ## Execution Order
 
 - `2026-08-26-quantxy-01-security-entry.md` — completed security/entry baseline; do not restart Tasks 1-6; remaining platform hardening belongs to Plan 10.
-- `2026-08-26-quantxy-02-organization-people.md` — OAuth plus full/incremental Feishu sync, private PII, organization commands and offboarding revoke.
+- `2026-08-26-quantxy-02-organization-people.md` — first shared fail-closed DB command guard, OAuth plus full/incremental Feishu sync, direct-manager/supervisor scope, private PII and offboarding revoke.
 - `2026-08-26-quantxy-03-project-task-delivery.md` — members, activities/milestones/tasks/dependencies/acceptance, files/history/archive and durable notifications.
 - `2026-08-26-quantxy-04-customer-crm.md` — contacts/opportunities/follow-ups, dedupe, ownership transfer, history, import/export and audit/archive.
 - `2026-08-26-quantxy-05-approvals-expenses-payroll.md` — versioned approvals, expense payment/finance review and locked/snapshotted payroll, excluding a payroll engine/designer.
@@ -31,7 +31,7 @@
 - `2026-08-26-quantxy-07-ai-assistant-scheduler.md` — persistent conversations and governed queue/scheduler with human confirmation for eight high-risk actions.
 - `2026-08-26-quantxy-08-agent-runtime.md` — immutable lifecycle, allowlists/budgets/human controls/Kill Switch; autonomous multi-Agent collaboration Deferred.
 - `2026-08-26-quantxy-09-analytics-settings-pwa.md` — desktop plus true mobile workflows, PWA security/cache behavior and real-device matrix.
-- `2026-08-26-quantxy-10-cutover-release.md` — environment guards, migration safety, security/performance/recovery gates, Staging/canary/runbooks and delivery bundle.
+- `2026-08-26-quantxy-10-cutover-release.md` — consumes the shared guard; migration safety, separate local/Staging/final evidence gates, authorized fused retirement, canary/runbooks and delivery bundle.
 
 ## Phase Gate
 
@@ -64,7 +64,7 @@ After any user-facing workflow plan:
 npm run test:e2e
 ```
 
-Final gate is defined only by Plan 10 and must finish with `npm run verify:commercial`; passing earlier unit/build commands is not sufficient for release.
+Final gate is defined only by Plan 10: `npm run verify:commercial:local` establishes local evidence, user-authorized `npm run verify:commercial:staging` establishes isolated Staging evidence, and `npm run verify:commercial` consumes signed/hash-matched evidence. The final command is BLOCKED when Staging/restore/canary/real-device/RPO/RTO/artifact evidence is missing; passing earlier unit/build commands is not sufficient for release.
 
 ## Spec Coverage
 
@@ -84,4 +84,4 @@ Final gate is defined only by Plan 10 and must finish with `npm run verify:comme
 
 ## External dependencies and final readiness
 
-Staging requires an isolated Supabase/Storage project, Feishu OAuth/Webhook test application, AI test key, domain/TLS, monitoring and backup target. Internal/Customer Production always need separate equivalents and explicit authorization. Final `verify:commercial` must prove clean install/build, coverage, DB/RLS, integration, desktop/mobile E2E, a11y, dependency/secret scan, migration dry-run, load thresholds, restoration evidence, Staging smoke and release artifact manifest; unit/lint/build alone never authorize release.
+Staging requires an isolated Supabase/Storage project, Feishu OAuth/Webhook test application, AI test key, domain/TLS, monitoring and backup target. Internal/Customer Production always need separate equivalents and explicit authorization. `verify:commercial:local` proves clean install/build, coverage, DB/RLS, integration, desktop/emulated-mobile E2E, a11y, dependency/secret scan, migration dry-run and load harness. Authorized `verify:commercial:staging` proves smoke, restore, canary and real-device/OAuth/Storage/security evidence. Final `verify:commercial` fails closed without signed/hash-matched evidence and artifact manifest; unit/lint/build alone never authorize release.
