@@ -34,7 +34,7 @@ export type DirectorySyncLease = {
 
 export type DirectorySyncWorkerDependencies = {
   acquire: (mode: DirectorySyncMode, cursor: string | null, scope?: DirectorySyncScope) => Promise<DirectorySyncLease>;
-  loadSnapshot: () => Promise<FeishuDirectorySnapshot>;
+  loadSnapshot: (onPage?: () => Promise<void>) => Promise<FeishuDirectorySnapshot>;
   heartbeat: (lease: DirectorySyncLease) => Promise<boolean>;
   applySnapshot: (snapshot: FeishuDirectorySnapshot, lease: DirectorySyncLease) => Promise<void>;
   complete: (runId: string, cursor: string | null, lease?: DirectorySyncLease) => Promise<DirectorySyncControlResult>;
@@ -90,7 +90,10 @@ export const defaultDirectorySyncWorkerDependencies: DirectorySyncWorkerDependen
       retryAfter: typeof row.retryAfter === "string" ? row.retryAfter : null,
     };
   },
-  loadSnapshot: () => loadFeishuDirectorySnapshot(getFeishuDirectoryEnv(), fetch, { fetchTimeoutMs: 15_000 }),
+  loadSnapshot: (onPage) => loadFeishuDirectorySnapshot(getFeishuDirectoryEnv(), fetch, {
+    fetchTimeoutMs: 15_000,
+    onPage,
+  }),
   async heartbeat(lease) {
     if (!lease.runId || !lease.organizationId) return false;
     const { data, error } = await adminClient().rpc("heartbeat_feishu_sync_work", {
@@ -103,13 +106,16 @@ export const defaultDirectorySyncWorkerDependencies: DirectorySyncWorkerDependen
   },
   async applySnapshot(snapshot, lease) {
     if (!lease.runId || !lease.organizationId || !lease.actorAuthUserId) throw new Error("directory_worker_scope_invalid");
-    const { error } = await adminClient().rpc("apply_feishu_directory_sync_fenced", {
+    const { data, error } = await adminClient().rpc("apply_feishu_directory_sync_fenced", {
       p_run_id: lease.runId,
       p_organization_public_id: lease.organizationId,
       p_actor_auth_user_id: lease.actorAuthUserId,
       p_snapshot: snapshot,
     });
-    if (error) throw new Error("directory_worker_apply_failed");
+    const status = data && typeof data === "object"
+      ? (data as Record<string, unknown>).status
+      : null;
+    if (error || status !== "completed") throw new Error("directory_worker_apply_failed");
   },
   async complete(runId, cursor, lease) {
     const { data, error } = await adminClient().rpc("finish_feishu_sync_work", {
@@ -161,7 +167,9 @@ async function run(
         // cursors select work durably; applying the full snapshot avoids stale
         // partial mutations while preserving the event ordering contract.
         if (!await dependencies.heartbeat(lease)) throw new Error("directory_worker_lease_lost");
-        const snapshot = await dependencies.loadSnapshot();
+        const snapshot = await dependencies.loadSnapshot(async () => {
+          if (!await dependencies.heartbeat(lease)) throw new Error("directory_worker_lease_lost");
+        });
         if (!await dependencies.heartbeat(lease)) throw new Error("directory_worker_lease_lost");
         await dependencies.applySnapshot(snapshot, lease);
         lastError = null;

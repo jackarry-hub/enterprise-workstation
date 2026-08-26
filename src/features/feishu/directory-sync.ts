@@ -45,6 +45,7 @@ export class DirectorySyncError extends Error {
 export type DirectorySyncLoadOptions = {
   maxPages?: number;
   fetchTimeoutMs?: number;
+  onPage?: () => Promise<void>;
 };
 
 export type DepartedMemberRevocationRepository = (input: {
@@ -141,11 +142,13 @@ async function pagedItems(
   token: string,
   fetchImpl: FetchLike,
   pageBudget: PageBudget,
+  onPage?: () => Promise<void>,
 ) {
   const rows: JsonRecord[] = [];
   let pageToken: string | null = null;
   const seenPageTokens = new Set<string>();
   for (;;) {
+    await onPage?.();
     pageBudget.consume();
     const url = new URL(baseUrl);
     if (pageToken) url.searchParams.set("page_token", pageToken);
@@ -233,6 +236,7 @@ export async function loadFeishuDirectorySnapshot(
       token,
       boundedFetch,
       pageBudget,
+      options.onPage,
     );
     const departmentIds = new Set<string>();
     const departments = departmentRows.map((row) => {
@@ -261,6 +265,7 @@ export async function loadFeishuDirectorySnapshot(
         token,
         boundedFetch,
         pageBudget,
+        options.onPage,
       );
       rows.forEach((row) => {
         const openId = text(row.open_id)?.toLocaleLowerCase("en-US");

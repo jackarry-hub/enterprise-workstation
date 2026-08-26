@@ -81,6 +81,21 @@ describe("durable Feishu directory worker", () => {
     ]);
   });
 
+  it("passes an exact lease heartbeat into the paginated snapshot crawl", async () => {
+    const calls: string[] = [];
+    const result = await startFeishuFullSync(dependencies({
+      acquire: async () => ({ acquired: true, runId: "run-pages", cursor: null, attempt: 1, organizationId: "org-1" }),
+      heartbeat: async () => { calls.push("heartbeat"); return true; },
+      loadSnapshot: async (onPage) => {
+        await onPage?.();
+        await onPage?.();
+        return { complete: true, departments: [], positions: [], employees: [] };
+      },
+    }));
+    expect(result.status).toBe("completed");
+    expect(calls).toEqual(["heartbeat", "heartbeat", "heartbeat", "heartbeat"]);
+  });
+
   it("bounds retries with exponential backoff and returns the durable retry schedule", async () => {
     let attempts = 0;
     const deps = dependencies({

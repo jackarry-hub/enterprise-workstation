@@ -1,6 +1,6 @@
 begin;
 
-select plan(37);
+select plan(77);
 
 select has_table('public', 'feishu_oauth_attempts', 'OAuth attempts are durable');
 select has_table('public', 'feishu_webhook_events', 'provider events are durable');
@@ -22,14 +22,29 @@ select has_function('public', 'finish_feishu_sync_work', array['uuid','text','te
 select has_function('public', 'resolve_feishu_sync_issue', array['uuid','uuid','uuid']::name[], 'audited issue resolution RPC exists');
 select has_function('public', 'next_feishu_sync_cursor', array['text']::name[], 'scheduled work reads a tenant-bound durable event cursor');
 select has_function('public', 'current_active_workspace_organization_id', array[]::name[], 'active workspace organization RPC exists');
+select has_function('public', 'apply_feishu_directory_sync_exact', array['uuid','uuid','uuid','uuid','jsonb']::name[], 'exact apply uses the claimed run signature');
+select has_function('public', 'get_feishu_offboarding_proof', array['text']::name[], 'service-only complete offboarding proof RPC exists');
+select col_is_unique('public', 'feishu_offboarding_commands', array['offboarding_event_id'], 'offboarding idempotency is event-only');
+select has_column('public', 'feishu_offboarding_commands', 'sessions_revoked', 'offboarding records session revocation evidence');
+select has_column('public', 'feishu_offboarding_commands', 'refresh_tokens_revoked', 'offboarding records refresh-token revocation evidence');
+select has_column('public', 'feishu_offboarding_commands', 'queued_grants_cancelled', 'offboarding records queued-grant revocation evidence');
+select is(
+  (select count(*) from pg_policies where schemaname = 'public' and policyname in (
+    'directory_connections_admin_select', 'directory_entity_links_admin_select',
+    'directory_sync_runs_admin_select', 'directory_sync_issues_admin_select'
+  )),
+  0::bigint,
+  'all legacy permissive directory SELECT policies are removed'
+);
 
 select ok(
   has_function_privilege('service_role', 'public.create_feishu_oauth_attempt(uuid,text,text,timestamptz)', 'EXECUTE')
   and has_function_privilege('service_role', 'public.consume_feishu_oauth_attempt(uuid,text)', 'EXECUTE')
   and has_function_privilege('service_role', 'public.ingest_feishu_webhook_event(text,text,text,text,text,text,bigint,text)', 'EXECUTE')
   and has_function_privilege('service_role', 'public.revoke_departed_member_access(uuid,text)', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.apply_feishu_directory_sync_exact(uuid,uuid,uuid,uuid,jsonb)', 'EXECUTE')
   and has_function_privilege('service_role', 'public.apply_feishu_directory_sync_fenced(uuid,uuid,uuid,jsonb)', 'EXECUTE'),
-  'service role can execute protected controls'
+  'service role can execute fenced controls but cannot bypass the lease through exact apply'
 );
 select ok(
   not has_function_privilege('authenticated', 'public.create_feishu_oauth_attempt(uuid,text,text,timestamptz)', 'EXECUTE')
@@ -135,6 +150,300 @@ select is(
   'invalid_cursor',
   'an invalid durable cursor fails closed before connection lookup'
 );
+reset role;
+
+insert into public.tenants (name, slug, status)
+values ('Feishu control tenant', 'feishu-control-test', 'active');
+insert into public.organizations (tenant_id, name, slug)
+select tenant.id, seed.name, seed.slug
+  from public.tenants tenant
+  cross join (values
+    ('Feishu control organization A', 'feishu-control-a'),
+    ('Feishu control organization B', 'feishu-control-b')
+  ) seed(name, slug)
+ where tenant.slug = 'feishu-control-test';
+insert into public.identity_providers (
+  tenant_id, provider_code, auth_provider, provider_tenant_key, display_name, status
+)
+select tenant.id, 'feishu', 'custom:feishu-control-test',
+       'feishu-control-provider', 'Feishu control test', 'active'
+  from public.tenants tenant where tenant.slug = 'feishu-control-test';
+insert into public.roles (
+  tenant_id, organization_id, code, name, description, is_system, is_enabled
+)
+select tenant.id, organization.id, 'feishu_control_manager',
+       'Feishu control manager', 'Feishu control manager', false, true
+  from public.tenants tenant
+  join public.organizations organization
+    on organization.tenant_id = tenant.id and organization.slug = 'feishu-control-a'
+ where tenant.slug = 'feishu-control-test';
+insert into public.role_permissions (tenant_id, role_id, permission_id)
+select role.tenant_id, role.id, permission.id
+  from public.roles role
+  join public.tenants tenant on tenant.id = role.tenant_id
+  join public.permissions permission on permission.code = 'organization.manage'
+ where tenant.slug = 'feishu-control-test' and role.code = 'feishu_control_manager';
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+) values (
+  '00000000-0000-0000-0000-000000000000',
+  '98000000-0000-4000-8000-000000000001', 'authenticated', 'authenticated',
+  'feishu-control@example.test', crypt('local-test-password', gen_salt('bf')), now(),
+  '{}'::jsonb, '{}'::jsonb, now(), now()
+);
+insert into public.organization_members (tenant_id, organization_id, user_id, status)
+select tenant.id, organization.id, '98000000-0000-4000-8000-000000000001'::uuid, 'active'
+  from public.tenants tenant
+  join public.organizations organization
+    on organization.tenant_id = tenant.id and organization.slug = 'feishu-control-a'
+ where tenant.slug = 'feishu-control-test';
+insert into public.member_roles (tenant_id, member_id, role_id)
+select member.tenant_id, member.id, role.id
+  from public.organization_members member
+  join public.roles role
+    on role.tenant_id = member.tenant_id and role.organization_id = member.organization_id
+ where member.user_id = '98000000-0000-4000-8000-000000000001'::uuid
+   and role.code = 'feishu_control_manager';
+insert into public.employee_profiles (
+  public_id, tenant_id, organization_id, organization_member_id,
+  employee_no, display_name, job_title, employment_status, skills
+)
+select '98000000-0000-4000-8000-000000000011'::uuid,
+       member.tenant_id, member.organization_id, member.id,
+       'FS-CONTROL-1', 'Feishu control member', 'Engineer', 'active', '{}'
+  from public.organization_members member
+ where member.user_id = '98000000-0000-4000-8000-000000000001'::uuid;
+insert into public.external_identities (
+  tenant_id, organization_id, organization_member_id, identity_provider_id,
+  provider_subject, provider_tenant_key, provider_match_keys,
+  auth_user_id, status
+)
+select member.tenant_id, member.organization_id, member.id, provider.id,
+       'open_id:ou-control-user', provider.provider_tenant_key,
+       array['open_id:ou-control-user'], member.user_id, 'active'
+  from public.organization_members member
+  join public.identity_providers provider
+    on provider.tenant_id = member.tenant_id and provider.provider_code = 'feishu'
+ where member.user_id = '98000000-0000-4000-8000-000000000001'::uuid;
+insert into public.feishu_access_grants (tenant_id, organization_id, organization_member_id, status)
+select member.tenant_id, member.organization_id, member.id, 'queued'
+  from public.organization_members member
+ where member.user_id = '98000000-0000-4000-8000-000000000001'::uuid;
+insert into auth.sessions (id, user_id, created_at, updated_at)
+values ('98000000-0000-4000-8000-000000000021', '98000000-0000-4000-8000-000000000001', now(), now());
+insert into auth.refresh_tokens (instance_id, token, user_id, session_id, created_at, updated_at)
+values ('00000000-0000-0000-0000-000000000000', 'feishu-control-refresh-a', '98000000-0000-4000-8000-000000000001', '98000000-0000-4000-8000-000000000021', now(), now());
+insert into public.directory_connections (
+  tenant_id, organization_id, identity_provider_id, provider_type,
+  external_tenant_key, sync_mode, status
+)
+select tenant.id, organization.id, provider.id, 'feishu',
+       provider.provider_tenant_key, 'manual', 'active'
+  from public.tenants tenant
+  join public.organizations organization on organization.tenant_id = tenant.id
+  join public.identity_providers provider
+    on provider.tenant_id = tenant.id and provider.provider_code = 'feishu'
+ where tenant.slug = 'feishu-control-test';
+
+set local role service_role;
+select is(
+  public.revoke_departed_member_access(
+    '98000000-0000-4000-8000-000000000011', 'feishu-control-departure-a'
+  ),
+  true,
+  'first departure command completes transactionally'
+);
+reset role;
+select is((select employment_status from public.employee_profiles where public_id = '98000000-0000-4000-8000-000000000011'), 'departed', 'offboarding marks the profile departed');
+select is((select member.status from public.organization_members member join public.employee_profiles profile on profile.organization_member_id = member.id where profile.public_id = '98000000-0000-4000-8000-000000000011'), 'revoked', 'offboarding revokes the member');
+select is((select status from public.external_identities where provider_subject = 'open_id:ou-control-user'), 'revoked', 'offboarding revokes the exact identity');
+select is((select auth_user_id from public.external_identities where provider_subject = 'open_id:ou-control-user'), null::uuid, 'offboarding clears the identity auth binding');
+select is((select count(*) from auth.sessions where user_id = '98000000-0000-4000-8000-000000000001'), 0::bigint, 'offboarding deletes active auth sessions');
+select is((select count(*) from auth.refresh_tokens where session_id = '98000000-0000-4000-8000-000000000021'), 0::bigint, 'offboarding deletes refresh tokens');
+select is((select count(*) from public.feishu_access_grants where status = 'cancelled'), 1::bigint, 'offboarding cancels queued grants');
+select is((select count(*) from public.audit_logs where action = 'identity.revoked' and target_id = '98000000-0000-4000-8000-000000000011'), 1::bigint, 'offboarding commits one audit');
+set local role service_role;
+select ok(
+  (public.get_feishu_offboarding_proof('feishu-control-departure-a') ->> 'profileDeparted')::boolean
+  and (public.get_feishu_offboarding_proof('feishu-control-departure-a') ->> 'memberRevoked')::boolean
+  and (public.get_feishu_offboarding_proof('feishu-control-departure-a') ->> 'identityRevoked')::boolean
+  and (public.get_feishu_offboarding_proof('feishu-control-departure-a') ->> 'sessionsRevoked')::integer = 1
+  and (public.get_feishu_offboarding_proof('feishu-control-departure-a') ->> 'refreshTokensRevoked')::integer = 1
+  and (public.get_feishu_offboarding_proof('feishu-control-departure-a') ->> 'queuedGrantsCancelled')::integer = 1
+  and (public.get_feishu_offboarding_proof('feishu-control-departure-a') ->> 'queuedGrantsRemaining')::integer = 0
+  and (public.get_feishu_offboarding_proof('feishu-control-departure-a') ->> 'auditCount')::integer = 1,
+  'offboarding proof reports every durable access boundary closed'
+);
+select is(public.revoke_departed_member_access('98000000-0000-4000-8000-000000000011', 'feishu-control-departure-a'), true, 'lost-response retry returns the same terminal result');
+reset role;
+select is((select count(*) from public.audit_logs where action = 'identity.revoked' and target_id = '98000000-0000-4000-8000-000000000011'), 1::bigint, 'lost-response retry creates no second audit');
+
+update public.organization_members set status = 'active'
+ where user_id = '98000000-0000-4000-8000-000000000001';
+update public.employee_profiles set employment_status = 'active', departure_date = null
+ where public_id = '98000000-0000-4000-8000-000000000011';
+update public.external_identities set status = 'active', auth_user_id = '98000000-0000-4000-8000-000000000001'
+ where provider_subject = 'open_id:ou-control-user';
+insert into public.feishu_access_grants (tenant_id, organization_id, organization_member_id, status)
+select member.tenant_id, member.organization_id, member.id, 'queued'
+  from public.organization_members member
+ where member.user_id = '98000000-0000-4000-8000-000000000001';
+insert into auth.sessions (id, user_id, created_at, updated_at)
+values ('98000000-0000-4000-8000-000000000022', '98000000-0000-4000-8000-000000000001', now(), now());
+insert into auth.refresh_tokens (instance_id, token, user_id, session_id, created_at, updated_at)
+values ('00000000-0000-0000-0000-000000000000', 'feishu-control-refresh-b', '98000000-0000-4000-8000-000000000001', '98000000-0000-4000-8000-000000000022', now(), now());
+set local role service_role;
+select is(public.revoke_departed_member_access('98000000-0000-4000-8000-000000000011', 'feishu-control-departure-b'), true, 'rehire followed by a later departure executes a new command');
+reset role;
+select is((select count(*) from public.feishu_offboarding_commands where member_public_id = '98000000-0000-4000-8000-000000000011'), 2::bigint, 'distinct departure events retain two durable commands');
+select is((select count(*) from public.audit_logs where action = 'identity.revoked' and target_id = '98000000-0000-4000-8000-000000000011'), 2::bigint, 'later departure creates exactly one new audit');
+select is((select count(*) from auth.sessions where user_id = '98000000-0000-4000-8000-000000000001'), 0::bigint, 'later departure revokes the rehired session');
+select is((select count(*) from auth.refresh_tokens where session_id = '98000000-0000-4000-8000-000000000022'), 0::bigint, 'later departure revokes the rehired refresh token');
+
+update public.organization_members set status = 'active'
+ where user_id = '98000000-0000-4000-8000-000000000001';
+update public.employee_profiles set employment_status = 'active', departure_date = null
+ where public_id = '98000000-0000-4000-8000-000000000011';
+update public.external_identities set status = 'active', auth_user_id = '98000000-0000-4000-8000-000000000001'
+ where provider_subject = 'open_id:ou-control-user';
+
+set local role service_role;
+select set_config(
+  'test.feishu_control_claim',
+  public.claim_feishu_sync_work(
+    'full', null, 'feishu-control-provider', 120,
+    (select public_id from public.organizations where slug = 'feishu-control-a'),
+    '98000000-0000-4000-8000-000000000001'
+  )::text,
+  true
+);
+select is(current_setting('test.feishu_control_claim')::jsonb ->> 'acquired', 'true', 'exact organization work is durably claimed');
+select is(
+  (select count(*) from public.directory_sync_runs run where run.public_id = (current_setting('test.feishu_control_claim')::jsonb ->> 'runId')::uuid and run.request_id = run.public_id),
+  1::bigint,
+  'claim creates one run that is also the request/idempotency anchor'
+);
+select is(
+  public.claim_feishu_sync_work(
+    'full', null, 'feishu-control-provider', 120,
+    (select public_id from public.organizations where slug = 'feishu-control-a'),
+    '98000000-0000-4000-8000-000000000001'
+  ) ->> 'reason',
+  'active_lease',
+  'concurrent claim returns the real active-lease reason'
+);
+select set_config(
+  'test.feishu_control_apply',
+  public.apply_feishu_directory_sync_fenced(
+    (current_setting('test.feishu_control_claim')::jsonb ->> 'runId')::uuid,
+    (select public_id from public.organizations where slug = 'feishu-control-a'),
+    '98000000-0000-4000-8000-000000000001',
+    '{"complete":true,"departments":[],"positions":[],"employees":[]}'::jsonb
+  )::text,
+  true
+);
+select is(current_setting('test.feishu_control_apply')::jsonb ->> 'status', 'completed', 'fenced apply completes the claimed run');
+select is(
+  (select count(*) from public.directory_sync_runs run where run.public_id = (current_setting('test.feishu_control_claim')::jsonb ->> 'runId')::uuid),
+  1::bigint,
+  'fenced apply never creates a second run'
+);
+select is(
+  public.apply_feishu_directory_sync_fenced(
+    (current_setting('test.feishu_control_claim')::jsonb ->> 'runId')::uuid,
+    (select public_id from public.organizations where slug = 'feishu-control-a'),
+    '98000000-0000-4000-8000-000000000001',
+    '{"complete":true,"departments":[],"positions":[],"employees":[]}'::jsonb
+  ) ->> 'status',
+  'completed',
+  'committed apply replay returns terminal run data'
+);
+select is(
+  (select count(*) from public.audit_logs audit where audit.request_id = (current_setting('test.feishu_control_claim')::jsonb ->> 'runId')::uuid and audit.action = 'directory.sync_completed'),
+  1::bigint,
+  'committed apply replay creates no second completion audit'
+);
+select is(
+  public.finish_feishu_sync_work(
+    (current_setting('test.feishu_control_claim')::jsonb ->> 'runId')::uuid,
+    null, 'completed', null,
+    (select public_id from public.organizations where slug = 'feishu-control-a')
+  ) ->> 'status',
+  'completed',
+  'claimed lease completes after the fenced mutation'
+);
+reset role;
+
+insert into public.organization_members (tenant_id, organization_id, user_id, status)
+select tenant.id, organization.id, null, 'invited'
+  from public.tenants tenant
+  join public.organizations organization
+    on organization.tenant_id = tenant.id and organization.slug = 'feishu-control-b'
+ where tenant.slug = 'feishu-control-test';
+insert into public.external_identities (
+  tenant_id, organization_id, organization_member_id, identity_provider_id,
+  provider_subject, provider_tenant_key, provider_match_keys, status
+)
+select member.tenant_id, member.organization_id, member.id, provider.id,
+       'open_id:ou-cross-organization', provider.provider_tenant_key,
+       array['open_id:ou-cross-organization'], 'invited'
+  from public.organization_members member
+  join public.organizations organization on organization.id = member.organization_id
+  join public.identity_providers provider
+    on provider.tenant_id = member.tenant_id and provider.provider_code = 'feishu'
+ where organization.slug = 'feishu-control-b' and member.user_id is null;
+set local role service_role;
+select set_config(
+  'test.feishu_cross_claim',
+  public.claim_feishu_sync_work(
+    'reconcile', null, 'feishu-control-provider', 120,
+    (select public_id from public.organizations where slug = 'feishu-control-a'),
+    '98000000-0000-4000-8000-000000000001'
+  )::text,
+  true
+);
+select set_config(
+  'test.feishu_cross_apply',
+  public.apply_feishu_directory_sync_fenced(
+    (current_setting('test.feishu_cross_claim')::jsonb ->> 'runId')::uuid,
+    (select public_id from public.organizations where slug = 'feishu-control-a'),
+    '98000000-0000-4000-8000-000000000001',
+    '{"complete":true,"departments":[],"positions":[],"employees":[{"openId":"ou-cross-organization","userId":"u-cross","email":null,"name":"Cross organization","primaryDepartmentExternalId":null,"jobTitleExternalId":null,"jobTitle":"Engineer","isActive":true}]}'::jsonb
+  )::text,
+  true
+);
+select is(current_setting('test.feishu_cross_apply')::jsonb ->> 'status', 'failed', 'cross-organization provider subject fails the run closed');
+select is((select count(*) from public.feishu_sync_conflicts where organization_id = (select id from public.organizations where slug = 'feishu-control-a') and code = 'AMBIGUOUS_EVENT'), 1::bigint, 'cross-organization provider subject creates one durable conflict');
+select is((select count(*) from public.directory_entity_links where organization_id = (select id from public.organizations where slug = 'feishu-control-a') and external_id = 'ou-cross-organization'), 0::bigint, 'cross-organization provider subject is never linked');
+select is((select status from public.directory_sync_runs where public_id = (current_setting('test.feishu_cross_claim')::jsonb ->> 'runId')::uuid), 'failed', 'cross-organization conflict persists a failed claimed run');
+select is(
+  public.apply_feishu_directory_sync_fenced(
+    (current_setting('test.feishu_cross_claim')::jsonb ->> 'runId')::uuid,
+    (select public_id from public.organizations where slug = 'feishu-control-a'),
+    '98000000-0000-4000-8000-000000000001',
+    '{"complete":true,"departments":[],"positions":[],"employees":[]}'::jsonb
+  ) ->> 'status',
+  'failed',
+  'failed apply replay returns the same terminal run data'
+);
+select is((select count(*) from public.audit_logs where request_id = (current_setting('test.feishu_cross_claim')::jsonb ->> 'runId')::uuid and action = 'directory.sync_failed'), 1::bigint, 'failed apply replay creates no second failure audit');
+reset role;
+
+insert into public.directory_sync_runs (
+  tenant_id, organization_id, connection_id, status, snapshot_complete,
+  started_at, completed_at
+)
+select connection.tenant_id, connection.organization_id, connection.id,
+       'completed', true, now(), now()
+  from public.directory_connections connection
+  join public.organizations organization
+    on organization.id = connection.organization_id
+ where organization.slug = 'feishu-control-b';
+select set_config('request.jwt.claim.sub', '98000000-0000-4000-8000-000000000001', true);
+set local role authenticated;
+select is((select count(*) from public.directory_sync_runs run join public.organizations organization on organization.id = run.organization_id where organization.slug = 'feishu-control-b'), 0::bigint, 'same auth user cannot read a second organization run through RLS');
+select ok((select count(*) from public.directory_sync_runs run join public.organizations organization on organization.id = run.organization_id where organization.slug = 'feishu-control-a') >= 1, 'exact active workspace run remains visible through RLS');
 reset role;
 
 select * from finish();

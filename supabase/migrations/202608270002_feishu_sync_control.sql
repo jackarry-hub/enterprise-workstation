@@ -568,8 +568,10 @@ for select to authenticated using (
   tenant_id = (select public.current_tenant_id())
   and organization_id in (
     select member.organization_id from public.organization_members member
-    join public.member_roles assignment on assignment.member_id = member.id
-    join public.role_permissions rp on rp.role_id = assignment.role_id
+    join public.member_roles assignment
+      on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+    join public.role_permissions rp
+      on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
     join public.permissions permission on permission.id = rp.permission_id
     where member.user_id = (select auth.uid()) and member.status = 'active'
       and permission.code = 'organization.manage'
@@ -619,6 +621,7 @@ revoke all on table public.feishu_oauth_attempts, public.feishu_access_grants,
 from public, anon, authenticated, service_role;
 grant select on table public.feishu_sync_conflicts to authenticated;
 grant select on table public.feishu_webhook_events to authenticated;
+grant select on table public.feishu_sync_conflicts, public.feishu_webhook_events to service_role;
 revoke all on table public.current_feishu_sync_issues from public, anon, authenticated, service_role;
 grant select on table public.current_feishu_sync_issues to authenticated;
 
@@ -647,8 +650,30 @@ revoke all on function public.resolve_feishu_sync_issue(uuid, uuid, uuid)
 from public, anon, authenticated, service_role;
 grant execute on function public.resolve_feishu_sync_issue(uuid, uuid, uuid) to service_role;
 
+-- Fail closed when an auth identity is simultaneously active in more than one
+-- organization; callers must be bound to one exact active workspace.
+create or replace function public.active_workspace_organization_id(p_auth_user_id uuid)
+returns bigint
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select min(identity.organization_id)
+    from public.external_identities identity
+    join public.organization_members member
+      on member.tenant_id = identity.tenant_id
+     and member.id = identity.organization_member_id
+     and member.organization_id = identity.organization_id
+   where identity.auth_user_id = p_auth_user_id
+     and identity.status = 'active'
+     and member.status = 'active'
+   having count(distinct identity.organization_id) = 1
+$$;
+
 -- Exact-organization variant used only behind the durable fenced worker.
-+create or replace function public.apply_feishu_directory_sync_exact(
+create or replace function public.apply_feishu_directory_sync_exact(
+  p_run_id uuid,
   p_tenant_public_id uuid,
   p_organization_public_id uuid,
   p_actor_auth_user_id uuid,
@@ -667,6 +692,7 @@ declare
   v_provider_tenant_key text;
   v_connection_id bigint;
   v_sync_run_id bigint;
+  v_sync_run_status text;
   v_started_at timestamptz := clock_timestamp();
   v_item jsonb;
   v_external_id text;
@@ -690,7 +716,7 @@ declare
   v_department_external_id text;
   v_job_title_external_id text;
 begin
-  if p_tenant_public_id is null or p_organization_public_id is null or p_actor_auth_user_id is null
+  if p_run_id is null or p_tenant_public_id is null or p_organization_public_id is null or p_actor_auth_user_id is null
      or jsonb_typeof(p_snapshot) <> 'object'
      or jsonb_typeof(p_snapshot -> 'departments') <> 'array'
      or jsonb_typeof(p_snapshot -> 'positions') <> 'array'
@@ -727,17 +753,19 @@ begin
     raise exception 'Directory actor does not belong to this tenant'
       using errcode = '42501';
   end if;
-  if not exists (
-    select 1 from public.member_roles assignment
-    join public.roles role
-      on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
-    where assignment.tenant_id = v_tenant_id
-      and assignment.member_id = v_actor_member_id
-      and role.code in ('owner', 'admin')
-      and role.is_enabled
-  ) then
-    raise exception 'Only an owner or administrator can synchronize the directory'
-      using errcode = '42501';
+  if public.active_workspace_organization_id(p_actor_auth_user_id) is distinct from v_organization_id
+     or not exists (
+       select 1
+       from public.member_roles assignment
+       join public.role_permissions rp
+         on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
+       join public.permissions permission
+         on permission.id = rp.permission_id
+       where assignment.tenant_id = v_tenant_id
+         and assignment.member_id = v_actor_member_id
+         and permission.code = 'organization.manage'
+     ) then
+    raise exception 'forbidden' using errcode = '42501';
   end if;
 
   perform pg_advisory_xact_lock(
@@ -758,30 +786,70 @@ begin
     v_tenant_id, v_organization_id, v_provider_id, 'feishu',
     v_provider_tenant_key, 'manual', 'active'
   )
-  on conflict (tenant_id, identity_provider_id) do update set
-    organization_id = excluded.organization_id,
+  on conflict (tenant_id, organization_id, identity_provider_id) do update set
     external_tenant_key = excluded.external_tenant_key,
     status = 'active',
     updated_at = clock_timestamp()
   returning id into v_connection_id;
 
-  insert into public.directory_sync_runs (
-    tenant_id, organization_id, connection_id, actor_member_id,
-    status, snapshot_complete, departments_seen, employees_seen,
-    positions_seen, started_at
-  ) values (
-    v_tenant_id, v_organization_id, v_connection_id, v_actor_member_id,
-    'running', v_complete, v_departments, v_employees, v_positions, v_started_at
-  ) returning id into v_sync_run_id;
+  select run.id, run.status
+    into strict v_sync_run_id, v_sync_run_status
+    from public.directory_sync_runs run
+   where run.public_id = p_run_id
+     and run.request_id = p_run_id
+     and run.tenant_id = v_tenant_id
+     and run.organization_id = v_organization_id
+     and run.connection_id = v_connection_id
+     and run.actor_member_id = v_actor_member_id
+   for update;
+  if v_sync_run_status <> 'running' then
+    raise exception 'sync_run_terminal' using errcode = '55000';
+  end if;
+  update public.directory_sync_runs run set
+    snapshot_complete = v_complete,
+    departments_seen = v_departments,
+    employees_seen = v_employees,
+    positions_seen = v_positions
+  where run.public_id = p_run_id
+    and run.tenant_id = v_tenant_id
+    and run.organization_id = v_organization_id;
 
-  perform public.append_audit_log(
-    v_tenant_id, v_organization_id, p_actor_auth_user_id, v_actor_member_id,
-    'directory.sync_started', 'directory_sync_run', v_sync_run_id::text,
-    null, null, jsonb_build_object(
-      'departments', v_departments, 'employees', v_employees,
-      'positions', v_positions, 'complete', v_complete
-    )
-  );
+  -- A provider subject is tenant/provider-wide unique in the deployed schema.
+  -- Detect an existing owner in another organization before any directory row
+  -- is mutated, persist a sanitized conflict, and fail this claimed run closed.
+  if exists (
+    select 1
+      from jsonb_array_elements(p_snapshot -> 'employees') employee
+      join public.external_identities identity
+        on identity.tenant_id = v_tenant_id
+       and identity.identity_provider_id = v_provider_id
+       and identity.provider_tenant_key = v_provider_tenant_key
+       and identity.provider_subject = 'open_id:' || lower(btrim(employee ->> 'openId'))
+     where identity.organization_id <> v_organization_id
+  ) then
+    insert into public.feishu_sync_conflicts (
+      tenant_id, organization_id, code, severity, entity_type
+    ) values (
+      v_tenant_id, v_organization_id, 'AMBIGUOUS_EVENT', 'error', 'user'
+    );
+    update public.directory_sync_runs run set
+      status = 'failed', error_count = 1, completed_at = clock_timestamp()
+    where run.public_id = p_run_id
+      and run.tenant_id = v_tenant_id
+      and run.organization_id = v_organization_id
+      and run.status = 'running';
+    perform public.append_audit_log(
+      v_tenant_id, v_organization_id, p_actor_auth_user_id, v_actor_member_id,
+      'directory.sync_failed', 'directory_sync_run', v_sync_run_id::text,
+      p_run_id, null, jsonb_build_object('code', 'cross_organization_subject')
+    );
+    return jsonb_build_object(
+      'runId', p_run_id, 'status', 'failed', 'errorCount', 1,
+      'departmentCount', v_departments, 'employeeCount', v_employees,
+      'positionCount', v_positions, 'insertedCount', 0,
+      'updatedCount', 0, 'deactivatedCount', 0
+    );
+  end if;
 
   for v_item in select value from jsonb_array_elements(p_snapshot -> 'departments')
   loop
@@ -793,6 +861,7 @@ begin
     select link.department_id into v_department_id
     from public.directory_entity_links link
     where link.tenant_id = v_tenant_id and link.connection_id = v_connection_id
+      and link.organization_id = v_organization_id
       and link.entity_type = 'department' and link.external_id = v_external_id;
     if v_department_id is null then
       select department.id into v_department_id
@@ -817,7 +886,8 @@ begin
       update public.departments set
         name = btrim(v_item ->> 'name'), status = 'active',
         deleted_at = null, updated_at = clock_timestamp()
-      where tenant_id = v_tenant_id and id = v_department_id;
+      where tenant_id = v_tenant_id and organization_id = v_organization_id
+        and id = v_department_id;
       v_updated := v_updated + 1;
     end if;
 
@@ -845,18 +915,21 @@ begin
     select link.department_id into v_department_id
     from public.directory_entity_links link
     where link.tenant_id = v_tenant_id and link.connection_id = v_connection_id
+      and link.organization_id = v_organization_id
       and link.entity_type = 'department' and link.external_id = v_external_id;
     v_parent_department_id := null;
     if nullif(btrim(v_item ->> 'parentExternalId'), '') is not null then
       select link.department_id into v_parent_department_id
       from public.directory_entity_links link
       where link.tenant_id = v_tenant_id and link.connection_id = v_connection_id
+        and link.organization_id = v_organization_id
         and link.entity_type = 'department'
         and link.external_id = btrim(v_item ->> 'parentExternalId');
     end if;
     update public.departments set parent_department_id = v_parent_department_id,
       updated_at = clock_timestamp()
-    where tenant_id = v_tenant_id and id = v_department_id;
+    where tenant_id = v_tenant_id and organization_id = v_organization_id
+      and id = v_department_id;
   end loop;
 
   for v_item in select value from jsonb_array_elements(p_snapshot -> 'positions')
@@ -868,6 +941,7 @@ begin
     select link.position_template_id into v_position_id
     from public.directory_entity_links link
     where link.tenant_id = v_tenant_id and link.connection_id = v_connection_id
+      and link.organization_id = v_organization_id
       and link.entity_type = 'position' and link.external_id = v_external_id;
     if v_position_id is null then
       select position.id into v_position_id
@@ -893,7 +967,8 @@ begin
       update public.position_templates set
         name = btrim(v_item ->> 'name'), status = 'active',
         deleted_at = null, updated_at = clock_timestamp()
-      where tenant_id = v_tenant_id and id = v_position_id;
+      where tenant_id = v_tenant_id and organization_id = v_organization_id
+        and id = v_position_id;
       v_updated := v_updated + 1;
     end if;
     insert into public.directory_entity_links (
@@ -926,27 +1001,32 @@ begin
       select link.department_id into v_department_id
       from public.directory_entity_links link
       where link.tenant_id = v_tenant_id and link.connection_id = v_connection_id
+        and link.organization_id = v_organization_id
         and link.entity_type = 'department' and link.external_id = v_department_external_id;
     end if;
     if v_job_title_external_id is not null then
       select link.position_template_id into v_position_id
       from public.directory_entity_links link
       where link.tenant_id = v_tenant_id and link.connection_id = v_connection_id
+        and link.organization_id = v_organization_id
         and link.entity_type = 'position' and link.external_id = v_job_title_external_id;
     end if;
 
     select link.employee_profile_id into v_profile_id
     from public.directory_entity_links link
     where link.tenant_id = v_tenant_id and link.connection_id = v_connection_id
+      and link.organization_id = v_organization_id
       and link.entity_type = 'employee' and link.external_id = v_open_id;
     if v_profile_id is null then
       select profile.id into v_profile_id
       from public.external_identities identity
       join public.employee_profiles profile
         on profile.tenant_id = identity.tenant_id
+       and profile.organization_id = identity.organization_id
        and profile.organization_member_id = identity.organization_member_id
        and profile.deleted_at is null
       where identity.tenant_id = v_tenant_id
+        and identity.organization_id = v_organization_id
         and identity.identity_provider_id = v_provider_id
         and identity.provider_subject = 'open_id:' || v_open_id
       limit 1;
@@ -974,7 +1054,9 @@ begin
     else
       select profile.organization_member_id into v_member_id
       from public.employee_profiles profile
-      where profile.tenant_id = v_tenant_id and profile.id = v_profile_id;
+      where profile.tenant_id = v_tenant_id
+        and profile.organization_id = v_organization_id
+        and profile.id = v_profile_id;
       update public.employee_profiles set
         display_name = btrim(v_item ->> 'name'),
         work_email = coalesce(v_email, work_email),
@@ -984,14 +1066,16 @@ begin
         employment_status = case when v_is_active then 'active' else 'departed' end,
         departure_date = case when v_is_active then null else current_date end,
         updated_at = clock_timestamp()
-      where tenant_id = v_tenant_id and id = v_profile_id;
+      where tenant_id = v_tenant_id and organization_id = v_organization_id
+        and id = v_profile_id;
       update public.organization_members set
         status = case
           when v_is_active and user_id is null then 'invited'
           when v_is_active then 'active'
           else 'suspended'
         end
-      where tenant_id = v_tenant_id and id = v_member_id;
+      where tenant_id = v_tenant_id and organization_id = v_organization_id
+        and id = v_member_id;
       v_updated := v_updated + 1;
     end if;
 
@@ -1044,6 +1128,7 @@ begin
       select role.id into strict v_role_id
       from public.roles role
       where role.tenant_id = v_tenant_id and role.is_enabled
+        and (role.organization_id is null or role.organization_id = v_organization_id)
         and role.code = case when exists (
           select 1 from jsonb_array_elements(p_snapshot -> 'departments') department
           where lower(btrim(department ->> 'leaderOpenId')) = v_open_id
@@ -1063,22 +1148,27 @@ begin
     from public.directory_entity_links department_link
     left join public.directory_entity_links employee_link
       on employee_link.tenant_id = department_link.tenant_id
+     and employee_link.organization_id = department_link.organization_id
      and employee_link.connection_id = department_link.connection_id
      and employee_link.entity_type = 'employee'
      and employee_link.external_id = lower(btrim(v_item ->> 'leaderOpenId'))
     left join public.employee_profiles profile
       on profile.tenant_id = employee_link.tenant_id
+     and profile.organization_id = employee_link.organization_id
      and profile.id = employee_link.employee_profile_id
     left join public.organization_members member
       on member.tenant_id = profile.tenant_id
+     and member.organization_id = profile.organization_id
      and member.id = profile.organization_member_id
     where department_link.tenant_id = v_tenant_id
+      and department_link.organization_id = v_organization_id
       and department_link.connection_id = v_connection_id
       and department_link.entity_type = 'department'
       and department_link.external_id = btrim(v_item ->> 'externalId');
     update public.departments set leader_member_id = v_member_id,
       updated_at = clock_timestamp()
-    where tenant_id = v_tenant_id and id = v_department_id;
+    where tenant_id = v_tenant_id and organization_id = v_organization_id
+      and id = v_department_id;
   end loop;
 
   if v_complete then
@@ -1087,9 +1177,12 @@ begin
       updated_at = clock_timestamp()
     from public.directory_entity_links link
     where link.tenant_id = v_tenant_id
+      and link.organization_id = v_organization_id
       and link.connection_id = v_connection_id
       and link.entity_type = 'employee'
       and link.employee_profile_id = profile.id
+      and profile.tenant_id = v_tenant_id
+      and profile.organization_id = v_organization_id
       and link.last_seen_at < v_started_at
       and not exists (
         select 1 from public.member_roles assignment
@@ -1104,14 +1197,20 @@ begin
     update public.organization_members member set status = 'suspended'
     from public.employee_profiles profile
     where profile.tenant_id = v_tenant_id
+      and profile.organization_id = v_organization_id
       and profile.organization_member_id = member.id
+      and member.tenant_id = v_tenant_id
+      and member.organization_id = v_organization_id
       and profile.employment_status = 'departed'
       and profile.updated_at >= v_started_at;
     update public.external_identities identity set status = 'revoked',
       updated_at = clock_timestamp()
     from public.employee_profiles profile
     where profile.tenant_id = v_tenant_id
+      and profile.organization_id = v_organization_id
       and profile.organization_member_id = identity.organization_member_id
+      and identity.tenant_id = v_tenant_id
+      and identity.organization_id = v_organization_id
       and identity.identity_provider_id = v_provider_id
       and profile.employment_status = 'departed'
       and profile.updated_at >= v_started_at;
@@ -1121,15 +1220,17 @@ begin
     status = 'completed', inserted_count = v_inserted,
     updated_count = v_updated, deactivated_count = v_deactivated,
     completed_at = clock_timestamp()
-  where tenant_id = v_tenant_id and id = v_sync_run_id;
+  where tenant_id = v_tenant_id and organization_id = v_organization_id
+    and public_id = p_run_id and id = v_sync_run_id and status = 'running';
   update public.directory_connections set
     last_sync_at = clock_timestamp(), status = 'active', updated_at = clock_timestamp()
-  where tenant_id = v_tenant_id and id = v_connection_id;
+  where tenant_id = v_tenant_id and organization_id = v_organization_id
+    and id = v_connection_id;
 
   perform public.append_audit_log(
     v_tenant_id, v_organization_id, p_actor_auth_user_id, v_actor_member_id,
     'directory.sync_completed', 'directory_sync_run', v_sync_run_id::text,
-    null, null, jsonb_build_object(
+    p_run_id, null, jsonb_build_object(
       'departments', v_departments, 'employees', v_employees,
       'positions', v_positions, 'inserted', v_inserted,
       'updated', v_updated, 'deactivated', v_deactivated
@@ -1137,7 +1238,7 @@ begin
   );
 
   return jsonb_build_object(
-    'status', 'completed',
+    'runId', p_run_id, 'status', 'completed',
     'departmentCount', v_departments,
     'employeeCount', v_employees,
     'positionCount', v_positions,
@@ -1146,19 +1247,13 @@ begin
     'deactivatedCount', v_deactivated
   );
 exception when others then
-  if v_sync_run_id is not null then
-    update public.directory_sync_runs set status = 'failed', error_count = 1,
-      completed_at = clock_timestamp()
-    where tenant_id = v_tenant_id and id = v_sync_run_id;
-  end if;
   raise;
 end;
 $$;
 
 
-revoke all on function public.apply_feishu_directory_sync_exact(uuid, uuid, uuid, jsonb)
+revoke all on function public.apply_feishu_directory_sync_exact(uuid, uuid, uuid, uuid, jsonb)
 from public, anon, authenticated, service_role;
-grant execute on function public.apply_feishu_directory_sync_exact(uuid, uuid, uuid, jsonb) to service_role;
 
 -- A durable command ledger makes deleted-user processing retry-safe. The row,
 -- revocations and audit record commit atomically, so a lost response can be
@@ -1171,10 +1266,12 @@ create table public.feishu_offboarding_commands (
   offboarding_event_id text not null check (length(btrim(offboarding_event_id)) between 1 and 200),
   status text not null default 'pending' check (status in ('pending', 'completed')),
   result boolean,
+  sessions_revoked integer not null default 0 check (sessions_revoked >= 0),
+  refresh_tokens_revoked integer not null default 0 check (refresh_tokens_revoked >= 0),
+  queued_grants_cancelled integer not null default 0 check (queued_grants_cancelled >= 0),
   created_at timestamptz not null default now(),
   completed_at timestamptz,
-  unique (tenant_id, organization_id, offboarding_event_id),
-  unique (tenant_id, organization_id, member_public_id),
+  unique (offboarding_event_id),
   foreign key (tenant_id, organization_id)
     references public.organizations (tenant_id, id) on delete cascade
 );
@@ -1195,57 +1292,92 @@ declare
   v_profile public.employee_profiles%rowtype;
   v_user_id uuid;
   v_command public.feishu_offboarding_commands%rowtype;
+  v_sessions_revoked integer := 0;
+  v_refresh_tokens_revoked integer := 0;
+  v_queued_grants_cancelled integer := 0;
 begin
   if p_member_public_id is null or nullif(btrim(p_event_id), '') is null
      or length(btrim(p_event_id)) > 200 then
     raise exception 'offboarding_invalid' using errcode = '22023';
   end if;
 
-  select * into v_profile from public.employee_profiles
-   where public_id = p_member_public_id and deleted_at is null for update;
-  if not found or v_profile.organization_member_id is null then return false; end if;
-
-  insert into public.feishu_offboarding_commands (
-    tenant_id, organization_id, member_public_id, offboarding_event_id
-  ) values (
-    v_profile.tenant_id, v_profile.organization_id, p_member_public_id, btrim(p_event_id)
-  ) on conflict do nothing
-  returning * into v_command;
-
-  if not found then
-    select * into v_command from public.feishu_offboarding_commands command
-     where command.tenant_id = v_profile.tenant_id
-       and command.organization_id = v_profile.organization_id
-       and (command.offboarding_event_id = btrim(p_event_id)
-            or command.member_public_id = p_member_public_id)
-     for update;
-    if not found or v_command.status <> 'completed' or v_command.result is distinct from true then
+  -- A retry after a lost response observes the previously committed terminal
+  -- command before touching a possibly rehired member.
+  select * into v_command
+    from public.feishu_offboarding_commands command
+   where command.offboarding_event_id = btrim(p_event_id)
+   for update;
+  if found then
+    if v_command.member_public_id <> p_member_public_id then
+      raise exception 'offboarding_event_conflict' using errcode = '23505';
+    end if;
+    if v_command.status <> 'completed' or v_command.result is distinct from true then
       raise exception 'offboarding_in_progress' using errcode = '40001';
     end if;
     return true;
   end if;
 
-  select user_id into v_user_id from public.organization_members
-   where tenant_id = v_profile.tenant_id and id = v_profile.organization_member_id for update;
+  select * into v_profile
+    from public.employee_profiles profile
+   where profile.public_id = p_member_public_id
+     and profile.deleted_at is null
+   for update;
+  if not found or v_profile.organization_member_id is null then return false; end if;
+
+  select member.user_id into v_user_id
+    from public.organization_members member
+   where member.tenant_id = v_profile.tenant_id
+     and member.organization_id = v_profile.organization_id
+     and member.id = v_profile.organization_member_id
+   for update;
+  if not found then return false; end if;
+
+  insert into public.feishu_offboarding_commands (
+    tenant_id, organization_id, member_public_id, offboarding_event_id
+  ) values (
+    v_profile.tenant_id, v_profile.organization_id, p_member_public_id, btrim(p_event_id)
+  ) on conflict (offboarding_event_id) do nothing
+  returning * into v_command;
+
+  if not found then
+    select * into v_command from public.feishu_offboarding_commands command
+     where command.offboarding_event_id = btrim(p_event_id)
+     for update;
+    if not found or v_command.member_public_id <> p_member_public_id then
+      raise exception 'offboarding_event_conflict' using errcode = '23505';
+    end if;
+    if v_command.status <> 'completed' or v_command.result is distinct from true then
+      raise exception 'offboarding_in_progress' using errcode = '40001';
+    end if;
+    return true;
+  end if;
+
   update public.employee_profiles
      set employment_status = 'departed', departure_date = current_date, updated_at = clock_timestamp()
-   where tenant_id = v_profile.tenant_id and id = v_profile.id;
+   where tenant_id = v_profile.tenant_id
+     and organization_id = v_profile.organization_id
+     and id = v_profile.id;
   update public.external_identities
      set status = 'revoked', auth_user_id = null, updated_at = clock_timestamp()
    where tenant_id = v_profile.tenant_id
      and organization_id = v_profile.organization_id
      and organization_member_id = v_profile.organization_member_id;
   update public.organization_members set status = 'revoked'
-   where tenant_id = v_profile.tenant_id and id = v_profile.organization_member_id;
+   where tenant_id = v_profile.tenant_id
+     and organization_id = v_profile.organization_id
+     and id = v_profile.organization_member_id;
   update public.feishu_access_grants set status = 'cancelled', cancelled_at = clock_timestamp()
    where tenant_id = v_profile.tenant_id
      and organization_id = v_profile.organization_id
      and organization_member_id = v_profile.organization_member_id
      and status = 'queued';
+  get diagnostics v_queued_grants_cancelled = row_count;
   if v_user_id is not null then
     delete from auth.refresh_tokens refresh using auth.sessions session
      where refresh.session_id = session.id and session.user_id = v_user_id;
+    get diagnostics v_refresh_tokens_revoked = row_count;
     delete from auth.sessions where user_id = v_user_id;
+    get diagnostics v_sessions_revoked = row_count;
   end if;
   insert into public.audit_logs (
     tenant_id, organization_id, action, target_type, target_id, metadata
@@ -1258,11 +1390,104 @@ begin
     )
   );
   update public.feishu_offboarding_commands
-     set status = 'completed', result = true, completed_at = clock_timestamp()
+     set status = 'completed', result = true,
+         sessions_revoked = v_sessions_revoked,
+         refresh_tokens_revoked = v_refresh_tokens_revoked,
+         queued_grants_cancelled = v_queued_grants_cancelled,
+         completed_at = clock_timestamp()
    where id = v_command.id;
   return true;
 end;
 $$;
+
+create or replace function public.get_feishu_offboarding_proof(p_event_id text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_command public.feishu_offboarding_commands%rowtype;
+begin
+  if nullif(btrim(p_event_id), '') is null or length(btrim(p_event_id)) > 200 then
+    raise exception 'offboarding_invalid' using errcode = '22023';
+  end if;
+  select * into strict v_command
+    from public.feishu_offboarding_commands command
+   where command.offboarding_event_id = btrim(p_event_id);
+  return jsonb_build_object(
+    'status', v_command.status,
+    'result', v_command.result,
+    'sessionsRevoked', v_command.sessions_revoked,
+    'refreshTokensRevoked', v_command.refresh_tokens_revoked,
+    'queuedGrantsCancelled', v_command.queued_grants_cancelled,
+    'profileDeparted', exists (
+      select 1 from public.employee_profiles profile
+       where profile.tenant_id = v_command.tenant_id
+         and profile.organization_id = v_command.organization_id
+         and profile.public_id = v_command.member_public_id
+         and profile.employment_status = 'departed'
+    ),
+    'memberRevoked', exists (
+      select 1 from public.employee_profiles profile
+      join public.organization_members member
+        on member.tenant_id = profile.tenant_id
+       and member.organization_id = profile.organization_id
+       and member.id = profile.organization_member_id
+       where profile.tenant_id = v_command.tenant_id
+         and profile.organization_id = v_command.organization_id
+         and profile.public_id = v_command.member_public_id
+         and member.status = 'revoked'
+    ),
+    'identityRevoked', exists (
+      select 1 from public.employee_profiles profile
+      join public.external_identities identity
+        on identity.tenant_id = profile.tenant_id
+       and identity.organization_id = profile.organization_id
+       and identity.organization_member_id = profile.organization_member_id
+       where profile.tenant_id = v_command.tenant_id
+         and profile.organization_id = v_command.organization_id
+         and profile.public_id = v_command.member_public_id
+         and identity.status = 'revoked'
+         and identity.auth_user_id is null
+    ) and not exists (
+      select 1 from public.employee_profiles profile
+      join public.external_identities identity
+        on identity.tenant_id = profile.tenant_id
+       and identity.organization_id = profile.organization_id
+       and identity.organization_member_id = profile.organization_member_id
+       where profile.tenant_id = v_command.tenant_id
+         and profile.organization_id = v_command.organization_id
+         and profile.public_id = v_command.member_public_id
+         and identity.status <> 'revoked'
+    ),
+    'queuedGrantsRemaining', (
+      select count(*) from public.employee_profiles profile
+      join public.feishu_access_grants grant_row
+        on grant_row.tenant_id = profile.tenant_id
+       and grant_row.organization_id = profile.organization_id
+       and grant_row.organization_member_id = profile.organization_member_id
+       where profile.tenant_id = v_command.tenant_id
+         and profile.organization_id = v_command.organization_id
+         and profile.public_id = v_command.member_public_id
+         and grant_row.status = 'queued'
+    ),
+    'auditCount', (
+      select count(*) from public.audit_logs audit
+       where audit.tenant_id = v_command.tenant_id
+         and audit.organization_id = v_command.organization_id
+         and audit.action = 'identity.revoked'
+         and audit.target_type = 'employee_profile'
+         and audit.target_id = v_command.member_public_id::text
+         and audit.metadata ->> 'eventIdDigest' = encode(digest(v_command.offboarding_event_id, 'sha256'), 'hex')
+    )
+  );
+end;
+$$;
+
+revoke all on function public.get_feishu_offboarding_proof(text)
+from public, anon, authenticated, service_role;
+grant execute on function public.get_feishu_offboarding_proof(text) to service_role;
 
 alter table public.feishu_sync_leases
   add column actor_auth_user_id uuid references auth.users(id) on delete set null;
@@ -1274,7 +1499,7 @@ stable
 security definer
 set search_path = ''
 as $$
-  select identity.organization_id
+  select min(identity.organization_id)
     from public.external_identities identity
     join public.organization_members member
       on member.tenant_id = identity.tenant_id
@@ -1283,7 +1508,7 @@ as $$
    where identity.auth_user_id = auth.uid()
      and identity.status = 'active'
      and member.status = 'active'
-   limit 1
+   having count(distinct identity.organization_id) = 1
 $$;
 
 create or replace function public.active_workspace_organization_id(p_auth_user_id uuid)
@@ -1293,7 +1518,7 @@ stable
 security definer
 set search_path = ''
 as $$
-  select identity.organization_id
+  select min(identity.organization_id)
     from public.external_identities identity
     join public.organization_members member
       on member.tenant_id = identity.tenant_id
@@ -1302,7 +1527,7 @@ as $$
    where identity.auth_user_id = p_auth_user_id
      and identity.status = 'active'
      and member.status = 'active'
-   limit 1
+   having count(distinct identity.organization_id) = 1
 $$;
 
 drop policy if exists feishu_sync_conflicts_manager_select on public.feishu_sync_conflicts;
@@ -1315,6 +1540,7 @@ for select to authenticated using (
     join public.role_permissions rp on rp.role_id = assignment.role_id
     join public.permissions permission on permission.id = rp.permission_id
     where member.user_id = (select auth.uid()) and member.status = 'active'
+      and member.tenant_id = feishu_sync_conflicts.tenant_id
       and member.organization_id = feishu_sync_conflicts.organization_id
       and permission.code = 'organization.manage'
   )
@@ -1326,25 +1552,86 @@ for select to authenticated using (
   organization_id = (select public.current_active_workspace_organization_id())
   and exists (
     select 1 from public.organization_members member
-    join public.member_roles assignment on assignment.member_id = member.id
-    join public.role_permissions rp on rp.role_id = assignment.role_id
+    join public.member_roles assignment
+      on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+    join public.role_permissions rp
+      on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
     join public.permissions permission on permission.id = rp.permission_id
     where member.user_id = (select auth.uid()) and member.status = 'active'
+      and member.tenant_id = feishu_webhook_events.tenant_id
       and member.organization_id = feishu_webhook_events.organization_id
       and permission.code = 'organization.manage'
   )
 );
 
+drop policy if exists directory_connections_admin_select on public.directory_connections;
+drop policy if exists directory_entity_links_admin_select on public.directory_entity_links;
+drop policy if exists directory_sync_issues_admin_select on public.directory_sync_issues;
+drop policy if exists directory_sync_runs_admin_select on public.directory_sync_runs;
+drop policy if exists directory_connections_org_manager_select on public.directory_connections;
+create policy directory_connections_org_manager_select on public.directory_connections
+for select to authenticated using (
+  organization_id = (select public.current_active_workspace_organization_id())
+  and exists (
+    select 1 from public.organization_members member
+    join public.member_roles assignment
+      on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+    join public.role_permissions rp
+      on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
+    join public.permissions permission on permission.id = rp.permission_id
+    where member.user_id = (select auth.uid()) and member.status = 'active'
+      and member.tenant_id = directory_connections.tenant_id
+      and member.organization_id = directory_connections.organization_id
+      and permission.code = 'organization.manage'
+  )
+);
+drop policy if exists directory_entity_links_org_manager_select on public.directory_entity_links;
+create policy directory_entity_links_org_manager_select on public.directory_entity_links
+for select to authenticated using (
+  organization_id = (select public.current_active_workspace_organization_id())
+  and exists (
+    select 1 from public.organization_members member
+    join public.member_roles assignment
+      on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+    join public.role_permissions rp
+      on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
+    join public.permissions permission on permission.id = rp.permission_id
+    where member.user_id = (select auth.uid()) and member.status = 'active'
+      and member.tenant_id = directory_entity_links.tenant_id
+      and member.organization_id = directory_entity_links.organization_id
+      and permission.code = 'organization.manage'
+  )
+);
+drop policy if exists directory_sync_issues_org_manager_select on public.directory_sync_issues;
+create policy directory_sync_issues_org_manager_select on public.directory_sync_issues
+for select to authenticated using (
+  organization_id = (select public.current_active_workspace_organization_id())
+  and exists (
+    select 1 from public.organization_members member
+    join public.member_roles assignment
+      on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+    join public.role_permissions rp
+      on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
+    join public.permissions permission on permission.id = rp.permission_id
+    where member.user_id = (select auth.uid()) and member.status = 'active'
+      and member.tenant_id = directory_sync_issues.tenant_id
+      and member.organization_id = directory_sync_issues.organization_id
+      and permission.code = 'organization.manage'
+  )
+);
 drop policy if exists directory_sync_runs_org_manager_select on public.directory_sync_runs;
 create policy directory_sync_runs_org_manager_select on public.directory_sync_runs
 for select to authenticated using (
   organization_id = (select public.current_active_workspace_organization_id())
   and exists (
     select 1 from public.organization_members member
-    join public.member_roles assignment on assignment.member_id = member.id
-    join public.role_permissions rp on rp.role_id = assignment.role_id
+    join public.member_roles assignment
+      on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+    join public.role_permissions rp
+      on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
     join public.permissions permission on permission.id = rp.permission_id
     where member.user_id = (select auth.uid()) and member.status = 'active'
+      and member.tenant_id = directory_sync_runs.tenant_id
       and member.organization_id = directory_sync_runs.organization_id
       and permission.code = 'organization.manage'
   )
@@ -1370,6 +1657,7 @@ declare
   v_run_id uuid;
   v_attempt integer := 1;
   v_actor uuid;
+  v_actor_member_id bigint;
   v_previous_cursor text;
 begin
   if p_mode not in ('full', 'incremental', 'reconcile')
@@ -1415,10 +1703,13 @@ begin
     if public.active_workspace_organization_id(p_actor_auth_user_id) is distinct from v_connection.organization_id
        or not exists (
          select 1 from public.organization_members member
-         join public.member_roles assignment on assignment.member_id = member.id
-         join public.role_permissions rp on rp.role_id = assignment.role_id
+         join public.member_roles assignment
+           on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+         join public.role_permissions rp
+           on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
          join public.permissions permission on permission.id = rp.permission_id
-        where member.user_id = p_actor_auth_user_id and member.status = 'active'
+        where member.tenant_id = v_connection.tenant_id
+          and member.user_id = p_actor_auth_user_id and member.status = 'active'
           and member.organization_id = v_connection.organization_id
           and permission.code = 'organization.manage'
        ) then
@@ -1432,8 +1723,10 @@ begin
         on identity.tenant_id = member.tenant_id and identity.organization_member_id = member.id
        and identity.organization_id = member.organization_id and identity.status = 'active'
        and identity.auth_user_id = member.user_id
-      join public.member_roles assignment on assignment.member_id = member.id
-      join public.role_permissions rp on rp.role_id = assignment.role_id
+      join public.member_roles assignment
+        on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+      join public.role_permissions rp
+        on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
       join public.permissions permission on permission.id = rp.permission_id
      where member.tenant_id = v_connection.tenant_id
        and member.organization_id = v_connection.organization_id
@@ -1442,6 +1735,13 @@ begin
      order by member.id limit 1;
     if v_actor is null then raise exception 'sync_actor_missing' using errcode = '42501'; end if;
   end if;
+
+  select member.id into strict v_actor_member_id
+    from public.organization_members member
+   where member.tenant_id = v_connection.tenant_id
+     and member.organization_id = v_connection.organization_id
+     and member.user_id = v_actor
+     and member.status = 'active';
 
   select * into v_lease from public.feishu_sync_leases
    where connection_id = v_connection.id for update;
@@ -1472,6 +1772,21 @@ begin
   v_run_id := gen_random_uuid();
   v_previous_cursor := v_lease.cursor;
   v_attempt := case when v_lease.status = 'retry' then least(v_lease.attempt + 1, 9) else 1 end;
+  insert into public.directory_sync_runs (
+    public_id, tenant_id, organization_id, connection_id, actor_member_id,
+    status, snapshot_complete, departments_seen, employees_seen,
+    positions_seen, request_id, started_at
+  ) values (
+    v_run_id, v_connection.tenant_id, v_connection.organization_id,
+    v_connection.id, v_actor_member_id, 'running', false, 0, 0, 0,
+    v_run_id, clock_timestamp()
+  );
+  perform public.append_audit_log(
+    v_connection.tenant_id, v_connection.organization_id,
+    v_actor, v_actor_member_id, 'directory.sync_started',
+    'directory_sync_run', v_run_id::text, v_run_id, null,
+    jsonb_build_object('mode', p_mode, 'attempt', v_attempt)
+  );
   insert into public.feishu_sync_leases (
     connection_id, tenant_id, organization_id, run_id, mode, cursor, status,
     attempt, lease_expires_at, retry_after, started_at, completed_at, actor_auth_user_id
@@ -1535,21 +1850,68 @@ set search_path = ''
 as $$
 declare
   v_lease public.feishu_sync_leases%rowtype;
+  v_run public.directory_sync_runs%rowtype;
   v_tenant_public_id uuid;
 begin
-  select lease, tenant.public_id into strict v_lease, v_tenant_public_id
-    from public.feishu_sync_leases lease
+  select run, tenant.public_id into strict v_run, v_tenant_public_id
+    from public.directory_sync_runs run
     join public.organizations organization
-      on organization.tenant_id = lease.tenant_id and organization.id = lease.organization_id
-    join public.tenants tenant on tenant.id = lease.tenant_id
-   where lease.run_id = p_run_id
+      on organization.tenant_id = run.tenant_id and organization.id = run.organization_id
+    join public.tenants tenant on tenant.id = run.tenant_id
+    join public.organization_members actor
+      on actor.tenant_id = run.tenant_id
+     and actor.organization_id = run.organization_id
+     and actor.id = run.actor_member_id
+   where run.public_id = p_run_id
+     and run.request_id = p_run_id
      and organization.public_id = p_organization_public_id
+     and actor.user_id = p_actor_auth_user_id
+   for update of run;
+
+  if v_run.status <> 'running' then
+    return jsonb_build_object(
+      'runId', p_run_id, 'status', v_run.status,
+      'departmentCount', v_run.departments_seen,
+      'employeeCount', v_run.employees_seen,
+      'positionCount', v_run.positions_seen,
+      'insertedCount', v_run.inserted_count,
+      'updatedCount', v_run.updated_count,
+      'deactivatedCount', v_run.deactivated_count,
+      'errorCount', v_run.error_count
+    );
+  end if;
+
+  if public.active_workspace_organization_id(p_actor_auth_user_id) is distinct from v_run.organization_id
+     or not exists (
+       select 1
+         from public.organization_members member
+         join public.member_roles assignment
+           on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+         join public.role_permissions rp
+           on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
+         join public.permissions permission on permission.id = rp.permission_id
+        where member.tenant_id = v_run.tenant_id
+          and member.organization_id = v_run.organization_id
+          and member.user_id = p_actor_auth_user_id
+          and member.status = 'active'
+          and permission.code = 'organization.manage'
+     ) then
+    raise exception 'forbidden' using errcode = '42501';
+  end if;
+
+  select lease.* into strict v_lease
+    from public.feishu_sync_leases lease
+   where lease.run_id = p_run_id
+     and lease.tenant_id = v_run.tenant_id
+     and lease.organization_id = v_run.organization_id
+     and lease.connection_id = v_run.connection_id
      and lease.actor_auth_user_id = p_actor_auth_user_id
      and lease.status = 'running'
      and lease.lease_expires_at > now()
-   for update of lease;
+   for update;
   return public.apply_feishu_directory_sync_exact(
-    v_tenant_public_id, p_organization_public_id, p_actor_auth_user_id, p_snapshot
+    p_run_id, v_tenant_public_id, p_organization_public_id,
+    p_actor_auth_user_id, p_snapshot
   );
 exception
   when no_data_found then
@@ -1570,23 +1932,74 @@ language plpgsql
 security definer
 set search_path = ''
 as $$
-declare v_lease public.feishu_sync_leases%rowtype;
+declare
+  v_lease public.feishu_sync_leases%rowtype;
+  v_run public.directory_sync_runs%rowtype;
+  v_audit_actor_auth_user_id uuid;
+  v_audit_actor_member_id bigint;
 begin
   if p_status not in ('completed', 'retry')
      or (p_status = 'retry') <> (p_retry_after is not null)
      or p_organization_public_id is null then
     raise exception 'sync_finish_invalid' using errcode = '22023';
   end if;
+  select lease.* into strict v_lease
+    from public.feishu_sync_leases lease
+    join public.organizations organization
+      on organization.tenant_id = lease.tenant_id
+     and organization.id = lease.organization_id
+   where lease.run_id = p_run_id
+     and organization.public_id = p_organization_public_id
+   for update of lease;
+  if v_lease.status <> 'running' then
+    if v_lease.status = p_status then
+      return jsonb_build_object(
+        'runId', v_lease.run_id, 'cursor', v_lease.cursor,
+        'status', v_lease.status, 'retryAfter', v_lease.retry_after
+      );
+    end if;
+    raise exception 'sync_lease_missing' using errcode = 'P0002';
+  end if;
+
   update public.feishu_sync_leases lease set
     cursor = p_cursor, status = p_status, retry_after = p_retry_after,
     completed_at = clock_timestamp(), lease_expires_at = clock_timestamp()
-   from public.organizations organization
-   where lease.organization_id = organization.id
-     and lease.tenant_id = organization.tenant_id
-     and lease.run_id = p_run_id and lease.status = 'running'
-     and organization.public_id = p_organization_public_id
+   where lease.run_id = p_run_id and lease.status = 'running'
   returning lease.* into v_lease;
-  if not found then raise exception 'sync_lease_missing' using errcode = 'P0002'; end if;
+
+  select run.* into strict v_run
+    from public.directory_sync_runs run
+   where run.public_id = p_run_id
+     and run.request_id = p_run_id
+     and run.tenant_id = v_lease.tenant_id
+     and run.organization_id = v_lease.organization_id
+     and run.connection_id = v_lease.connection_id
+   for update;
+  if p_status = 'completed' and v_run.status <> 'completed' then
+    raise exception 'sync_run_incomplete' using errcode = '55000';
+  end if;
+  if p_status = 'retry' and v_run.status = 'running' then
+    update public.directory_sync_runs run set
+      status = 'failed', error_count = greatest(run.error_count, 1),
+      completed_at = clock_timestamp()
+    where run.id = v_run.id and run.tenant_id = v_run.tenant_id
+      and run.organization_id = v_run.organization_id
+      and run.status = 'running';
+    select member.user_id, member.id
+      into v_audit_actor_auth_user_id, v_audit_actor_member_id
+      from public.organization_members member
+     where member.tenant_id = v_run.tenant_id
+       and member.organization_id = v_run.organization_id
+       and member.id = v_run.actor_member_id
+       and member.user_id = v_lease.actor_auth_user_id
+       and member.status = 'active';
+    perform public.append_audit_log(
+      v_run.tenant_id, v_run.organization_id, v_audit_actor_auth_user_id,
+      v_audit_actor_member_id, 'directory.sync_failed', 'directory_sync_run',
+      v_run.id::text, p_run_id, null,
+      jsonb_build_object('code', 'worker_retry', 'attempt', v_lease.attempt)
+    );
+  end if;
   return jsonb_build_object(
     'runId', v_lease.run_id, 'cursor', v_lease.cursor, 'status', v_lease.status,
     'retryAfter', v_lease.retry_after
@@ -1647,7 +2060,7 @@ $$;
 revoke all on function public.current_active_workspace_organization_id() from public, anon, authenticated, service_role;
 grant execute on function public.current_active_workspace_organization_id() to authenticated;
 revoke all on function public.active_workspace_organization_id(uuid) from public, anon, authenticated, service_role;
-revoke all on function public.apply_feishu_directory_sync_exact(uuid, uuid, uuid, jsonb) from public, anon, authenticated, service_role;
+revoke all on function public.apply_feishu_directory_sync_exact(uuid, uuid, uuid, uuid, jsonb) from public, anon, authenticated, service_role;
 revoke all on function public.claim_feishu_sync_work(text, text, text, integer, uuid, uuid) from public, anon, authenticated, service_role;
 grant execute on function public.claim_feishu_sync_work(text, text, text, integer, uuid, uuid) to service_role;
 revoke all on function public.heartbeat_feishu_sync_work(uuid, uuid, integer) from public, anon, authenticated, service_role;

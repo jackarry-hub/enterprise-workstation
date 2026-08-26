@@ -65,6 +65,31 @@ describe("Feishu directory snapshot", () => {
     expect(Date.now() - started).toBeLessThan(250);
   });
 
+  it("heartbeats during every provider page traversal", async () => {
+    let pageTokenSeen = false;
+    let heartbeats = 0;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/auth/v3/tenant_access_token/internal")) {
+        return Response.json({ code: 0, tenant_access_token: "tenant-secret" });
+      }
+      if (url.includes("/departments/0/children")) {
+        const second = url.includes("page_token=next-department");
+        pageTokenSeen ||= second;
+        return Response.json({ code: 0, data: second
+          ? { has_more: false, items: [] }
+          : { has_more: true, page_token: "next-department", items: [] } });
+      }
+      return Response.json({ code: 0, data: { has_more: false, items: [] } });
+    });
+    await loadFeishuDirectorySnapshot(directoryEnv, fetchImpl, {
+      maxPages: 4,
+      onPage: async () => { heartbeats += 1; },
+    });
+    expect(pageTokenSeen).toBe(true);
+    expect(heartbeats).toBe(3);
+  });
+
   it("loads departments and employees with an app token without exposing the token", async () => {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);

@@ -152,9 +152,26 @@ test.describe("commercial Feishu directory source contracts", () => {
     const member = await admin.from("organization_members").select("status")
       .eq("id", identity.data!.organization_member_id).single();
     expect(member.data).toEqual({ status: "revoked" });
+    const profile = await admin.from("employee_profiles").select("employment_status")
+      .eq("organization_member_id", identity.data!.organization_member_id).single();
+    expect(profile.data).toEqual({ employment_status: "departed" });
     const eventIdDigest = createHash("sha256").update(eventId).digest("hex");
     const audit = await admin.from("audit_logs").select("id", { count: "exact" })
       .eq("action", "identity.revoked").contains("metadata", { eventIdDigest });
     expect(audit.count).toBe(1);
+    const proof = await admin.rpc("get_feishu_offboarding_proof", { p_event_id: eventId });
+    expect(proof.error).toBeNull();
+    expect(proof.data).toMatchObject({
+      status: "completed",
+      result: true,
+      profileDeparted: true,
+      memberRevoked: true,
+      identityRevoked: true,
+      queuedGrantsRemaining: 0,
+      auditCount: 1,
+      sessionsRevoked: expect.any(Number),
+      refreshTokensRevoked: expect.any(Number),
+      queuedGrantsCancelled: expect.any(Number),
+    });
   });
 });
