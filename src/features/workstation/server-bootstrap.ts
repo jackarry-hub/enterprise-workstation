@@ -534,6 +534,7 @@ export function buildServerBootstrap(
       dept: run.departmentName ?? "企业级",
       by: run.actorName ?? memberId(run.actorMemberId),
       at: minuteTime(run.startedAt),
+      status: run.status,
       ok: run.status === "succeeded" ? 1 : 0,
       ms: run.latencyMs ?? 0,
       out: run.outputSummary ?? "",

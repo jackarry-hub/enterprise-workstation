@@ -1,6 +1,6 @@
 begin;
 
-select plan(123);
+select plan(139);
 
 insert into public.tenants (name, slug, status)
 values
@@ -748,10 +748,34 @@ select ok(has_table_privilege('service_role', 'public.agent_execution_logs', 'SE
 select ok(not has_table_privilege('service_role', 'public.agent_execution_logs', 'UPDATE,DELETE,TRUNCATE'), 'service role cannot mutate or truncate Agent execution logs');
 
 set local role service_role;
-select lives_ok($$ insert into public.agent_invocations (tenant_id, organization_id, agent_id, actor_member_id, status, input_summary, started_at, completed_at) values ((select tenant_id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select organization_id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select id from public.organization_members where user_id = '93000000-0000-4000-8000-000000000007'::uuid), 'succeeded', 'security-fixture-invocation', clock_timestamp(), clock_timestamp()) returning id $$, 'service role appends the explicit Agent invocation fixture');
+select lives_ok($$ insert into public.agent_invocations (tenant_id, organization_id, agent_id, actor_member_id, status, input_summary, model_code, prompt_version, tool_scope, started_at, completed_at) values ((select tenant_id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select organization_id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select id from public.organization_members where user_id = '93000000-0000-4000-8000-000000000007'::uuid), 'running', 'security-fixture-invocation', 'deepseek-chat', 'v1', '{"tools":["task.read"]}'::jsonb, clock_timestamp(), null) returning id $$, 'service role appends the explicit running Agent invocation header');
 select is((select count(*) from public.agent_invocations where input_summary = 'security-fixture-invocation'), 1::bigint, 'service invocation INSERT RETURNING fixture added exactly one row');
+select is(
+  (
+    select public.finalize_agent_invocation(
+      tenant_id, organization_id, public_id, 'succeeded', 'security fixture completed', 2, 3, 10, '', clock_timestamp()
+    )
+    from public.agent_invocations where input_summary = 'security-fixture-invocation'
+  ),
+  true,
+  'service role finalizes the running fixture through the locked lifecycle RPC'
+);
+select is((select status from public.agent_invocations where input_summary = 'security-fixture-invocation'), 'succeeded', 'lifecycle RPC writes the terminal status exactly once');
+select ok((select completed_at is not null and completed_at >= started_at from public.agent_invocations where input_summary = 'security-fixture-invocation'), 'lifecycle RPC records a valid terminal completion timestamp');
+select is((select public.finalize_agent_invocation(tenant_id, organization_id, public_id, 'failed', '', 0, 0, 20, 'duplicate', clock_timestamp()) from public.agent_invocations where input_summary = 'security-fixture-invocation'), false, 'duplicate terminal finalization is explicitly idempotent');
+select throws_ok(
+  $$ select public.finalize_agent_invocation(
+    current_setting('test.salary_privacy_b_tenant_id')::bigint,
+    current_setting('test.salary_privacy_b_organization_id')::bigint,
+    (select public_id from public.agent_invocations where input_summary = 'security-fixture-invocation'),
+    'failed', '', 0, 0, 1, 'cross_tenant', clock_timestamp()
+  ) $$,
+  'P0002',
+  'lifecycle finalization cannot cross the numeric tenant and organization boundary'
+);
 select throws_ok($$ insert into public.agent_invocations (tenant_id, organization_id, agent_id, actor_member_id, status, started_at) values ((select tenant_id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select organization_id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select id from public.organization_members where user_id = '93000000-0000-4000-8000-000000000007'::uuid), 'succeeded', clock_timestamp()) $$, '23514', 'terminal Agent invocation requires completed_at');
 select throws_ok($$ insert into public.agent_invocations (tenant_id, organization_id, agent_id, actor_member_id, status, started_at, completed_at) values ((select tenant_id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select organization_id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select id from public.organization_members where user_id = '93000000-0000-4000-8000-000000000007'::uuid), 'queued', clock_timestamp(), clock_timestamp()) $$, '23514', 'queued Agent invocation cannot have completed_at');
+select throws_ok($$ insert into public.agent_invocations (tenant_id, organization_id, agent_id, actor_member_id, status, input_summary, model_code, prompt_version, tool_scope, started_at, completed_at) values ((select tenant_id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select organization_id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select id from public.organization_members where user_id = '93000000-0000-4000-8000-000000000003'::uuid), 'running', 'security-cross-tenant-actor', 'deepseek-chat', 'v1', '{"tools":["task.read"]}'::jsonb, clock_timestamp(), null) $$, '23514', 'running header rejects an actor outside its numeric tenant and organization boundary');
 select throws_ok($$ update public.agent_invocations set status = 'failed' $$, '42501', 'service role cannot update Agent invocations');
 select throws_ok($$ delete from public.agent_invocations $$, '42501', 'service role cannot delete Agent invocations');
 select throws_ok($$ truncate public.agent_invocations $$, '42501', 'service role cannot truncate Agent invocations');
@@ -762,8 +786,34 @@ select throws_ok($$ delete from public.agent_execution_logs $$, '42501', 'servic
 select throws_ok($$ truncate public.agent_execution_logs $$, '42501', 'service role cannot truncate Agent execution logs');
 reset role;
 
+set local role service_role;
+insert into public.agent_invocations (
+  tenant_id, organization_id, agent_id, actor_member_id, status, input_summary,
+  model_code, prompt_version, tool_scope, started_at, completed_at
+)
+select tenant_id, organization_id, agent_id, actor_member_id, 'running', 'security-recovery-stale',
+  model_code, prompt_version, tool_scope, clock_timestamp() - interval '2 hours', null
+from public.agent_invocations where input_summary = 'security-fixture-invocation';
+insert into public.agent_invocations (
+  tenant_id, organization_id, agent_id, actor_member_id, status, input_summary,
+  model_code, prompt_version, tool_scope, started_at, completed_at
+)
+select tenant_id, organization_id, agent_id, actor_member_id, 'running', 'security-recovery-fresh',
+  model_code, prompt_version, tool_scope, clock_timestamp(), null
+from public.agent_invocations where input_summary = 'security-fixture-invocation';
+select is((select count(*) from public.recover_stale_agent_invocations((select tenant_id from public.agent_invocations where input_summary = 'security-fixture-invocation'), clock_timestamp() - interval '1 hour', 10)), 1::bigint, 'bounded service recovery transitions exactly the stale running header');
+select is((select status from public.agent_invocations where input_summary = 'security-recovery-stale'), 'failed', 'stale header becomes a terminal recovery timeout');
+select is((select error_code from public.agent_invocations where input_summary = 'security-recovery-stale'), 'recovery_timeout', 'recovery marks a safe timeout code');
+select is((select status from public.agent_invocations where input_summary = 'security-recovery-fresh'), 'running', 'recovery cannot touch fresh running work');
+select is((select count(*) from public.agent_execution_logs where event_type = 'invocation.recovered_timeout' and invocation_id = (select id from public.agent_invocations where input_summary = 'security-recovery-stale')), 1::bigint, 'recovery appends a lifecycle audit event');
+select is((select count(*) from public.recover_stale_agent_invocations(current_setting('test.salary_privacy_b_tenant_id')::bigint, clock_timestamp() - interval '1 hour', 10)), 0::bigint, 'recovery cannot cross into a different tenant');
+select throws_ok($$ select * from public.recover_stale_agent_invocations((select tenant_id from public.agent_invocations where input_summary = 'security-fixture-invocation'), clock_timestamp(), 101) $$, '22023', 'recovery rejects an unbounded limit');
+select throws_ok($$ select * from public.recover_stale_agent_invocations((select tenant_id from public.agent_invocations where input_summary = 'security-fixture-invocation'), clock_timestamp(), 10) $$, '22023', 'recovery rejects a fresh cutoff that could touch active provider work');
+reset role;
+
 select lives_ok($$ alter table public.agent_invocations drop constraint agent_invocations_terminal_completion_check $$, 'test transaction can create a pre-constraint terminal invocation');
 select lives_ok($$ alter table public.agent_invocations disable trigger agent_invocations_append_only $$, 'owner disables only the invocation append trigger for the legacy backfill fixture');
+select lives_ok($$ alter table public.agent_invocations disable trigger agent_invocations_validate_header $$, 'owner disables only the invocation header trigger for the legacy backfill fixture');
 insert into public.agent_invocations (
   tenant_id, organization_id, agent_id, actor_member_id, status, input_summary,
   latency_ms, started_at, completed_at, created_at
@@ -777,6 +827,7 @@ values (
   timestamptz '2026-08-01 00:00:00+00', null, timestamptz '2026-08-01 00:10:00+00'
 );
 select lives_ok($$ select public.backfill_agent_invocation_timestamps() $$, 'owner backfills the legacy terminal fixture while its append trigger is disabled');
+select lives_ok($$ alter table public.agent_invocations enable trigger agent_invocations_validate_header $$, 'owner immediately restores the invocation header trigger after backfill');
 select lives_ok($$ alter table public.agent_invocations enable trigger agent_invocations_append_only $$, 'owner immediately restores the invocation append trigger after backfill');
 select is((select started_at from public.agent_invocations where input_summary = 'security-legacy-terminal'), timestamptz '2026-08-01 00:09:59.250+00', 'historical terminal starts before its created-at completion by its latency');
 select is((select completed_at from public.agent_invocations where input_summary = 'security-legacy-terminal'), timestamptz '2026-08-01 00:10:00+00', 'historical terminal completes at its historical creation point');

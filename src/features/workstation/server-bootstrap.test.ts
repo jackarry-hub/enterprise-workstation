@@ -300,6 +300,7 @@ describe("formal workstation bootstrap", () => {
         dept: "产品中心",
         by: "张云帆",
         at: "2026-08-25 09:30",
+        status: "succeeded",
         ok: 1,
         ms: 830,
         out: "已生成 6 个子任务",

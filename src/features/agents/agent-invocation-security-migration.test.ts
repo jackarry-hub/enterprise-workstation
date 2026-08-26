@@ -43,10 +43,12 @@ describe("Agent invocation append-only migration", () => {
     expect(migration).toContain("started_at = created_at - (coalesce(latency_ms, 0) * interval '1 millisecond')");
   });
 
-  it("temporarily disables only the invocation append trigger for the backfill fixture", () => {
+  it("temporarily disables and immediately restores only the invocation lifecycle triggers for the backfill fixture", () => {
     const matrixPath = resolve(process.cwd(), "supabase/tests/sensitive_rls_matrix.sql");
     const matrix = existsSync(matrixPath) ? readFileSync(matrixPath, "utf8").toLowerCase() : "";
     expect(matrix).toContain("disable trigger agent_invocations_append_only");
+    expect(matrix).toContain("disable trigger agent_invocations_validate_header");
+    expect(matrix).toContain("enable trigger agent_invocations_validate_header");
     expect(matrix).toContain("enable trigger agent_invocations_append_only");
     expect(matrix).toContain("owner sees the restored invocation trigger reject updates");
   });

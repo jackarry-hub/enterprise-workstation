@@ -3937,6 +3937,32 @@ test("formal Agent Center trusts server canInvoke and marks disabled or unconfig
   } finally { dom.window.close(); }
 });
 
+test("formal Agent history shows a durable running invocation as in progress, not failed", async () => {
+  const bootstrap = formalBootstrap();
+  bootstrap.runs = [{
+    id: bootstrap.agents[0].id,
+    n: bootstrap.agents[0].n,
+    dept: bootstrap.agents[0].dept,
+    by: "当前员工",
+    at: "2026-08-26 18:20",
+    status: "running",
+    ok: 0,
+    ms: 0,
+    out: "",
+  }];
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1", bootstrap,
+  );
+  try {
+    dom.window.Q.S.page = "flow";
+    dom.window.Q.S.f.agentTab = "log";
+    dom.window.Q.render();
+    const text = dom.window.document.querySelector("#view").textContent;
+    assert.match(text, /运行中/);
+    assert.doesNotMatch(text, /失败/);
+  } finally { dom.window.close(); }
+});
+
 test("Agent Center summary chips are real clickable controls", async () => {
   const dom = await openFormalWorkbench(
     "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",

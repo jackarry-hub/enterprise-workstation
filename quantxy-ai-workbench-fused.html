@@ -3595,6 +3595,10 @@ function moduleDependencyUnavailable(modules){
 function pageModuleUnavailable(page){
   return moduleDependencyUnavailable(PAGE_MODULE_DEPENDENCIES[page]);
 }
+function invocationStatusBadge(run){
+  if(run.status==='queued'||run.status==='running') return '<span class="tag t-b">运行中</span>';
+  return run.ok?'<span class="tag t-g">成功</span>':'<span class="tag t-r">失败</span>';
+}
 function viewAgents(){
   var tab=S.f.agentTab||'dir', me=MB[S.me];
   var okN=S.agents.filter(function(a){ return canUse(a).ok; }).length;
@@ -3768,7 +3772,7 @@ function viewAgents(){
       S.runs.map(function(r){
         return '<tr><td style="color:var(--sub)">'+r.at+'</td><td><b>'+esc(r.n)+'</b></td><td style="color:var(--sub)">'+esc(r.dept)+'</td>'+
           '<td>'+esc(r.by||'—')+'</td>'+
-          '<td>'+(r.ok?'<span class="tag t-g">成功</span>':'<span class="tag t-r">失败</span>')+'</td><td>'+r.ms+' ms</td>'+
+          '<td>'+invocationStatusBadge(r)+'</td><td>'+r.ms+' ms</td>'+
           '<td style="color:var(--sub);max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.out.slice(0,60))+'</td></tr>';
       }).join('')+'</tbody></table>'
     : '<div class="empty">还没有运行记录。到 Agent 目录里调用一次试试。</div>',
@@ -3823,7 +3827,7 @@ function viewAgentRun(){
       '<div class="card"><div class="hd"><h3>该 Agent 的运行记录</h3><div class="grow"></div><span class="sm">'+mine.length+' 条</span></div><div class="bd" style="padding-top:6px">',
         mine.length? mine.slice(0,6).map(function(r){
           return '<div style="display:flex;gap:9px;padding:9px 0;border-bottom:1px solid var(--line2);align-items:center">'+
-            (r.ok?'<span class="tag t-g">成功</span>':'<span class="tag t-r">失败</span>')+
+            invocationStatusBadge(r)+
             '<span style="font-size:11.5px;color:var(--mut)">'+esc(r.by||'')+'</span>'+
             '<span style="flex:1;font-size:12px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.out.slice(0,36))+'</span>'+
             '<span style="font-size:11px;color:var(--mut)">'+r.at+'</span></div>';

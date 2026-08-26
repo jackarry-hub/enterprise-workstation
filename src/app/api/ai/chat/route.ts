@@ -18,6 +18,9 @@ export async function POST(request: Request) {
     const admin = createClient(url, supabaseServiceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+    const invocationLifecycle = session
+      ? createAgentInvocationRecorder(admin, session)
+      : null;
     return handleAiChat(request, {
       session,
       encryptionKey,
@@ -25,7 +28,8 @@ export async function POST(request: Request) {
       ...(session ? {
         authorizeAgentInvocation: (agentPublicId: string) =>
           authorizeAgentInvocation(admin, session, agentPublicId),
-        recordAgentInvocation: createAgentInvocationRecorder(admin, session),
+        startAgentInvocation: invocationLifecycle?.startAgentInvocation,
+        finalizeAgentInvocation: invocationLifecycle?.finalizeAgentInvocation,
       } : {}),
     });
   } catch {

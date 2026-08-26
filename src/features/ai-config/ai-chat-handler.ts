@@ -11,23 +11,31 @@ type AiChatDeps = {
   fetchImpl?: typeof fetch;
   consumeRateLimit?: (key: string) => boolean;
   authorizeAgentInvocation?: (agentPublicId: string) => Promise<AuthorizedAgent>;
-  recordAgentInvocation?: (payload: AgentInvocationLogPayload) => Promise<void>;
+  startAgentInvocation?: (payload: AgentInvocationStartPayload) => Promise<AgentInvocationHandle>;
+  finalizeAgentInvocation?: (payload: AgentInvocationFinalizationPayload) => Promise<void>;
 };
 
-export type AgentInvocationLogPayload = {
+export type AgentInvocationStartPayload = {
   agentPublicId: string;
   actorMemberId: number;
   modelCode: string;
   promptVersion: string;
-  status: "succeeded" | "failed";
+  status: "running";
   inputSummary: string;
+  startedAt: string;
+  authorizedAgent: AuthorizedAgent;
+};
+
+export type AgentInvocationHandle = { invocationId: string };
+
+export type AgentInvocationFinalizationPayload = {
+  invocationId: string;
+  status: "succeeded" | "failed";
   outputSummary: string;
   inputTokens: number;
   outputTokens: number;
   latencyMs: number;
   errorCode: string;
-  authorizedAgent: AuthorizedAgent;
-  startedAt: string;
   completedAt: string;
 };
 
@@ -95,6 +103,17 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
       ...parsed.messages.filter((message) => message.role !== "system"),
     ]
     : parsed.messages;
+  const invocation = await startAgentInvocation(
+    deps,
+    session,
+    parsed,
+    modelCode,
+    authorizedAgent,
+    startedAt,
+  );
+  if (parsed.agentPublicId && !invocation) {
+    return json({ error: "agent_invocation_start_failed" }, 500);
+  }
   try {
     const upstreamBody = JSON.stringify({
       model: modelCode,
@@ -123,23 +142,23 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
       );
 
       if (upstream.status === 401 || upstream.status === 403) {
-        const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, startedAt, {
+        const recorded = await finalizeAgentInvocation(deps, invocation, startedAt, {
           status: "failed",
           outputSummary: "",
           latencyMs: Date.now() - startedAt,
           errorCode: "upstream_auth_failed",
         });
-        if (!recorded) return json({ error: "agent_invocation_log_failed" }, 500);
+        if (!recorded) return json({ error: "agent_invocation_finalize_failed" }, 500);
         return json({ error: "upstream_auth_failed" }, 502);
       }
       if (!upstream.ok) {
-        const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, startedAt, {
+        const recorded = await finalizeAgentInvocation(deps, invocation, startedAt, {
           status: "failed",
           outputSummary: "",
           latencyMs: Date.now() - startedAt,
           errorCode: "upstream_failed",
         });
-        if (!recorded) return json({ error: "agent_invocation_log_failed" }, 500);
+        if (!recorded) return json({ error: "agent_invocation_finalize_failed" }, 500);
         return json({ error: "upstream_failed" }, 502);
       }
 
@@ -148,52 +167,52 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
         data = await upstream.json();
       } catch {
         if (attempt + 1 < attemptLimit) continue;
-        const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, startedAt, {
+        const recorded = await finalizeAgentInvocation(deps, invocation, startedAt, {
           status: "failed",
           outputSummary: "",
           latencyMs: Date.now() - startedAt,
           errorCode: "upstream_invalid_response",
         });
-        if (!recorded) return json({ error: "agent_invocation_log_failed" }, 500);
+        if (!recorded) return json({ error: "agent_invocation_finalize_failed" }, 500);
         return json({ error: "upstream_invalid_response" }, 502);
       }
       if (!parsed.structuredOutput || isValidStructuredResponse(data)) {
-        const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, startedAt, {
+        const recorded = await finalizeAgentInvocation(deps, invocation, startedAt, {
           status: "succeeded",
           outputSummary: outputSummary(data),
           usage: usage(data),
           latencyMs: Date.now() - startedAt,
           errorCode: "",
         });
-        if (!recorded) return json({ error: "agent_invocation_log_failed" }, 500);
+        if (!recorded) return json({ error: "agent_invocation_finalize_failed" }, 500);
         return json(data);
       }
     }
-    const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, startedAt, {
+    const recorded = await finalizeAgentInvocation(deps, invocation, startedAt, {
       status: "failed",
       outputSummary: "",
       latencyMs: Date.now() - startedAt,
       errorCode: "upstream_invalid_response",
     });
-    if (!recorded) return json({ error: "agent_invocation_log_failed" }, 500);
+    if (!recorded) return json({ error: "agent_invocation_finalize_failed" }, 500);
     return json({ error: "upstream_invalid_response" }, 502);
   } catch (error) {
     if (
       error instanceof DOMException
       && (error.name === "TimeoutError" || error.name === "AbortError")
     ) {
-      const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, startedAt, {
+      const recorded = await finalizeAgentInvocation(deps, invocation, startedAt, {
         status: "failed", outputSummary: "", latencyMs: Date.now() - startedAt,
         errorCode: "upstream_timeout",
       });
-      if (!recorded) return json({ error: "agent_invocation_log_failed" }, 500);
+      if (!recorded) return json({ error: "agent_invocation_finalize_failed" }, 500);
       return json({ error: "upstream_timeout" }, 504);
     }
-    const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, startedAt, {
+    const recorded = await finalizeAgentInvocation(deps, invocation, startedAt, {
       status: "failed", outputSummary: "", latencyMs: Date.now() - startedAt,
       errorCode: "upstream_unavailable",
     });
-    if (!recorded) return json({ error: "agent_invocation_log_failed" }, 500);
+    if (!recorded) return json({ error: "agent_invocation_finalize_failed" }, 500);
     return json({ error: "upstream_unavailable" }, 502);
   }
 }
@@ -339,39 +358,57 @@ function usage(value: unknown) {
   };
 }
 
-async function recordAgentInvocation(
+async function startAgentInvocation(
   deps: AiChatDeps,
   session: WorkspaceSession,
   parsed: ParsedChatRequest,
   modelCode: string,
   authorizedAgent: AuthorizedAgent | null,
   startedAt: number,
+) {
+  if (!parsed.agentPublicId) return null;
+  if (!deps.startAgentInvocation || !deps.finalizeAgentInvocation || !authorizedAgent) return null;
+  try {
+    const handle = await deps.startAgentInvocation({
+      agentPublicId: parsed.agentPublicId,
+      actorMemberId: session.member.id,
+      modelCode,
+      promptVersion: authorizedAgent.version,
+      status: "running",
+      inputSummary: inputSummary(parsed.messages.filter((message) => message.role !== "system")),
+      authorizedAgent,
+      startedAt: new Date(startedAt).toISOString(),
+    });
+    return validPublicUuid(handle?.invocationId) ? handle : null;
+  } catch {
+    return null;
+  }
+}
+
+async function finalizeAgentInvocation(
+  deps: AiChatDeps,
+  invocation: AgentInvocationHandle | null,
+  startedAt: number,
   result: {
-    status: AgentInvocationLogPayload["status"];
+    status: AgentInvocationFinalizationPayload["status"];
     outputSummary: string;
     usage?: { inputTokens: number; outputTokens: number };
     latencyMs: number;
     errorCode: string;
   },
 ) {
-  if (!parsed.agentPublicId) return true;
-  if (!deps.recordAgentInvocation || !authorizedAgent) return false;
+  if (!invocation) return true;
+  if (!deps.finalizeAgentInvocation) return false;
   try {
-    await deps.recordAgentInvocation({
-      agentPublicId: parsed.agentPublicId,
-      actorMemberId: session.member.id,
-      modelCode,
-      promptVersion: authorizedAgent.version,
+    await deps.finalizeAgentInvocation({
+      invocationId: invocation.invocationId,
       status: result.status,
-      inputSummary: inputSummary(parsed.messages.filter((message) => message.role !== "system")),
       outputSummary: result.outputSummary,
       inputTokens: result.usage?.inputTokens ?? 0,
       outputTokens: result.usage?.outputTokens ?? 0,
       latencyMs: result.latencyMs,
       errorCode: result.errorCode,
-      authorizedAgent,
-      startedAt: new Date(startedAt).toISOString(),
-      completedAt: new Date().toISOString(),
+      completedAt: new Date(Math.max(startedAt, Date.now())).toISOString(),
     });
     return true;
   } catch {

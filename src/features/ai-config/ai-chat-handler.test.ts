@@ -213,7 +213,8 @@ describe("handleAiChat", () => {
 
   it("records authenticated agent invocations after a successful model call", async () => {
     const record = await configuredRecord();
-    const recorded: unknown[] = [];
+    const headers: unknown[] = [];
+    const finals: unknown[] = [];
     let providerBody: Record<string, unknown> | null = null;
     const response = await handleAiChat(request({
       agent_public_id: "33333333-3333-4333-8333-333333333333",
@@ -241,23 +242,33 @@ describe("handleAiChat", () => {
         model: "deepseek-reasoner",
         toolCodes: ["task.read"],
       }),
-      recordAgentInvocation: async (payload) => {
-        recorded.push(payload);
+      startAgentInvocation: async (payload) => {
+        headers.push(payload);
+        return { invocationId: "44444444-4444-4444-8444-444444444444" };
+      },
+      finalizeAgentInvocation: async (payload) => {
+        finals.push(payload);
       },
     });
 
     expect(response.status).toBe(200);
-    expect(recorded).toEqual([
+    expect(headers).toEqual([
       expect.objectContaining({
         agentPublicId: "33333333-3333-4333-8333-333333333333",
         actorMemberId: executiveWorkspaceSession.member.id,
         modelCode: "deepseek-reasoner",
         promptVersion: "v2",
-        status: "succeeded",
+        status: "running",
         inputSummary: "把官网项目拆成任务",
+        startedAt: expect.any(String),
+      }),
+    ]);
+    expect(finals).toEqual([
+      expect.objectContaining({
+        invocationId: "44444444-4444-4444-8444-444444444444",
+        status: "succeeded",
         outputSummary: "已生成任务拆解方案",
         errorCode: "",
-        startedAt: expect.any(String),
         completedAt: expect.any(String),
       }),
     ]);
@@ -269,6 +280,71 @@ describe("handleAiChat", () => {
       ],
     });
     expect(JSON.stringify(providerBody)).not.toMatch(/browser.*override/);
+  });
+
+  it("persists an authorized running header before provider work and finalizes it afterward", async () => {
+    const record = await configuredRecord();
+    const events: string[] = [];
+    const response = await handleAiChat(request({
+      agent_public_id: "33333333-3333-4333-8333-333333333333",
+      messages: [{ role: "user", content: "运行 Agent" }],
+    }), {
+      session: executiveWorkspaceSession,
+      encryptionKey,
+      store: { get: async () => record },
+      fetchImpl: async () => {
+        events.push("provider");
+        return Response.json({ choices: [{ message: { content: "完成" } }] });
+      },
+      consumeRateLimit: () => true,
+      authorizeAgentInvocation: async () => ({
+        definitionId: 81, tenantId: 2, organizationId: 3, version: "v1",
+        systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: ["task.read"],
+      }),
+      startAgentInvocation: async (payload: { authorizedAgent: { definitionId: number }; status: string }) => {
+        expect(payload).toMatchObject({ status: "running", authorizedAgent: { definitionId: 81 } });
+        events.push("start");
+        return { invocationId: "44444444-4444-4444-8444-444444444444" };
+      },
+      finalizeAgentInvocation: async (payload: { invocationId: string; status: string }) => {
+        expect(payload).toMatchObject({
+          invocationId: "44444444-4444-4444-8444-444444444444",
+          status: "succeeded",
+        });
+        events.push("finalize");
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(events).toEqual(["start", "provider", "finalize"]);
+  });
+
+  it("fails closed before provider work when the authorized running header cannot persist", async () => {
+    const record = await configuredRecord();
+    let providerCalls = 0;
+    const response = await handleAiChat(request({
+      agent_public_id: "33333333-3333-4333-8333-333333333333",
+      messages: [{ role: "user", content: "运行 Agent" }],
+    }), {
+      session: executiveWorkspaceSession,
+      encryptionKey,
+      store: { get: async () => record },
+      fetchImpl: async () => {
+        providerCalls += 1;
+        return Response.json({});
+      },
+      consumeRateLimit: () => true,
+      authorizeAgentInvocation: async () => ({
+        definitionId: 81, tenantId: 2, organizationId: 3, version: "v1",
+        systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: [],
+      }),
+      startAgentInvocation: async () => { throw new Error("ledger unavailable"); },
+      finalizeAgentInvocation: async () => undefined,
+    });
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({ error: "agent_invocation_start_failed" });
+    expect(providerCalls).toBe(0);
   });
 
   it("returns authorization failures before sending an Agent request upstream", async () => {
@@ -296,8 +372,9 @@ describe("handleAiChat", () => {
     expect(upstreamCalls).toBe(0);
   });
 
-  it("fails closed when an agent invocation cannot be recorded", async () => {
+  it("fails closed after provider work when terminal finalization fails, leaving the running header recoverable", async () => {
     const record = await configuredRecord();
+    let providerCalls = 0;
     const response = await handleAiChat(request({
       agent_public_id: "33333333-3333-4333-8333-333333333333",
       messages: [{ role: "user", content: "运行 Agent" }],
@@ -305,28 +382,32 @@ describe("handleAiChat", () => {
       session: executiveWorkspaceSession,
       encryptionKey,
       store: { get: async () => record },
-      fetchImpl: async () => Response.json({
-        choices: [{ message: { content: "完成" } }],
-      }),
+      fetchImpl: async () => {
+        providerCalls += 1;
+        return Response.json({ choices: [{ message: { content: "完成" } }] });
+      },
       consumeRateLimit: () => true,
       authorizeAgentInvocation: async () => ({
         definitionId: 81, tenantId: 2, organizationId: 3, version: "v1",
         systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: [],
       }),
-      recordAgentInvocation: async () => {
+      startAgentInvocation: async () => ({ invocationId: "44444444-4444-4444-8444-444444444444" }),
+      finalizeAgentInvocation: async () => {
         throw new Error("database down");
       },
     });
 
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
-      error: "agent_invocation_log_failed",
+      error: "agent_invocation_finalize_failed",
     });
+    expect(providerCalls).toBe(1);
   });
 
   it("records terminal timestamps for an Agent timeout", async () => {
     const record = await configuredRecord();
-    const recorded: Array<Record<string, unknown>> = [];
+    const headers: Array<Record<string, unknown>> = [];
+    const finals: Array<Record<string, unknown>> = [];
     const response = await handleAiChat(request({
       agent_public_id: "33333333-3333-4333-8333-333333333333",
       messages: [{ role: "user", content: "运行 Agent" }],
@@ -340,16 +421,47 @@ describe("handleAiChat", () => {
         definitionId: 81, tenantId: 2, organizationId: 3, version: "v1",
         systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: [],
       }),
-      recordAgentInvocation: async (payload) => { recorded.push(payload as unknown as Record<string, unknown>); },
+      startAgentInvocation: async (payload) => {
+        headers.push(payload as unknown as Record<string, unknown>);
+        return { invocationId: "44444444-4444-4444-8444-444444444444" };
+      },
+      finalizeAgentInvocation: async (payload) => { finals.push(payload as unknown as Record<string, unknown>); },
     });
 
     expect(response.status).toBe(504);
-    expect(recorded).toEqual([expect.objectContaining({
-      status: "failed", errorCode: "upstream_timeout", startedAt: expect.any(String), completedAt: expect.any(String),
+    expect(finals).toEqual([expect.objectContaining({
+      status: "failed", errorCode: "upstream_timeout", completedAt: expect.any(String),
     })]);
-    expect(new Date(String(recorded[0].completedAt)).getTime()).toBeGreaterThanOrEqual(
-      new Date(String(recorded[0].startedAt)).getTime(),
+    expect(new Date(String(finals[0].completedAt)).getTime()).toBeGreaterThanOrEqual(
+      new Date(String(headers[0].startedAt)).getTime(),
     );
+  });
+
+  it("finalizes an authorized running header when the provider throws before a response", async () => {
+    const record = await configuredRecord();
+    const finals: Array<Record<string, unknown>> = [];
+    const response = await handleAiChat(request({
+      agent_public_id: "33333333-3333-4333-8333-333333333333",
+      messages: [{ role: "user", content: "运行 Agent" }],
+    }), {
+      session: executiveWorkspaceSession,
+      encryptionKey,
+      store: { get: async () => record },
+      fetchImpl: async () => { throw new Error("provider network failure"); },
+      consumeRateLimit: () => true,
+      authorizeAgentInvocation: async () => ({
+        definitionId: 81, tenantId: 2, organizationId: 3, version: "v1",
+        systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: [],
+      }),
+      startAgentInvocation: async () => ({ invocationId: "44444444-4444-4444-8444-444444444444" }),
+      finalizeAgentInvocation: async (payload) => { finals.push(payload as unknown as Record<string, unknown>); },
+    });
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({ error: "upstream_unavailable" });
+    expect(finals).toEqual([expect.objectContaining({
+      status: "failed", errorCode: "upstream_unavailable", completedAt: expect.any(String),
+    })]);
   });
 
   it("returns one stable error after two malformed or truncated structured responses", async () => {
