@@ -42,12 +42,14 @@ await assert.rejects(() => runDbCommand({ command: "db:reset:test", environment:
 await assert.rejects(() => runDbCommand({ command: "db:test", environment: "production" }), /environment_mutation_forbidden/);
 await assert.rejects(() => runDbCommand({ command: "db:seed:validate", environment: "internal" }), /environment_mutation_forbidden/);
 await assert.rejects(() => runDbCommand({ command: "db:reset:test", environment: "local", databaseUrl: "https://prod.example" }), /environment_mutation_forbidden/);
+await assert.rejects(() => runDbCommand({ command: "db:reset:test", environment: "staging" }), /environment_mutation_forbidden/);
+await assert.rejects(() => runDbCommand({ command: "db:seed:validate", environment: "staging" }), /environment_mutation_forbidden/);
 assert.equal(await packageHasScript("db:reset"), false);
 ```
 
 - [ ] **Step 2: Verify RED**
 
-Run: `node --test scripts/environment-guard.test.mjs scripts/db-command-runner.test.mjs`
+Run: `node --test scripts/environment-guard.test.mjs scripts/db-command-runner.test.mjs scripts/phase-gates.test.mjs`
 Expected: the common guard and safe named commands do not exist.
 
 - [ ] **Step 3: Implement the one shared guard and package commands**

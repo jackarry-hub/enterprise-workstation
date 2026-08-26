@@ -29,6 +29,8 @@
 - Modify: `src/config/navigation.ts`
 - Modify: `src/features/operations/role-access.ts`
 - Modify: `src/middleware.ts`
+- Create: `supabase/migrations/202608260042_distributed_rate_limits.sql`
+- Create: `supabase/tests/distributed_rate_limits.sql`
 - Delete: `src/app/(workspace)/leave/page.tsx`
 - Delete: `src/app/(workspace)/attendance/page.tsx`
 - Delete: `src/app/(workspace)/attendance/page.test.tsx`
@@ -187,6 +189,7 @@ git commit -m "ci: add QuantXY commercial release gate"
 - Create: `src/features/security/distributed-rate-limit.test.ts`
 - Create: `src/features/security/csrf-origin.ts`
 - Create: `src/features/security/csrf-origin.test.ts`
+- Create: `docs/operations/waf-evidence.md`
 - Modify: `src/app/auth/login/feishu/handler.ts`
 - Modify: `src/app/auth/login/feishu/route.test.ts`
 - Create: `src/app/api/health/ready/route.ts`
@@ -213,7 +216,8 @@ expect(await throttleLoginAbuse(ip)).toMatchObject({ status: 429 });
 
 - [ ] **Step 2: Verify RED**
 
-Run: `npx vitest run src/app/api/health/ready/route.test.ts`
+Run: `npx vitest run src/app/api/health/ready/route.test.ts src/features/security/distributed-rate-limit.test.ts src/features/security/csrf-origin.test.ts`
+Run: `npm run test:security`
 Run: `npm run build`
 Expected: readiness route is absent and security-header assertion fails.
 
@@ -231,7 +235,7 @@ Expected: tests/build/config exit 0 and readiness fails when DB/migration checks
 - [ ] **Step 5: Commit**
 
 ```bash
-git add next.config.ts src/middleware.ts src/features/security src/app/auth/login/feishu src/app/api/health/ready/route.ts src/app/api/health/ready/route.test.ts Dockerfile compose.yaml docs/operations/container-security.md
+git add next.config.ts src/middleware.ts supabase/migrations/202608260042_distributed_rate_limits.sql supabase/tests/distributed_rate_limits.sql src/features/security src/app/auth/login/feishu src/app/api/health/ready/route.ts src/app/api/health/ready/route.test.ts Dockerfile compose.yaml docs/operations/container-security.md docs/operations/waf-evidence.md
 git commit -m "security: harden runtime and readiness"
 ```
 
@@ -320,6 +324,10 @@ git commit -m "docs: add staging and recovery validation runbooks"
 ### Task 7: Prove commercial acceptance, operational readiness and handoff package
 
 **Files:**
+- Modify: `package.json`
+- Modify: `scripts/verify-commercial-local.mjs`
+- Modify: `scripts/verify-commercial-evidence.mjs`
+- Modify: `scripts/verify-commercial.test.mjs`
 - Create: `tests/load/commercial-thresholds.yml`
 - Create: `tests/load/run-commercial-load.mjs`
 - Create: `tests/load/run-commercial-load.test.mjs`
@@ -362,6 +370,7 @@ expect(manifest.requiredEvidence).toContain("backup_restore");
 - [ ] **Step 2: Verify RED**
 
 Run: `node --test scripts/verify-commercial.test.mjs scripts/validate-delivery-artifacts.test.mjs tests/load/run-commercial-load.test.mjs`
+Expected: `load:commercial` asserts 50 active users, 20 concurrent writes, 10 AI queued jobs, non-AI P95 <=800ms, error <0.5% and mobile interactive <=3s; every OpenAPI/template/artifact checksum and candidate version is valid.
 Run: `npm run verify:commercial:local`
 Expected: full evidence aggregation, artifact-hash validation and commercial thresholds are not yet fully enforced.
 
@@ -379,7 +388,7 @@ Expected: Local/CI verification proves local commands and artifact completeness;
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/load/commercial-thresholds.yml docs/operations
+git add package.json scripts/verify-commercial-local.mjs scripts/verify-commercial-evidence.mjs scripts/verify-commercial.test.mjs scripts/validate-delivery-artifacts.mjs scripts/validate-delivery-artifacts.test.mjs tests/load docs/operations
 git commit -m "docs: add commercial operations and acceptance package"
 ```
 
@@ -392,10 +401,12 @@ git commit -m "docs: add commercial operations and acceptance package"
 - Delete: `quantxy-ai-workbench-fused.html`
 - Delete: `public/workstation-server-adapter.js`
 - Modify: `tests/unit/commercial-source-boundary.test.ts`
+- Modify: `scripts/verify-commercial-evidence.mjs`
+- Modify: `scripts/verify-commercial.test.mjs`
 - Modify: `docs/operations/commercial-delivery-manifest.md`
 
 **Interfaces:**
-- Produces prospective retirement patch/tree hash before deletion. Pre-retirement Staging/restore/canary evidence must be signed against that prospective hash; after deletion final verification additionally requires post-deletion local/source-boundary evidence plus fresh Staging/canary for the final commit, or an explicit cryptographic evidence-link rule. Fused presence/reachability makes final `verify:commercial` BLOCKED.
+- Produces a non-self-referential prospective retirement patch digest stored in an external append-only release manifest. Authorization binds that digest; commit the deletion candidate; then bind fresh final-commit Staging/canary evidence to its immutable commit digest. Final verify runs only after that evidence. Fused presence/reachability always makes final `verify:commercial` BLOCKED.
 
 - [ ] **Step 1: Write failing retirement-authorization tests**
 
@@ -408,20 +419,22 @@ expect(await assertFusedRetirementEvidence({ prospectiveTreeHash, stagingTreeHas
 - [ ] **Step 2: Verify BLOCKED before deletion**
 
 Run: `npm run verify:commercial`
-Expected: `commercial_evidence_blocked` until parity, data validation, Staging canary, tested rollback and explicit authorization evidence are all present.
+Expected: `commercial_evidence_blocked` until prospective digest authorization, parity/data validation, rollback and pre-retirement evidence are present.
 
 - [ ] **Step 3: Delete fused assets only after evidence and explicit authorization**
 
-Record the authorization ID, evidence hashes and candidate commit in the delivery manifest. Then delete only the listed fused assets, retain historical database data/migrations, and update the source-boundary test to require no fused reachability.
+Record authorization against the prospective digest in the append-only manifest, commit only listed deletion assets, then collect fresh Staging/canary evidence bound to the immutable deletion commit digest. Retain historical database data/migrations and update source-boundary verifier to require no fused reachability.
 
 - [ ] **Step 4: Verify final candidate**
 
+Run: `npm run verify:commercial:local`
+Run: `npm run verify:commercial:staging`
 Run: `npm run verify:commercial`
-Expected: succeeds only when the final evidence bundle and authorization are valid; otherwise remains BLOCKED.
+Expected: final succeeds only after post-deletion local/source-boundary plus fresh final-commit Staging/canary evidence are hash-bound; otherwise remains BLOCKED.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add -A src/app/quantxy-ai-workbench-fused.html quantxy-ai-workbench-fused.html public/workstation-server-adapter.js tests/unit/commercial-source-boundary.test.ts docs/operations/commercial-delivery-manifest.md
+git add -A src/app/quantxy-ai-workbench-fused.html quantxy-ai-workbench-fused.html public/workstation-server-adapter.js tests/unit/commercial-source-boundary.test.ts scripts/verify-commercial-evidence.mjs scripts/verify-commercial.test.mjs docs/operations/commercial-delivery-manifest.md
 git commit -m "refactor: retire authorized fused workstation"
 ```

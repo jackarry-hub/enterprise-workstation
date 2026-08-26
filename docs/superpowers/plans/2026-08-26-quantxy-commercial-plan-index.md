@@ -81,7 +81,7 @@ Final gate is defined only by Plan 10: `npm run verify:commercial:local` establi
 | AI configuration, assistant and scheduling | 01, 07 |
 | Agent Center and runtime | 01, 08 |
 | Analytics, settings, quick create, visualization and PWA | 09 |
-| Environment isolation, DB safety, migration, security, performance, recovery and completion gate | 01, 10 |
+| Environment isolation, DB safety, migration, security, performance, recovery and completion gate | 02, 10 |
 | Commercial capacity/RPO/RTO and desktop/mobile/device gates | 03, 07, 09, 10 |
 
 ## External dependencies and final readiness

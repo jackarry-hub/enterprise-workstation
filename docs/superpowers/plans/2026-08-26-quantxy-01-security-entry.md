@@ -318,4 +318,6 @@ git commit -m "feat: centralize commercial module access"
 
 Tasks 1-6 and every checklist step in those tasks are complete and independently reviewed at implementation HEAD `5467c97`. Their historical unchecked boxes are retained only as the original implementation record; they are not an execution queue and must not be rerun or rewritten. This appendix is the authoritative completion marker for Plan01.
 
+The historical `npm run db:reset` text in Task1 is superseded and non-executable; Plan02 Task1 removes that raw alias and supplies the fail-closed named commands.
+
 Plan01 completion does **not** open Internal or Customer Production release gates. Plan02 owns shared environment/DB phase commands; Plan10 owns their consumption/verification plus migration safety, security/performance/recovery evidence, Staging canary and explicit-authorized retirement/release decisions.
