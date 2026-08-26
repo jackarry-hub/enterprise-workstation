@@ -8,16 +8,20 @@ import {
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 type WorkProfileSession = {
+  tenantId: string;
+  authUserId: string;
+  organization: { id: string };
   member: {
     id: number;
-    employeeProfileId?: string;
+    employeeProfileId: string;
+    status: "active";
   };
 };
 
 export type WorkProfileUpdateDependencies = {
   loadSession: () => Promise<WorkProfileSession | null>;
   saveProfile: (
-    member: WorkProfileSession["member"],
+    session: WorkProfileSession,
     input: WorkProfileInput,
   ) => Promise<unknown>;
 };
@@ -54,17 +58,20 @@ function safeInputShape(value: unknown) {
 
 export const defaultWorkProfileUpdateDependencies: WorkProfileUpdateDependencies = {
   loadSession: getWorkspaceSession,
-  async saveProfile(member, input) {
+  async saveProfile(session, input) {
     const client = getSupabaseServiceRoleClient();
-    let profileQuery = client.from("employee_profiles")
-      .select("id, tenant_id, organization_id")
-      .is("deleted_at", null);
-    profileQuery = member.employeeProfileId
-      ? profileQuery.eq("public_id", member.employeeProfileId)
-      : profileQuery.eq("organization_member_id", member.id);
-    const profileResult = await profileQuery.single();
-    if (profileResult.error || !profileResult.data) {
-      throw profileResult.error ?? new Error("employee_profile_not_found");
+    const profileResult = await client.from("employee_profiles")
+      .select("id, tenant_id, organization_id, organization_members!inner(user_id, organizations!inner(public_id, tenants!inner(public_id)))")
+      .eq("public_id", session.member.employeeProfileId)
+      .eq("organization_member_id", session.member.id)
+      .eq("organization_members.user_id", session.authUserId)
+      .eq("organization_members.organizations.public_id", session.organization.id)
+      .eq("organization_members.organizations.tenants.public_id", session.tenantId)
+      .is("deleted_at", null)
+      .single();
+    if (profileResult.error) throw profileResult.error;
+    if (!profileResult.data) {
+      throw Object.assign(new Error("employee_profile_not_found"), { code: "P0002" });
     }
     const result = await client.from("employee_work_profiles")
       .upsert({
@@ -113,12 +120,15 @@ export function createWorkProfileUpdateHandler(
       return NextResponse.json({ error: "invalid_request" }, { status: 400 });
     }
     try {
-      const profile = await dependencies.saveProfile(session.member, input);
+      const profile = await dependencies.saveProfile(session, input);
       return NextResponse.json({ profile }, {
         headers: { "cache-control": "no-store" },
       });
     } catch (error) {
       console.error("[work-profile] save failed", safeErrorLabel(error));
+      if (error && typeof error === "object" && (error as { code?: unknown }).code === "P0002") {
+        return NextResponse.json({ error: "profile_not_found" }, { status: 404 });
+      }
       return NextResponse.json(
         { error: "profile_save_failed" },
         { status: 409 },

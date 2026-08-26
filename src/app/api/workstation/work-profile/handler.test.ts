@@ -18,6 +18,19 @@ const validProfile = {
   selfSkills: [{ name: "需求分析", level: 5 }],
 };
 
+function currentSession() {
+  return {
+    tenantId: "10000000-0000-4000-8000-000000000001",
+    authUserId: "90000000-0000-4000-8000-000000000007",
+    organization: { id: "20000000-0000-4000-8000-000000000001" },
+    member: {
+      id: 7,
+      employeeProfileId: "10000000-0000-4000-8000-000000000007",
+      status: "active" as const,
+    },
+  };
+}
+
 describe("work profile update route", () => {
   it("rejects an unauthenticated request", async () => {
     const saveProfile = vi.fn();
@@ -33,7 +46,7 @@ describe("work profile update route", () => {
   it("rejects invalid profile input before persistence", async () => {
     const saveProfile = vi.fn();
     const response = await createWorkProfileUpdateHandler({
-      loadSession: async () => ({ member: { id: 7, employeeProfileId: "10000000-0000-4000-8000-000000000007" } }),
+      loadSession: async () => currentSession(),
       saveProfile,
     })(request({ ...validProfile, weeklyCapacityHours: 100 }));
 
@@ -46,13 +59,13 @@ describe("work profile update route", () => {
     const saved = { ...validProfile, updatedAt: "2026-08-21T02:00:00.000Z" };
     const saveProfile = vi.fn().mockResolvedValue(saved);
     const response = await createWorkProfileUpdateHandler({
-      loadSession: async () => ({ member: { id: 7, employeeProfileId: "10000000-0000-4000-8000-000000000007" } }),
+      loadSession: async () => currentSession(),
       saveProfile,
     })(request({ ...validProfile, memberId: 999, summary: ` ${validProfile.summary} ` }));
 
     expect(response.status).toBe(200);
     expect(saveProfile).toHaveBeenCalledWith(
-      { id: 7, employeeProfileId: "10000000-0000-4000-8000-000000000007" },
+      currentSession(),
       validProfile,
     );
     await expect(response.json()).resolves.toEqual({ profile: saved });
@@ -60,7 +73,7 @@ describe("work profile update route", () => {
 
   it("maps persistence failures to one stable response", async () => {
     const response = await createWorkProfileUpdateHandler({
-      loadSession: async () => ({ member: { id: 7, employeeProfileId: "10000000-0000-4000-8000-000000000007" } }),
+      loadSession: async () => currentSession(),
       saveProfile: async () => {
         throw new Error("database details and employee data leaked");
       },
@@ -68,5 +81,24 @@ describe("work profile update route", () => {
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({ error: "profile_save_failed" });
+  });
+
+  it("maps a profile omitted by composite scope to a stable not found response", async () => {
+    const response = await createWorkProfileUpdateHandler({
+      loadSession: async () => ({
+        tenantId: "10000000-0000-4000-8000-000000000001",
+        authUserId: "90000000-0000-4000-8000-000000000007",
+        organization: { id: "20000000-0000-4000-8000-000000000001" },
+        member: { id: 7, employeeProfileId: "10000000-0000-4000-8000-000000000007", status: "active" as const },
+      }),
+      saveProfile: async () => {
+        throw Object.assign(new Error("foreign profile must stay hidden"), {
+          code: "P0002",
+        });
+      },
+    })(request(validProfile));
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ error: "profile_not_found" });
   });
 });
