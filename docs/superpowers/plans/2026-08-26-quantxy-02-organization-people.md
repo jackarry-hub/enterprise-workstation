@@ -81,10 +81,13 @@ git commit -m "test: add fail-closed database command guard"
 - Modify: `src/features/hr/employee-types.ts`
 - Modify: `src/features/hr/employee-data.ts`
 - Modify: `src/features/hr/employee-data.test.ts`
+- Modify: `src/features/payroll-calculation/server-service.ts`
+- Modify: `src/features/payroll-calculation/server-service.test.ts`
 
 **Interfaces:**
 - Produces view/RPC `current_employee_directory()` with name, avatar, department, title, status.
 - Produces RPC `current_employee_private_profile(employee_public_id uuid)` for self/HR/admin fields.
+- Produces salary-manager-only RPC `current_payroll_employee_facts(...)` for the minimum hire-date facts required by payroll calculation, scoped from the authenticated tenant/organization instead of reopening private table columns.
 - Browser-authenticated roles receive no direct `INSERT`/`UPDATE` privilege on `employee_profiles`; Feishu-owned directory facts use controlled synchronization/RPCs, while self-managed work-profile content persists only in `employee_work_profiles`.
 
 - [ ] **Step 1: Write failing public/private projection tests**
@@ -93,28 +96,29 @@ git commit -m "test: add fail-closed database command guard"
 expect(directoryEmployee).not.toHaveProperty("phone");
 expect(directoryEmployee).not.toHaveProperty("departureDate");
 expect(hrPrivateEmployee.phone).toBe("13800000000");
+expect(client.rpc).toHaveBeenCalledWith("current_payroll_employee_facts", { p_employee_member_id: employeeMemberId });
 ```
 
 - [ ] **Step 2: Verify RED**
 
-Run: `npx vitest run src/features/hr/employee-data.test.ts`
+Run: `npx vitest run src/features/hr/employee-data.test.ts src/features/payroll-calculation/server-service.test.ts`
 Run: `npm run db:test`
-Expected: current directory projection includes private fields and broad RLS permits access.
+Expected: current directory projection includes private fields and the authenticated payroll repository cannot read protected hire-date data through its current direct table query.
 
 - [ ] **Step 3: Add the private table/projection and repositories**
 
-Move phone, private email, hire/departure dates and sensitive HR notes into the private profile or protected RPC result. Preserve foreign keys to the public employee row. Revoke browser-authenticated writes to every public employee-directory column so identity, lifecycle, department, position, manager and job facts cannot bypass the Feishu/offboarding transaction.
+Move phone, private email, hire/departure dates and sensitive HR notes into the private profile or protected RPC result. Preserve foreign keys to the public employee row. Revoke browser-authenticated writes to every public employee-directory column so identity, lifecycle, department, position, manager and job facts cannot bypass the Feishu/offboarding transaction. Route payroll hire-date reads through a SECURITY DEFINER RPC that derives the current tenant/actor organization, requires `salary.manage`, and returns only the requested member facts needed for calculation; ordinary employees and cross-organization targets receive no data.
 
 - [ ] **Step 4: Verify GREEN**
 
-Run: `npx vitest run src/features/hr/employee-data.test.ts`
+Run: `npx vitest run src/features/hr/employee-data.test.ts src/features/payroll-calculation/server-service.test.ts`
 Run: `npm run db:test`
-Expected: employee sees public directory only; self and HR cases pass; unrelated employee reads zero private rows.
+Expected: employee sees public directory only; self and HR cases pass; unrelated employee reads zero private rows; authorized payroll calculation still resolves hire date while ordinary/cross-organization callers cannot.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260010_employee_private_profiles.sql supabase/tests/employee_privacy.sql src/features/hr/employee-types.ts src/features/hr/employee-data.ts src/features/hr/employee-data.test.ts
+git add supabase/migrations/202608260010_employee_private_profiles.sql supabase/tests/employee_privacy.sql src/features/hr/employee-types.ts src/features/hr/employee-data.ts src/features/hr/employee-data.test.ts src/features/payroll-calculation/server-service.ts src/features/payroll-calculation/server-service.test.ts
 git commit -m "security: isolate employee private profiles"
 ```
 
