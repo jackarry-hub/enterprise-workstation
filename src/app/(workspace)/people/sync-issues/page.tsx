@@ -15,7 +15,7 @@ export default async function SyncIssuesPage() {
   return (
     <main className="mx-auto grid w-full max-w-6xl gap-5 px-4 py-5 sm:px-6 sm:py-8">
       <header><p className="text-sm font-medium text-primary">组织人事</p><h1 className="text-2xl font-bold tracking-tight sm:text-3xl">飞书同步问题</h1><p className="mt-2 max-w-3xl text-sm text-muted-foreground">查看真实同步运行、乱序事件与对账差异。目录归属字段只读，处理动作写入审计。</p></header>
-      <FeishuSyncIssuesPanel issues={operations.issues} runs={operations.runs} events={operations.events} />
+      <FeishuSyncIssuesPanel issues={operations.issues} runs={operations.runs} events={operations.events} unavailable={operations.status === "unavailable"} />
     </main>
   );
 }

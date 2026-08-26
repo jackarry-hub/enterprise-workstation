@@ -126,6 +126,17 @@ export async function verifyFeishuWebhook(
   const encrypted = text(envelope.encrypt);
   const payloadText = encrypted ? decryptEnvelope(encrypted, config.encryptKey) : rawBody;
   const payload = encrypted ? parseJson(payloadText) : envelope;
+  if (payload.type === "url_verification") {
+    const token = text(payload.token);
+    const challenge = text(payload.challenge);
+    if (!token || !constantTimeTextEqual(token, config.verificationToken)) {
+      throw new FeishuWebhookError("webhook_unauthorized");
+    }
+    if (!challenge || challenge.length > 512) {
+      throw new FeishuWebhookError("webhook_payload_invalid");
+    }
+    return { kind: "challenge", challenge };
+  }
   const header = record(payload.header);
   const event = record(payload.event);
   const object = record(event?.object) ?? record(event?.user) ?? record(event?.department);

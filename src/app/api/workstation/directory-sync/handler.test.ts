@@ -13,19 +13,46 @@ const unusedResult = {
 };
 
 describe("workstation directory sync route", () => {
-  it("starts the durable full worker for the production path", async () => {
+  it("starts the durable exact-organization reconciliation worker for the production path", async () => {
+    const session = {
+      tenantId: "10000000-0000-4000-8000-000000000001",
+      authUserId: "10000000-0000-4000-8000-000000000002",
+      organizationId: "10000000-0000-4000-8000-000000000003",
+      roleCodes: ["owner"],
+      permissionCodes: ["organization.manage"] as const,
+    };
+    let receivedSession: unknown;
     const response = await createDirectorySyncHandler({
-      loadSession: async () => ({
-        tenantId: "10000000-0000-4000-8000-000000000001",
-        authUserId: "10000000-0000-4000-8000-000000000002",
-        roleCodes: ["owner"],
-        permissionCodes: ["organization.manage"],
-      }),
-      runFullSync: async () => ({ runId: "run-full", cursor: "0", status: "completed", retryAfter: null }),
+      loadSession: async () => session,
+      runReconcile: async (scope) => { receivedSession = scope; return { runId: "run-reconcile", cursor: "0", status: "completed", retryAfter: null }; },
     })();
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ runId: "run-full", cursor: "0", status: "completed", retryAfter: null });
+    await expect(response.json()).resolves.toEqual({ runId: "run-reconcile", cursor: "0", status: "completed", retryAfter: null });
+    expect(receivedSession).toEqual(session);
+  });
+
+  it("starts an explicit exact-organization full run without changing the interactive reconcile default", async () => {
+    const session = {
+      authUserId: "10000000-0000-4000-8000-000000000002",
+      organizationId: "10000000-0000-4000-8000-000000000003",
+      roleCodes: ["owner"],
+      permissionCodes: ["organization.manage"] as const,
+    };
+    let fullRuns = 0;
+    let reconciles = 0;
+    const response = await createDirectorySyncHandler({
+      loadSession: async () => session,
+      runFullSync: async () => { fullRuns += 1; return { runId: "run-full", cursor: null, status: "completed", retryAfter: null }; },
+      runReconcile: async () => { reconciles += 1; throw new Error("must not reconcile"); },
+    })(new Request("https://work.quantxy.test/api/workstation/directory-sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "full" }),
+    }));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ runId: "run-full", status: "completed" });
+    expect({ fullRuns, reconciles }).toEqual({ fullRuns: 1, reconciles: 0 });
   });
 
   it("requires a Feishu workspace session", async () => {

@@ -33,4 +33,17 @@ describe("Feishu synchronization control migration", () => {
     expect(sql).toContain("security definer");
     expect(sql).toContain("set search_path = ''");
   });
+
+  it("fences apply/offboarding and binds issue access to the exact active workspace", () => {
+    const sql = migration();
+    expect(sql).toContain("apply_feishu_directory_sync_fenced");
+    expect(sql).toContain("for update");
+    expect(sql).toContain("lease_expires_at > now()");
+    expect(sql).toContain("identity.provider_subject = 'open_id:' || lower(btrim(p_entity_external_id))");
+    expect(sql).toContain("current_active_workspace_organization_id");
+    expect(sql).toContain("offboarding_event_id");
+    expect(sql).toContain("active_lease");
+    expect(sql).toContain("no_connection");
+    expect(sql).toContain("invalid_cursor");
+  });
 });

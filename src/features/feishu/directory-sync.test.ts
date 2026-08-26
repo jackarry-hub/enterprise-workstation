@@ -53,6 +53,18 @@ describe("Feishu directory snapshot", () => {
     expect(calls).toEqual([{ memberPublicId: "71000000-0000-4000-8000-000000000001", eventId: "evt-departed-1" }]);
   });
 
+  it("fails a hung provider request within the configured fetch deadline", async () => {
+    const started = Date.now();
+    await expect(loadFeishuDirectorySnapshot(
+      directoryEnv,
+      async (_input, init) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+      }),
+      { maxPages: 1, fetchTimeoutMs: 20 },
+    )).rejects.toMatchObject({ code: "directory_provider_unavailable" });
+    expect(Date.now() - started).toBeLessThan(250);
+  });
+
   it("loads departments and employees with an app token without exposing the token", async () => {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);

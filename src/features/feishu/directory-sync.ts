@@ -44,6 +44,7 @@ export class DirectorySyncError extends Error {
 
 export type DirectorySyncLoadOptions = {
   maxPages?: number;
+  fetchTimeoutMs?: number;
 };
 
 export type DepartedMemberRevocationRepository = (input: {
@@ -209,11 +210,28 @@ export async function loadFeishuDirectorySnapshot(
 ): Promise<FeishuDirectorySnapshot> {
   try {
     const pageBudget = new PageBudget(options.maxPages ?? 1_000);
-    const token = await tenantAccessToken(env, fetchImpl);
+    const fetchTimeoutMs = options.fetchTimeoutMs ?? 15_000;
+    if (!Number.isInteger(fetchTimeoutMs) || fetchTimeoutMs < 10 || fetchTimeoutMs > 60_000) {
+      throw new DirectorySyncError("directory_configuration_invalid");
+    }
+    const boundedFetch: FetchLike = async (input, init) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), fetchTimeoutMs);
+      const upstreamSignal = init?.signal;
+      const abortUpstream = () => controller.abort();
+      upstreamSignal?.addEventListener("abort", abortUpstream, { once: true });
+      try {
+        return await fetchImpl(input, { ...init, signal: controller.signal });
+      } finally {
+        clearTimeout(timeout);
+        upstreamSignal?.removeEventListener("abort", abortUpstream);
+      }
+    };
+    const token = await tenantAccessToken(env, boundedFetch);
     const departmentRows = await pagedItems(
       "https://open.feishu.cn/open-apis/contact/v3/departments/0/children?department_id_type=open_department_id&user_id_type=open_id&fetch_child=true&page_size=50",
       token,
-      fetchImpl,
+      boundedFetch,
       pageBudget,
     );
     const departmentIds = new Set<string>();
@@ -241,7 +259,7 @@ export async function loadFeishuDirectorySnapshot(
       const rows = await pagedItems(
         `https://open.feishu.cn/open-apis/contact/v3/users/find_by_department?department_id=${encodeURIComponent(departmentId)}&department_id_type=open_department_id&user_id_type=open_id&page_size=50`,
         token,
-        fetchImpl,
+        boundedFetch,
         pageBudget,
       );
       rows.forEach((row) => {

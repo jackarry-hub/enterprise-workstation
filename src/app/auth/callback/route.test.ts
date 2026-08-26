@@ -47,6 +47,19 @@ describe("handleAuthCallback", () => {
     expect(response.headers.get("set-cookie")).toMatch(/qx_feishu_oauth_nonce=;/);
   });
 
+  it("rejects a malformed percent-encoded nonce cookie with stable cleanup", async () => {
+    const exchangeCode = vi.fn(async () => "auth-user-id");
+    const response = await handleAuthCallback(
+      new Request(`${callbackOrigin}/auth/callback?attempt=${attemptId}&code=one-time-code`, {
+        headers: { cookie: "qx_feishu_oauth_nonce=%E0%A4%A" },
+      }),
+      dependencies({ exchangeCode }),
+    );
+    expect(exchangeCode).not.toHaveBeenCalled();
+    expect(response.headers.get("location")).toBe(`${callbackOrigin}/access-pending?reason=auth_error`);
+    expect(response.headers.get("set-cookie")).toMatch(/Max-Age=0/);
+  });
+
   it("uses the configured public origin when the reverse proxy exposes the container origin", async () => {
     vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://work.quantumgalaxy.top");
 

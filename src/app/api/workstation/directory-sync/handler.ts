@@ -13,12 +13,15 @@ import { getWorkspaceSession } from "@/features/auth/workspace-session";
 import type { WorkspacePermissionCode } from "@/features/auth/workspace-session-types";
 import { getSupabaseEnv } from "@/lib/supabase/env";
 import {
+  reconcileFeishuDirectoryForOrganization,
+  startFeishuFullSyncForOrganization,
   type DirectorySyncControlResult,
 } from "@/features/feishu/directory-sync-worker";
 
 type DirectorySession = {
   tenantId?: string;
   authUserId?: string;
+  organizationId?: string;
   roleCodes: readonly string[];
   permissionCodes: readonly WorkspacePermissionCode[];
 };
@@ -43,7 +46,8 @@ type SafeFailureLog = {
 
 export type DirectorySyncDependencies = {
   loadSession: () => Promise<DirectorySession | null>;
-  runFullSync?: () => Promise<DirectorySyncControlResult>;
+  runFullSync?: (session: DirectorySession) => Promise<DirectorySyncControlResult>;
+  runReconcile?: (session: DirectorySession) => Promise<DirectorySyncControlResult>;
   loadSnapshot?: () => Promise<FeishuDirectorySnapshot>;
   applySnapshot?: (
     session: DirectorySession,
@@ -110,18 +114,36 @@ function unavailable(
 }
 
 export function createDirectorySyncHandler(dependencies: DirectorySyncDependencies) {
-  return async function syncDirectory() {
+  return async function syncDirectory(request?: Request) {
     const session = await dependencies.loadSession();
     if (!session) return Response.json({ error: "unauthorized" }, { status: 401 });
     if (!session.permissionCodes.includes("organization.manage")) {
       return Response.json({ error: "forbidden" }, { status: 403 });
     }
 
-    if (dependencies.runFullSync) {
+    let durableMode: "full" | "reconcile" = "reconcile";
+    if (request) {
       try {
-        const result = await dependencies.runFullSync();
+        const rawBody = await request.text();
+        if (rawBody.length > 1_024) throw new Error("directory_request_invalid");
+        if (rawBody) {
+          const body = JSON.parse(rawBody) as unknown;
+          if (!body || typeof body !== "object" || Array.isArray(body)
+              || !["full", "reconcile"].includes(String((body as { mode?: unknown }).mode))) {
+            throw new Error("directory_request_invalid");
+          }
+          durableMode = (body as { mode: "full" | "reconcile" }).mode;
+        }
+      } catch {
+        return Response.json({ error: "invalid_request" }, { status: 400, headers: { "cache-control": "no-store" } });
+      }
+    }
+    const durableRun = durableMode === "full" ? dependencies.runFullSync : dependencies.runReconcile;
+    if (durableRun) {
+      try {
+        const result = await durableRun(session);
         return Response.json(result, {
-          status: result.status === "retry" ? 202 : 200,
+          status: result.status === "retry" ? 202 : result.status === "no_work" ? 409 : 200,
           headers: { "cache-control": "no-store" },
         });
       } catch {
@@ -179,7 +201,24 @@ function parseRpcResult(value: unknown): DirectorySyncResult {
 }
 
 export const defaultDirectorySyncDependencies: DirectorySyncDependencies = {
-  loadSession: getWorkspaceSession,
+  async loadSession() {
+    const session = await getWorkspaceSession();
+    return session ? { ...session, organizationId: session.organization.id } : null;
+  },
+  runReconcile(session) {
+    if (!session.organizationId || !session.authUserId) throw new Error("directory_actor_invalid");
+    return reconcileFeishuDirectoryForOrganization({
+      organizationId: session.organizationId,
+      actorAuthUserId: session.authUserId,
+    });
+  },
+  runFullSync(session) {
+    if (!session.organizationId || !session.authUserId) throw new Error("directory_actor_invalid");
+    return startFeishuFullSyncForOrganization({
+      organizationId: session.organizationId,
+      actorAuthUserId: session.authUserId,
+    });
+  },
   loadSnapshot: () => loadFeishuDirectorySnapshot(getFeishuDirectoryEnv()),
   async applySnapshot(session, snapshot, requestId) {
     if (!session.tenantId || !session.authUserId) {

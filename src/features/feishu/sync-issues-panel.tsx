@@ -18,11 +18,13 @@ export function FeishuSyncIssuesPanel({
   issues,
   runs = [],
   events = [],
+  unavailable = false,
   onResolved = () => window.location.reload(),
 }: {
   issues: readonly FeishuSyncIssue[];
   runs?: readonly FeishuSyncRunSummary[];
   events?: readonly FeishuSyncEventSummary[];
+  unavailable?: boolean;
   onResolved?: () => void;
 }) {
   const [active, setActive] = useState<string | null>(null);
@@ -78,7 +80,13 @@ export function FeishuSyncIssuesPanel({
         </div>
       ) : null}
       {error ? <p role="status" className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</p> : null}
-      {issues.length === 0 ? <div className="flex items-center gap-3 rounded-2xl border bg-card p-6 shadow-sm"><CheckCircle2 className="text-emerald-600" aria-hidden="true" /><div><h2 className="font-semibold">当前没有待处理问题</h2><p className="text-sm text-muted-foreground">目录运行、事件游标与差异记录均来自服务器。</p></div></div> : null}
+      {unavailable ? (
+        <div role="status" className="flex flex-col gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-950 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3"><AlertTriangle aria-hidden="true" /><div><h2 className="font-semibold">同步问题暂时无法读取</h2><p className="text-sm">服务器存储不可用，未把未知状态显示为空。</p></div></div>
+          <Button type="button" variant="outline" className="h-11 w-full rounded-xl sm:w-auto" onClick={() => window.location.reload()}>重试读取</Button>
+        </div>
+      ) : null}
+      {!unavailable && issues.length === 0 ? <div className="flex items-center gap-3 rounded-2xl border bg-card p-6 shadow-sm"><CheckCircle2 className="text-emerald-600" aria-hidden="true" /><div><h2 className="font-semibold">当前没有待处理问题</h2><p className="text-sm text-muted-foreground">目录运行、事件游标与差异记录均来自服务器。</p></div></div> : null}
       {issues.map((issue) => (
         <article key={issue.id} className="rounded-2xl border bg-card p-4 shadow-sm sm:p-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

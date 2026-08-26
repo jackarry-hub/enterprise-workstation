@@ -26,4 +26,16 @@ describe("resolve Feishu sync issue", () => {
     expect(response.status).toBe(403);
     expect(resolved).toBe(0);
   });
+
+  it("returns the same successful terminal result for a resolution retry", async () => {
+    let calls = 0;
+    const handler = createResolveFeishuSyncIssueHandler({
+      loadSession: async () => ({ organizationId: "org-1", authUserId: "user-1", permissionCodes: ["organization.manage"] }),
+      resolve: async () => { calls += 1; return "resolved"; },
+    });
+    const context = { params: Promise.resolve({ issueId: "79000000-0000-4000-8000-000000000001" }) };
+    expect((await handler(new Request("https://work.quantxy.test"), context)).status).toBe(200);
+    expect((await handler(new Request("https://work.quantxy.test"), context)).status).toBe(200);
+    expect(calls).toBe(2);
+  });
 });

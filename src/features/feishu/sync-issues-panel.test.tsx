@@ -44,4 +44,11 @@ describe("Feishu sync issue panel", () => {
     await user.click(reconcile);
     expect(fetch).toHaveBeenCalledWith("/api/workstation/directory-sync", { method: "POST" });
   });
+
+  it("shows a retryable repository outage instead of a false-green empty state", () => {
+    renderWithWorkspaceSession(<FeishuSyncIssuesPanel issues={[]} unavailable onResolved={() => undefined} />);
+    expect(screen.getByRole("status")).toHaveTextContent("同步问题暂时无法读取");
+    expect(screen.queryByText("当前没有待处理问题")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重试读取" })).toHaveClass("h-11");
+  });
 });

@@ -85,4 +85,20 @@ describe("official Feishu webhook verification", () => {
     const result = await verifyFeishuWebhook(signedRequest(rawBody), rawBody, config, now);
     expect(result).toMatchObject({ kind: "event", event: { eventType: "contact.user.deleted_v3" } });
   });
+
+  it("verifies and decrypts an encrypted URL challenge before token validation", async () => {
+    const plaintext = JSON.stringify({
+      type: "url_verification",
+      token: config.verificationToken,
+      challenge: "challenge-encrypted-1",
+    });
+    const key = createHash("sha256").update(config.encryptKey).digest();
+    const iv = Buffer.alloc(16, 9);
+    const cipher = createCipheriv("aes-256-cbc", key, iv);
+    const encrypted = Buffer.concat([iv, cipher.update(plaintext, "utf8"), cipher.final()]).toString("base64");
+    const rawBody = JSON.stringify({ encrypt: encrypted });
+
+    await expect(verifyFeishuWebhook(signedRequest(rawBody), rawBody, config, now))
+      .resolves.toEqual({ kind: "challenge", challenge: "challenge-encrypted-1" });
+  });
 });

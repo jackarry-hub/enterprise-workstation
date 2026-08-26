@@ -113,7 +113,13 @@ export function readFeishuOAuthNonceCookie(request: Request) {
   const cookie = request.headers.get("cookie") ?? "";
   for (const part of cookie.split(";")) {
     const [name, ...value] = part.trim().split("=");
-    if (name === FEISHU_OAUTH_NONCE_COOKIE) return decodeURIComponent(value.join("="));
+    if (name === FEISHU_OAUTH_NONCE_COOKIE) {
+      try {
+        return decodeURIComponent(value.join("="));
+      } catch {
+        return null;
+      }
+    }
   }
   return null;
 }

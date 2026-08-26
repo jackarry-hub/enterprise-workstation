@@ -9,7 +9,7 @@ const session: WorkspaceSession = { ...executiveWorkspaceSession, permissionCode
 describe("Feishu sync issue repository", () => {
   it("returns no data without organization.manage", async () => {
     const result = await loadFeishuSyncIssues({ ...session, permissionCodes: [] }, async () => { throw new Error("must not connect"); });
-    expect(result).toEqual([]);
+    expect(result).toEqual({ status: "ready", data: [] });
   });
 
   it("binds every read to the exact session organization and exposes sanitized fields", async () => {
@@ -30,7 +30,12 @@ describe("Feishu sync issue repository", () => {
     const result = await loadFeishuSyncIssues(session, async () => ({ from: () => query } as never));
 
     expect(calls).toContainEqual(["organization_public_id", session.organization.id]);
-    expect(result).toEqual([expect.objectContaining({ id: "79000000-0000-4000-8000-000000000001", code: "OUT_OF_ORDER_EVENT" })]);
+    expect(result).toEqual({ status: "ready", data: [expect.objectContaining({ id: "79000000-0000-4000-8000-000000000001", code: "OUT_OF_ORDER_EVENT" })] });
     expect(JSON.stringify(result)).not.toMatch(/payload|token|open_id/i);
+  });
+
+  it("returns a discriminated unavailable result on repository failure", async () => {
+    const result = await loadFeishuSyncIssues(session, async () => { throw new Error("database unavailable"); });
+    expect(result).toEqual({ status: "unavailable", data: [] });
   });
 });

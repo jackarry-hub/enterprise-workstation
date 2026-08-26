@@ -6,7 +6,7 @@ import SyncIssuesPage from "@/app/(workspace)/people/sync-issues/page";
 vi.mock("@/features/auth/workspace-session", () => ({
   requireWorkspaceSession: vi.fn(async () => ({ permissionCodes: ["organization.manage"], organization: { id: "org", name: "QuantXY" } })),
 }));
-vi.mock("@/features/feishu/sync-issues-data", () => ({ loadFeishuSyncOperations: vi.fn(async () => ({ issues: [], runs: [], events: [] })) }));
+vi.mock("@/features/feishu/sync-issues-data", () => ({ loadFeishuSyncOperations: vi.fn(async () => ({ status: "ready", issues: [], runs: [], events: [] })) }));
 vi.mock("@/features/feishu/sync-issues-panel", () => ({ FeishuSyncIssuesPanel: () => <div>冲突工作台</div> }));
 
 describe("sync issues page", () => {
