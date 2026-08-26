@@ -65,6 +65,15 @@ describe("durable Feishu directory worker", () => {
     expect(result).toEqual({ runId: null, cursor: null, status: "no_work", retryAfter: null, reason: "no_connection" });
   });
 
+  it("preserves a bounded locked retry instead of reporting false no-work", async () => {
+    const retryAfter = "2026-08-27T06:30:00.250Z";
+    const result = await startFeishuFullSync(dependencies({
+      acquire: async () => ({ acquired: false, runId: null, cursor: null, attempt: 0, reason: "locked", retryAfter }),
+    }));
+
+    expect(result).toEqual({ runId: null, cursor: null, status: "no_work", retryAfter, reason: "locked" });
+  });
+
   it("heartbeats the exact lease before fetch and before fenced apply", async () => {
     const calls: string[] = [];
     const result = await startFeishuFullSync(dependencies({

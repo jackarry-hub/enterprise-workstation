@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 const migrationSource = () => readFileSync(path.join(process.cwd(), "supabase/migrations/202608270002_feishu_sync_control.sql"), "utf8");
 const migration = () => migrationSource().toLowerCase();
+const pgTapSource = () => readFileSync(path.join(process.cwd(), "supabase/tests/feishu_sync_control.sql"), "utf8").toLowerCase();
 
 describe("Feishu synchronization control migration", () => {
   it("is forward-only and creates durable OAuth, webhook, lease and issue controls", () => {
@@ -152,6 +153,11 @@ describe("Feishu synchronization control migration", () => {
     expect(claim).toContain("left join public.feishu_sync_leases candidate_lease");
     expect(claim).toContain("candidate_lease.lease_expires_at <= now()");
     expect(claim).toContain("candidate_lease.retry_after <= now()");
+    expect(claim).toContain("for update of connection skip locked");
+    expect(claim).toContain("v_ready_rechecks");
+    expect(claim).toContain("perform pg_sleep(0.05)");
+    expect(claim).toContain("'reason', 'locked'");
+    expect(claim).toContain("interval '250 milliseconds'");
   });
 
   it("uses connection then lease then run locking for claim, apply and finish", () => {
@@ -166,7 +172,9 @@ describe("Feishu synchronization control migration", () => {
     const finish = sql.slice(finishStart, sql.indexOf("create or replace function public.resolve_feishu_sync_issue", finishStart));
 
     expect(claim.indexOf("for update of connection")).toBeGreaterThan(-1);
-    expect(claim.indexOf("for update of connection")).toBeLessThan(claim.indexOf("insert into public.feishu_sync_leases"));
+    expect(claim.indexOf("for update of connection")).toBeLessThan(claim.indexOf("for update of lease"));
+    expect(claim.indexOf("for update of lease")).toBeLessThan(claim.indexOf("for update of run"));
+    expect(claim.indexOf("for update of run")).toBeLessThan(claim.indexOf("insert into public.feishu_sync_leases"));
     expect(claim.indexOf("insert into public.feishu_sync_leases")).toBeLessThan(claim.indexOf("insert into public.directory_sync_runs"));
     expect(exactApply).not.toContain("for update");
 
@@ -188,5 +196,39 @@ describe("Feishu synchronization control migration", () => {
     expect(sql).toContain("'queuedgrantcount'");
     expect(sql).toMatch(/revoke all on function public\.get_feishu_member_access_proof[\s\S]*from public, anon, authenticated, service_role/);
     expect(sql).toMatch(/grant execute on function public\.get_feishu_member_access_proof[\s\S]*to service_role/);
+  });
+
+  it("terminalizes an expired lease owner exactly once before cumulative takeover", () => {
+    const sql = migration();
+    const claimStart = sql.lastIndexOf("create function public.claim_feishu_sync_work(");
+    const claim = sql.slice(claimStart, sql.indexOf("create or replace function public.heartbeat_feishu_sync_work", claimStart));
+
+    expect(claim).toContain("v_superseded_run public.directory_sync_runs%rowtype");
+    expect(claim).toContain("v_superseded_running boolean := false");
+    expect(claim).toContain("run.public_id = v_lease.run_id");
+    expect(claim).toContain("run.connection_id = v_connection.id");
+    expect(claim).toContain("v_lease.status in ('running', 'retry')");
+    expect(claim).toContain("least(v_lease.attempt + 1, 9)");
+    expect(claim).toContain("status = 'failed'");
+    expect(claim).toContain("completed_at = clock_timestamp()");
+    expect(claim).toContain("'code', 'lease_expired_superseded'");
+    expect(claim).toContain("'supersededbyrunid', v_run_id");
+    expect(claim).toContain("'directory.sync_failed'");
+  });
+
+  it("keeps live fairness, lock-overlap and takeover proofs capability-gated but fail-closed", () => {
+    const pgTap = pgTapSource();
+
+    expect(pgTap).toContain("test.feishu_fair_busy");
+    expect(pgTap).toContain("test.feishu_finish_busy");
+    expect(pgTap).toContain("test.feishu_takeover_proof");
+    expect(pgTap).toContain("dblink_is_busy");
+    expect(pgTap).toContain("unscoped live claim skips locked organization a and acquires ready organization b");
+    expect(pgTap).toContain("finish waits behind the apply connection-first lock");
+    expect(pgTap).toContain("expired live lease terminalizes its old run");
+    expect(pgTap).toContain("raise;");
+    expect(pgTap).toContain("# skip dblink extension or local connection unavailable");
+    expect(pgTap).toMatch(/if v_integer <> 0 then[\s\S]*?'feishu_lock_a', 'rollback'[\s\S]*?dblink_get_result[\s\S]*?'feishu_lock_b', 'rollback'[\s\S]*?raise exception 'feishu_fair_claim_blocked'/);
+    expect(pgTap).toMatch(/if v_integer <> 1 then[\s\S]*?dblink_get_result[\s\S]*?'feishu_lock_a', 'rollback'[\s\S]*?'feishu_lock_b', 'rollback'[\s\S]*?raise exception 'feishu_finish_did_not_wait'/);
   });
 });

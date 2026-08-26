@@ -1744,12 +1744,18 @@ as $$
 declare
   v_connection record;
   v_lease public.feishu_sync_leases%rowtype;
+  v_superseded_run public.directory_sync_runs%rowtype;
   v_blocked record;
   v_run_id uuid;
   v_attempt integer := 1;
   v_actor uuid;
   v_actor_member_id bigint;
   v_previous_cursor text;
+  v_has_lease boolean := false;
+  v_superseded_running boolean := false;
+  v_ready_rechecks integer := 0;
+  v_matching_connections bigint := 0;
+  v_locked_eligible boolean := false;
 begin
   if p_mode not in ('full', 'incremental', 'reconcile')
      or p_lease_seconds not between 30 and 600
@@ -1799,25 +1805,27 @@ begin
     end if;
   else
     -- Ignore blocked connections while choosing full/reconcile work so an old
-    -- active or backed-off row cannot starve another ready connection.
-    select connection.id, connection.tenant_id, connection.organization_id,
+    -- active or backed-off row cannot starve another ready connection. A
+    -- single bounded recheck absorbs short commits without busy waiting.
+    loop
+      select connection.id, connection.tenant_id, connection.organization_id,
            connection.identity_provider_id,
            tenant.public_id as tenant_public_id,
            organization.public_id as organization_public_id
-      into v_connection
-      from public.directory_connections connection
-      join public.identity_providers provider
+        into v_connection
+        from public.directory_connections connection
+        join public.identity_providers provider
         on provider.tenant_id = connection.tenant_id
        and provider.id = connection.identity_provider_id
-      join public.tenants tenant on tenant.id = connection.tenant_id and tenant.status = 'active'
-      join public.organizations organization
+        join public.tenants tenant on tenant.id = connection.tenant_id and tenant.status = 'active'
+        join public.organizations organization
         on organization.tenant_id = connection.tenant_id
        and organization.id = connection.organization_id
-      left join public.feishu_sync_leases candidate_lease
+        left join public.feishu_sync_leases candidate_lease
         on candidate_lease.connection_id = connection.id
        and candidate_lease.tenant_id = connection.tenant_id
        and candidate_lease.organization_id = connection.organization_id
-     where connection.status = 'active'
+       where connection.status = 'active'
        and provider.provider_code = 'feishu' and provider.status = 'active'
        and provider.provider_tenant_key = p_provider_tenant_key
        and connection.external_tenant_key = p_provider_tenant_key
@@ -1828,10 +1836,52 @@ begin
          or (candidate_lease.status = 'running' and candidate_lease.lease_expires_at <= now())
          or (candidate_lease.status = 'retry' and candidate_lease.retry_after <= now())
        )
-     order by connection.last_sync_at nulls first, connection.id
-     for update of connection limit 1;
+       order by connection.last_sync_at nulls first, connection.id
+       for update of connection skip locked limit 1;
+
+      exit when found;
+      exit when v_ready_rechecks >= 1;
+      v_ready_rechecks := v_ready_rechecks + 1;
+      perform pg_sleep(0.05);
+    end loop;
 
     if not found then
+      -- Diagnose skipped ready work before committed active/backoff rows. This
+      -- keeps a short lock from inheriting an unrelated long lease retry time.
+      select exists (
+        select 1
+          from public.directory_connections connection
+          join public.identity_providers provider
+            on provider.tenant_id = connection.tenant_id
+           and provider.id = connection.identity_provider_id
+          join public.tenants tenant on tenant.id = connection.tenant_id and tenant.status = 'active'
+          join public.organizations organization
+            on organization.tenant_id = connection.tenant_id
+           and organization.id = connection.organization_id
+          left join public.feishu_sync_leases candidate_lease
+            on candidate_lease.connection_id = connection.id
+           and candidate_lease.tenant_id = connection.tenant_id
+           and candidate_lease.organization_id = connection.organization_id
+         where connection.status = 'active'
+           and provider.provider_code = 'feishu' and provider.status = 'active'
+           and provider.provider_tenant_key = p_provider_tenant_key
+           and connection.external_tenant_key = p_provider_tenant_key
+           and (p_organization_public_id is null or organization.public_id = p_organization_public_id)
+           and (
+             candidate_lease.connection_id is null
+             or candidate_lease.status not in ('running', 'retry')
+             or (candidate_lease.status = 'running' and candidate_lease.lease_expires_at <= now())
+             or (candidate_lease.status = 'retry' and candidate_lease.retry_after <= now())
+           )
+      ) into v_locked_eligible;
+      if v_locked_eligible then
+        return jsonb_build_object(
+          'acquired', false, 'runId', null, 'cursor', p_cursor, 'attempt', 0,
+          'reason', 'locked',
+          'retryAfter', clock_timestamp() + interval '250 milliseconds'
+        );
+      end if;
+
       select lease.run_id, lease.cursor, lease.attempt,
              case when lease.status = 'running' then 'active_lease' else 'backoff' end as reason,
              case when lease.status = 'running' then lease.lease_expires_at else lease.retry_after end as retry_after
@@ -1867,6 +1917,28 @@ begin
           'retryAfter', v_blocked.retry_after
         );
       end if;
+
+      select count(*) into v_matching_connections
+        from public.directory_connections connection
+        join public.identity_providers provider
+          on provider.tenant_id = connection.tenant_id
+         and provider.id = connection.identity_provider_id
+        join public.tenants tenant on tenant.id = connection.tenant_id and tenant.status = 'active'
+        join public.organizations organization
+          on organization.tenant_id = connection.tenant_id
+         and organization.id = connection.organization_id
+       where connection.status = 'active'
+         and provider.provider_code = 'feishu' and provider.status = 'active'
+         and provider.provider_tenant_key = p_provider_tenant_key
+         and connection.external_tenant_key = p_provider_tenant_key
+         and (p_organization_public_id is null or organization.public_id = p_organization_public_id);
+      if v_matching_connections > 0 then
+        return jsonb_build_object(
+          'acquired', false, 'runId', null, 'cursor', p_cursor, 'attempt', 0,
+          'reason', 'locked',
+          'retryAfter', clock_timestamp() + interval '250 milliseconds'
+        );
+      end if;
       return jsonb_build_object(
         'acquired', false, 'runId', null, 'cursor', p_cursor, 'attempt', 0,
         'reason', 'no_connection', 'retryAfter', null
@@ -1881,19 +1953,34 @@ begin
      and lease.tenant_id = v_connection.tenant_id
      and lease.organization_id = v_connection.organization_id
    for update of lease;
-  if found and v_lease.status = 'running' and v_lease.lease_expires_at > now() then
+  v_has_lease := found;
+  if v_has_lease and v_lease.status = 'running' and v_lease.lease_expires_at > now() then
     return jsonb_build_object(
       'acquired', false, 'runId', v_lease.run_id, 'cursor', v_lease.cursor,
       'attempt', v_lease.attempt, 'reason', 'active_lease',
       'retryAfter', v_lease.lease_expires_at
     );
   end if;
-  if found and v_lease.status = 'retry' and (v_lease.retry_after is null or v_lease.retry_after > now()) then
+  if v_has_lease and v_lease.status = 'retry' and (v_lease.retry_after is null or v_lease.retry_after > now()) then
     return jsonb_build_object(
       'acquired', false, 'runId', v_lease.run_id, 'cursor', v_lease.cursor,
       'attempt', v_lease.attempt, 'reason', 'backoff',
       'retryAfter', v_lease.retry_after
     );
+  end if;
+  if v_has_lease and v_lease.status = 'running' and v_lease.lease_expires_at <= now() then
+    select run.* into v_superseded_run
+      from public.directory_sync_runs run
+     where run.public_id = v_lease.run_id
+       and run.request_id = v_lease.run_id
+       and run.tenant_id = v_connection.tenant_id
+       and run.organization_id = v_connection.organization_id
+       and run.connection_id = v_connection.id
+     for update of run;
+    if not found then
+      raise exception 'sync_superseded_run_missing' using errcode = '55000';
+    end if;
+    v_superseded_running := v_superseded_run.status = 'running';
   end if;
 
   if p_actor_auth_user_id is not null then
@@ -1951,7 +2038,36 @@ begin
 
   v_run_id := gen_random_uuid();
   v_previous_cursor := v_lease.cursor;
-  v_attempt := case when v_lease.status = 'retry' then least(v_lease.attempt + 1, 9) else 1 end;
+  v_attempt := case
+    when v_has_lease and v_lease.status in ('running', 'retry')
+      then least(v_lease.attempt + 1, 9)
+    else 1
+  end;
+  if v_superseded_running then
+    update public.directory_sync_runs run set
+      status = 'failed',
+      error_count = greatest(run.error_count, 1),
+      completed_at = clock_timestamp()
+    where run.id = v_superseded_run.id
+      and run.tenant_id = v_connection.tenant_id
+      and run.organization_id = v_connection.organization_id
+      and run.connection_id = v_connection.id
+      and run.public_id = v_lease.run_id
+      and run.status = 'running';
+    if found then
+      perform public.append_audit_log(
+        v_connection.tenant_id, v_connection.organization_id,
+        v_lease.actor_auth_user_id, v_superseded_run.actor_member_id,
+        'directory.sync_failed', 'directory_sync_run', v_superseded_run.id::text,
+        v_superseded_run.public_id, null,
+        jsonb_build_object(
+          'code', 'lease_expired_superseded',
+          'attempt', v_lease.attempt,
+          'supersededByRunId', v_run_id
+        )
+      );
+    end if;
+  end if;
   insert into public.feishu_sync_leases (
     connection_id, tenant_id, organization_id, run_id, mode, cursor, status,
     attempt, lease_expires_at, retry_after, started_at, completed_at, actor_auth_user_id

@@ -10,7 +10,7 @@ import {
 import { getSupabaseEnv } from "@/lib/supabase/env";
 
 export type DirectorySyncMode = "full" | "incremental" | "reconcile";
-export type DirectorySyncNoWorkReason = "no_connection" | "active_lease" | "backoff" | "invalid_cursor";
+export type DirectorySyncNoWorkReason = "no_connection" | "active_lease" | "backoff" | "invalid_cursor" | "locked";
 export type DirectorySyncScope = { organizationId: string; actorAuthUserId: string };
 export type DirectorySyncControlResult = {
   runId: string | null;
