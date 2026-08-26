@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { loadFeishuDirectorySnapshot } from "@/features/feishu/directory-sync";
 
+const directoryEnv = { appId: "cli_test", appSecret: "app-secret" };
+
 describe("Feishu directory snapshot", () => {
   it("loads departments and employees with an app token without exposing the token", async () => {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -99,5 +101,69 @@ describe("Feishu directory snapshot", () => {
 
     expect(snapshot.employees[0]).toMatchObject({ jobTitle: "", jobTitleExternalId: null });
     expect(snapshot.positions).toEqual([]);
+  });
+});
+
+describe("Feishu directory pagination fails closed", () => {
+  it("rejects an exhausted global page budget before returning a snapshot", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/auth/v3/tenant_access_token/internal")) {
+        return Response.json({ code: 0, tenant_access_token: "tenant-secret" });
+      }
+      if (url.includes("/departments/0/children")) {
+        return Response.json({
+          code: 0,
+          data: { has_more: false, items: [{ open_department_id: "od-product", name: "产品部" }] },
+        });
+      }
+      return Response.json({
+        code: 0,
+        data: { has_more: false, items: [{ open_id: "ou-user", name: "员工" }] },
+      });
+    });
+
+    await expect(loadFeishuDirectorySnapshot(directoryEnv, fetchImpl, { maxPages: 2 }))
+      .rejects.toMatchObject({ code: "directory_pagination_limit" });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects a repeated page token instead of accepting a partial directory", async () => {
+    let departmentPage = 0;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/auth/v3/tenant_access_token/internal")) {
+        return Response.json({ code: 0, tenant_access_token: "tenant-secret" });
+      }
+      if (!url.includes("/departments/0/children")) {
+        return Response.json({ code: 0, data: { has_more: false, items: [] } });
+      }
+      departmentPage += 1;
+      return Response.json({
+        code: 0,
+        data: {
+          has_more: departmentPage <= 2,
+          page_token: "repeated-token",
+          items: [],
+        },
+      });
+    });
+
+    await expect(loadFeishuDirectorySnapshot(directoryEnv, fetchImpl, { maxPages: 5 }))
+      .rejects.toMatchObject({ code: "directory_pagination_invalid" });
+    expect(departmentPage).toBe(2);
+  });
+
+  it("rejects a missing next page token with a stable pagination error", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/auth/v3/tenant_access_token/internal")) {
+        return Response.json({ code: 0, tenant_access_token: "tenant-secret" });
+      }
+      return Response.json({ code: 0, data: { has_more: true, items: [] } });
+    });
+
+    await expect(loadFeishuDirectorySnapshot(directoryEnv, fetchImpl, { maxPages: 5 }))
+      .rejects.toMatchObject({ code: "directory_pagination_invalid" });
   });
 });
