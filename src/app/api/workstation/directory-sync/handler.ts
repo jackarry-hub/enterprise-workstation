@@ -57,6 +57,7 @@ export type DirectorySyncDependencies = {
 
 const SNAPSHOT_FAILURE_CODES = new Set<DirectorySyncFailureCode>([
   "directory_configuration_invalid",
+  "directory_payload_invalid",
   "directory_provider_unavailable",
   "directory_pagination_invalid",
   "directory_pagination_limit",
@@ -114,13 +115,24 @@ export function createDirectorySyncHandler(dependencies: DirectorySyncDependenci
 
     const requestId = dependencies.createRequestId?.() ?? randomUUID();
     const recordFailure = async (code: DirectorySyncFailureCode) => {
-      dependencies.logFailure?.({ event: "directory_sync_failed", code, requestId });
+      try {
+        dependencies.logFailure?.({ event: "directory_sync_failed", code, requestId });
+      } catch {
+        // Observability sinks must never prevent durable failure recording.
+      }
       try {
         const result = await dependencies.recordFailure?.(session, code, requestId);
-        return validResult(result) && result.status === "failed" ? result.runId : undefined;
+        return validResult(result) ? result : undefined;
       } catch {
         return undefined;
       }
+    };
+    const settleFailure = async (code: DirectorySyncFailureCode) => {
+      const recorded = await recordFailure(code);
+      if (recorded?.status === "completed") {
+        return Response.json(recorded, { headers: responseHeaders(requestId) });
+      }
+      return unavailable(code, requestId, recorded?.runId);
     };
 
     let snapshot: FeishuDirectorySnapshot;
@@ -128,7 +140,7 @@ export function createDirectorySyncHandler(dependencies: DirectorySyncDependenci
       snapshot = await dependencies.loadSnapshot();
     } catch (error) {
       const code = knownSnapshotFailure(error);
-      return unavailable(code, requestId, await recordFailure(code));
+      return settleFailure(code);
     }
 
     try {
@@ -137,7 +149,7 @@ export function createDirectorySyncHandler(dependencies: DirectorySyncDependenci
       return Response.json(result, { headers: responseHeaders(requestId) });
     } catch {
       const code: DirectorySyncFailureCode = "directory_apply_failed";
-      return unavailable(code, requestId, await recordFailure(code));
+      return settleFailure(code);
     }
   };
 }

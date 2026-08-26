@@ -10,6 +10,81 @@ create unique index if not exists directory_sync_runs_tenant_request_id_uidx
   on public.directory_sync_runs (tenant_id, request_id)
   where request_id is not null;
 
+-- A tenant may contain more than one organization.  Keep one Feishu
+-- connection per organization/provider so a sync cannot reuse another
+-- organization's entity-link namespace.
+alter table public.directory_connections
+  drop constraint if exists directory_connections_tenant_id_identity_provider_id_key;
+create unique index if not exists directory_connections_tenant_organization_provider_uidx
+  on public.directory_connections (tenant_id, organization_id, identity_provider_id);
+
+-- The deployed legacy apply RPC predates organization-scoped actor resolution.
+-- Patch only the three reviewed fragments and fail closed if its definition has
+-- drifted, rather than copying a second 500-line mutation implementation.
+do $directory_scope_patch$
+declare
+  v_definition text := pg_get_functiondef(
+    'public.apply_feishu_directory_sync(uuid, uuid, jsonb)'::regprocedure
+  );
+  v_old_scope constant text := $old_scope$  select tenant.id, organization.id
+  into strict v_tenant_id, v_organization_id
+  from public.tenants tenant
+  join public.organizations organization on organization.tenant_id = tenant.id
+  where tenant.public_id = p_tenant_public_id
+    and tenant.status = 'active'
+  order by organization.id
+  limit 1;
+
+  select member.id into v_actor_member_id
+  from public.organization_members member
+  where member.tenant_id = v_tenant_id
+    and member.organization_id = v_organization_id
+    and member.user_id = p_actor_auth_user_id
+    and member.status = 'active';$old_scope$;
+  v_new_scope constant text := $new_scope$  select tenant.id, member.organization_id, member.id
+  into v_tenant_id, v_organization_id, v_actor_member_id
+  from public.tenants tenant
+  join public.organization_members member
+    on member.tenant_id = tenant.id
+   and member.user_id = p_actor_auth_user_id
+   and member.status = 'active'
+  where tenant.public_id = p_tenant_public_id
+    and tenant.status = 'active';$new_scope$;
+  v_old_role constant text := $old_role$      and role.code in ('owner', 'admin')
+      and role.is_enabled$old_role$;
+  v_new_role constant text := $new_role$      and role.code in ('owner', 'admin')
+      and role.is_enabled
+      and role.is_system
+      and role.organization_id is null$new_role$;
+  v_old_conflict constant text := $old_conflict$  on conflict (tenant_id, identity_provider_id) do update set
+    organization_id = excluded.organization_id,
+    external_tenant_key = excluded.external_tenant_key,$old_conflict$;
+  v_new_conflict constant text := $new_conflict$  on conflict (tenant_id, organization_id, identity_provider_id) do update set
+    external_tenant_key = excluded.external_tenant_key,$new_conflict$;
+begin
+  -- pg_get_functiondef preserves the stored body text, including line endings.
+  -- Normalize it before matching the reviewed fragments so Windows-applied
+  -- migrations cannot bypass the fail-closed patch contract.
+  v_definition := replace(v_definition, chr(13) || chr(10), chr(10));
+  if strpos(v_definition, v_old_scope) > 0 then
+    v_definition := replace(v_definition, v_old_scope, v_new_scope);
+  elsif strpos(v_definition, v_new_scope) = 0 then
+    raise exception 'Legacy directory actor scope definition drifted' using errcode = '55000';
+  end if;
+  if strpos(v_definition, v_old_role) > 0 then
+    v_definition := replace(v_definition, v_old_role, v_new_role);
+  elsif strpos(v_definition, v_new_role) = 0 then
+    raise exception 'Legacy directory role scope definition drifted' using errcode = '55000';
+  end if;
+  if strpos(v_definition, v_old_conflict) > 0 then
+    v_definition := replace(v_definition, v_old_conflict, v_new_conflict);
+  elsif strpos(v_definition, v_new_conflict) = 0 then
+    raise exception 'Legacy directory connection scope definition drifted' using errcode = '55000';
+  end if;
+  execute v_definition;
+end;
+$directory_scope_patch$;
+
 create or replace function public.apply_feishu_directory_sync_observed(
   p_tenant_public_id uuid,
   p_actor_auth_user_id uuid,
@@ -30,25 +105,20 @@ declare
   v_existing_result jsonb;
 begin
   if p_tenant_public_id is null or p_actor_auth_user_id is null
-     or p_request_id is null then
+     or p_request_id is null
+     or coalesce(p_snapshot -> 'complete', 'null'::jsonb) <> 'true'::jsonb then
     raise exception 'Directory sync request is invalid' using errcode = '22023';
   end if;
 
-  select tenant.id, organization.id
-  into strict v_tenant_id, v_organization_id
+  select tenant.id, member.organization_id, member.id
+  into v_tenant_id, v_organization_id, v_actor_member_id
   from public.tenants tenant
-  join public.organizations organization on organization.tenant_id = tenant.id
+  join public.organization_members member
+    on member.tenant_id = tenant.id
+   and member.user_id = p_actor_auth_user_id
+   and member.status = 'active'
   where tenant.public_id = p_tenant_public_id
-    and tenant.status = 'active'
-  order by organization.id
-  limit 1;
-
-  select member.id into v_actor_member_id
-  from public.organization_members member
-  where member.tenant_id = v_tenant_id
-    and member.organization_id = v_organization_id
-    and member.user_id = p_actor_auth_user_id
-    and member.status = 'active';
+    and tenant.status = 'active';
   if v_actor_member_id is null or not exists (
     select 1
     from public.member_roles assignment
@@ -59,6 +129,8 @@ begin
     where assignment.tenant_id = v_tenant_id
       and assignment.member_id = v_actor_member_id
       and role.code in ('owner', 'admin')
+      and role.is_system
+      and role.organization_id is null
   ) then
     raise exception 'Directory actor is not authorized' using errcode = '42501';
   end if;
@@ -152,6 +224,7 @@ begin
      or p_code is null
      or p_code not in (
        'directory_configuration_invalid',
+       'directory_payload_invalid',
        'directory_provider_unavailable',
        'directory_pagination_invalid',
        'directory_pagination_limit',
@@ -161,21 +234,15 @@ begin
     raise exception 'Directory failure request is invalid' using errcode = '22023';
   end if;
 
-  select tenant.id, organization.id
-  into strict v_tenant_id, v_organization_id
+  select tenant.id, member.organization_id, member.id
+  into v_tenant_id, v_organization_id, v_actor_member_id
   from public.tenants tenant
-  join public.organizations organization on organization.tenant_id = tenant.id
+  join public.organization_members member
+    on member.tenant_id = tenant.id
+   and member.user_id = p_actor_auth_user_id
+   and member.status = 'active'
   where tenant.public_id = p_tenant_public_id
-    and tenant.status = 'active'
-  order by organization.id
-  limit 1;
-
-  select member.id into v_actor_member_id
-  from public.organization_members member
-  where member.tenant_id = v_tenant_id
-    and member.organization_id = v_organization_id
-    and member.user_id = p_actor_auth_user_id
-    and member.status = 'active';
+    and tenant.status = 'active';
   if v_actor_member_id is null or not exists (
     select 1
     from public.member_roles assignment
@@ -186,6 +253,8 @@ begin
     where assignment.tenant_id = v_tenant_id
       and assignment.member_id = v_actor_member_id
       and role.code in ('owner', 'admin')
+      and role.is_system
+      and role.organization_id is null
   ) then
     raise exception 'Directory actor is not authorized' using errcode = '42501';
   end if;
@@ -227,8 +296,7 @@ begin
     v_tenant_id, v_organization_id, v_provider_id, 'feishu',
     v_provider_tenant_key, 'manual', 'error'
   )
-  on conflict (tenant_id, identity_provider_id) do update set
-    organization_id = excluded.organization_id,
+  on conflict (tenant_id, organization_id, identity_provider_id) do update set
     external_tenant_key = excluded.external_tenant_key,
     status = 'error',
     updated_at = clock_timestamp()
@@ -286,6 +354,11 @@ revoke all on function public.record_feishu_directory_sync_failure(uuid, uuid, t
 grant execute on function public.record_feishu_directory_sync_failure(uuid, uuid, text, uuid)
   to service_role;
 
-revoke insert, update, delete on table public.directory_connections,
+-- The unobserved legacy entry point remains callable by the function owner but
+-- is no longer an API surface for service-role clients.
+revoke all on function public.apply_feishu_directory_sync(uuid, uuid, jsonb)
+  from public, anon, authenticated, service_role;
+
+revoke insert, update, delete, truncate, references, trigger on table public.directory_connections,
   public.directory_sync_runs, public.directory_sync_issues
   from public, anon, authenticated, service_role;

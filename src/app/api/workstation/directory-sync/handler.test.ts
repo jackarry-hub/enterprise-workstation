@@ -172,6 +172,9 @@ describe("workstation directory sync route", () => {
       },
       recordFailure,
       createRequestId: () => "30000000-0000-4000-8000-000000000005",
+      logFailure: () => {
+        throw new Error("logging sink unavailable");
+      },
     })();
 
     expect(recordFailure).toHaveBeenCalledWith(
@@ -188,5 +191,40 @@ describe("workstation directory sync route", () => {
         runId: "31000000-0000-4000-8000-000000000005",
       },
     });
+  });
+
+  it("recovers a committed run when the apply RPC response is lost", async () => {
+    const session = {
+      tenantId: "10000000-0000-4000-8000-000000000001",
+      authUserId: "10000000-0000-4000-8000-000000000002",
+      roleCodes: ["owner"],
+      permissionCodes: ["organization.manage"] as const,
+    };
+    const committed = {
+      runId: "31000000-0000-4000-8000-000000000006",
+      status: "completed" as const,
+      departmentCount: 4,
+      employeeCount: 28,
+      issueCount: 0,
+    };
+    const recordFailure = vi.fn(async () => committed);
+    const response = await createDirectorySyncHandler({
+      loadSession: async () => session,
+      loadSnapshot: async () => snapshot,
+      applySnapshot: async () => {
+        throw new Error("transport closed after database commit");
+      },
+      recordFailure,
+      createRequestId: () => "30000000-0000-4000-8000-000000000006",
+    })();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-request-id")).toBe("30000000-0000-4000-8000-000000000006");
+    expect(recordFailure).toHaveBeenCalledWith(
+      session,
+      "directory_apply_failed",
+      "30000000-0000-4000-8000-000000000006",
+    );
+    await expect(response.json()).resolves.toEqual(committed);
   });
 });

@@ -27,6 +27,7 @@ export type FeishuDirectorySnapshot = {
 
 export type DirectorySyncErrorCode =
   | "directory_configuration_invalid"
+  | "directory_payload_invalid"
   | "directory_provider_unavailable"
   | "directory_pagination_invalid"
   | "directory_pagination_limit";
@@ -120,13 +121,15 @@ async function pagedItems(
     const body = await feishuJson(fetchImpl, url, {
       headers: { authorization: `Bearer ${token}` },
     });
-    const data = object(body.data) ?? {};
-    if (Array.isArray(data.items)) {
-      data.items.forEach((item) => {
-        const row = object(item);
-        if (row) rows.push(row);
-      });
+    const data = object(body.data);
+    if (!data || !Array.isArray(data.items) || typeof data.has_more !== "boolean") {
+      throw new DirectorySyncError("directory_payload_invalid");
     }
+    const pageRows = data.items.map(object);
+    if (pageRows.some((row) => row === null)) {
+      throw new DirectorySyncError("directory_payload_invalid");
+    }
+    rows.push(...pageRows as JsonRecord[]);
     if (data.has_more !== true) return rows;
     const nextPageToken = text(data.page_token);
     if (!nextPageToken || seenPageTokens.has(nextPageToken)) {
@@ -173,18 +176,22 @@ export async function loadFeishuDirectorySnapshot(
       fetchImpl,
       pageBudget,
     );
-    const departments = departmentRows.flatMap((row) => {
+    const departmentIds = new Set<string>();
+    const departments = departmentRows.map((row) => {
       const externalId = text(row.open_department_id);
       const name = text(row.name);
-      if (!externalId || !name) return [];
+      if (!externalId || !name || departmentIds.has(externalId)) {
+        throw new DirectorySyncError("directory_payload_invalid");
+      }
+      departmentIds.add(externalId);
       const parent = text(row.parent_department_id);
-      return [{
+      return {
         externalId,
         departmentId: text(row.department_id),
         parentExternalId: parent && parent !== "0" ? parent : null,
         name,
         leaderOpenId: text(row.leader_user_id),
-      }];
+      };
     });
 
     const users = new Map<string, FeishuDirectorySnapshot["employees"][number]>();
@@ -200,7 +207,9 @@ export async function loadFeishuDirectorySnapshot(
       rows.forEach((row) => {
         const openId = text(row.open_id)?.toLocaleLowerCase("en-US");
         const name = text(row.name);
-        if (!openId || !name) return;
+        if (!openId || !name) {
+          throw new DirectorySyncError("directory_payload_invalid");
+        }
         const existing = users.get(openId);
         const jobTitle = text(row.job_title) ?? existing?.jobTitle ?? "";
         users.set(openId, {

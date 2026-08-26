@@ -1,6 +1,6 @@
 begin;
 
-select plan(31);
+select plan(38);
 
 insert into public.tenants (name, slug, status)
 values
@@ -12,6 +12,11 @@ select tenant.id, 'Directory observability organization', 'directory-observed-or
 from public.tenants tenant
 where tenant.slug in ('directory-observed-a', 'directory-observed-b');
 
+insert into public.organizations (tenant_id, name, slug)
+select tenant.id, 'Directory observability second organization', 'directory-observed-org-second'
+from public.tenants tenant
+where tenant.slug = 'directory-observed-a';
+
 insert into public.identity_providers (
   tenant_id, provider_code, auth_provider, provider_tenant_key, display_name, status
 )
@@ -22,7 +27,7 @@ where tenant.slug in ('directory-observed-a', 'directory-observed-b');
 insert into public.roles (
   tenant_id, organization_id, code, name, description, is_system, is_enabled
 )
-select tenant.id, null, 'owner', 'Directory test owner', 'Directory test owner', false, true
+select tenant.id, null, 'owner', 'Directory test owner', 'Directory test owner', true, true
 from public.tenants tenant
 where tenant.slug in ('directory-observed-a', 'directory-observed-b');
 
@@ -33,19 +38,25 @@ insert into auth.users (
 values
   ('00000000-0000-0000-0000-000000000000', '94000000-0000-4000-8000-000000000001', 'authenticated', 'authenticated', 'directory-owner-a@example.test', crypt('local-e2e-password', gen_salt('bf')), now(), '{}'::jsonb, '{}'::jsonb, now(), now()),
   ('00000000-0000-0000-0000-000000000000', '94000000-0000-4000-8000-000000000002', 'authenticated', 'authenticated', 'directory-employee-a@example.test', crypt('local-e2e-password', gen_salt('bf')), now(), '{}'::jsonb, '{}'::jsonb, now(), now()),
-  ('00000000-0000-0000-0000-000000000000', '94000000-0000-4000-8000-000000000003', 'authenticated', 'authenticated', 'directory-owner-b@example.test', crypt('local-e2e-password', gen_salt('bf')), now(), '{}'::jsonb, '{}'::jsonb, now(), now());
+  ('00000000-0000-0000-0000-000000000000', '94000000-0000-4000-8000-000000000003', 'authenticated', 'authenticated', 'directory-owner-b@example.test', crypt('local-e2e-password', gen_salt('bf')), now(), '{}'::jsonb, '{}'::jsonb, now(), now()),
+  ('00000000-0000-0000-0000-000000000000', '94000000-0000-4000-8000-000000000004', 'authenticated', 'authenticated', 'directory-owner-a-second@example.test', crypt('local-e2e-password', gen_salt('bf')), now(), '{}'::jsonb, '{}'::jsonb, now(), now());
 
 insert into public.organization_members (tenant_id, organization_id, user_id, status)
 select tenant.id, organization.id, seed.user_id, 'active'
 from (values
   ('directory-observed-a', '94000000-0000-4000-8000-000000000001'::uuid),
   ('directory-observed-a', '94000000-0000-4000-8000-000000000002'::uuid),
-  ('directory-observed-b', '94000000-0000-4000-8000-000000000003'::uuid)
+  ('directory-observed-b', '94000000-0000-4000-8000-000000000003'::uuid),
+  ('directory-observed-a', '94000000-0000-4000-8000-000000000004'::uuid)
 ) as seed(tenant_slug, user_id)
 join public.tenants tenant on tenant.slug = seed.tenant_slug
 join public.organizations organization
   on organization.tenant_id = tenant.id
- and organization.slug = 'directory-observed-org';
+ and organization.slug = case
+   when seed.user_id = '94000000-0000-4000-8000-000000000004'::uuid
+     then 'directory-observed-org-second'
+   else 'directory-observed-org'
+ end;
 
 insert into public.member_roles (tenant_id, member_id, role_id)
 select member.tenant_id, member.id, role.id
@@ -54,7 +65,8 @@ join public.tenants tenant on tenant.id = member.tenant_id
 join public.roles role on role.tenant_id = member.tenant_id and role.code = 'owner'
 where member.user_id in (
   '94000000-0000-4000-8000-000000000001'::uuid,
-  '94000000-0000-4000-8000-000000000003'::uuid
+  '94000000-0000-4000-8000-000000000003'::uuid,
+  '94000000-0000-4000-8000-000000000004'::uuid
 );
 
 select set_config(
@@ -78,6 +90,7 @@ select has_function(
 );
 select ok(
   has_function_privilege('service_role', 'public.apply_feishu_directory_sync_observed(uuid, uuid, jsonb, uuid)', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.apply_feishu_directory_sync(uuid, uuid, jsonb)', 'EXECUTE')
   and not has_function_privilege('authenticated', 'public.apply_feishu_directory_sync_observed(uuid, uuid, jsonb, uuid)', 'EXECUTE')
   and not has_function_privilege('anon', 'public.apply_feishu_directory_sync_observed(uuid, uuid, jsonb, uuid)', 'EXECUTE'),
   'only service role executes the observed apply RPC'
@@ -103,11 +116,11 @@ select is(
   'failure recorder RPC has an empty search path'
 );
 select ok(
-  not has_table_privilege('authenticated', 'public.directory_sync_runs', 'INSERT, UPDATE, DELETE')
-  and not has_table_privilege('authenticated', 'public.directory_sync_issues', 'INSERT, UPDATE, DELETE')
-  and not has_table_privilege('service_role', 'public.directory_connections', 'INSERT, UPDATE, DELETE')
-  and not has_table_privilege('service_role', 'public.directory_sync_runs', 'INSERT, UPDATE, DELETE')
-  and not has_table_privilege('service_role', 'public.directory_sync_issues', 'INSERT, UPDATE, DELETE'),
+  not has_table_privilege('authenticated', 'public.directory_sync_runs', 'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+  and not has_table_privilege('authenticated', 'public.directory_sync_issues', 'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+  and not has_table_privilege('service_role', 'public.directory_connections', 'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+  and not has_table_privilege('service_role', 'public.directory_sync_runs', 'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+  and not has_table_privilege('service_role', 'public.directory_sync_issues', 'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER'),
   'browser and service roles cannot manufacture durable directory run evidence directly'
 );
 
@@ -204,7 +217,7 @@ select throws_ok(
   $$ select public.apply_feishu_directory_sync_observed(
     current_setting('test.directory_observed_tenant_a')::uuid,
     '94000000-0000-4000-8000-000000000001'::uuid,
-    '{"complete":false}'::jsonb,
+    '{"complete":false,"departments":[],"positions":[],"employees":[]}'::jsonb,
     '95000000-0000-4000-8000-000000000002'::uuid
   ) $$,
   '22023',
@@ -365,6 +378,123 @@ select is(
   ),
   0::bigint,
   'unauthorized actor creates no failure run'
+);
+
+select set_config(
+  'test.directory_observed_first_connection',
+  (
+    select jsonb_build_object(
+      'id', connection.id,
+      'status', connection.status,
+      'lastSyncAt', connection.last_sync_at
+    )::text
+    from public.directory_connections connection
+    join public.organizations organization
+      on organization.tenant_id = connection.tenant_id
+     and organization.id = connection.organization_id
+    where connection.tenant_id = (select id from public.tenants where slug = 'directory-observed-a')
+      and organization.slug = 'directory-observed-org'
+  ),
+  true
+);
+select set_config(
+  'test.directory_observed_second_success',
+  public.apply_feishu_directory_sync_observed(
+    current_setting('test.directory_observed_tenant_a')::uuid,
+    '94000000-0000-4000-8000-000000000004'::uuid,
+    '{"complete":true,"departments":[{"externalId":"od-second","departmentId":"second","parentExternalId":null,"name":"Second organization department","leaderOpenId":null}],"positions":[],"employees":[]}'::jsonb,
+    '95000000-0000-4000-8000-000000000006'::uuid
+  )::text,
+  true
+);
+select is(
+  current_setting('test.directory_observed_second_success')::jsonb ->> 'status', 'completed',
+  'a non-first organization owner can complete a directory sync'
+);
+select is(
+  (
+    select organization.slug
+    from public.directory_sync_runs run
+    join public.organizations organization
+      on organization.tenant_id = run.tenant_id
+     and organization.id = run.organization_id
+    where run.public_id = (current_setting('test.directory_observed_second_success')::jsonb ->> 'runId')::uuid
+  ),
+  'directory-observed-org-second',
+  'the completed run is bound to the actor organization rather than the first organization'
+);
+select is(
+  (
+    select count(*)::text || ':' || count(distinct connection.organization_id)::text
+    from public.directory_connections connection
+    where connection.tenant_id = (select id from public.tenants where slug = 'directory-observed-a')
+  ),
+  '2:2',
+  'each organization has a distinct provider connection namespace'
+);
+select is(
+  (
+    select jsonb_build_object(
+      'id', connection.id,
+      'status', connection.status,
+      'lastSyncAt', connection.last_sync_at
+    )::text
+    from public.directory_connections connection
+    join public.organizations organization
+      on organization.tenant_id = connection.tenant_id
+     and organization.id = connection.organization_id
+    where connection.tenant_id = (select id from public.tenants where slug = 'directory-observed-a')
+      and organization.slug = 'directory-observed-org'
+  ),
+  current_setting('test.directory_observed_first_connection'),
+  'a second organization success does not mutate the first organization connection'
+);
+select set_config(
+  'test.directory_observed_second_failure',
+  public.record_feishu_directory_sync_failure(
+    current_setting('test.directory_observed_tenant_a')::uuid,
+    '94000000-0000-4000-8000-000000000004'::uuid,
+    'directory_provider_unavailable',
+    '95000000-0000-4000-8000-000000000007'::uuid
+  )::text,
+  true
+);
+select is(
+  current_setting('test.directory_observed_second_failure')::jsonb ->> 'status', 'failed',
+  'a non-first organization owner can persist a failed directory sync'
+);
+select ok(
+  exists (
+    select 1
+    from public.directory_sync_runs run
+    join public.directory_connections connection
+      on connection.tenant_id = run.tenant_id
+     and connection.id = run.connection_id
+    join public.organizations organization
+      on organization.tenant_id = run.tenant_id
+     and organization.id = run.organization_id
+    where run.public_id = (current_setting('test.directory_observed_second_failure')::jsonb ->> 'runId')::uuid
+      and organization.slug = 'directory-observed-org-second'
+      and connection.organization_id = run.organization_id
+  ),
+  'the failed run and its connection stay inside the actor organization'
+);
+select is(
+  (
+    select jsonb_build_object(
+      'id', connection.id,
+      'status', connection.status,
+      'lastSyncAt', connection.last_sync_at
+    )::text
+    from public.directory_connections connection
+    join public.organizations organization
+      on organization.tenant_id = connection.tenant_id
+     and organization.id = connection.organization_id
+    where connection.tenant_id = (select id from public.tenants where slug = 'directory-observed-a')
+      and organization.slug = 'directory-observed-org'
+  ),
+  current_setting('test.directory_observed_first_connection'),
+  'a second organization failure does not mutate the first organization connection'
 );
 reset role;
 

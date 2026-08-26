@@ -166,4 +166,36 @@ describe("Feishu directory pagination fails closed", () => {
     await expect(loadFeishuDirectorySnapshot(directoryEnv, fetchImpl, { maxPages: 5 }))
       .rejects.toMatchObject({ code: "directory_pagination_invalid" });
   });
+
+  it("rejects a code-zero response with a malformed page instead of publishing an empty snapshot", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/auth/v3/tenant_access_token/internal")) {
+        return Response.json({ code: 0, tenant_access_token: "tenant-secret" });
+      }
+      return Response.json({ code: 0, data: { has_more: false, items: {} } });
+    });
+
+    await expect(loadFeishuDirectorySnapshot(directoryEnv, fetchImpl))
+      .rejects.toMatchObject({ code: "directory_payload_invalid" });
+  });
+
+  it("rejects malformed directory entities instead of silently dropping them", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/auth/v3/tenant_access_token/internal")) {
+        return Response.json({ code: 0, tenant_access_token: "tenant-secret" });
+      }
+      return Response.json({
+        code: 0,
+        data: {
+          has_more: false,
+          items: [{ open_department_id: "od-missing-name" }],
+        },
+      });
+    });
+
+    await expect(loadFeishuDirectorySnapshot(directoryEnv, fetchImpl))
+      .rejects.toMatchObject({ code: "directory_payload_invalid" });
+  });
 });
