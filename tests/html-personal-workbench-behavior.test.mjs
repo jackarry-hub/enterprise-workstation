@@ -649,6 +649,14 @@ function formalBootstrap({
   permissions = ["task.execute", "payroll.read.self"],
   primaryRole = "employee",
   notification = { status: "failed", errorCode: "send_failed" },
+  agents = [
+    "任务拆解 Agent", "智能派单 Agent", "飞书通知 Agent", "员工画像 Agent",
+    "薪资核算 Agent", "报账审核 Agent", "知识库问答 Agent", "项目复盘 Agent",
+  ].map((n, index) => ({
+    id: `agent-${index + 1}`, n, dept: "企业级", ic: "bot", on: 1, runs: 0, ok: 100,
+    scope: "all", minLv: 1, grant: [], depts: [], d: `${n} 的服务端定义`, sys: "server",
+    f: [{ k: "input", l: "输入", t: "ta" }], abilities: [], promptVersion: "v1",
+  })),
 } = {}) {
   const projectId = "22222222-2222-4222-8222-222222222222";
   return {
@@ -684,6 +692,7 @@ function formalBootstrap({
       notification,
     }],
     payroll: { [memberId]: [] },
+    agents,
     features: { identitySwitch: false, demoReset: false },
   };
 }
@@ -3737,6 +3746,44 @@ test("Agent Center presents enterprise agents with capability, run log and permi
     }
     assert.match(viewText, /智能体能力|调用记录|权限范围/);
     assert.doesNotMatch(viewText, /商店|购买|安装|Agent Store/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal Agent Center preserves a real empty server result without seeding demo Agents", async () => {
+  const bootstrap = formalBootstrap({ permissions: ["agent.manage"] });
+  bootstrap.agents = [];
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    dom.window.Q.S.page = "flow";
+    dom.window.Q.render();
+    assert.equal(dom.window.Q.S.agents.length, 0);
+    assert.match(dom.window.document.querySelector("#view").textContent, /暂无已启用 Agent/);
+    assert.doesNotMatch(dom.window.document.querySelector("#view").textContent, /投放文案 Agent|任务拆解 Agent/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal Agent Center renders a module error with its server request ID", async () => {
+  const bootstrap = formalBootstrap({ permissions: ["agent.manage"] });
+  bootstrap.agents = [];
+  bootstrap.moduleErrors = { agents: { requestId: "a1111111-1111-4111-8111-111111111111" } };
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    dom.window.Q.S.page = "flow";
+    dom.window.Q.render();
+    const text = dom.window.document.querySelector("#view").textContent;
+    assert.match(text, /Agent 数据暂时不可用/);
+    assert.match(text, /a1111111-1111-4111-8111-111111111111/);
+    assert.equal(dom.window.Q.S.agents.length, 0);
   } finally {
     dom.window.close();
   }

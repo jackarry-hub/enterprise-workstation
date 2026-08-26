@@ -1,0 +1,236 @@
+import { isAllowedAiModel, type AiModel } from "@/features/ai-config/ai-config-types";
+import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
+
+type QueryResult<T> = PromiseLike<{ data: T | null; error: unknown }>;
+
+type QueryBuilder<T> = {
+  select: (columns: string) => QueryBuilder<T>;
+  eq: (column: string, value: unknown) => QueryBuilder<T>;
+  is: (column: string, value: unknown) => QueryBuilder<T>;
+  in: (column: string, values: readonly unknown[]) => QueryBuilder<T>;
+  maybeSingle: () => QueryResult<T>;
+} & PromiseLike<{ data: T[] | null; error: unknown }>;
+
+export type AgentAuthorizationClient = {
+  from: <T extends Record<string, unknown>>(table: string) => QueryBuilder<T>;
+};
+
+export type AuthorizedAgent = {
+  definitionId: number;
+  tenantId: number;
+  organizationId: number;
+  version: string;
+  systemPrompt: string;
+  model: AiModel;
+  toolCodes: string[];
+};
+
+export class AgentInvocationAuthorizationError extends Error {
+  constructor(public readonly code: "agent_not_found" | "agent_forbidden") {
+    super(code);
+  }
+}
+
+type ScopedRow = Record<string, unknown>;
+
+function positiveInteger(value: unknown): number | null {
+  return Number.isSafeInteger(value) && Number(value) > 0 ? Number(value) : null;
+}
+
+function nonEmptyText(value: unknown, max = 12_000): value is string {
+  return typeof value === "string" && value.trim() === value && value.length > 0 && value.length <= max;
+}
+
+function forbidden(): never {
+  throw new AgentInvocationAuthorizationError("agent_forbidden");
+}
+
+function notFound(): never {
+  throw new AgentInvocationAuthorizationError("agent_not_found");
+}
+
+async function maybeSingle<T extends Record<string, unknown>>(
+  query: QueryResult<T>,
+  onMissing: () => never,
+): Promise<T> {
+  const { data, error } = await query;
+  if (error || !data) return onMissing();
+  return data;
+}
+
+async function rows<T extends Record<string, unknown>>(
+  query: PromiseLike<{ data: T[] | null; error: unknown }>,
+): Promise<T[]> {
+  const { data, error } = await query;
+  if (error) forbidden();
+  return data ?? [];
+}
+
+function parseToolCodes(value: unknown): string[] | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const tools = (value as { tools?: unknown }).tools;
+  if (!Array.isArray(tools) || tools.length > 30) return null;
+  const unique = new Set<string>();
+  for (const tool of tools) {
+    if (!nonEmptyText(tool, 80) || unique.has(tool)) return null;
+    unique.add(tool);
+  }
+  return [...unique];
+}
+
+function matchesPermission(
+  permission: ScopedRow,
+  memberId: number,
+  departmentId: number | null,
+  roleCodes: ReadonlySet<string>,
+  jobLevel: number,
+): boolean {
+  const minimum = positiveInteger(permission.min_job_level);
+  if (!minimum || minimum > 20 || jobLevel < minimum) return false;
+  switch (permission.scope_type) {
+    case "all":
+      return permission.department_id === null
+        && permission.member_id === null
+        && permission.role_code === null;
+    case "dept":
+      return departmentId !== null && positiveInteger(permission.department_id) === departmentId
+        && permission.member_id === null && permission.role_code === null;
+    case "member":
+      return positiveInteger(permission.member_id) === memberId
+        && permission.department_id === null && permission.role_code === null;
+    case "role":
+      return typeof permission.role_code === "string" && roleCodes.has(permission.role_code)
+        && permission.department_id === null && permission.member_id === null;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Resolves an invocation against server-owned tenant, member, Agent and role facts.
+ * The session supplies public identity hints only; every numeric write scope below is DB-derived.
+ */
+export async function authorizeAgentInvocation(
+  rawClient: unknown,
+  session: WorkspaceSession,
+  agentPublicId: string,
+): Promise<AuthorizedAgent> {
+  const client = rawClient as AgentAuthorizationClient;
+  const tenant = await maybeSingle(
+    client.from<ScopedRow>("tenants").select("id, public_id, status")
+      .eq("public_id", session.tenantId).maybeSingle(),
+    forbidden,
+  );
+  const tenantId = positiveInteger(tenant.id);
+  if (!tenantId || tenant.status !== "active") forbidden();
+
+  const organization = await maybeSingle(
+    client.from<ScopedRow>("organizations").select("id, tenant_id, public_id")
+      .eq("tenant_id", tenantId).eq("public_id", session.organization.id).maybeSingle(),
+    forbidden,
+  );
+  const organizationId = positiveInteger(organization.id);
+  if (!organizationId || positiveInteger(organization.tenant_id) !== tenantId) forbidden();
+
+  const member = await maybeSingle(
+    client.from<ScopedRow>("organization_members")
+      .select("id, tenant_id, organization_id, user_id, status")
+      .eq("tenant_id", tenantId).eq("organization_id", organizationId)
+      .eq("id", session.member.id).eq("user_id", session.authUserId).eq("status", "active")
+      .maybeSingle(),
+    forbidden,
+  );
+  const memberId = positiveInteger(member.id);
+  if (!memberId || positiveInteger(member.tenant_id) !== tenantId
+    || positiveInteger(member.organization_id) !== organizationId
+    || member.user_id !== session.authUserId || member.status !== "active") forbidden();
+
+  const profile = await maybeSingle(
+    client.from<ScopedRow>("employee_profiles")
+      .select("id, tenant_id, organization_id, organization_member_id, department_id, job_level, employment_status, deleted_at")
+      .eq("tenant_id", tenantId).eq("organization_id", organizationId)
+      .eq("organization_member_id", memberId).is("deleted_at", null)
+      .maybeSingle(),
+    forbidden,
+  );
+  const jobLevel = positiveInteger(profile.job_level);
+  const departmentId = positiveInteger(profile.department_id);
+  if (positiveInteger(profile.tenant_id) !== tenantId
+    || positiveInteger(profile.organization_id) !== organizationId
+    || positiveInteger(profile.organization_member_id) !== memberId
+    || !departmentId || !jobLevel || jobLevel > 20
+    || !["probation", "active", "on_leave"].includes(String(profile.employment_status))) forbidden();
+
+  const department = await maybeSingle(
+    client.from<ScopedRow>("departments").select("id, tenant_id, organization_id, deleted_at")
+      .eq("tenant_id", tenantId).eq("organization_id", organizationId).eq("id", departmentId)
+      .is("deleted_at", null).maybeSingle(),
+    forbidden,
+  );
+  if (positiveInteger(department.id) !== departmentId || positiveInteger(department.tenant_id) !== tenantId
+    || positiveInteger(department.organization_id) !== organizationId || department.deleted_at !== null) forbidden();
+
+  const assignments = await rows(
+    client.from<ScopedRow>("member_roles").select("role_id, tenant_id, member_id")
+      .eq("tenant_id", tenantId).eq("member_id", memberId),
+  );
+  const roleIds = assignments.flatMap((assignment) => (
+    positiveInteger(assignment.tenant_id) === tenantId && positiveInteger(assignment.member_id) === memberId
+      ? [positiveInteger(assignment.role_id)].filter((id): id is number => id !== null)
+      : []
+  ));
+  const roleRows = roleIds.length
+    ? await rows(client.from<ScopedRow>("roles").select("id, tenant_id, organization_id, code, is_enabled")
+      .eq("tenant_id", tenantId).in("id", roleIds))
+    : [];
+  const roleCodes = new Set(roleRows.flatMap((role) => {
+    const roleId = positiveInteger(role.id);
+    const organizationMatches = role.organization_id === null
+      || positiveInteger(role.organization_id) === organizationId;
+    return roleId && roleIds.includes(roleId) && positiveInteger(role.tenant_id) === tenantId
+      && organizationMatches && role.is_enabled === true && nonEmptyText(role.code, 80)
+      ? [role.code] : [];
+  }));
+  if (!roleCodes.size) forbidden();
+
+  const agent = await maybeSingle(
+    client.from<ScopedRow>("agent_definitions")
+      .select("id, tenant_id, organization_id, public_id, status, deleted_at, min_job_level, prompt_version, system_prompt, model_code, tool_scope")
+      .eq("tenant_id", tenantId).eq("organization_id", organizationId).eq("public_id", agentPublicId)
+      .eq("status", "enabled").is("deleted_at", null).maybeSingle(),
+    notFound,
+  );
+  const definitionId = positiveInteger(agent.id);
+  const agentMinimum = positiveInteger(agent.min_job_level);
+  const toolCodes = parseToolCodes(agent.tool_scope);
+  if (!definitionId || positiveInteger(agent.tenant_id) !== tenantId
+    || positiveInteger(agent.organization_id) !== organizationId || agent.status !== "enabled"
+    || agent.deleted_at !== null || !agentMinimum || agentMinimum > 20 || jobLevel < agentMinimum
+    || !nonEmptyText(agent.prompt_version, 40) || !nonEmptyText(agent.system_prompt)
+    || !isAllowedAiModel(agent.model_code) || toolCodes === null) forbidden();
+
+  const permissions = await rows(
+    client.from<ScopedRow>("agent_permissions")
+      .select("id, tenant_id, organization_id, agent_id, scope_type, department_id, role_code, member_id, min_job_level, deleted_at")
+      .eq("tenant_id", tenantId).eq("organization_id", organizationId).eq("agent_id", definitionId)
+      .is("deleted_at", null),
+  );
+  const allowed = permissions.some((permission) => (
+    positiveInteger(permission.tenant_id) === tenantId
+    && positiveInteger(permission.organization_id) === organizationId
+    && positiveInteger(permission.agent_id) === definitionId
+    && permission.deleted_at === null
+    && matchesPermission(permission, memberId, departmentId, roleCodes, jobLevel)
+  ));
+  if (!allowed) forbidden();
+
+  return {
+    definitionId,
+    tenantId,
+    organizationId,
+    version: agent.prompt_version,
+    systemPrompt: agent.system_prompt,
+    model: agent.model_code,
+    toolCodes,
+  };
+}

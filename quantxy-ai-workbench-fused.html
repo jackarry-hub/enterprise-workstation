@@ -3026,7 +3026,10 @@ function hydrateServerBootstrap(bootstrap){
   S.customers=Array.isArray(bootstrap.customers)?cloneGatewayValue(bootstrap.customers):[];
   S.activities=Array.isArray(bootstrap.activities)?cloneGatewayValue(bootstrap.activities):[];
   S.decisions=Array.isArray(bootstrap.decisions)?cloneGatewayValue(bootstrap.decisions):[];
-  S.agents=Array.isArray(bootstrap.agents)&&bootstrap.agents.length?cloneGatewayValue(bootstrap.agents):seedAgents();
+  S.agents=Array.isArray(bootstrap.agents)?cloneGatewayValue(bootstrap.agents):[];
+  var agentModuleError=bootstrap.moduleErrors&&bootstrap.moduleErrors.agents;
+  S.agentModuleError=agentModuleError&&typeof agentModuleError==='object'&&typeof agentModuleError.requestId==='string'
+    ?agentModuleError.requestId:'';
   S.runs=Array.isArray(bootstrap.runs)?cloneGatewayValue(bootstrap.runs):[];
   S.reqs=Array.isArray(bootstrap.reqs)?cloneGatewayValue(bootstrap.reqs):[];
   S.payroll=bootstrap.payroll&&typeof bootstrap.payroll==='object'?cloneGatewayValue(bootstrap.payroll):{};
@@ -3548,6 +3551,11 @@ function agentIcon(a,size){
 }
 function viewAgents(){
   var tab=S.f.agentTab||'dir', me=MB[S.me];
+  if(S.agentModuleError){
+    return '<div class="card fade" data-agent-module-error style="max-width:680px"><div class="bd" style="padding:28px;line-height:1.75">'+
+      '<b style="font-size:16px">Agent 数据暂时不可用</b><p class="hint" style="margin:8px 0 0">服务端未能读取 Agent 模块。请稍后重试；若问题持续，请联系管理员并提供请求 ID。</p>'+
+      '<p style="margin:12px 0 0;font-family:ui-monospace,monospace;font-size:12px;color:var(--mut)">请求 ID：'+esc(S.agentModuleError)+'</p></div></div>';
+  }
   var okN=S.agents.filter(function(a){ return canUse(a).ok; }).length;
   var byDept={}; S.agents.forEach(function(a){ byDept[a.dept]=(byDept[a.dept]||0)+1; });
   var pend=S.reqs.filter(function(r){ return r.st==='待审批'; });
@@ -3610,7 +3618,7 @@ function viewAgents(){
                : '<span style="flex:1;color:var(--warn)">'+esc(c.why)+'</span>'+
                  (req?'<span class="tag t-o">申请审批中</span>':'<button class="tag t-b" style="cursor:pointer" data-act="req-apply" data-id="'+attr(a.id)+'">申请权限</button>'))+
           '</div></div></div>';
-      }).join('') : '<div class="empty" style="grid-column:1/-1">没有匹配的 Agent</div>',
+      }).join('') : '<div class="empty" style="grid-column:1/-1">'+(S.agents.length?'没有匹配的 Agent':'暂无已启用 Agent')+'</div>',
     '</div></div>']);
   }
 

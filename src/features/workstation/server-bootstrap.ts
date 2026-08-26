@@ -165,6 +165,7 @@ type BootstrapRows = {
   agents?: readonly WorkstationAgentRow[];
   agentInvocations?: readonly WorkstationAgentInvocationRow[];
   knowledge?: readonly WorkstationKnowledgeRow[];
+  moduleErrors?: { agents?: { requestId: string } };
 };
 
 const projectStatuses: Record<string, string> = {
@@ -531,5 +532,6 @@ export function buildServerBootstrap(
     reqs: [],
     appr: [],
     features: { identitySwitch: false, demoReset: false },
+    moduleErrors: rows.moduleErrors ?? {},
   };
 }

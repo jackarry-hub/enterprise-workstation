@@ -1,6 +1,6 @@
 begin;
 
-select plan(56);
+select plan(64);
 
 insert into public.tenants (name, slug, status)
 values
@@ -578,6 +578,18 @@ select is(pg_get_serial_sequence('public.approval_actions', 'id'), 'public.appro
 select throws_ok($$ select nextval('public.approvals_id_seq') $$, '42501', 'authenticated callers cannot consume the approvals identity sequence');
 select throws_ok($$ select nextval('public.approval_steps_id_seq') $$, '42501', 'authenticated callers cannot consume the approval steps identity sequence');
 select throws_ok($$ select nextval('public.approval_actions_id_seq') $$, '42501', 'authenticated callers cannot consume the approval actions identity sequence');
+reset role;
+
+select set_config('request.jwt.claim.sub', '93000000-0000-4000-8000-000000000001', true);
+set local role authenticated;
+select throws_ok($$ insert into public.agent_invocations default values $$, '42501', 'authenticated callers cannot directly insert Agent invocations');
+select throws_ok($$ update public.agent_invocations set status = 'succeeded' $$, '42501', 'authenticated callers cannot directly update Agent invocations');
+select throws_ok($$ delete from public.agent_invocations $$, '42501', 'authenticated callers cannot directly delete Agent invocations');
+select throws_ok($$ insert into public.agent_execution_logs default values $$, '42501', 'authenticated callers cannot directly insert Agent execution logs');
+select throws_ok($$ update public.agent_execution_logs set message = 'mutated' $$, '42501', 'authenticated callers cannot directly update Agent execution logs');
+select throws_ok($$ delete from public.agent_execution_logs $$, '42501', 'authenticated callers cannot directly delete Agent execution logs');
+select throws_ok($$ select nextval('public.agent_invocations_id_seq') $$, '42501', 'authenticated callers cannot consume the Agent invocation identity sequence');
+select throws_ok($$ select nextval('public.agent_execution_logs_id_seq') $$, '42501', 'authenticated callers cannot consume the Agent execution log identity sequence');
 reset role;
 
 select * from finish();

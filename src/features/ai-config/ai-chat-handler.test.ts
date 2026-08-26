@@ -214,19 +214,33 @@ describe("handleAiChat", () => {
   it("records authenticated agent invocations after a successful model call", async () => {
     const record = await configuredRecord();
     const recorded: unknown[] = [];
+    let providerBody: Record<string, unknown> | null = null;
     const response = await handleAiChat(request({
       agent_public_id: "33333333-3333-4333-8333-333333333333",
-      system: "你是任务拆解 Agent",
-      messages: [{ role: "user", content: "把官网项目拆成任务" }],
+      system: "browser top-level override",
+      messages: [
+        { role: "system", content: "browser message override" },
+        { role: "user", content: "把官网项目拆成任务" },
+      ],
       max_tokens: 900,
     }), {
       session: executiveWorkspaceSession,
       encryptionKey,
       store: { get: async () => record },
-      fetchImpl: async () => Response.json({
-        choices: [{ message: { content: "已生成任务拆解方案" } }],
-      }),
+      fetchImpl: async (_input, init) => {
+        providerBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return Response.json({ choices: [{ message: { content: "已生成任务拆解方案" } }] });
+      },
       consumeRateLimit: () => true,
+      authorizeAgentInvocation: async () => ({
+        definitionId: 81,
+        tenantId: 2,
+        organizationId: 3,
+        version: "v2",
+        systemPrompt: "database-controlled Agent prompt",
+        model: "deepseek-reasoner",
+        toolCodes: ["task.read"],
+      }),
       recordAgentInvocation: async (payload) => {
         recorded.push(payload);
       },
@@ -237,13 +251,47 @@ describe("handleAiChat", () => {
       expect.objectContaining({
         agentPublicId: "33333333-3333-4333-8333-333333333333",
         actorMemberId: executiveWorkspaceSession.member.id,
-        modelCode: "deepseek-chat",
+        modelCode: "deepseek-reasoner",
+        promptVersion: "v2",
         status: "succeeded",
-        inputSummary: "你是任务拆解 Agent\n把官网项目拆成任务",
+        inputSummary: "把官网项目拆成任务",
         outputSummary: "已生成任务拆解方案",
         errorCode: "",
       }),
     ]);
+    expect(providerBody).toMatchObject({
+      model: "deepseek-reasoner",
+      messages: [
+        { role: "system", content: "database-controlled Agent prompt" },
+        { role: "user", content: "把官网项目拆成任务" },
+      ],
+    });
+    expect(JSON.stringify(providerBody)).not.toMatch(/browser.*override/);
+  });
+
+  it("returns authorization failures before sending an Agent request upstream", async () => {
+    const record = await configuredRecord();
+    let upstreamCalls = 0;
+    const response = await handleAiChat(request({
+      agent_public_id: "33333333-3333-4333-8333-333333333333",
+      messages: [{ role: "user", content: "运行 Agent" }],
+    }), {
+      session: executiveWorkspaceSession,
+      encryptionKey,
+      store: { get: async () => record },
+      fetchImpl: async () => {
+        upstreamCalls += 1;
+        return Response.json({});
+      },
+      consumeRateLimit: () => true,
+      authorizeAgentInvocation: async () => {
+        throw Object.assign(new Error("agent_not_found"), { code: "agent_not_found" });
+      },
+    });
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ error: "agent_not_found" });
+    expect(upstreamCalls).toBe(0);
   });
 
   it("fails closed when an agent invocation cannot be recorded", async () => {
@@ -259,6 +307,10 @@ describe("handleAiChat", () => {
         choices: [{ message: { content: "完成" } }],
       }),
       consumeRateLimit: () => true,
+      authorizeAgentInvocation: async () => ({
+        definitionId: 81, tenantId: 2, organizationId: 3, version: "v1",
+        systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: [],
+      }),
       recordAgentInvocation: async () => {
         throw new Error("database down");
       },

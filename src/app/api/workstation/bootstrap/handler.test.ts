@@ -696,6 +696,7 @@ describe("workstation bootstrap route", () => {
       payroll: Record<string, unknown[]>;
       agents: unknown[];
       kb: unknown[];
+      moduleErrors: { agents?: { requestId: string } };
     };
 
     expect(bootstrap.session.authenticated).toBe(true);
@@ -705,6 +706,9 @@ describe("workstation bootstrap route", () => {
     expect(bootstrap.payroll.m7).toEqual([]);
     expect(bootstrap.agents).toEqual([]);
     expect(bootstrap.kb).toEqual([]);
+    expect(bootstrap.moduleErrors.agents?.requestId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
     expect(warn).toHaveBeenCalledWith(
       "workstation_bootstrap_optional_query_failed",
       expect.objectContaining({ query: "projects" }),

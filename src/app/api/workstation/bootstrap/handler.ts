@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { NextResponse } from "next/server";
 
 import { getWorkspaceSession } from "@/features/auth/workspace-session";
@@ -74,6 +76,7 @@ type SalaryQueryResult = {
 type BootstrapQueryResult = {
   data: readonly Record<string, unknown>[] | null;
   error: unknown;
+  moduleError?: boolean;
 };
 
 type SalaryQueryBuilder = {
@@ -199,15 +202,15 @@ function logOptionalQueryFailure(queryName: string, error: unknown) {
 async function optionalBootstrapQuery<T extends BootstrapQueryResult>(
   queryName: string,
   query: PromiseLike<T>,
-): Promise<T> {
+): Promise<T & { moduleError?: boolean }> {
   try {
     const result = await query;
     if (!result.error) return result;
     logOptionalQueryFailure(queryName, result.error);
-    return { ...result, data: [], error: null } as T;
+    return { ...result, data: [], error: null, moduleError: true } as T & { moduleError: boolean };
   } catch (error) {
     logOptionalQueryFailure(queryName, error);
-    return { data: [], error: null } as unknown as T;
+    return { data: [], error: null, moduleError: true } as unknown as T & { moduleError: boolean };
   }
 }
 
@@ -534,6 +537,10 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       invocationsByAgent.set(row.agent_id, current);
     }
 
+    const agentModuleFailed = Boolean(
+      agentsResult.moduleError || agentPermissionsResult.moduleError || agentInvocationsResult.moduleError,
+    );
+
     return buildServerBootstrap(
       {
         memberId: session.member.id,
@@ -706,6 +713,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
           version: Number(row.version),
           publishedAt: row.published_at,
         })),
+        ...(agentModuleFailed ? { moduleErrors: { agents: { requestId: randomUUID() } } } : {}),
       },
     );
   },

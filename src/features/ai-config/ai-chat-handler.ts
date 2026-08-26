@@ -2,6 +2,7 @@ import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
 import type { AiConfigStore } from "@/features/ai-config/ai-config-store";
 import { isAllowedAiModel } from "@/features/ai-config/ai-config-types";
 import { decryptApiKey } from "@/features/ai-config/ai-secret-crypto";
+import type { AuthorizedAgent } from "@/features/agents/authorize-agent-invocation";
 
 type AiChatDeps = {
   session: WorkspaceSession | null;
@@ -9,6 +10,7 @@ type AiChatDeps = {
   encryptionKey: Uint8Array;
   fetchImpl?: typeof fetch;
   consumeRateLimit?: (key: string) => boolean;
+  authorizeAgentInvocation?: (agentPublicId: string) => Promise<AuthorizedAgent>;
   recordAgentInvocation?: (payload: AgentInvocationLogPayload) => Promise<void>;
 };
 
@@ -24,6 +26,7 @@ export type AgentInvocationLogPayload = {
   outputTokens: number;
   latencyMs: number;
   errorCode: string;
+  authorizedAgent: AuthorizedAgent;
 };
 
 type ChatMessage = {
@@ -48,11 +51,24 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
   const parsed = await parseChatRequest(request);
   if ("error" in parsed) return json({ error: parsed.error }, parsed.status);
 
+  let authorizedAgent: AuthorizedAgent | null = null;
+  if (parsed.agentPublicId) {
+    if (!deps.authorizeAgentInvocation) {
+      return json({ error: "agent_authorization_unavailable" }, 500);
+    }
+    try {
+      authorizedAgent = await deps.authorizeAgentInvocation(parsed.agentPublicId);
+    } catch (error) {
+      const code = authorizationErrorCode(error);
+      return json({ error: code }, code === "agent_not_found" ? 404 : 403);
+    }
+  }
+
   const config = await deps.store.get(session.tenantId);
   if (!config?.encrypted_api_key || !config.api_key_iv) {
     return json({ error: "ai_not_configured" }, 409);
   }
-  if (!isAllowedAiModel(config.model_name)) {
+  if (!authorizedAgent && !isAllowedAiModel(config.model_name)) {
     return json({ error: "invalid_server_config" }, 500);
   }
 
@@ -69,11 +85,18 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
     return json({ error: "invalid_server_config" }, 500);
   }
 
+  const startedAt = Date.now();
+  const modelCode = authorizedAgent?.model ?? config.model_name;
+  const providerMessages = authorizedAgent
+    ? [
+      { role: "system" as const, content: authorizedAgent.systemPrompt },
+      ...parsed.messages.filter((message) => message.role !== "system"),
+    ]
+    : parsed.messages;
   try {
-    const startedAt = Date.now();
     const upstreamBody = JSON.stringify({
-      model: config.model_name,
-      messages: parsed.messages,
+      model: modelCode,
+      messages: providerMessages,
       max_tokens: parsed.maxTokens,
       ...(parsed.structuredOutput
         ? {
@@ -98,7 +121,7 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
       );
 
       if (upstream.status === 401 || upstream.status === 403) {
-        const recorded = await recordAgentInvocation(deps, session, parsed, config.model_name, {
+        const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, {
           status: "failed",
           outputSummary: "",
           latencyMs: Date.now() - startedAt,
@@ -108,7 +131,7 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
         return json({ error: "upstream_auth_failed" }, 502);
       }
       if (!upstream.ok) {
-        const recorded = await recordAgentInvocation(deps, session, parsed, config.model_name, {
+        const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, {
           status: "failed",
           outputSummary: "",
           latencyMs: Date.now() - startedAt,
@@ -123,7 +146,7 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
         data = await upstream.json();
       } catch {
         if (attempt + 1 < attemptLimit) continue;
-        const recorded = await recordAgentInvocation(deps, session, parsed, config.model_name, {
+        const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, {
           status: "failed",
           outputSummary: "",
           latencyMs: Date.now() - startedAt,
@@ -133,7 +156,7 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
         return json({ error: "upstream_invalid_response" }, 502);
       }
       if (!parsed.structuredOutput || isValidStructuredResponse(data)) {
-        const recorded = await recordAgentInvocation(deps, session, parsed, config.model_name, {
+        const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, {
           status: "succeeded",
           outputSummary: outputSummary(data),
           usage: usage(data),
@@ -144,7 +167,7 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
         return json(data);
       }
     }
-    const recorded = await recordAgentInvocation(deps, session, parsed, config.model_name, {
+    const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, {
       status: "failed",
       outputSummary: "",
       latencyMs: Date.now() - startedAt,
@@ -157,8 +180,18 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
       error instanceof DOMException
       && (error.name === "TimeoutError" || error.name === "AbortError")
     ) {
+      const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, {
+        status: "failed", outputSummary: "", latencyMs: Date.now() - startedAt,
+        errorCode: "upstream_timeout",
+      });
+      if (!recorded) return json({ error: "agent_invocation_log_failed" }, 500);
       return json({ error: "upstream_timeout" }, 504);
     }
+    const recorded = await recordAgentInvocation(deps, session, parsed, modelCode, authorizedAgent, {
+      status: "failed", outputSummary: "", latencyMs: Date.now() - startedAt,
+      errorCode: "upstream_unavailable",
+    });
+    if (!recorded) return json({ error: "agent_invocation_log_failed" }, 500);
     return json({ error: "upstream_unavailable" }, 502);
   }
 }
@@ -309,6 +342,7 @@ async function recordAgentInvocation(
   session: WorkspaceSession,
   parsed: ParsedChatRequest,
   modelCode: string,
+  authorizedAgent: AuthorizedAgent | null,
   result: {
     status: AgentInvocationLogPayload["status"];
     outputSummary: string;
@@ -318,25 +352,32 @@ async function recordAgentInvocation(
   },
 ) {
   if (!parsed.agentPublicId) return true;
-  if (!deps.recordAgentInvocation) return false;
+  if (!deps.recordAgentInvocation || !authorizedAgent) return false;
   try {
     await deps.recordAgentInvocation({
       agentPublicId: parsed.agentPublicId,
       actorMemberId: session.member.id,
       modelCode,
-      promptVersion: "",
+      promptVersion: authorizedAgent.version,
       status: result.status,
-      inputSummary: inputSummary(parsed.messages),
+      inputSummary: inputSummary(parsed.messages.filter((message) => message.role !== "system")),
       outputSummary: result.outputSummary,
       inputTokens: result.usage?.inputTokens ?? 0,
       outputTokens: result.usage?.outputTokens ?? 0,
       latencyMs: result.latencyMs,
       errorCode: result.errorCode,
+      authorizedAgent,
     });
     return true;
   } catch {
     return false;
   }
+}
+
+function authorizationErrorCode(error: unknown): "agent_not_found" | "agent_forbidden" {
+  return error && typeof error === "object" && (error as { code?: unknown }).code === "agent_not_found"
+    ? "agent_not_found"
+    : "agent_forbidden";
 }
 
 function consumeProcessRateLimit(key: string) {
