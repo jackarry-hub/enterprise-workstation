@@ -12,7 +12,7 @@ import { RealDataUnavailable } from "@/components/ui/real-data-boundary";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { useOperations } from "@/features/operations/use-operations";
 import { approvalStatusMeta, approvalTypeMeta } from "@/features/approvals/approval-meta";
-import type { Approval } from "@/features/approvals/approval-types";
+import type { Approval, ApprovalAction } from "@/features/approvals/approval-types";
 import { cn } from "@/lib/utils";
 
 function Person({ person }: { person: Approval["applicant"] }) {
@@ -25,6 +25,17 @@ function Person({ person }: { person: Approval["applicant"] }) {
       <div><p className="font-medium text-foreground">{person.displayName}</p><p className="mt-0.5 text-xs text-muted-foreground">{person.department} · {person.jobTitle}</p></div>
     </div>
   );
+}
+
+function approvalActionLabel(actionType: ApprovalAction["actionType"]) {
+  const labels: Record<ApprovalAction["actionType"], string> = {
+    submit: "提交申请",
+    approve: "同意申请",
+    reject: "拒绝申请",
+    comment: "审批备注",
+  };
+
+  return labels[actionType];
 }
 
 export function ApprovalDetailPage({
@@ -113,7 +124,7 @@ export function ApprovalDetailPage({
           <GlassCard className="p-4 sm:p-5">
             <div className="flex items-center gap-2"><MessageSquareText aria-hidden="true" className="size-4 text-primary" /><h2 className="text-lg font-semibold text-foreground">审批记录</h2></div>
             <section aria-label="审批记录" className="mt-4 grid gap-4">
-              {approval.actions.map((action) => <article key={action.id} className="relative border-l border-border pl-4"><span className="absolute top-0 -left-1.5 size-3 rounded-full border-2 border-background bg-primary" /><p className="text-sm font-medium text-foreground">{action.actor.displayName} · {action.actionType === "submit" ? "提交申请" : action.actionType === "approve" ? "同意申请" : "拒绝申请"}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{action.content}</p><p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground"><Clock3 aria-hidden="true" className="size-3" />{action.createdAt}</p></article>)}
+              {approval.actions.map((action) => <article key={action.id} className="relative border-l border-border pl-4"><span className="absolute top-0 -left-1.5 size-3 rounded-full border-2 border-background bg-primary" /><p className="text-sm font-medium text-foreground">{action.actor.displayName} · {approvalActionLabel(action.actionType)}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{action.content}</p><p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground"><Clock3 aria-hidden="true" className="size-3" />{action.createdAt}</p></article>)}
             </section>
           </GlassCard>
         </div>

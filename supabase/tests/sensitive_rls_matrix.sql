@@ -1,6 +1,6 @@
 begin;
 
-select plan(46);
+select plan(56);
 
 insert into public.tenants (name, slug, status)
 values
@@ -440,6 +440,33 @@ where member.user_id in (
   '93000000-0000-4000-8000-000000000006'::uuid
 );
 
+insert into public.organization_members (tenant_id, organization_id, user_id, status)
+select tenant.id, organization.id, '93000000-0000-4000-8000-000000000001'::uuid, 'active'
+from public.tenants tenant
+join public.organizations organization
+  on organization.tenant_id = tenant.id and organization.slug = 'salary-privacy-org'
+where tenant.slug = 'salary-privacy-b';
+
+insert into public.employee_profiles (
+  tenant_id, organization_id, organization_member_id, employee_no, display_name,
+  department_id, position_template_id, job_title, salary_grade_code, job_level,
+  employment_status, skills
+)
+select member.tenant_id, member.organization_id, member.id,
+  'B-SAME-UID', 'B same JWT participant', department.id, position.id,
+  'Principal', 'P6', 20, 'active', '{}'::text[]
+from public.organization_members member
+join public.departments department
+  on department.tenant_id = member.tenant_id
+ and department.organization_id = member.organization_id
+ and department.code = 'ENG'
+join public.position_templates position
+  on position.tenant_id = member.tenant_id
+ and position.organization_id = member.organization_id
+ and position.code = 'ENG20'
+where member.user_id = '93000000-0000-4000-8000-000000000001'::uuid
+  and member.tenant_id = (select id from public.tenants where slug = 'salary-privacy-b');
+
 insert into public.approvals (
   organization_id, applicant_employee_id, owner_employee_id, approval_code,
   approval_type, title, status, submitted_at
@@ -458,6 +485,28 @@ select approval.organization_id, approval.id, 1, 'Assigned approver',
 from public.approvals approval
 where approval.approval_code = 'APR-PRIVACY-001';
 
+insert into public.approvals (
+  organization_id, applicant_employee_id, owner_employee_id, approval_code,
+  approval_type, title, status, submitted_at
+)
+select organization.id,
+  (select profile.id from public.employee_profiles profile join public.organization_members member on member.id = profile.organization_member_id where member.user_id = '93000000-0000-4000-8000-000000000001'::uuid and member.tenant_id = tenant.id),
+  (select profile.id from public.employee_profiles profile join public.organization_members member on member.id = profile.organization_member_id where member.user_id = '93000000-0000-4000-8000-000000000003'::uuid and member.tenant_id = tenant.id),
+  'APR-PRIVACY-CROSS-TENANT', 'reimbursement', 'Same JWT cross-tenant approval', 'pending', now()
+from public.organizations organization
+join public.tenants tenant on tenant.id = organization.tenant_id
+where tenant.slug = 'salary-privacy-b' and organization.slug = 'salary-privacy-org';
+
+insert into public.approval_steps (organization_id, approval_id, step_order, name, approver_employee_id)
+select approval.organization_id, approval.id, 1, 'Same JWT assigned approver', approval.applicant_employee_id
+from public.approvals approval
+where approval.approval_code = 'APR-PRIVACY-CROSS-TENANT';
+
+insert into public.approval_actions (organization_id, approval_id, actor_employee_id, action_type, content)
+select approval.organization_id, approval.id, approval.applicant_employee_id, 'comment', 'same JWT in another tenant'
+from public.approvals approval
+where approval.approval_code = 'APR-PRIVACY-CROSS-TENANT';
+
 insert into public.approval_actions (organization_id, approval_id, actor_employee_id, action_type, content)
 select approval.organization_id, approval.id,
   (select profile.id from public.employee_profiles profile join public.organization_members member on member.id = profile.organization_member_id where member.user_id = '93000000-0000-4000-8000-000000000006'::uuid),
@@ -470,6 +519,10 @@ set local role authenticated;
 select is((select count(*) from public.approvals where approval_code = 'APR-PRIVACY-001'), 1::bigint, 'applicant reads the approval');
 select is((select count(*) from public.approval_steps where approval_id = (select id from public.approvals where approval_code = 'APR-PRIVACY-001')), 1::bigint, 'applicant reads the approval steps');
 select is((select count(*) from public.approval_actions where approval_id = (select id from public.approvals where approval_code = 'APR-PRIVACY-001')), 1::bigint, 'applicant reads the approval actions');
+select is((select public.current_tenant_id()), (select id from public.tenants where slug = 'salary-privacy-a'), 'same JWT resolves the active identity to tenant A');
+select is((select count(*) from public.approvals where approval_code = 'APR-PRIVACY-CROSS-TENANT'), 0::bigint, 'same JWT cannot read a participant approval outside its current tenant');
+select is((select count(*) from public.approval_steps where approval_id = (select id from public.approvals where approval_code = 'APR-PRIVACY-CROSS-TENANT')), 0::bigint, 'same JWT cannot read cross-tenant participant steps');
+select is((select count(*) from public.approval_actions where approval_id = (select id from public.approvals where approval_code = 'APR-PRIVACY-CROSS-TENANT')), 0::bigint, 'same JWT cannot read cross-tenant participant actions');
 reset role;
 
 select set_config('request.jwt.claim.sub', '93000000-0000-4000-8000-000000000002', true);
@@ -516,6 +569,16 @@ reset role;
 select is((select title from public.approvals where approval_code = 'APR-PRIVACY-001'), 'Participant-only approval', 'denied approval writes leave the approval unchanged');
 select is((select name from public.approval_steps where approval_id = (select id from public.approvals where approval_code = 'APR-PRIVACY-001')), 'Assigned approver', 'denied step writes leave the step unchanged');
 select is((select content from public.approval_actions where approval_id = (select id from public.approvals where approval_code = 'APR-PRIVACY-001')), 'ordinary actor must not become a participant', 'denied action writes leave the action unchanged');
+
+select set_config('request.jwt.claim.sub', '93000000-0000-4000-8000-000000000001', true);
+set local role authenticated;
+select is(pg_get_serial_sequence('public.approvals', 'id'), 'public.approvals_id_seq', 'approvals uses its expected identity sequence');
+select is(pg_get_serial_sequence('public.approval_steps', 'id'), 'public.approval_steps_id_seq', 'approval steps uses its expected identity sequence');
+select is(pg_get_serial_sequence('public.approval_actions', 'id'), 'public.approval_actions_id_seq', 'approval actions uses its expected identity sequence');
+select throws_ok($$ select nextval('public.approvals_id_seq') $$, '42501', 'authenticated callers cannot consume the approvals identity sequence');
+select throws_ok($$ select nextval('public.approval_steps_id_seq') $$, '42501', 'authenticated callers cannot consume the approval steps identity sequence');
+select throws_ok($$ select nextval('public.approval_actions_id_seq') $$, '42501', 'authenticated callers cannot consume the approval actions identity sequence');
+reset role;
 
 select * from finish();
 

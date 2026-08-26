@@ -22,6 +22,7 @@ as $$
      and member.tenant_id = organization.tenant_id
     where approval.id = target_approval_id
       and approval.organization_id = target_organization_id
+      and organization.tenant_id = (select public.current_tenant_id())
       and approval.deleted_at is null
       and viewer.deleted_at is null
       and viewer.employment_status = 'active'
@@ -68,3 +69,4 @@ create policy approval_actions_participant_select on public.approval_actions
 
 revoke all privileges on public.approvals, public.approval_steps, public.approval_actions from authenticated;
 grant select on public.approvals, public.approval_steps, public.approval_actions to authenticated;
+revoke usage, select on sequence public.approvals_id_seq, public.approval_steps_id_seq, public.approval_actions_id_seq from authenticated;

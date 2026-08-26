@@ -97,4 +97,22 @@ describe("approval pages", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByText("审批已通过")).not.toBeInTheDocument();
   });
+
+  it("renders an approval comment as read-only comment history instead of a rejection", () => {
+    const approval = {
+      ...approvalMockResult.data.approvals[1],
+      actions: [{
+        ...approvalMockResult.data.approvals[1].actions[0],
+        id: "approval-comment",
+        actionType: "comment" as const,
+        content: "请补充本次采购的合同编号。",
+      }],
+    };
+
+    render(<ApprovalDetailPage approval={approval} dataSource="supabase" />);
+
+    expect(screen.getByText("王芳 · 审批备注")).toBeVisible();
+    expect(screen.getByText("请补充本次采购的合同编号。")).toBeVisible();
+    expect(screen.queryByText("王芳 · 拒绝申请")).not.toBeInTheDocument();
+  });
 });
