@@ -45,6 +45,26 @@ describe("evaluateAgentInvocationAccess", () => {
     }
   });
 
+  it("uses the exact UTF-8 byte and boundary-whitespace execution text contract", () => {
+    const ready = {
+      modelCode: "deepseek-chat",
+      promptVersion: "v1",
+      systemPrompt: "Server-owned system prompt",
+      toolScope: { tools: ["task.read"] },
+    };
+    for (const boundary of [" ", "\t", "\n", "\v", "\f", "\r", "\u00a0"]) {
+      expect(isAgentExecutionReady({ ...ready, promptVersion: `${boundary}v1` })).toBe(false);
+      expect(isAgentExecutionReady({ ...ready, toolScope: { tools: [`task.read${boundary}`] } })).toBe(false);
+    }
+    expect(isAgentExecutionReady({ ...ready, promptVersion: "😀".repeat(10) })).toBe(true);
+    expect(isAgentExecutionReady({ ...ready, promptVersion: "😀".repeat(11) })).toBe(false);
+    expect(isAgentExecutionReady({ ...ready, systemPrompt: "😀".repeat(3_000) })).toBe(true);
+    expect(isAgentExecutionReady({ ...ready, systemPrompt: "😀".repeat(3_001) })).toBe(false);
+    expect(isAgentExecutionReady({ ...ready, toolScope: { tools: ["😀".repeat(20)] } })).toBe(true);
+    expect(isAgentExecutionReady({ ...ready, toolScope: { tools: ["😀".repeat(21)] } })).toBe(false);
+    expect(isAgentExecutionReady({ ...ready, promptVersion: "\u2003v1" })).toBe(true);
+  });
+
   it("does not let a member-only grant authorize another employee", () => {
     expect(evaluateAgentInvocationAccess(subject, {
       status: "enabled", minJobLevel: 1, configured: true,

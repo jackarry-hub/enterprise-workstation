@@ -34,9 +34,14 @@ export type AgentExecutionConfig = {
   toolCodes: string[];
 };
 
-function isTrimmedText(value: unknown, max: number): value is string {
-  return typeof value === "string" && value.trim() === value
-    && value.length >= 1 && value.length <= max;
+const boundaryWhitespace = new Set([" ", "\t", "\n", "\v", "\f", "\r", "\u00a0"]);
+const utf8 = new TextEncoder();
+
+function isExecutionText(value: unknown, maxBytes: number): value is string {
+  if (typeof value !== "string" || !value.length
+    || boundaryWhitespace.has(value[0]) || boundaryWhitespace.has(value.at(-1) ?? "")) return false;
+  const byteLength = utf8.encode(value).byteLength;
+  return byteLength >= 1 && byteLength <= maxBytes;
 }
 
 /** Parses server-owned Agent execution fields and rejects every malformed input. */
@@ -44,14 +49,14 @@ export function parseAgentExecutionConfig(value: unknown): AgentExecutionConfig 
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
   if (!isAllowedAiModel(row.modelCode)
-    || !isTrimmedText(row.promptVersion, 40)
-    || !isTrimmedText(row.systemPrompt, 12_000)
+    || !isExecutionText(row.promptVersion, 40)
+    || !isExecutionText(row.systemPrompt, 12_000)
     || !row.toolScope || typeof row.toolScope !== "object" || Array.isArray(row.toolScope)) return null;
   const tools = (row.toolScope as Record<string, unknown>).tools;
   if (!Array.isArray(tools) || tools.length > 30) return null;
   const unique = new Set<string>();
   for (const tool of tools) {
-    if (!isTrimmedText(tool, 80) || unique.has(tool)) return null;
+    if (!isExecutionText(tool, 80) || unique.has(tool)) return null;
     unique.add(tool);
   }
   return {

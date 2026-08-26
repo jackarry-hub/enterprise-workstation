@@ -32,10 +32,22 @@ describe("Agent invocation append-only migration", () => {
     expect(migration).toContain("exception when others then");
     expect(migration).toContain("not public.is_agent_execution_ready(model_code, prompt_version, system_prompt, tool_scope)");
     expect(migration).toContain("public.is_agent_execution_ready(model_code, prompt_version, system_prompt, tool_scope)");
+    expect(migration).toContain("octet_length(prompt_version) not between 1 and 40");
+    expect(migration).toContain("octet_length(system_prompt) not between 1 and 12000");
+    expect(migration).toContain("octet_length(tool_code) not between 1 and 80");
+    expect(migration).toContain("chr(9), chr(10), chr(11), chr(12), chr(13), chr(32), chr(160)");
   });
 
   it("backfills terminal timing from the historical creation point without a future completion", () => {
     expect(migration).toContain("completed_at = created_at");
     expect(migration).toContain("started_at = created_at - (coalesce(latency_ms, 0) * interval '1 millisecond')");
+  });
+
+  it("temporarily disables only the invocation append trigger for the backfill fixture", () => {
+    const matrixPath = resolve(process.cwd(), "supabase/tests/sensitive_rls_matrix.sql");
+    const matrix = existsSync(matrixPath) ? readFileSync(matrixPath, "utf8").toLowerCase() : "";
+    expect(matrix).toContain("disable trigger agent_invocations_append_only");
+    expect(matrix).toContain("enable trigger agent_invocations_append_only");
+    expect(matrix).toContain("owner sees the restored invocation trigger reject updates");
   });
 });

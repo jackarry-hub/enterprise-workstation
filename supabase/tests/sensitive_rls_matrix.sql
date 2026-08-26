@@ -1,6 +1,6 @@
 begin;
 
-select plan(98);
+select plan(106);
 
 insert into public.tenants (name, slug, status)
 values
@@ -637,6 +637,10 @@ select ok(not public.is_agent_execution_ready('deepseek-chat', 'v1', 'Use only s
 select ok(not public.is_agent_execution_ready('deepseek-chat', 'v1', 'Use only server-owned policy.', '{"tools":1}'::jsonb), 'execution-ready validator returns false for scalar tools without throwing');
 select ok(not public.is_agent_execution_ready('deepseek-chat', 'v1', 'Use only server-owned policy.', '42'::jsonb), 'execution-ready validator returns false for scalar tool scopes without throwing');
 select ok(not public.is_agent_execution_ready('deepseek-chat', 'v1', 'Use only server-owned policy.', '[]'::jsonb), 'execution-ready validator returns false for array tool scopes without throwing');
+select ok(not public.is_agent_execution_ready('deepseek-chat', E'\tv1', 'Use only server-owned policy.', '{"tools":["task.read"]}'::jsonb), 'execution-ready validator rejects a leading tab exactly as the TypeScript contract does');
+select ok(not public.is_agent_execution_ready('deepseek-chat', 'v1', 'Use only server-owned policy.', ('{"tools":["task.read' || chr(160) || '"]}')::jsonb), 'execution-ready validator rejects a trailing NBSP tool exactly as the TypeScript contract does');
+select ok(public.is_agent_execution_ready('deepseek-chat', repeat('😀', 10), 'Use only server-owned policy.', '{"tools":["task.read"]}'::jsonb), 'execution-ready validator accepts a 40-byte emoji prompt version');
+select ok(not public.is_agent_execution_ready('deepseek-chat', repeat('😀', 11), 'Use only server-owned policy.', '{"tools":["task.read"]}'::jsonb), 'execution-ready validator rejects a 44-byte emoji prompt version');
 
 select set_config('request.jwt.claim.sub', '93000000-0000-4000-8000-000000000001', true);
 set local role authenticated;
@@ -671,6 +675,7 @@ select throws_ok($$ truncate public.agent_execution_logs $$, '42501', 'service r
 reset role;
 
 select lives_ok($$ alter table public.agent_invocations drop constraint agent_invocations_terminal_completion_check $$, 'test transaction can create a pre-constraint terminal invocation');
+select lives_ok($$ alter table public.agent_invocations disable trigger agent_invocations_append_only $$, 'owner disables only the invocation append trigger for the legacy backfill fixture');
 insert into public.agent_invocations (
   tenant_id, organization_id, agent_id, actor_member_id, status, input_summary,
   latency_ms, started_at, completed_at, created_at
@@ -683,9 +688,11 @@ values (
   'succeeded', 'security-legacy-terminal', 750,
   timestamptz '2026-08-01 00:00:00+00', null, timestamptz '2026-08-01 00:10:00+00'
 );
-select public.backfill_agent_invocation_timestamps();
+select lives_ok($$ select public.backfill_agent_invocation_timestamps() $$, 'owner backfills the legacy terminal fixture while its append trigger is disabled');
+select lives_ok($$ alter table public.agent_invocations enable trigger agent_invocations_append_only $$, 'owner immediately restores the invocation append trigger after backfill');
 select is((select started_at from public.agent_invocations where input_summary = 'security-legacy-terminal'), timestamptz '2026-08-01 00:09:59.250+00', 'historical terminal starts before its created-at completion by its latency');
 select is((select completed_at from public.agent_invocations where input_summary = 'security-legacy-terminal'), timestamptz '2026-08-01 00:10:00+00', 'historical terminal completes at its historical creation point');
+select throws_ok($$ update public.agent_invocations set output_summary = 'must remain immutable' where input_summary = 'security-legacy-terminal' $$, '42501', 'owner sees the restored invocation trigger reject updates');
 
 select * from finish();
 

@@ -1,6 +1,18 @@
 -- Finalize Agent definitions as publishable server configuration and preserve
 -- invocation history as an immutable, service-owned ledger.
 
+create or replace function public.has_agent_execution_boundary_whitespace(value text)
+returns boolean
+language sql
+immutable
+set search_path = ''
+as $$
+  select value is not null and (
+    left(value, 1) = any (array[chr(9), chr(10), chr(11), chr(12), chr(13), chr(32), chr(160)])
+    or right(value, 1) = any (array[chr(9), chr(10), chr(11), chr(12), chr(13), chr(32), chr(160)])
+  );
+$$;
+
 create or replace function public.is_agent_execution_ready(
   model_code text,
   prompt_version text,
@@ -20,11 +32,11 @@ begin
   if model_code is null
      or model_code not in ('deepseek-v4-flash', 'deepseek-chat', 'deepseek-reasoner')
      or prompt_version is null
-     or btrim(prompt_version) is distinct from prompt_version
-     or char_length(prompt_version) not between 1 and 40
+     or public.has_agent_execution_boundary_whitespace(prompt_version)
+     or octet_length(prompt_version) not between 1 and 40
      or system_prompt is null
-     or btrim(system_prompt) is distinct from system_prompt
-     or char_length(system_prompt) not between 1 and 12000
+     or public.has_agent_execution_boundary_whitespace(system_prompt)
+     or octet_length(system_prompt) not between 1 and 12000
      or tool_scope is null
      or jsonb_typeof(tool_scope) is distinct from 'object'
      or jsonb_typeof(tool_scope -> 'tools') is distinct from 'array'
@@ -37,8 +49,8 @@ begin
       return false;
     end if;
     tool_code := item #>> '{}';
-    if btrim(tool_code) is distinct from tool_code
-       or char_length(tool_code) not between 1 and 80
+    if public.has_agent_execution_boundary_whitespace(tool_code)
+       or octet_length(tool_code) not between 1 and 80
        or tool_code = any(seen_codes) then
       return false;
     end if;
