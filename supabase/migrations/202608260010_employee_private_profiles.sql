@@ -266,12 +266,50 @@ as $$
     );
 $$;
 
+-- Payroll calculation needs a small, atomic employee fact snapshot.  The
+-- caller supplies only the target member key; tenant, organization, actor, and
+-- salary authority all derive inside the SECURITY DEFINER boundary.
+create or replace function public.current_payroll_employee_facts(
+  p_employee_member_id bigint
+)
+returns table (
+  profile_id bigint,
+  organization_member_id bigint,
+  hire_date date
+)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select
+    profile.id,
+    profile.organization_member_id,
+    private.hire_date
+  from public.organization_members actor
+  join public.employee_profiles profile
+    on profile.tenant_id = actor.tenant_id
+   and profile.organization_id = actor.organization_id
+   and profile.organization_member_id = p_employee_member_id
+   and profile.deleted_at is null
+  join public.employee_private_profiles private
+    on private.tenant_id = profile.tenant_id
+   and private.organization_id = profile.organization_id
+   and private.employee_profile_id = profile.id
+  where actor.tenant_id = (select public.current_tenant_id())
+    and actor.user_id = (select auth.uid())
+    and actor.status = 'active'
+    and (select public.has_organization_permission(actor.organization_id, 'salary.manage'));
+$$;
+
 revoke all on function public.touch_employee_private_profiles_updated_at() from public, anon, authenticated, service_role;
 revoke all on function public.sync_employee_profile_private_legacy_fields() from public, anon, authenticated, service_role;
 revoke all on function public.current_employee_directory() from public, anon, authenticated, service_role;
 revoke all on function public.current_employee_private_profile(uuid) from public, anon, authenticated, service_role;
+revoke all on function public.current_payroll_employee_facts(bigint) from public, anon, authenticated, service_role;
 grant execute on function public.current_employee_directory() to authenticated;
 grant execute on function public.current_employee_private_profile(uuid) to authenticated;
+grant execute on function public.current_payroll_employee_facts(bigint) to authenticated;
 
 -- Remove the legacy PII/classification columns from ordinary authenticated SQL
 -- while retaining a safe public profile projection for existing directory use.

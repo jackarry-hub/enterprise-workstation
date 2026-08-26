@@ -1,6 +1,6 @@
 begin;
 
-select plan(42);
+select plan(50);
 
 insert into public.tenants (name, slug, status)
 values
@@ -40,7 +40,7 @@ on conflict do nothing;
 insert into public.role_permissions (tenant_id, role_id, permission_id)
 select role.tenant_id, role.id, permission.id
 from public.roles role
-join public.permissions permission on permission.code = 'hr.manage'
+join public.permissions permission on permission.code in ('hr.manage', 'salary.manage')
 where role.code = 'hr'
   and role.tenant_id in (
     select id from public.tenants where slug in ('employee-privacy-a', 'employee-privacy-b')
@@ -187,6 +187,7 @@ select is(
 select has_table('public', 'employee_private_profiles', 'private employee table exists');
 select has_function('public', 'current_employee_directory', array[]::name[], 'directory RPC has no caller-controlled scope');
 select has_function('public', 'current_employee_private_profile', array['uuid']::name[], 'private RPC accepts exactly one public employee target');
+select has_function('public', 'current_payroll_employee_facts', array['bigint']::name[], 'payroll facts RPC accepts exactly one member target');
 select ok(
   has_function_privilege('authenticated', 'public.current_employee_directory()', 'EXECUTE')
   and not has_function_privilege('anon', 'public.current_employee_directory()', 'EXECUTE')
@@ -198,6 +199,12 @@ select ok(
   and not has_function_privilege('anon', 'public.current_employee_private_profile(uuid)', 'EXECUTE')
   and not has_function_privilege('service_role', 'public.current_employee_private_profile(uuid)', 'EXECUTE'),
   'only authenticated callers can execute the private RPC'
+);
+select ok(
+  has_function_privilege('authenticated', 'public.current_payroll_employee_facts(bigint)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.current_payroll_employee_facts(bigint)', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.current_payroll_employee_facts(bigint)', 'EXECUTE'),
+  'only authenticated callers can execute the payroll facts RPC'
 );
 select ok(
   not has_table_privilege('anon', 'public.employee_private_profiles', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
@@ -311,6 +318,11 @@ select is(
   'ordinary employee cannot read another employee private profile'
 );
 select is(
+  (select count(*) from public.current_payroll_employee_facts((select organization_member_id from public.employee_profiles where employee_no = 'PVT-A-EMP'))),
+  0::bigint,
+  'ordinary employee cannot read payroll employee facts'
+);
+select is(
   (select count(*) from public.current_employee_private_profile((select public_id from public.employee_profiles where employee_no = 'PVT-A-OTHER'))),
   0::bigint,
   'ordinary employee cannot read a same-tenant other-organization private profile'
@@ -335,14 +347,39 @@ select is(
   'HR receives sensitive notes only through the private RPC'
 );
 select is(
+  (select profile_id::text || ':' || organization_member_id::text || ':' || hire_date::text from public.current_payroll_employee_facts((select organization_member_id from public.employee_profiles where employee_no = 'PVT-A-EMP'))),
+  (select id::text || ':' || organization_member_id::text || ':2024-01-15' from public.employee_profiles where employee_no = 'PVT-A-EMP'),
+  'salary manager receives only the target payroll calculation facts through the scoped RPC'
+);
+select is(
+  (select hire_date from public.current_payroll_employee_facts((select organization_member_id from public.employee_profiles where employee_no = 'PVT-A-SUSP'))),
+  date '2024-01-15',
+  'salary manager can calculate a final payroll for a suspended target member'
+);
+select is(
+  (select hire_date from public.current_payroll_employee_facts((select organization_member_id from public.employee_profiles where employee_no = 'PVT-A-DEPARTED'))),
+  date '2024-01-15',
+  'salary manager can calculate a final payroll for a departed target employee'
+);
+select is(
   (select count(*) from public.current_employee_private_profile((select public_id from public.employee_profiles where employee_no = 'PVT-A-OTHER'))),
   0::bigint,
   'HR cannot read a same-tenant other-organization private profile'
 );
 select is(
+  (select count(*) from public.current_payroll_employee_facts((select organization_member_id from public.employee_profiles where employee_no = 'PVT-A-OTHER'))),
+  0::bigint,
+  'salary manager cannot read same-tenant other-organization payroll facts'
+);
+select is(
   (select count(*) from public.current_employee_private_profile((select public_id from public.employee_profiles where employee_no = 'PVT-B-EMP'))),
   0::bigint,
   'HR cannot read another-tenant private profile'
+);
+select is(
+  (select count(*) from public.current_payroll_employee_facts((select organization_member_id from public.employee_profiles where employee_no = 'PVT-B-EMP'))),
+  0::bigint,
+  'salary manager cannot read another-tenant payroll facts'
 );
 reset role;
 

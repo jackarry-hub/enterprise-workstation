@@ -410,21 +410,28 @@ export async function calculatePayrollForActor(
 
 type SupabaseClient = Awaited<ReturnType<typeof getSupabaseServerClient>>;
 
-function payrollRepository(client: SupabaseClient): PayrollCalculationDependencies {
+export function createPayrollRepository(
+  client: Pick<SupabaseClient, "from" | "rpc">,
+): PayrollCalculationDependencies {
   return {
-    async loadEmployee(organizationId, memberId) {
-      const result = await client.from("employee_profiles")
-        .select("id, organization_member_id, hire_date")
-        .eq("organization_id", organizationId)
-        .eq("organization_member_id", memberId)
-        .is("deleted_at", null)
-        .maybeSingle();
+    async loadEmployee(_organizationId, memberId) {
+      const result = await client.rpc("current_payroll_employee_facts", {
+        p_employee_member_id: memberId,
+      });
       if (result.error) throw result.error;
-      if (!result.data) return null;
+      const rows = Array.isArray(result.data) ? result.data : [];
+      if (rows.length !== 1) return null;
+      const row = rows[0];
+      const profileId = Number(row.profile_id);
+      const organizationMemberId = Number(row.organization_member_id);
+      if (!Number.isSafeInteger(profileId) || profileId < 1
+        || !Number.isSafeInteger(organizationMemberId) || organizationMemberId < 1) {
+        return null;
+      }
       return {
-        profileId: Number(result.data.id),
-        memberId: Number(result.data.organization_member_id),
-        hireDate: result.data.hire_date ? String(result.data.hire_date) : null,
+        profileId,
+        memberId: organizationMemberId,
+        hireDate: row.hire_date ? String(row.hire_date) : null,
       };
     },
     async loadPolicies(organizationId) {
@@ -530,5 +537,5 @@ export async function calculatePayrollForSession(
   return calculatePayrollForActor({
     memberId: context.actorMemberId,
     organizationId: Number(member.data.organization_id),
-  }, input, payrollRepository(client));
+  }, input, createPayrollRepository(client));
 }

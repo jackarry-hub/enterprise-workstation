@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   calculatePayrollForActor,
+  createPayrollRepository,
   type PayrollCalculationDependencies,
   type PayrollEmployee,
   type PayrollHistoryRow,
@@ -92,6 +93,31 @@ function confirmedHistory(month: string): PayrollHistoryRow {
 }
 
 describe("server payroll calculation context", () => {
+  it("loads employee calculation facts through the scoped payroll RPC", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: [{
+        profile_id: 101,
+        organization_member_id: 8,
+        hire_date: "2026-01-15",
+      }],
+      error: null,
+    });
+    const from = vi.fn(() => {
+      throw new Error("employee facts must not use a direct table query");
+    });
+    const repository = createPayrollRepository({ rpc, from } as never);
+
+    await expect(repository.loadEmployee(2, 8)).resolves.toEqual({
+      profileId: 101,
+      memberId: 8,
+      hireDate: "2026-01-15",
+    });
+    expect(rpc).toHaveBeenCalledWith("current_payroll_employee_facts", {
+      p_employee_member_id: 8,
+    });
+    expect(from).not.toHaveBeenCalled();
+  });
+
   it("uses the latest active policy not later than payroll month", async () => {
     const result = await calculatePayrollForActor(actor, input, dependencies({
       policies: [policy("2026-01"), policy("2026-07"), policy("2026-09")],
