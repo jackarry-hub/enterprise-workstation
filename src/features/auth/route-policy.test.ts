@@ -188,6 +188,35 @@ describe("workspace middleware", () => {
     },
   );
 
+  it("lets the exact cookie-less Agent recovery POST reach its own bearer-secret handler", async () => {
+    const response = await middleware(
+      new NextRequest("https://brain.example/api/internal/agent-invocation-recovery", {
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+    expect(dependencies.updateSupabaseSession).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "/api/internal/agent-invocation-recovery-extra",
+    "/api/internal/other",
+  ])("keeps adjacent internal path %s behind the Supabase session boundary", async (pathname) => {
+    refreshedSession({ subject: null });
+
+    const response = await middleware(
+      new NextRequest(`https://brain.example${pathname}`, { method: "POST" }),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      `https://brain.example/login?next=${encodeURIComponent(pathname)}`,
+    );
+    expect(dependencies.updateSupabaseSession).toHaveBeenCalledTimes(1);
+  });
+
   it("redirects an unauthenticated workspace request with a safe return target", async () => {
     refreshedSession({ subject: null });
 

@@ -44,20 +44,13 @@ services:
         max-file: "3"
 
   agent-invocation-recovery:
-    image: curlimages/curl:8.10.1
+    build:
+      context: .
+      dockerfile: Dockerfile.agent-invocation-recovery
+    image: ai-brain-demo-agent-invocation-recovery:latest
     restart: unless-stopped
     depends_on:
       workstation:
         condition: service_healthy
     environment:
       AGENT_INVOCATION_RECOVERY_CRON_SECRET: ${AGENT_INVOCATION_RECOVERY_CRON_SECRET:?AGENT_INVOCATION_RECOVERY_CRON_SECRET is required}
-    command:
-      - /bin/sh
-      - -ec
-      - |
-        while true; do
-          curl --fail --silent --show-error --output /dev/null --request POST \
-            --header "Authorization: Bearer $$AGENT_INVOCATION_RECOVERY_CRON_SECRET" \
-            http://workstation:3000/api/internal/agent-invocation-recovery || true
-          sleep 300
-        done

@@ -139,7 +139,8 @@ export function isStandaloneAuthorizedPath(pathname: string) {
     || pathname === "/api/demo-auth/session"
     || pathname === "/api/demo-auth/logout"
     || pathname === "/api/ai/config"
-    || pathname === "/api/ai/chat";
+    || pathname === "/api/ai/chat"
+    || pathname === "/api/internal/agent-invocation-recovery";
 }
 
 function noAccessDestination(session: Parameters<typeof assertServerRouteAccess>[0], requestUrl: string) {
