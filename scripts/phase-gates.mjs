@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { runDbCommand } from "./db-command-runner.mjs";
+import { LOCAL_DATABASE_URL, runDbCommand } from "./db-command-runner.mjs";
 
 function optionValue(argv, flag) {
   const index = argv.indexOf(flag);
@@ -36,7 +36,7 @@ export async function runPhaseGate({
     const result = await runDbCommandImpl({
       command: "db:test",
       environment,
-      databaseUrl,
+      databaseUrl: databaseUrl ?? LOCAL_DATABASE_URL,
       spawnProcess,
       runtime,
     });

@@ -6,10 +6,35 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import {
+  formatDbCommandResult,
   runDbCommand,
 } from "./db-command-runner.mjs";
 
 const localDatabaseUrl = "postgresql://postgres:local-password@127.0.0.1:54322/postgres";
+
+function installStagingFingerprint() {
+  const keys = [
+    "QUANTXY_STAGING_DATABASE_HOST",
+    "QUANTXY_STAGING_DATABASE_PORT",
+    "QUANTXY_STAGING_DATABASE_NAME",
+    "QUANTXY_STAGING_DATABASE_USER",
+    "QUANTXY_STAGING_DATABASE_SSLMODE",
+  ];
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  Object.assign(process.env, {
+    QUANTXY_STAGING_DATABASE_HOST: "db.abcxyz.supabase.co",
+    QUANTXY_STAGING_DATABASE_PORT: "5432",
+    QUANTXY_STAGING_DATABASE_NAME: "postgres",
+    QUANTXY_STAGING_DATABASE_USER: "postgres",
+    QUANTXY_STAGING_DATABASE_SSLMODE: "require",
+  });
+  return () => {
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  };
+}
 
 test("rejects unsafe database requests before a DB CLI process can spawn", async () => {
   let spawnCount = 0;
@@ -63,7 +88,7 @@ test("rejects unsafe database requests before a DB CLI process can spawn", async
 });
 
 test("rejects a Staging URL that does not match the server-only host fingerprint before spawn", async () => {
-  const previousHost = process.env.QUANTXY_STAGING_DATABASE_HOST;
+  const restore = installStagingFingerprint();
   let spawnCount = 0;
   try {
     process.env.QUANTXY_STAGING_DATABASE_HOST = "db.expected.supabase.co";
@@ -71,7 +96,7 @@ test("rejects a Staging URL that does not match the server-only host fingerprint
       () => runDbCommand({
         command: "db:migrate:dry-run",
         environment: "Staging",
-        databaseUrl: "postgresql://sensitive-user:top-secret-password@db.other.supabase.co:5432/postgres",
+        databaseUrl: "postgresql://sensitive-user:top-secret-password@db.other.supabase.co:5432/postgres?sslmode=require",
         spawnProcess: () => { spawnCount += 1; return { status: 0 }; },
       }),
       (error) => {
@@ -82,8 +107,7 @@ test("rejects a Staging URL that does not match the server-only host fingerprint
     );
     assert.equal(spawnCount, 0);
   } finally {
-    if (previousHost === undefined) delete process.env.QUANTXY_STAGING_DATABASE_HOST;
-    else process.env.QUANTXY_STAGING_DATABASE_HOST = previousHost;
+    restore();
   }
 });
 
@@ -108,11 +132,127 @@ test("runs a Local pgTAP command with an injected DB CLI only after the guard re
   });
   assert.equal(invocations.length, 1);
   assert.equal(invocations[0].options.shell, false);
-  assert.equal(invocations[0].options.stdio, "ignore");
+  assert.deepEqual(invocations[0].options.stdio, ["ignore", "pipe", "pipe"]);
+  assert.equal(invocations[0].options.timeout, 300_000);
+  assert.equal(invocations[0].options.maxBuffer, 1_048_576);
   assert.ok(invocations[0].args.includes("supabase"));
   assert.ok(invocations[0].args.includes("test"));
   assert.match(JSON.stringify(invocations[0].args), /local-password/);
   assert.doesNotMatch(JSON.stringify(result), /local-password/);
+});
+
+test("uses command-specific bounded database CLI timeouts and accepts only a bounded server-only override", async () => {
+  const previousTimeout = process.env.QUANTXY_DB_COMMAND_TIMEOUT_MS;
+  const timeouts = [];
+  const invoke = async (command) => runDbCommand({
+    command,
+    environment: "Local",
+    databaseUrl: localDatabaseUrl,
+    spawnProcess: (_executable, _args, options) => {
+      timeouts.push(options.timeout);
+      return { status: 0 };
+    },
+  });
+  try {
+    delete process.env.QUANTXY_DB_COMMAND_TIMEOUT_MS;
+    await invoke("db:migrate:dry-run");
+    await invoke("db:test");
+    await invoke("db:reset:test");
+    assert.deepEqual(timeouts, [300_000, 300_000, 600_000]);
+
+    process.env.QUANTXY_DB_COMMAND_TIMEOUT_MS = "90000";
+    await invoke("db:test");
+    assert.equal(timeouts.at(-1), 90_000);
+
+    process.env.QUANTXY_DB_COMMAND_TIMEOUT_MS = "900001";
+    await invoke("db:test");
+    assert.equal(timeouts.at(-1), 300_000);
+  } finally {
+    if (previousTimeout === undefined) delete process.env.QUANTXY_DB_COMMAND_TIMEOUT_MS;
+    else process.env.QUANTXY_DB_COMMAND_TIMEOUT_MS = previousTimeout;
+  }
+});
+
+test("rejects inherited and unknown command names before any Local or Staging process can spawn", async () => {
+  const restore = installStagingFingerprint();
+  let spawnCount = 0;
+  try {
+    for (const environment of ["Local", "Staging"]) {
+      const databaseUrl = environment === "Local"
+        ? localDatabaseUrl
+        : "postgresql://postgres:staging-password@db.abcxyz.supabase.co:5432/postgres?sslmode=require";
+      for (const command of ["unknown", "constructor", "toString", "__proto__"]) {
+        await assert.rejects(
+          () => runDbCommand({
+            command,
+            environment,
+            databaseUrl,
+            spawnProcess: () => { spawnCount += 1; return { status: 0 }; },
+          }),
+          /database_command_forbidden/,
+        );
+      }
+    }
+    assert.equal(spawnCount, 0);
+  } finally {
+    restore();
+  }
+});
+
+test("blocks seed and rollback aliases until their independent verifier contract exists without remapping either to reset", async () => {
+  let spawnCount = 0;
+  for (const command of ["db:seed:validate", "db:rollback:test"]) {
+    const result = await runDbCommand({
+      command,
+      environment: "Local",
+      databaseUrl: localDatabaseUrl,
+      spawnProcess: () => { spawnCount += 1; return { status: 0 }; },
+    });
+    assert.deepEqual(result.fingerprint.toJSON(), {
+      command,
+      environment: "Local",
+      target: "local_supabase_postgres",
+    });
+    assert.equal(result.failureCategory, "database_verifier_unavailable");
+    assert.equal(result.outcome, "BLOCKED");
+    assert.equal(result.status, 1);
+    assert.deepEqual(result.evidence, {
+      errorSummary: "database_verifier_unavailable",
+      failedTest: undefined,
+      migration: undefined,
+      testCount: undefined,
+    });
+  }
+  assert.equal(spawnCount, 0);
+});
+
+test("returns bounded redacted pgTAP and migration failure evidence without returning raw CLI streams", async () => {
+  const captured = [];
+  const result = await runDbCommand({
+    command: "db:test",
+    environment: "Local",
+    databaseUrl: localDatabaseUrl,
+    spawnProcess: (executable, args, options) => {
+      captured.push({ executable, args, options });
+      return {
+        status: 1,
+        stdout: "1..3\nApplying migration 202608260010_guard.sql\nok 1 - configured agent\nnot ok 2 - tenant ledger policy\n",
+        stderr: "ERROR: 42501 password=local-password host=127.0.0.1 token=super-secret-token",
+      };
+    },
+  });
+
+  assert.equal(result.outcome, "BLOCKED");
+  assert.equal(result.failureCategory, "database_cli_failed");
+  assert.equal(result.evidence.testCount, 3);
+  assert.equal(result.evidence.failedTest, "tenant ledger policy");
+  assert.equal(result.evidence.migration, "202608260010_guard.sql");
+  assert.match(result.evidence.errorSummary, /42501/);
+  assert.doesNotMatch(JSON.stringify(result), /local-password|127\.0\.0\.1|super-secret-token|postgresql:/);
+  assert.deepEqual(captured[0].options.stdio, ["ignore", "pipe", "pipe"]);
+  const output = formatDbCommandResult("db:test", result);
+  assert.match(output, /tests=3.*failed_test=tenant ledger policy.*migration=202608260010_guard\.sql.*42501/);
+  assert.doesNotMatch(output, /local-password|127\.0\.0\.1|super-secret-token|postgresql:/);
 });
 
 test("reports an unavailable local CLI as BLOCKED instead of a successful database gate", async () => {
@@ -165,11 +305,18 @@ test("declares only the safe named database aliases and preserves existing phase
   assert.equal(Object.hasOwn(packageJson.scripts, "db:reset"), false);
   for (const command of required.filter((command) => command.startsWith("db:"))) {
     assert.match(packageJson.scripts[command], /scripts\/db-command-runner\.mjs/);
+    assert.doesNotMatch(packageJson.scripts[command], /postgres(?:ql)?:\/\//i);
   }
   for (const command of ["test:coverage", "test:security", "test:rls"]) {
     assert.match(packageJson.scripts[command], /scripts\/phase-gates\.mjs/);
   }
+  assert.doesNotMatch(packageJson.scripts["test:rls"], /postgres(?:ql)?:\/\//i);
   assert.equal(packageJson.devDependencies["@vitest/coverage-v8"], "4.1.10");
   assert.equal(typeof packageJson.scripts["phase1:verify"], "string");
-  assert.equal(typeof packageJson.scripts["phase2:verify"], "string");
+  for (const command of ["phase2:check", "phase2:dry-run", "phase2:push", "phase2:db-test", "phase2:verify"]) {
+    assert.equal(typeof packageJson.scripts[command], "string", `${command} must be preserved`);
+  }
+  for (const command of ["phase2:check", "phase2:dry-run", "phase2:push", "phase2:db-test"]) {
+    assert.match(packageJson.scripts[command], /scripts\/phase2\/supabase-command\.mjs/);
+  }
 });

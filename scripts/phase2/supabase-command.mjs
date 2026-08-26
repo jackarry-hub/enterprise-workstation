@@ -1,68 +1,62 @@
-import { spawnSync } from "node:child_process";
-import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import {
-  loadRemoteConfig,
-  summarizeRemoteConfig,
-} from "./remote-config.mjs";
+import { runDbCommand } from "../db-command-runner.mjs";
 
-const COMMANDS = {
-  check: ["supabase", "migration", "list"],
-  "dry-run": ["supabase", "db", "push", "--dry-run"],
-  push: ["supabase", "db", "push", "--yes"],
-  "db-test": [
-    "supabase",
-    "test",
-    "db",
-    "supabase/tests/phase1_identity_rbac.sql",
-  ],
-};
+const PHASE2_DATABASE_COMMANDS = Object.freeze(Object.assign(Object.create(null), {
+  "dry-run": "db:migrate:dry-run",
+  "db-test": "db:test",
+}));
 
-export function buildSupabaseCommand(mode, dbUrl) {
-  const base = COMMANDS[mode];
-  if (!base) throw new Error(`不支持的 Phase2 命令：${mode}`);
-  return [...base, "--db-url", dbUrl];
-}
-
-export function buildSupabaseProcess(
-  commandArgs,
-  runtime = {
-    execPath: process.execPath,
-    npmExecPath: process.env.npm_execpath,
-  },
-) {
-  const npmExecPath = runtime.npmExecPath
-    || path.join(
-      path.dirname(runtime.execPath),
-      "node_modules",
-      "npm",
-      "bin",
-      "npm-cli.js",
-    );
-  const npxCliPath = path.join(path.dirname(npmExecPath), "npx-cli.js");
-
+function blocked(failureCategory) {
   return {
-    executable: runtime.execPath,
-    args: [npxCliPath, ...commandArgs],
+    failureCategory,
+    outcome: "BLOCKED",
+    status: 1,
   };
 }
 
-export function runSupabaseCommand(mode) {
-  const config = loadRemoteConfig();
-  console.log(JSON.stringify(summarizeRemoteConfig(config)));
+function safeFailureCategory(error) {
+  return error?.message === "database_command_forbidden"
+    || error?.message === "environment_mutation_forbidden"
+    ? error.message
+    : "database_command_forbidden";
+}
 
-  const [command, ...args] = buildSupabaseCommand(mode, config.dbUrl);
-  const invocation = buildSupabaseProcess([command, ...args]);
-  const result = spawnSync(invocation.executable, invocation.args, {
-    stdio: "inherit",
-    shell: false,
+export async function runSupabaseCommand(mode, {
+  databaseUrl,
+  environment,
+  runDbCommandImpl = runDbCommand,
+  runtime,
+  spawnProcess,
+} = {}) {
+  const command = PHASE2_DATABASE_COMMANDS[mode];
+  if (typeof command !== "string") return blocked("database_command_forbidden");
+
+  try {
+    return await runDbCommandImpl({
+      command,
+      databaseUrl,
+      environment,
+      runtime,
+      spawnProcess,
+    });
+  } catch (error) {
+    return blocked(safeFailureCategory(error));
+  }
+}
+
+export async function runSupabaseCommandCli(argv = process.argv, environment = process.env) {
+  const mode = argv[2];
+  const result = await runSupabaseCommand(mode, {
+    databaseUrl: environment.QUANTXY_DATABASE_URL,
+    environment: environment.QUANTXY_ENVIRONMENT,
   });
-
-  if (result.error) throw result.error;
-  if (result.status !== 0) process.exitCode = result.status ?? 1;
+  const output = `${result.outcome} phase2_command=${mode ?? "unknown"}${result.failureCategory ? ` category=${result.failureCategory}` : ""}`;
+  (result.outcome === "PASSED" ? console.log : console.error)(output);
+  if (result.status !== 0) process.exitCode = result.status;
+  return result;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  runSupabaseCommand(process.argv[2]);
+  await runSupabaseCommandCli();
 }
