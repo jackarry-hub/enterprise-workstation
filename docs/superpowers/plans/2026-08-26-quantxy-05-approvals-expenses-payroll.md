@@ -4,7 +4,7 @@
 
 **Goal:** Deliver participant-safe approvals, end-to-end expense reimbursement, and privacy-safe payroll administration.
 
-**Architecture:** Approval and expense state machines run in PostgreSQL transactions and append immutable actions/audit. Payroll keeps the existing server calculator and confirmed-run immutability while replacing all fixture UI with scoped server data.
+**Architecture:** Approval and expense state machines run in PostgreSQL transactions and append immutable actions/audit. Payroll owns governed batches, immutable snapshots and scoped publication/read/export rather than a full salary-calculation engine, while replacing all fixture UI with scoped server data.
 
 **Tech Stack:** Next.js, TypeScript, Supabase PostgreSQL/Storage, Vitest, pgTAP, Playwright.
 
@@ -245,4 +245,53 @@ Expected: E2E uses real API/DB, employee sees self only, finance confirms an imm
 ```bash
 git add src/features/salary src/app/api/workstation/payroll supabase/migrations/202608260019_payroll_policy_audit.sql supabase/tests/sensitive_rls_matrix.sql tests/e2e/payroll-calculation.spec.ts
 git commit -m "feat: complete real payroll administration"
+```
+
+### Task 6: Close the approved commercial approval, expense and payroll scope
+
+**Files:**
+- Create: `supabase/migrations/202608260037_commercial_finance_controls.sql`
+- Modify: `supabase/tests/approval_workflow.sql`
+- Modify: `supabase/tests/expense_workflow.sql`
+- Modify: `supabase/tests/sensitive_rls_matrix.sql`
+- Modify: `src/features/approvals/approval-command-handler.ts`
+- Modify: `src/features/expenses/expense-command-handler.ts`
+- Create: `src/features/salary/payroll-batch-handler.ts`
+- Create: `src/features/salary/payroll-batch-handler.test.ts`
+
+**Interfaces:**
+- Produces immutable template versions and submission snapshots, basic conditional branches, transfer/withdraw/timeout/departed-approver transitions and idempotent commands.
+- Produces payroll batch `lock|publish|unpublish` commands with immutable payment snapshot, self-only employee read, encrypted/watermarked export and audit.
+
+- [ ] **Step 1: Write failing snapshot, branch, transfer/withdraw/timeout and payroll lifecycle tests**
+
+```ts
+expect(await submitAgainstEditedTemplate()).toMatchObject({ templateVersion: 2, snapshot: expect.any(Object) });
+expect((await transferFromDepartedApprover()).status).toBe(200);
+expect((await publishUnlockedBatch()).status).toBe(422);
+expect(employeeExport).toContain("CONFIDENTIAL");
+```
+
+- [ ] **Step 2: Verify RED**
+
+Run: `npx vitest run src/features/approvals src/features/expenses src/features/salary/payroll-batch-handler.test.ts`
+Run: `npm run db:test`
+Expected: template snapshots/edge transitions and formally controlled payroll batches are incomplete.
+
+- [ ] **Step 3: Implement only the bounded formal workflow**
+
+Evaluate server-owned basic conditions, snapshot template/form/approver data at submission, and transition transfer, withdrawal, timeout and departed approver cases transactionally. Expense states include draft, submitted, approved/rejected, finance-review and paid. Lock batches before publish, allow audited unpublish under policy, encrypt protected payroll data and emit watermarked authorized exports. Do not build a general visual approval designer or a full salary-calculation engine.
+
+- [ ] **Step 4: Verify GREEN**
+
+Run: `npx vitest run src/features/approvals src/features/expenses src/features/salary`
+Run: `npm run db:test`
+Run: `npx playwright test tests/e2e/approvals.spec.ts tests/e2e/expenses.spec.ts tests/e2e/payroll-calculation.spec.ts --project=chrome`
+Expected: snapshots are immutable, duplicate submissions have one result, employee reads self only and finance actions are fully audited.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add supabase/migrations/202608260037_commercial_finance_controls.sql supabase/tests/approval_workflow.sql supabase/tests/expense_workflow.sql supabase/tests/sensitive_rls_matrix.sql src/features/approvals src/features/expenses src/features/salary tests/e2e/approvals.spec.ts tests/e2e/expenses.spec.ts tests/e2e/payroll-calculation.spec.ts
+git commit -m "feat: complete commercial finance controls"
 ```

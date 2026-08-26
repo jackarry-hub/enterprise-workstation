@@ -242,3 +242,50 @@ Expected: history and overrides survive refresh; locked dispatch creates real ta
 git add 'src/app/(workspace)/assistant/page.tsx' 'src/app/(workspace)/scheduler/page.tsx' src/features/ai-assistant src/features/ai-scheduler tests/e2e/ai-assistant.spec.ts tests/e2e/ai-scheduler.spec.ts
 git commit -m "feat: deliver AI assistant and scheduler workspaces"
 ```
+
+### Task 6: Add governed queue operations, budgets and pre-execution human confirmation
+
+**Files:**
+- Create: `supabase/migrations/202608260039_ai_queue_governance.sql`
+- Modify: `supabase/tests/ai_runtime.sql`
+- Create: `src/features/ai-runtime/queue-handler.ts`
+- Create: `src/features/ai-runtime/queue-handler.test.ts`
+- Create: `src/features/ai-runtime/human-confirmation.ts`
+- Create: `src/features/ai-runtime/human-confirmation.test.ts`
+- Create: `src/app/api/workstation/ai/runs/[runId]/confirm/route.ts`
+
+**Interfaces:**
+- Produces tenant/user/department quota, queue, schedule, lock, cancel, retry and dead-letter controls with terminal retention metadata.
+- Produces `requireHumanConfirmation(run, operation)` for `send_message`, `modify_business_data`, `create_approval`, `publish_content`, `modify_permission`, `delete_material`, `export_data`, `create_payment_record`.
+
+- [ ] **Step 1: Write failing queue, timeout, fallback, budget, retention/evaluation/takeover and confirmation tests**
+
+```ts
+expect(await queueAtConcurrencyLimit()).toMatchObject({ status: "queued" });
+expect(await executeWithoutConfirmation("export_data")).toMatchObject({ code: "human_confirmation_required" });
+expect(await exhaustedDepartmentBudget()).toMatchObject({ status: "rate_limited" });
+```
+
+- [ ] **Step 2: Verify RED**
+
+Run: `npx vitest run src/features/ai-runtime`
+Run: `npm run db:test`
+Expected: durable queue, quotas, DLQ, evaluation/takeover and universal high-risk confirmation are incomplete.
+
+- [ ] **Step 3: Implement bounded runtime governance**
+
+Persist queued/running/terminal state, scheduled time, idempotency, timeout/cancel/retry/DLQ, worker lock and model fallback. Enforce token/cost/concurrency budgets per tenant, department and user; retain conversations/runs by policy, persist evaluation cases and route failures to a human takeover queue. Require an audited, fresh human confirmation before every named high-risk operation; no client flag bypasses it.
+
+- [ ] **Step 4: Verify GREEN and load boundary**
+
+Run: `npx vitest run src/features/ai-runtime src/features/ai-assistant src/features/ai-scheduler`
+Run: `npm run db:test`
+Run: `npx playwright test tests/e2e/ai-assistant.spec.ts tests/e2e/ai-scheduler.spec.ts --project=chrome`
+Expected: ten concurrent AI/Agent jobs expose queue status, non-AI workflows remain available during AI failure, and all eight protected operations require confirmation/audit.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add supabase/migrations/202608260039_ai_queue_governance.sql supabase/tests/ai_runtime.sql src/features/ai-runtime src/app/api/workstation/ai tests/e2e/ai-assistant.spec.ts tests/e2e/ai-scheduler.spec.ts
+git commit -m "feat: govern AI queue and high-risk confirmation"
+```

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Execute the approved QuantXY commercial completion design in dependency order without deploying until every module passes the release gate.
+**Goal:** Deliver one tenant-safe, formally usable commercial workbench for an approximately 100-person customer, in dependency order, while reserving future multi-tenant foundations without building a SaaS operation platform.
 
 **Architecture:** Ten independently reviewable plans build the security foundation, real business modules, professional Next.js/PWA UI, and final release evidence. Each plan uses TDD and local/Staging-safe verification; production remains untouched.
 
@@ -12,26 +12,26 @@
 
 ## Global Constraints
 
-- Do not upload or deploy during implementation.
-- Do not write production data.
+- Local/CI-Test/Staging may be used only with isolated infrastructure and synthetic data; Internal and Customer Production deployment, migration, backfill, key configuration and real-data writes require explicit authorization.
+- No production credential or production data may enter Local, CI/Test or ordinary Staging.
 - Preserve unrelated WIP and untracked handoff artifacts.
 - Use test RED -> implementation GREEN -> refactor for every production change.
 - Commit only files belonging to the active task.
 - Leave and attendance are excluded and hidden.
-- All ten plans must pass before production authorization can be requested.
+- All ten plans must pass before Internal trial or Customer Production authorization can be requested; Staging is required for OAuth, webhook, Storage, PWA/mobile-device, migration and security validation.
 
 ## Execution Order
 
-- [ ] `2026-08-26-quantxy-01-security-entry.md` — P0 security, salary privacy, Agent authorization, single route registry.
-- [ ] `2026-08-26-quantxy-02-organization-people.md` — Feishu directory, private PII, organization commands, profiles and skills.
-- [ ] `2026-08-26-quantxy-03-project-task-delivery.md` — projects, activities, tasks, reports, files and durable notifications.
-- [ ] `2026-08-26-quantxy-04-customer-crm.md` — customers, contacts, opportunities, follow-ups and delivery conversion.
-- [ ] `2026-08-26-quantxy-05-approvals-expenses-payroll.md` — approval state machine, expense payment and payroll UI.
-- [ ] `2026-08-26-quantxy-06-knowledge.md` — directories, versions, permissions, upload, search and sources.
-- [ ] `2026-08-26-quantxy-07-ai-assistant-scheduler.md` — AI runtime, conversations, scheduling plans, overrides and dispatch.
-- [ ] `2026-08-26-quantxy-08-agent-runtime.md` — Agent versions, permissions, orchestration, runs and Agent Center.
-- [ ] `2026-08-26-quantxy-09-analytics-settings-pwa.md` — analytics, settings, notifications, contextual creation and mobile PWA.
-- [ ] `2026-08-26-quantxy-10-cutover-release.md` — fused removal, CI, clean DB, security hardening and release evidence.
+- `2026-08-26-quantxy-01-security-entry.md` — completed security/entry baseline; do not restart Tasks 1-6; remaining platform hardening belongs to Plan 10.
+- `2026-08-26-quantxy-02-organization-people.md` — OAuth plus full/incremental Feishu sync, private PII, organization commands and offboarding revoke.
+- `2026-08-26-quantxy-03-project-task-delivery.md` — members, activities/milestones/tasks/dependencies/acceptance, files/history/archive and durable notifications.
+- `2026-08-26-quantxy-04-customer-crm.md` — contacts/opportunities/follow-ups, dedupe, ownership transfer, history, import/export and audit/archive.
+- `2026-08-26-quantxy-05-approvals-expenses-payroll.md` — versioned approvals, expense payment/finance review and locked/snapshotted payroll, excluding a payroll engine/designer.
+- `2026-08-26-quantxy-06-knowledge.md` — tenant Storage, scan/quarantine, OCR/parse, permissions, vector/citations and lifecycle cleanup.
+- `2026-08-26-quantxy-07-ai-assistant-scheduler.md` — persistent conversations and governed queue/scheduler with human confirmation for eight high-risk actions.
+- `2026-08-26-quantxy-08-agent-runtime.md` — immutable lifecycle, allowlists/budgets/human controls/Kill Switch; autonomous multi-Agent collaboration Deferred.
+- `2026-08-26-quantxy-09-analytics-settings-pwa.md` — desktop plus true mobile workflows, PWA security/cache behavior and real-device matrix.
+- `2026-08-26-quantxy-10-cutover-release.md` — environment guards, migration safety, security/performance/recovery gates, Staging/canary/runbooks and delivery bundle.
 
 ## Phase Gate
 
@@ -39,16 +39,23 @@ After each plan:
 
 ```powershell
 npm run test:unit
+npm run test:coverage
 npm run typecheck
 npm run lint
+npm run build
+npm run test:security
+npm run test:rls
 git diff --check
 ```
 
 After any migration plan:
 
 ```powershell
-npm run db:reset
+npm run db:reset:test
+npm run db:migrate:dry-run
 npm run db:test
+npm run db:seed:validate
+npm run db:rollback:test
 ```
 
 After any user-facing workflow plan:
@@ -72,4 +79,9 @@ Final gate is defined only by Plan 10 and must finish with `npm run verify:comme
 | AI configuration, assistant and scheduling | 01, 07 |
 | Agent Center and runtime | 01, 08 |
 | Analytics, settings, quick create, visualization and PWA | 09 |
-| Error handling, testing, cutover and completion gate | 01, 10 |
+| Environment isolation, DB safety, migration, security, performance, recovery and completion gate | 01, 10 |
+| Commercial capacity/RPO/RTO and desktop/mobile/device gates | 03, 07, 09, 10 |
+
+## External dependencies and final readiness
+
+Staging requires an isolated Supabase/Storage project, Feishu OAuth/Webhook test application, AI test key, domain/TLS, monitoring and backup target. Internal/Customer Production always need separate equivalents and explicit authorization. Final `verify:commercial` must prove clean install/build, coverage, DB/RLS, integration, desktop/mobile E2E, a11y, dependency/secret scan, migration dry-run, load thresholds, restoration evidence, Staging smoke and release artifact manifest; unit/lint/build alone never authorize release.

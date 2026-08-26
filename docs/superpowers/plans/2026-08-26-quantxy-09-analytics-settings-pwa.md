@@ -17,6 +17,7 @@
 - Business settings are server-owned; localStorage may cache non-sensitive display preferences only.
 - Desktop and mobile consume the same permissions, module capabilities, queries, and contextual actions.
 - Mobile is an installable PWA, not a scaled desktop layout.
+- Sensitive payroll, customer PII and approval attachments are excluded from offline cache; logout clears sensitive cache and service-worker state.
 
 ---
 
@@ -303,4 +304,49 @@ Expected: all viewports and code gates exit 0 with no horizontal critical-conten
 ```bash
 git add playwright.config.ts src/app/globals.css src/components/shell/workspace-shell.tsx src/components/shell/mobile-workspace-nav.tsx src/components/shell/contextual-create-menu.tsx src/components/shell/mobile-create-sheet.tsx src/components/ui/chart.tsx tests/e2e/responsive-shell.spec.ts tests/e2e/contextual-create.spec.ts tests/e2e/pwa.spec.ts tests/e2e/visual-data-truth.spec.ts
 git commit -m "test: cover professional desktop and mobile PWA flows"
+```
+
+### Task 7: Validate true mobile business flows and supported device/browser matrix
+
+**Files:**
+- Modify: `playwright.config.ts`
+- Modify: `src/features/pwa/pwa-registration.tsx`
+- Modify: `src/components/shell/mobile-workspace-nav.tsx`
+- Create: `tests/e2e/mobile-commercial-flows.spec.ts`
+- Create: `tests/e2e/pwa-security-lifecycle.spec.ts`
+- Create: `docs/operations/mobile-device-acceptance.md`
+
+**Interfaces:**
+- Produces real mobile task, approval, CRM, AI, notification, upload and profile flows; quick-create actions map only to implemented server commands.
+- Produces test coverage for widths `360,375,390,430,768,1024,1366,1440,1920` and documented real-device/browser evidence requirements.
+
+- [ ] **Step 1: Write failing mobile action, offline/cache, upload recovery and accessibility scenarios**
+
+```ts
+await expect(page.getByRole("button", { name: "提交审批" })).toBeVisible();
+await expect(page.getByText("离线，写入已暂停")).toBeVisible();
+await expect(page.getByText("重新上传")).toBeVisible();
+expect(await cachedSensitiveRoute()).toBe(false);
+```
+
+- [ ] **Step 2: Verify RED across viewport projects**
+
+Run: `npx playwright test tests/e2e/mobile-commercial-flows.spec.ts tests/e2e/pwa-security-lifecycle.spec.ts`
+Expected: complete mobile task/approval/CRM/AI/notification/upload/profile and cache-lifecycle matrix is absent.
+
+- [ ] **Step 3: Implement only real-action mobile behavior**
+
+Use dedicated mobile layouts rather than compressed tables: safe-area-aware navigation, keyboard/touch reachable controls, weak/offline status, retryable upload recovery and accessible focus/labels. PWA installation/update prompts and logout cache purge are server-state safe; contextual quick create opens only fully implemented, authorized commands.
+
+- [ ] **Step 4: Verify GREEN and document real-device gate**
+
+Run: `npx playwright test tests/e2e/responsive-shell.spec.ts tests/e2e/mobile-commercial-flows.spec.ts tests/e2e/pwa-security-lifecycle.spec.ts`
+Run: `npm run test:e2e`
+Expected: automated widths pass; the document requires Staging real-device evidence for iPhone Safari, Android Chrome, Feishu/WeChat embedded browsers, Windows Chrome/Edge and macOS Safari/Chrome before release.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add playwright.config.ts src/features/pwa/pwa-registration.tsx src/components/shell/mobile-workspace-nav.tsx tests/e2e/mobile-commercial-flows.spec.ts tests/e2e/pwa-security-lifecycle.spec.ts docs/operations/mobile-device-acceptance.md
+git commit -m "test: validate commercial mobile device flows"
 ```

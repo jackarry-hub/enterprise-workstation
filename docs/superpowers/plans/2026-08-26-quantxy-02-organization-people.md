@@ -239,3 +239,50 @@ Expected: real local DB data survives refresh; private fields remain hidden from
 git add 'src/app/(workspace)/people/page.tsx' src/features/hr/people-workspace.tsx src/features/hr/people-page.test.tsx src/features/hr/employee-detail-page.tsx src/features/hr/employee-detail-page.test.tsx src/features/organization/organization-dialogs.tsx tests/e2e/people.spec.ts
 git commit -m "feat: connect the people workspace to real data"
 ```
+
+### Task 6: Complete Feishu OAuth and resilient directory synchronization
+
+**Files:**
+- Create: `supabase/migrations/202608260034_feishu_sync_control.sql`
+- Create: `supabase/tests/feishu_sync_control.sql`
+- Create: `src/features/feishu/oauth-handler.ts`
+- Modify: `src/features/feishu/directory-sync.ts`
+- Create: `src/app/api/workstation/feishu/oauth/callback/route.ts`
+- Create: `src/app/api/workstation/feishu/webhook/route.ts`
+- Create: `src/app/(workspace)/people/sync-issues/page.tsx`
+
+**Interfaces:**
+- Produces `startFeishuFullSync`, `resumeFeishuIncrementalSync(cursor)` and `reconcileFeishuDirectory` with `{ runId, cursor, status, retryAfter }`.
+- Produces signed webhook event persistence keyed by provider event ID, an out-of-order sequence guard, and `revokeDepartedMemberAccess(memberPublicId, eventId)`.
+
+- [ ] **Step 1: Write failing OAuth, webhook, move/offboarding and reconciliation tests**
+
+```ts
+expect(await handleUnsignedWebhook(event)).toMatchObject({ status: 401 });
+expect(await deliverEventTwice(event)).toMatchObject({ applied: 1 });
+expect(await memberAfterOffboarding(event)).toMatchObject({ access: "revoked" });
+```
+
+- [ ] **Step 2: Verify RED**
+
+Run: `npx vitest run src/features/feishu src/app/api/workstation/feishu`
+Run: `npm run db:test`
+Expected: OAuth/webhook control state, conflict UI and revocation path are absent.
+
+- [ ] **Step 3: Implement controlled OAuth and synchronization lifecycle**
+
+Use the isolated environment's Feishu app only. Persist OAuth state/nonce, cursor, attempts, backoff, failures and reconciliation differences; reject invalid signatures, dedupe events, order by provider sequence, reconcile full snapshots, and audit department move, transfer, conflict resolution and immediate departure revoke. Keep Feishu-owned fields read-only while showing a manager-authorized conflict resolution UI.
+
+- [ ] **Step 4: Verify GREEN in Local and authorized Staging**
+
+Run: `npx vitest run src/features/feishu src/app/api/workstation/feishu`
+Run: `npm run db:test`
+Run: `npx playwright test tests/e2e/directory-sync.spec.ts --project=chrome`
+Expected: Local uses synthetic identities through the real adapter/persistence path; Staging verification is blocked pending isolated OAuth/webhook credentials, never production credentials.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add supabase/migrations/202608260034_feishu_sync_control.sql supabase/tests/feishu_sync_control.sql src/features/feishu src/app/api/workstation/feishu 'src/app/(workspace)/people/sync-issues/page.tsx' tests/e2e/directory-sync.spec.ts
+git commit -m "feat: add resilient Feishu OAuth directory sync"
+```

@@ -295,3 +295,51 @@ Expected: project -> milestone -> task -> report -> submit -> review survives re
 git add src/features/projects src/features/activities src/features/tasks tests/e2e/projects-closure.spec.ts tests/e2e/task-workflow.spec.ts
 git commit -m "feat: deliver the real project execution workspace"
 ```
+
+### Task 7: Complete membership, acceptance, history/archive and durable recipient notifications
+
+**Files:**
+- Create: `supabase/migrations/202608260035_project_commercial_completion.sql`
+- Modify: `supabase/tests/project_execution.sql`
+- Modify: `supabase/tests/notification_outbox.sql`
+- Modify: `src/features/projects/execution-command-handler.ts`
+- Modify: `src/features/workstation/task-notification.ts`
+- Create: `src/app/api/workstation/projects/[projectId]/members/route.ts`
+- Create: `src/app/api/workstation/projects/[projectId]/restore/route.ts`
+
+**Interfaces:**
+- Produces member add/remove/role, milestone/acceptance, archive/restore and immutable history commands with tenant-scoped optimistic versions.
+- Produces recipient notification states `pending|sending|sent|failed|read`, attempt locks, retry schedule and a tenant+recipient+event dedupe key.
+
+- [ ] **Step 1: Write failing member-scope, acceptance, restore and notification retry/read tests**
+
+```ts
+expect((await addProjectMember(unrelatedSession)).status).toBe(403);
+expect((await acceptTask(staleVersion)).status).toBe(409);
+expect(await replayNotificationEvent()).toHaveLength(1);
+expect((await markRecipientRead()).readAt).not.toBeNull();
+```
+
+- [ ] **Step 2: Verify RED**
+
+Run: `npx vitest run src/features/projects src/features/workstation/task-notification`
+Run: `npm run db:test`
+Expected: member lifecycle, explicit acceptance/history/restore and recipient read state are incomplete.
+
+- [ ] **Step 3: Implement the bounded commercial closure**
+
+Use transaction RPCs for project membership, activities, milestones, task/subtask/dependency, due date, acceptance criteria, reports, comments, verified file relations, history, archive and restore. Persist notification recipient/read/retry/dedupe data; workers claim with an attempt token and only retry failures from durable state.
+
+- [ ] **Step 4: Verify GREEN**
+
+Run: `npx vitest run src/features/projects src/features/activities src/features/tasks src/features/workstation/task-notification`
+Run: `npm run db:test`
+Run: `npx playwright test tests/e2e/projects-closure.spec.ts tests/e2e/task-workflow.spec.ts --project=chrome`
+Expected: the complete project closure survives refresh and cross-role authorization; no duplicate notification is delivered.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add supabase/migrations/202608260035_project_commercial_completion.sql supabase/tests/project_execution.sql supabase/tests/notification_outbox.sql src/features/projects src/features/workstation/task-notification.ts src/app/api/workstation/projects tests/e2e/projects-closure.spec.ts tests/e2e/task-workflow.spec.ts
+git commit -m "feat: complete project membership and notification durability"
+```

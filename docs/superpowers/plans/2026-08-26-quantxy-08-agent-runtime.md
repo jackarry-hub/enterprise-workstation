@@ -16,6 +16,7 @@
 - Browser input never owns system prompt, model, tools, tenant, or Agent authorization.
 - Published versions and terminal execution logs are append-only.
 - Formal empty data is an empty state, never a seeded Agent list.
+- Agent orchestration is a manually authored, reviewed DAG only; advanced autonomous multi-Agent collaboration is Deferred.
 
 ---
 
@@ -240,4 +241,52 @@ Expected: create -> publish -> request/grant -> run -> inspect logs survives ref
 ```bash
 git add 'src/app/(workspace)/agents/page.tsx' src/features/agents tests/e2e/agents.spec.ts
 git commit -m "feat: deliver the real Agent Center"
+```
+
+### Task 6: Enforce Agent runtime allowlists, budgets, recovery and Kill Switch
+
+**Files:**
+- Create: `supabase/migrations/202608260040_agent_runtime_governance.sql`
+- Modify: `supabase/tests/agent_runtime.sql`
+- Modify: `src/features/agents/agent-runtime-handler.ts`
+- Modify: `src/features/agents/agent-runtime-handler.test.ts`
+- Create: `src/features/agents/agent-kill-switch.ts`
+- Create: `src/features/agents/agent-kill-switch.test.ts`
+- Create: `src/app/api/workstation/agents/[agentId]/kill-switch/route.ts`
+
+**Interfaces:**
+- Produces draft/test/published/retired lifecycle, tenant tool/data allowlists, secret references, budget/time/step/depth/concurrency limits and cancellation.
+- Produces human nodes, tool authorization audit, compensation handlers, loop detection, pre-publish evaluation and tenant-wide `setAgentKillSwitch(enabled, reason)`.
+
+- [ ] **Step 1: Write failing lifecycle, allowlist, budget, loop, cancellation, human-node and Kill Switch tests**
+
+```ts
+expect((await invokeRetiredVersion()).status).toBe(409);
+expect(await invokeDisallowedTool()).toMatchObject({ code: "agent_tool_forbidden" });
+expect(await runBeyondStepLimit()).toMatchObject({ status: "failed", errorCode: "agent_step_limit" });
+expect((await invokeAfterKillSwitch()).status).toBe(503);
+```
+
+- [ ] **Step 2: Verify RED**
+
+Run: `npx vitest run src/features/agents/agent-runtime-handler.test.ts src/features/agents/agent-kill-switch.test.ts`
+Run: `npm run db:test`
+Expected: lifecycle/control limits and emergency stop behavior are incomplete.
+
+- [ ] **Step 3: Implement server-enforced runtime controls**
+
+Pin immutable published versions; run only authorized allowlisted tools and data scopes. Count budget, elapsed time, steps, recursion depth and tenant concurrency server-side; support cancel and human nodes, append safe tool/authorization logs, invoke compensations where defined, terminate detected loops and block all starts when the audited Kill Switch is active. Store secret references only, never secret values.
+
+- [ ] **Step 4: Verify GREEN**
+
+Run: `npx vitest run src/features/agents`
+Run: `npm run db:test`
+Run: `npx playwright test tests/e2e/agents.spec.ts --project=chrome`
+Expected: all limits, human controls, evaluation and Kill Switch behavior hold across tenant boundaries without autonomous multi-Agent execution.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add supabase/migrations/202608260040_agent_runtime_governance.sql supabase/tests/agent_runtime.sql src/features/agents src/app/api/workstation/agents tests/e2e/agents.spec.ts
+git commit -m "feat: govern Agent runtime and Kill Switch"
 ```

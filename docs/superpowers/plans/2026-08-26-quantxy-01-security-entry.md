@@ -18,6 +18,9 @@
 - Actor, tenant, and organization come only from the verified workspace session.
 - Every production change follows test RED -> implementation GREEN -> refactor.
 - Leave and attendance stay hidden and are not implemented.
+- Local synthetic data must still use real adapters and persistence; production data/credentials never enter Local, CI/Test or Staging. Internal/Customer Production require explicit authorization.
+
+**Execution status boundary:** Tasks 1-6 were completed and independently reviewed at implementation HEAD `5467c97`; preserve their history and continue from the current execution position. This plan does not restart them or absorb later global hardening: environment guards, migration protection, HTTP/security scans, operations and release evidence are Plan 10 work.
 
 ---
 

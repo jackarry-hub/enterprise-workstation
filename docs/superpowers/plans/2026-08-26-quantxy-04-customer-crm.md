@@ -197,3 +197,51 @@ Expected: customer -> contact -> opportunity -> follow-up -> project conversion 
 git add -A src/features/customers tests/e2e/customers.spec.ts
 git commit -m "feat: connect customer CRM to real data"
 ```
+
+### Task 5: Add commercial CRM governance, exchange and lifecycle controls
+
+**Files:**
+- Create: `supabase/migrations/202608260036_crm_governance.sql`
+- Modify: `supabase/tests/customer_crm.sql`
+- Modify: `src/features/customers/customer-command-handler.ts`
+- Modify: `src/features/customers/opportunity-command-handler.ts`
+- Create: `src/features/customers/crm-import-export-handler.ts`
+- Create: `src/features/customers/crm-import-export-handler.test.ts`
+- Create: `src/app/api/workstation/customers/import/route.ts`
+- Create: `src/app/api/workstation/customers/export/route.ts`
+
+**Interfaces:**
+- Produces ownership transfer, contact PII projection, stage-history, contract/source/project link, archive/restore and audit RPCs.
+- Produces `validateCrmImport(rows, tenantId)` and `requestCrmExport(scope, idempotencyKey)` with permission-scoped columns and export audit.
+
+- [ ] **Step 1: Write failing duplicate, transfer, PII, source-link and export-audit tests**
+
+```ts
+expect((await transferCustomer(unassignedEmployee)).status).toBe(403);
+expect(opportunityStageHistory).toContainEqual(expect.objectContaining({ from: "qualified", to: "proposal" }));
+expect(await exportAsUnassigned()).toMatchObject({ status: 403 });
+```
+
+- [ ] **Step 2: Verify RED**
+
+Run: `npx vitest run src/features/customers/crm-import-export-handler.test.ts src/features/customers`
+Run: `npm run db:test`
+Expected: CRM governance and controlled import/export surfaces are absent.
+
+- [ ] **Step 3: Implement tenant-safe governance**
+
+Normalize dedupe keys, preserve ownership-transfer and opportunity-stage history, restrict contact PII, and link each customer/opportunity to permitted contract/project source records. Validate imports before one transaction per accepted row; export only authorized projections, watermark sensitive exports and append audit. Archive rather than hard-delete business entities and allow authorized restore.
+
+- [ ] **Step 4: Verify GREEN**
+
+Run: `npx vitest run src/features/customers`
+Run: `npm run db:test`
+Run: `npx playwright test tests/e2e/customers.spec.ts --project=chrome`
+Expected: dedupe, transfer, stage history, PII restrictions, import/export audit and archive/restore all respect tenant/role scope.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add supabase/migrations/202608260036_crm_governance.sql supabase/tests/customer_crm.sql src/features/customers src/app/api/workstation/customers/import/route.ts src/app/api/workstation/customers/export/route.ts tests/e2e/customers.spec.ts
+git commit -m "feat: add commercial CRM governance"
+```

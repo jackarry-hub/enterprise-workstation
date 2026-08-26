@@ -194,3 +194,50 @@ Expected: upload -> draft -> publish -> search -> source survives refresh; priva
 git add src/features/knowledge tests/e2e/knowledge.spec.ts
 git commit -m "feat: deliver the real knowledge workspace"
 ```
+
+### Task 5: Add tenant Storage safety, parse/vector lifecycle and knowledge governance
+
+**Files:**
+- Create: `supabase/migrations/202608260038_knowledge_processing_lifecycle.sql`
+- Modify: `supabase/tests/knowledge_access.sql`
+- Create: `src/features/knowledge/document-processing-handler.ts`
+- Create: `src/features/knowledge/document-processing-handler.test.ts`
+- Modify: `src/features/files/file-command-handler.ts`
+- Create: `src/app/api/workstation/knowledge/documents/[documentId]/reindex/route.ts`
+
+**Interfaces:**
+- Produces tenant-scoped object path, hash, MIME/size and `quarantined|scanning|ready|rejected` file lifecycle.
+- Produces OCR/parse/vector jobs with source citation offsets, stale markers, delete cleanup and idempotent reindex commands.
+
+- [ ] **Step 1: Write failing path, scan, parse, vector-permission and delete-cleanup tests**
+
+```ts
+expect(objectPath).toMatch(/^tenant\/[a-z0-9-]+\//);
+expect((await publishQuarantinedDocument()).status).toBe(422);
+expect(await searchAsUnrelatedMember()).not.toContainEqual(expect.objectContaining({ documentId }));
+expect(await vectorsForDeletedVersion()).toHaveLength(0);
+```
+
+- [ ] **Step 2: Verify RED**
+
+Run: `npx vitest run src/features/knowledge/document-processing-handler.test.ts src/features/files/file-command-handler.test.ts`
+Run: `npm run db:test`
+Expected: scan/quarantine and parser/vector lifecycle are not yet durable.
+
+- [ ] **Step 3: Implement controlled document processing**
+
+Verify hash, type and size before admission; keep unsafe objects quarantined. Persist OCR/parse status and errors, index only accessible tenant-scoped published sources, retain versioned source citations, mark stale records, clean vector/object relations on authorized deletion and make reindex resumable/idempotent. Audit download, search and AI-source access; prohibit third-party model training by default.
+
+- [ ] **Step 4: Verify GREEN**
+
+Run: `npx vitest run src/features/knowledge src/features/files`
+Run: `npm run db:test`
+Run: `npx playwright test tests/e2e/knowledge.spec.ts --project=chrome`
+Expected: unsafe/oversize uploads fail, permission filtering holds through search/citation, and delete/reindex leaves no stale vector access.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add supabase/migrations/202608260038_knowledge_processing_lifecycle.sql supabase/tests/knowledge_access.sql src/features/knowledge src/features/files/file-command-handler.ts src/app/api/workstation/knowledge tests/e2e/knowledge.spec.ts
+git commit -m "feat: add governed knowledge processing lifecycle"
+```
