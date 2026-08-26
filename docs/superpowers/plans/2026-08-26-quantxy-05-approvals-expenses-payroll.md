@@ -23,7 +23,7 @@
 ### Task 1: Add approval templates and transactional submission
 
 **Files:**
-- Create: `supabase/migrations/202608260016_approval_workflow_commands.sql`
+- Create: `supabase/migrations/202608260021_approval_workflow_commands.sql`
 - Create: `supabase/tests/approval_workflow.sql`
 - Create: `src/features/approvals/approval-command-handler.ts`
 - Create: `src/features/approvals/approval-command-handler.test.ts`
@@ -59,14 +59,14 @@ Expected: valid submission persists, invalid form fails, unrelated employee cann
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260016_approval_workflow_commands.sql supabase/tests/approval_workflow.sql src/features/approvals/approval-command-handler.ts src/features/approvals/approval-command-handler.test.ts src/app/api/workstation/approvals/route.ts
+git add supabase/migrations/202608260021_approval_workflow_commands.sql supabase/tests/approval_workflow.sql src/features/approvals/approval-command-handler.ts src/features/approvals/approval-command-handler.test.ts src/app/api/workstation/approvals/route.ts
 git commit -m "feat: add transactional approval submission"
 ```
 
 ### Task 2: Add secure approval decisions and cancellation
 
 **Files:**
-- Create: `supabase/migrations/202608260017_approval_action_commands.sql`
+- Create: `supabase/migrations/202608260022_approval_action_commands.sql`
 - Modify: `supabase/tests/approval_workflow.sql`
 - Create: `src/app/api/workstation/approvals/[approvalId]/actions/route.ts`
 - Modify: `src/features/approvals/approval-command-handler.ts`
@@ -102,14 +102,14 @@ Expected: only current approver acts; version conflict returns 409; action and a
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260017_approval_action_commands.sql supabase/tests/approval_workflow.sql src/app/api/workstation/approvals/[approvalId]/actions/route.ts src/features/approvals/approval-command-handler.ts src/features/approvals/approval-command-handler.test.ts
+git add supabase/migrations/202608260022_approval_action_commands.sql supabase/tests/approval_workflow.sql src/app/api/workstation/approvals/[approvalId]/actions/route.ts src/features/approvals/approval-command-handler.ts src/features/approvals/approval-command-handler.test.ts
 git commit -m "feat: add secure approval decisions"
 ```
 
 ### Task 3: Complete expense submission, approval, and payment
 
 **Files:**
-- Create: `supabase/migrations/202608260018_expense_workflow_commands.sql`
+- Create: `supabase/migrations/202608260023_expense_workflow_commands.sql`
 - Create: `supabase/tests/expense_workflow.sql`
 - Create: `src/features/expenses/expense-command-handler.ts`
 - Create: `src/features/expenses/expense-command-handler.test.ts`
@@ -148,7 +148,7 @@ Expected: ownership rewrite fails, unverified files fail, approval link exists, 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260018_expense_workflow_commands.sql supabase/tests/expense_workflow.sql src/features/expenses/expense-command-handler.ts src/features/expenses/expense-command-handler.test.ts src/app/api/workstation/expenses/route.ts src/app/api/workstation/expenses/[expenseId]/submit/route.ts src/app/api/workstation/expenses/[expenseId]/payment/route.ts
+git add supabase/migrations/202608260023_expense_workflow_commands.sql supabase/tests/expense_workflow.sql src/features/expenses/expense-command-handler.ts src/features/expenses/expense-command-handler.test.ts src/app/api/workstation/expenses/route.ts src/app/api/workstation/expenses/[expenseId]/submit/route.ts src/app/api/workstation/expenses/[expenseId]/payment/route.ts
 git commit -m "feat: complete expense reimbursement workflow"
 ```
 
@@ -208,7 +208,7 @@ git commit -m "feat: connect approvals and expenses to real workflows"
 - Modify: `src/features/salary/payroll-pages.test.tsx`
 - Modify: `src/app/api/workstation/payroll/policy/handler.test.ts`
 - Modify: `src/app/api/workstation/payroll/policy/handler.ts`
-- Create: `supabase/migrations/202608260019_payroll_policy_audit.sql`
+- Create: `supabase/migrations/202608260024_payroll_policy_audit.sql`
 - Modify: `supabase/tests/sensitive_rls_matrix.sql`
 - Modify: `tests/e2e/payroll-calculation.spec.ts`
 
@@ -243,14 +243,14 @@ Expected: E2E uses real API/DB, employee sees self only, finance confirms an imm
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/features/salary src/app/api/workstation/payroll supabase/migrations/202608260019_payroll_policy_audit.sql supabase/tests/sensitive_rls_matrix.sql tests/e2e/payroll-calculation.spec.ts
+git add src/features/salary src/app/api/workstation/payroll supabase/migrations/202608260024_payroll_policy_audit.sql supabase/tests/sensitive_rls_matrix.sql tests/e2e/payroll-calculation.spec.ts
 git commit -m "feat: complete real payroll administration"
 ```
 
 ### Task 6: Close the approved commercial approval, expense and payroll scope
 
 **Files:**
-- Create: `supabase/migrations/202608260037_commercial_finance_controls.sql`
+- Create: `supabase/migrations/202608260042_commercial_finance_controls.sql`
 - Modify: `supabase/tests/approval_workflow.sql`
 - Modify: `supabase/tests/expense_workflow.sql`
 - Modify: `supabase/tests/sensitive_rls_matrix.sql`
@@ -323,6 +323,6 @@ Expected: transfer, withdrawal, timeout/departed-approver reassignment, finance 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add vercel.json supabase/migrations/202608260037_commercial_finance_controls.sql supabase/tests/approval_workflow.sql supabase/tests/expense_workflow.sql supabase/tests/sensitive_rls_matrix.sql src/app/api/cron/approval-exceptions src/features/approvals src/features/expenses src/features/salary tests/e2e/approvals.spec.ts tests/e2e/expenses.spec.ts tests/e2e/payroll-calculation.spec.ts tests/e2e/commercial-finance-controls.spec.ts
+git add vercel.json supabase/migrations/202608260042_commercial_finance_controls.sql supabase/tests/approval_workflow.sql supabase/tests/expense_workflow.sql supabase/tests/sensitive_rls_matrix.sql src/app/api/cron/approval-exceptions src/features/approvals src/features/expenses src/features/salary tests/e2e/approvals.spec.ts tests/e2e/expenses.spec.ts tests/e2e/payroll-calculation.spec.ts tests/e2e/commercial-finance-controls.spec.ts
 git commit -m "feat: complete commercial finance controls"
 ```

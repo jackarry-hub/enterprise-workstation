@@ -24,7 +24,7 @@
 ### Task 1: Persist enterprise, personal, notification, and scheduler settings
 
 **Files:**
-- Create: `supabase/migrations/202608260031_workspace_settings.sql`
+- Create: `supabase/migrations/202608260036_workspace_settings.sql`
 - Create: `supabase/tests/workspace_settings.sql`
 - Create: `src/features/settings/settings-data.ts`
 - Create: `src/features/settings/settings-data.test.ts`
@@ -64,14 +64,14 @@ Expected: refresh/cross-account cases pass and local business settings key is ab
 - [ ] **Step 5: Commit**
 
 ```bash
-git add -A src/features/settings src/app/api/workstation/settings/route.ts supabase/migrations/202608260031_workspace_settings.sql supabase/tests/workspace_settings.sql
+git add -A src/features/settings src/app/api/workstation/settings/route.ts supabase/migrations/202608260036_workspace_settings.sql supabase/tests/workspace_settings.sql
 git commit -m "feat: persist workspace settings"
 ```
 
 ### Task 2: Add traceable analytics views and real dashboards
 
 **Files:**
-- Create: `supabase/migrations/202608260032_commercial_analytics.sql`
+- Create: `supabase/migrations/202608260037_commercial_analytics.sql`
 - Create: `supabase/tests/commercial_analytics.sql`
 - Create: `src/features/analytics/analytics-data.ts`
 - Create: `src/features/analytics/analytics-data.test.ts`
@@ -111,14 +111,14 @@ Expected: known fixture rows in local DB produce exact documented numerators/den
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260032_commercial_analytics.sql supabase/tests/commercial_analytics.sql src/features/analytics src/features/dashboard
+git add supabase/migrations/202608260037_commercial_analytics.sql supabase/tests/commercial_analytics.sql src/features/analytics src/features/dashboard
 git commit -m "feat: add traceable commercial analytics"
 ```
 
 ### Task 3: Build the real notification center
 
 **Files:**
-- Create: `supabase/migrations/202608260033_notification_center.sql`
+- Create: `supabase/migrations/202608260038_notification_center.sql`
 - Create: `supabase/tests/notification_center.sql`
 - Create: `src/features/notifications/notification-data.ts`
 - Create: `src/features/notifications/notification-data.test.ts`
@@ -157,7 +157,7 @@ Expected: recipient isolation, safe payload and persistent read state pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260033_notification_center.sql supabase/tests/notification_center.sql src/features/notifications src/app/api/workstation/notifications/[notificationId]/read/route.ts 'src/app/(workspace)/notifications/page.tsx'
+git add supabase/migrations/202608260038_notification_center.sql supabase/tests/notification_center.sql src/features/notifications src/app/api/workstation/notifications/[notificationId]/read/route.ts 'src/app/(workspace)/notifications/page.tsx'
 git commit -m "feat: add the real notification center"
 ```
 

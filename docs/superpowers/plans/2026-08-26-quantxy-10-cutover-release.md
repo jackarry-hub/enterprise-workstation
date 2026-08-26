@@ -183,7 +183,7 @@ git commit -m "ci: add QuantXY commercial release gate"
 **Files:**
 - Modify: `next.config.ts`
 - Modify: `src/middleware.ts`
-- Create: `supabase/migrations/202608260042_distributed_rate_limits.sql`
+- Create: `supabase/migrations/202608260047_distributed_rate_limits.sql`
 - Create: `supabase/tests/distributed_rate_limits.sql`
 - Create: `src/features/security/distributed-rate-limit.ts`
 - Create: `src/features/security/distributed-rate-limit.test.ts`
@@ -247,7 +247,7 @@ Expected: the exact RED commands now pass; tests cover tenant/user/IP isolation,
 - [ ] **Step 5: Commit**
 
 ```bash
-git add next.config.ts src/middleware.ts supabase/migrations/202608260042_distributed_rate_limits.sql supabase/tests/distributed_rate_limits.sql src/features/security src/app/auth/login/feishu src/app/api/health/ready/route.ts src/app/api/health/ready/route.test.ts Dockerfile compose.yaml docs/operations/container-security.md docs/operations/waf-evidence.md scripts/validate-waf-evidence.mjs scripts/validate-waf-evidence.test.mjs
+git add next.config.ts src/middleware.ts supabase/migrations/202608260047_distributed_rate_limits.sql supabase/tests/distributed_rate_limits.sql src/features/security src/app/auth/login/feishu src/app/api/health/ready/route.ts src/app/api/health/ready/route.test.ts Dockerfile compose.yaml docs/operations/container-security.md docs/operations/waf-evidence.md scripts/validate-waf-evidence.mjs scripts/validate-waf-evidence.test.mjs
 git commit -m "security: harden runtime and readiness"
 ```
 

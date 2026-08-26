@@ -23,7 +23,7 @@
 ### Task 1: Add shared AI rate limits and durable invocation completion
 
 **Files:**
-- Create: `supabase/migrations/202608260023_ai_runtime_limits.sql`
+- Create: `supabase/migrations/202608260028_ai_runtime_limits.sql`
 - Create: `supabase/tests/ai_runtime.sql`
 - Create: `src/features/ai-runtime/rate-limit-store.ts`
 - Create: `src/features/ai-runtime/rate-limit-store.test.ts`
@@ -60,14 +60,14 @@ Expected: shared quota, timeout, provider error and success states pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260023_ai_runtime_limits.sql supabase/tests/ai_runtime.sql src/features/ai-runtime/rate-limit-store.ts src/features/ai-runtime/rate-limit-store.test.ts src/features/ai-config/ai-chat-handler.ts src/features/ai-config/ai-chat-handler.test.ts
+git add supabase/migrations/202608260028_ai_runtime_limits.sql supabase/tests/ai_runtime.sql src/features/ai-runtime/rate-limit-store.ts src/features/ai-runtime/rate-limit-store.test.ts src/features/ai-config/ai-chat-handler.ts src/features/ai-config/ai-chat-handler.test.ts
 git commit -m "feat: add durable AI runtime controls"
 ```
 
 ### Task 2: Persist AI assistant conversations and messages
 
 **Files:**
-- Create: `supabase/migrations/202608260024_ai_conversations.sql`
+- Create: `supabase/migrations/202608260029_ai_conversations.sql`
 - Modify: `supabase/tests/ai_runtime.sql`
 - Create: `src/features/ai-assistant/conversation-handler.ts`
 - Create: `src/features/ai-assistant/conversation-handler.test.ts`
@@ -105,14 +105,14 @@ Expected: self-only access, idempotent send, stable ordering and archived conver
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260024_ai_conversations.sql supabase/tests/ai_runtime.sql src/features/ai-assistant/conversation-handler.ts src/features/ai-assistant/conversation-handler.test.ts src/app/api/workstation/ai/conversations/route.ts src/app/api/workstation/ai/conversations/[conversationId]/messages/route.ts src/app/api/workstation/ai/conversations/[conversationId]/route.ts
+git add supabase/migrations/202608260029_ai_conversations.sql supabase/tests/ai_runtime.sql src/features/ai-assistant/conversation-handler.ts src/features/ai-assistant/conversation-handler.test.ts src/app/api/workstation/ai/conversations/route.ts src/app/api/workstation/ai/conversations/[conversationId]/messages/route.ts src/app/api/workstation/ai/conversations/[conversationId]/route.ts
 git commit -m "feat: persist AI assistant conversations"
 ```
 
 ### Task 3: Add versioned scheduling goals and plans
 
 **Files:**
-- Create: `supabase/migrations/202608260025_ai_scheduling.sql`
+- Create: `supabase/migrations/202608260030_ai_scheduling.sql`
 - Create: `supabase/tests/ai_scheduling.sql`
 - Create: `src/features/ai-scheduler/scheduling-handler.ts`
 - Create: `src/features/ai-scheduler/scheduling-handler.test.ts`
@@ -149,14 +149,14 @@ Expected: model/rules labels, evidence IDs, null cost and tenant isolation pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260025_ai_scheduling.sql supabase/tests/ai_scheduling.sql src/features/ai-scheduler/scheduling-handler.ts src/features/ai-scheduler/scheduling-handler.test.ts src/app/api/workstation/scheduling/goals/route.ts src/app/api/workstation/scheduling/goals/[goalId]/plans/route.ts
+git add supabase/migrations/202608260030_ai_scheduling.sql supabase/tests/ai_scheduling.sql src/features/ai-scheduler/scheduling-handler.ts src/features/ai-scheduler/scheduling-handler.test.ts src/app/api/workstation/scheduling/goals/route.ts src/app/api/workstation/scheduling/goals/[goalId]/plans/route.ts
 git commit -m "feat: persist explainable AI scheduling plans"
 ```
 
 ### Task 4: Audit human overrides and dispatch a locked plan atomically
 
 **Files:**
-- Create: `supabase/migrations/202608260026_ai_scheduling_dispatch.sql`
+- Create: `supabase/migrations/202608260031_ai_scheduling_dispatch.sql`
 - Modify: `supabase/tests/ai_scheduling.sql`
 - Create: `src/app/api/workstation/scheduling/plans/[planId]/overrides/route.ts`
 - Create: `src/app/api/workstation/scheduling/plans/[planId]/dispatch/route.ts`
@@ -193,7 +193,7 @@ Expected: reason required, stale version rejected, dispatch idempotent, all task
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260026_ai_scheduling_dispatch.sql supabase/tests/ai_scheduling.sql src/app/api/workstation/scheduling/plans/[planId]/overrides/route.ts src/app/api/workstation/scheduling/plans/[planId]/dispatch/route.ts src/features/ai-scheduler/scheduling-handler.ts src/features/ai-scheduler/scheduling-handler.test.ts
+git add supabase/migrations/202608260031_ai_scheduling_dispatch.sql supabase/tests/ai_scheduling.sql src/app/api/workstation/scheduling/plans/[planId]/overrides/route.ts src/app/api/workstation/scheduling/plans/[planId]/dispatch/route.ts src/features/ai-scheduler/scheduling-handler.ts src/features/ai-scheduler/scheduling-handler.test.ts
 git commit -m "feat: audit scheduling overrides and dispatch"
 ```
 
@@ -246,7 +246,7 @@ git commit -m "feat: deliver AI assistant and scheduler workspaces"
 ### Task 6: Add governed queue operations, budgets and pre-execution human confirmation
 
 **Files:**
-- Create: `supabase/migrations/202608260039_ai_queue_governance.sql`
+- Create: `supabase/migrations/202608260044_ai_queue_governance.sql`
 - Modify: `supabase/tests/ai_runtime.sql`
 - Create: `src/features/ai-runtime/queue-handler.ts`
 - Create: `src/features/ai-runtime/queue-handler.test.ts`
@@ -300,6 +300,6 @@ Expected: ten concurrent AI/Agent jobs expose queue status, non-AI workflows rem
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260039_ai_queue_governance.sql supabase/tests/ai_runtime.sql src/features/ai-runtime src/app/api/workstation/ai tests/e2e/ai-assistant.spec.ts tests/e2e/ai-scheduler.spec.ts
+git add supabase/migrations/202608260044_ai_queue_governance.sql supabase/tests/ai_runtime.sql src/features/ai-runtime src/app/api/workstation/ai tests/e2e/ai-assistant.spec.ts tests/e2e/ai-scheduler.spec.ts
 git commit -m "feat: govern AI queue and high-risk confirmation"
 ```

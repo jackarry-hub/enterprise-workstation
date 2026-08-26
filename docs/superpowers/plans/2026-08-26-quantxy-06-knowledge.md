@@ -22,7 +22,7 @@
 ### Task 1: Create knowledge directories, versions, and access rules
 
 **Files:**
-- Create: `supabase/migrations/202608260020_knowledge_versions.sql`
+- Create: `supabase/migrations/202608260025_knowledge_versions.sql`
 - Create: `supabase/tests/knowledge_access.sql`
 - Create: `src/features/knowledge/knowledge-types-v2.ts`
 
@@ -55,14 +55,14 @@ Expected: author/manager/published-reader cases pass; unrelated and cross-tenant
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260020_knowledge_versions.sql supabase/tests/knowledge_access.sql src/features/knowledge/knowledge-types-v2.ts
+git add supabase/migrations/202608260025_knowledge_versions.sql supabase/tests/knowledge_access.sql src/features/knowledge/knowledge-types-v2.ts
 git commit -m "feat: add versioned knowledge access model"
 ```
 
 ### Task 2: Add upload, publish, archive, and directory commands
 
 **Files:**
-- Create: `supabase/migrations/202608260021_knowledge_commands.sql`
+- Create: `supabase/migrations/202608260026_knowledge_commands.sql`
 - Modify: `supabase/tests/knowledge_access.sql`
 - Create: `src/features/knowledge/knowledge-command-handler.ts`
 - Create: `src/features/knowledge/knowledge-command-handler.test.ts`
@@ -101,14 +101,14 @@ Expected: verified upload publishes; unauthorized and overwrite operations fail.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260021_knowledge_commands.sql supabase/tests/knowledge_access.sql src/features/knowledge/knowledge-command-handler.ts src/features/knowledge/knowledge-command-handler.test.ts src/app/api/workstation/knowledge/directories/route.ts src/app/api/workstation/knowledge/documents/route.ts src/app/api/workstation/knowledge/documents/[documentId]/versions/route.ts src/app/api/workstation/knowledge/documents/[documentId]/publish/route.ts
+git add supabase/migrations/202608260026_knowledge_commands.sql supabase/tests/knowledge_access.sql src/features/knowledge/knowledge-command-handler.ts src/features/knowledge/knowledge-command-handler.test.ts src/app/api/workstation/knowledge/directories/route.ts src/app/api/workstation/knowledge/documents/route.ts src/app/api/workstation/knowledge/documents/[documentId]/versions/route.ts src/app/api/workstation/knowledge/documents/[documentId]/publish/route.ts
 git commit -m "feat: add knowledge publication commands"
 ```
 
 ### Task 3: Add permission-filtered search and source retrieval
 
 **Files:**
-- Create: `supabase/migrations/202608260022_knowledge_search.sql`
+- Create: `supabase/migrations/202608260027_knowledge_search.sql`
 - Modify: `supabase/tests/knowledge_access.sql`
 - Create: `src/features/knowledge/knowledge-search.ts`
 - Create: `src/features/knowledge/knowledge-search.test.ts`
@@ -145,7 +145,7 @@ Expected: private documents never appear; citations always include document and 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260022_knowledge_search.sql supabase/tests/knowledge_access.sql src/features/knowledge/knowledge-search.ts src/features/knowledge/knowledge-search.test.ts src/app/api/workstation/knowledge/search/route.ts src/app/api/workstation/knowledge/documents/[documentId]/source/route.ts
+git add supabase/migrations/202608260027_knowledge_search.sql supabase/tests/knowledge_access.sql src/features/knowledge/knowledge-search.ts src/features/knowledge/knowledge-search.test.ts src/app/api/workstation/knowledge/search/route.ts src/app/api/workstation/knowledge/documents/[documentId]/source/route.ts
 git commit -m "feat: add permission-aware knowledge search"
 ```
 
@@ -198,7 +198,7 @@ git commit -m "feat: deliver the real knowledge workspace"
 ### Task 5: Add tenant Storage safety, parse/vector lifecycle and knowledge governance
 
 **Files:**
-- Create: `supabase/migrations/202608260038_knowledge_processing_lifecycle.sql`
+- Create: `supabase/migrations/202608260043_knowledge_processing_lifecycle.sql`
 - Modify: `supabase/tests/knowledge_access.sql`
 - Create: `src/features/knowledge/document-processing-handler.ts`
 - Create: `src/features/knowledge/document-processing-handler.test.ts`
@@ -238,6 +238,6 @@ Expected: unsafe/oversize uploads fail, permission filtering holds through searc
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260038_knowledge_processing_lifecycle.sql supabase/tests/knowledge_access.sql src/features/knowledge src/features/files/file-command-handler.ts src/app/api/workstation/knowledge tests/e2e/knowledge.spec.ts
+git add supabase/migrations/202608260043_knowledge_processing_lifecycle.sql supabase/tests/knowledge_access.sql src/features/knowledge src/features/files/file-command-handler.ts src/app/api/workstation/knowledge tests/e2e/knowledge.spec.ts
 git commit -m "feat: add governed knowledge processing lifecycle"
 ```

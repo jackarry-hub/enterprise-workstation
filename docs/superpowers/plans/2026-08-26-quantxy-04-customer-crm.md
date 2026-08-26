@@ -22,7 +22,7 @@
 ### Task 1: Create tenant-safe CRM schema and RLS
 
 **Files:**
-- Create: `supabase/migrations/202608260013_customer_crm.sql`
+- Create: `supabase/migrations/202608260018_customer_crm.sql`
 - Create: `supabase/tests/customer_crm.sql`
 - Create: `src/features/customers/customer-types-v2.ts`
 - Modify: `src/features/auth/workspace-session-types.ts`
@@ -57,7 +57,7 @@ Expected: cross-tenant reads return zero, duplicate normalized customer fails, d
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260013_customer_crm.sql supabase/tests/customer_crm.sql src/features/customers/customer-types-v2.ts src/features/auth/workspace-session-types.ts src/features/auth/workspace-access.ts
+git add supabase/migrations/202608260018_customer_crm.sql supabase/tests/customer_crm.sql src/features/customers/customer-types-v2.ts src/features/auth/workspace-session-types.ts src/features/auth/workspace-access.ts
 git commit -m "feat: add tenant-safe customer CRM schema"
 ```
 
@@ -69,7 +69,7 @@ git commit -m "feat: add tenant-safe customer CRM schema"
 - Create: `src/app/api/workstation/customers/route.ts`
 - Create: `src/app/api/workstation/customers/[customerId]/route.ts`
 - Create: `src/app/api/workstation/customers/[customerId]/contacts/route.ts`
-- Create: `supabase/migrations/202608260014_customer_commands.sql`
+- Create: `supabase/migrations/202608260019_customer_commands.sql`
 - Modify: `supabase/tests/customer_crm.sql`
 
 **Interfaces:**
@@ -102,7 +102,7 @@ Expected: authorization, validation, idempotency and duplicate-name conflict pas
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/features/customers/customer-command-handler.ts src/features/customers/customer-command-handler.test.ts src/app/api/workstation/customers/route.ts src/app/api/workstation/customers/[customerId]/route.ts src/app/api/workstation/customers/[customerId]/contacts/route.ts supabase/migrations/202608260014_customer_commands.sql supabase/tests/customer_crm.sql
+git add src/features/customers/customer-command-handler.ts src/features/customers/customer-command-handler.test.ts src/app/api/workstation/customers/route.ts src/app/api/workstation/customers/[customerId]/route.ts src/app/api/workstation/customers/[customerId]/contacts/route.ts supabase/migrations/202608260019_customer_commands.sql supabase/tests/customer_crm.sql
 git commit -m "feat: add customer and contact commands"
 ```
 
@@ -114,7 +114,7 @@ git commit -m "feat: add customer and contact commands"
 - Create: `src/app/api/workstation/customers/[customerId]/opportunities/route.ts`
 - Create: `src/app/api/workstation/customers/[customerId]/follow-ups/route.ts`
 - Create: `src/app/api/workstation/opportunities/[opportunityId]/convert/route.ts`
-- Create: `supabase/migrations/202608260015_opportunity_commands.sql`
+- Create: `supabase/migrations/202608260020_opportunity_commands.sql`
 - Modify: `supabase/tests/customer_crm.sql`
 
 **Interfaces:**
@@ -147,7 +147,7 @@ Expected: invalid jumps fail, actor spoof is ignored, failed linking rolls back 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/features/customers/opportunity-command-handler.ts src/features/customers/opportunity-command-handler.test.ts src/app/api/workstation/customers/[customerId]/opportunities/route.ts src/app/api/workstation/customers/[customerId]/follow-ups/route.ts src/app/api/workstation/opportunities/[opportunityId]/convert/route.ts supabase/migrations/202608260015_opportunity_commands.sql supabase/tests/customer_crm.sql
+git add src/features/customers/opportunity-command-handler.ts src/features/customers/opportunity-command-handler.test.ts src/app/api/workstation/customers/[customerId]/opportunities/route.ts src/app/api/workstation/customers/[customerId]/follow-ups/route.ts src/app/api/workstation/opportunities/[opportunityId]/convert/route.ts supabase/migrations/202608260020_opportunity_commands.sql supabase/tests/customer_crm.sql
 git commit -m "feat: add opportunity and customer delivery workflow"
 ```
 
@@ -201,7 +201,7 @@ git commit -m "feat: connect customer CRM to real data"
 ### Task 5: Add commercial CRM governance, exchange and lifecycle controls
 
 **Files:**
-- Create: `supabase/migrations/202608260036_crm_governance.sql`
+- Create: `supabase/migrations/202608260041_crm_governance.sql`
 - Modify: `supabase/tests/customer_crm.sql`
 - Modify: `src/features/customers/customer-command-handler.ts`
 - Modify: `src/features/customers/opportunity-command-handler.ts`
@@ -247,6 +247,6 @@ Expected: dedupe, transfer, stage history, PII restrictions, import/export audit
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260036_crm_governance.sql supabase/tests/customer_crm.sql src/features/customers src/app/api/workstation/customers tests/e2e/customers.spec.ts
+git add supabase/migrations/202608260041_crm_governance.sql supabase/tests/customer_crm.sql src/features/customers src/app/api/workstation/customers tests/e2e/customers.spec.ts
 git commit -m "feat: add commercial CRM governance"
 ```

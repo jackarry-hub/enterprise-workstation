@@ -23,7 +23,7 @@
 ### Task 1: Add transactional project lifecycle commands
 
 **Files:**
-- Create: `supabase/migrations/202608260008_project_lifecycle_commands.sql`
+- Create: `supabase/migrations/202608260013_project_lifecycle_commands.sql`
 - Create: `supabase/tests/project_lifecycle.sql`
 - Modify: `src/app/api/workstation/projects/handler.test.ts`
 - Modify: `src/app/api/workstation/projects/handler.ts`
@@ -61,14 +61,14 @@ Expected: invalid money is 400, duplicate key returns the same entity, injected 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260008_project_lifecycle_commands.sql supabase/tests/project_lifecycle.sql src/app/api/workstation/projects/handler.test.ts src/app/api/workstation/projects/handler.ts src/app/api/workstation/projects/[projectId]/route.ts src/features/projects/project-command-handler.ts src/features/projects/project-command-handler.test.ts
+git add supabase/migrations/202608260013_project_lifecycle_commands.sql supabase/tests/project_lifecycle.sql src/app/api/workstation/projects/handler.test.ts src/app/api/workstation/projects/handler.ts src/app/api/workstation/projects/[projectId]/route.ts src/features/projects/project-command-handler.ts src/features/projects/project-command-handler.test.ts
 git commit -m "feat: add transactional project lifecycle"
 ```
 
 ### Task 2: Add milestone, risk, activity, report, comment, and dependency commands
 
 **Files:**
-- Create: `supabase/migrations/202608260009_project_execution_commands.sql`
+- Create: `supabase/migrations/202608260014_project_execution_commands.sql`
 - Create: `supabase/tests/project_execution.sql`
 - Create: `src/features/projects/execution-command-handler.ts`
 - Create: `src/features/projects/execution-command-handler.test.ts`
@@ -109,14 +109,14 @@ Expected: authorized commands persist; unrelated/cross-tenant commands fail; dep
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260009_project_execution_commands.sql supabase/tests/project_execution.sql src/features/projects/execution-command-handler.ts src/features/projects/execution-command-handler.test.ts src/app/api/workstation/projects/[projectId]/milestones/route.ts src/app/api/workstation/projects/[projectId]/risks/route.ts src/app/api/workstation/projects/[projectId]/activities/route.ts src/app/api/workstation/projects/[projectId]/reports/route.ts src/app/api/workstation/tasks/[taskId]/comments/route.ts src/app/api/workstation/tasks/[taskId]/dependencies/route.ts
+git add supabase/migrations/202608260014_project_execution_commands.sql supabase/tests/project_execution.sql src/features/projects/execution-command-handler.ts src/features/projects/execution-command-handler.test.ts src/app/api/workstation/projects/[projectId]/milestones/route.ts src/app/api/workstation/projects/[projectId]/risks/route.ts src/app/api/workstation/projects/[projectId]/activities/route.ts src/app/api/workstation/projects/[projectId]/reports/route.ts src/app/api/workstation/tasks/[taskId]/comments/route.ts src/app/api/workstation/tasks/[taskId]/dependencies/route.ts
 git commit -m "feat: add project execution commands"
 ```
 
 ### Task 3: Make task batches atomic, idempotent, and fully audited
 
 **Files:**
-- Create: `supabase/migrations/202608260010_task_command_v2.sql`
+- Create: `supabase/migrations/202608260015_task_command_v2.sql`
 - Create: `supabase/tests/task_workflow.sql`
 - Modify: `src/app/api/workstation/tasks/batch/handler.test.ts`
 - Modify: `src/app/api/workstation/tasks/batch/handler.ts`
@@ -153,14 +153,14 @@ Expected: rollback, duplicate replay, version conflict, actor rules and audit ca
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260010_task_command_v2.sql supabase/tests/task_workflow.sql src/app/api/workstation/tasks/batch/handler.test.ts src/app/api/workstation/tasks/batch/handler.ts src/app/api/workstation/tasks/[taskId]/handler.test.ts src/app/api/workstation/tasks/[taskId]/handler.ts
+git add supabase/migrations/202608260015_task_command_v2.sql supabase/tests/task_workflow.sql src/app/api/workstation/tasks/batch/handler.test.ts src/app/api/workstation/tasks/batch/handler.ts src/app/api/workstation/tasks/[taskId]/handler.test.ts src/app/api/workstation/tasks/[taskId]/handler.ts
 git commit -m "feat: make task workflows atomic and auditable"
 ```
 
 ### Task 4: Add verified signed file upload and relations
 
 **Files:**
-- Create: `supabase/migrations/202608260011_file_storage_commands.sql`
+- Create: `supabase/migrations/202608260016_file_storage_commands.sql`
 - Create: `supabase/tests/file_storage.sql`
 - Create: `src/features/files/file-command-handler.ts`
 - Create: `src/features/files/file-command-handler.test.ts`
@@ -199,14 +199,14 @@ Expected: valid file persists; forbidden project, disallowed type, oversize and 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260011_file_storage_commands.sql supabase/tests/file_storage.sql src/features/files/file-command-handler.ts src/features/files/file-command-handler.test.ts src/app/api/workstation/files/upload-url/route.ts src/app/api/workstation/files/complete/route.ts src/features/projects/components/project-files-tab.tsx src/features/operations/file-storage.ts
+git add supabase/migrations/202608260016_file_storage_commands.sql supabase/tests/file_storage.sql src/features/files/file-command-handler.ts src/features/files/file-command-handler.test.ts src/app/api/workstation/files/upload-url/route.ts src/app/api/workstation/files/complete/route.ts src/features/projects/components/project-files-tab.tsx src/features/operations/file-storage.ts
 git commit -m "feat: add verified business file uploads"
 ```
 
 ### Task 5: Persist every Feishu notification delivery transition
 
 **Files:**
-- Create: `supabase/migrations/202608260012_notification_outbox_v2.sql`
+- Create: `supabase/migrations/202608260017_notification_outbox_v2.sql`
 - Create: `supabase/tests/notification_outbox.sql`
 - Modify: `src/features/workstation/task-notification.test.ts`
 - Modify: `src/features/workstation/task-notification.ts`
@@ -242,7 +242,7 @@ Expected: one claim wins; restart recovery and duplicate protection pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260012_notification_outbox_v2.sql supabase/tests/notification_outbox.sql src/features/workstation/task-notification.test.ts src/features/workstation/task-notification.ts src/features/workstation/task-notification-batch.test.ts src/features/workstation/task-notification-batch.ts
+git add supabase/migrations/202608260017_notification_outbox_v2.sql supabase/tests/notification_outbox.sql src/features/workstation/task-notification.test.ts src/features/workstation/task-notification.ts src/features/workstation/task-notification-batch.test.ts src/features/workstation/task-notification-batch.ts
 git commit -m "feat: persist Feishu notification delivery state"
 ```
 
@@ -299,7 +299,7 @@ git commit -m "feat: deliver the real project execution workspace"
 ### Task 7: Complete membership, acceptance, history/archive and durable recipient notifications
 
 **Files:**
-- Create: `supabase/migrations/202608260035_project_commercial_completion.sql`
+- Create: `supabase/migrations/202608260040_project_commercial_completion.sql`
 - Modify: `supabase/tests/project_execution.sql`
 - Modify: `supabase/tests/notification_outbox.sql`
 - Modify: `src/features/projects/execution-command-handler.ts`
@@ -340,6 +340,6 @@ Expected: the complete project closure survives refresh and cross-role authoriza
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260035_project_commercial_completion.sql supabase/tests/project_execution.sql supabase/tests/notification_outbox.sql src/features/projects src/features/workstation/task-notification.ts src/app/api/workstation/projects tests/e2e/projects-closure.spec.ts tests/e2e/task-workflow.spec.ts
+git add supabase/migrations/202608260040_project_commercial_completion.sql supabase/tests/project_execution.sql supabase/tests/notification_outbox.sql src/features/projects src/features/workstation/task-notification.ts src/app/api/workstation/projects tests/e2e/projects-closure.spec.ts tests/e2e/task-workflow.spec.ts
 git commit -m "feat: complete project membership and notification durability"
 ```

@@ -76,7 +76,7 @@ git commit -m "test: add fail-closed database command guard"
 ### Task 2: Split public directory data from private employee PII
 
 **Files:**
-- Create: `supabase/migrations/202608260005_employee_private_profiles.sql`
+- Create: `supabase/migrations/202608260010_employee_private_profiles.sql`
 - Create: `supabase/tests/employee_privacy.sql`
 - Modify: `src/features/hr/employee-types.ts`
 - Modify: `src/features/hr/employee-data.ts`
@@ -113,7 +113,7 @@ Expected: employee sees public directory only; self and HR cases pass; unrelated
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260005_employee_private_profiles.sql supabase/tests/employee_privacy.sql src/features/hr/employee-types.ts src/features/hr/employee-data.ts src/features/hr/employee-data.test.ts
+git add supabase/migrations/202608260010_employee_private_profiles.sql supabase/tests/employee_privacy.sql src/features/hr/employee-types.ts src/features/hr/employee-data.ts src/features/hr/employee-data.test.ts
 git commit -m "security: isolate employee private profiles"
 ```
 
@@ -161,7 +161,7 @@ git commit -m "fix: make directory synchronization fail closed"
 ### Task 4: Add department, position, and role commands
 
 **Files:**
-- Create: `supabase/migrations/202608260006_organization_commands.sql`
+- Create: `supabase/migrations/202608260011_organization_commands.sql`
 - Create: `supabase/tests/organization_commands.sql`
 - Create: `src/features/organization/organization-command-types.ts`
 - Create: `src/features/organization/organization-command-handler.ts`
@@ -199,7 +199,7 @@ Expected: employee is denied, admin succeeds, cross-tenant IDs return not-found,
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260006_organization_commands.sql supabase/tests/organization_commands.sql src/features/organization/organization-command-types.ts src/features/organization/organization-command-handler.ts src/features/organization/organization-command-handler.test.ts src/app/api/workstation/organization/route.ts src/app/api/workstation/organization/roles/route.ts
+git add supabase/migrations/202608260011_organization_commands.sql supabase/tests/organization_commands.sql src/features/organization/organization-command-types.ts src/features/organization/organization-command-handler.ts src/features/organization/organization-command-handler.test.ts src/app/api/workstation/organization/route.ts src/app/api/workstation/organization/roles/route.ts
 git commit -m "feat: add audited organization commands"
 ```
 
@@ -208,7 +208,7 @@ git commit -m "feat: add audited organization commands"
 **Files:**
 - Modify: `src/app/api/workstation/work-profile/handler.test.ts`
 - Modify: `src/app/api/workstation/work-profile/handler.ts`
-- Create: `supabase/migrations/202608260007_skill_verification_commands.sql`
+- Create: `supabase/migrations/202608260012_skill_verification_commands.sql`
 - Modify: `supabase/tests/organization_commands.sql`
 - Create: `src/app/api/workstation/skills/[skillId]/verify/route.ts`
 - Create: `src/features/work-profile/skill-verification.test.ts`
@@ -243,7 +243,7 @@ Expected: self update persists; cross-tenant overwrite fails; authorized verific
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/app/api/workstation/work-profile/handler.test.ts src/app/api/workstation/work-profile/handler.ts supabase/migrations/202608260007_skill_verification_commands.sql supabase/tests/organization_commands.sql src/app/api/workstation/skills/[skillId]/verify/route.ts src/features/work-profile/skill-verification.test.ts
+git add src/app/api/workstation/work-profile/handler.test.ts src/app/api/workstation/work-profile/handler.ts supabase/migrations/202608260012_skill_verification_commands.sql supabase/tests/organization_commands.sql src/app/api/workstation/skills/[skillId]/verify/route.ts src/features/work-profile/skill-verification.test.ts
 git commit -m "feat: secure profiles and verify employee skills"
 ```
 
@@ -296,7 +296,7 @@ git commit -m "feat: connect the people workspace to real data"
 ### Task 7: Complete Feishu OAuth and resilient directory synchronization
 
 **Files:**
-- Create: `supabase/migrations/202608260034_feishu_sync_control.sql`
+- Create: `supabase/migrations/202608260039_feishu_sync_control.sql`
 - Create: `supabase/tests/feishu_sync_control.sql`
 - Modify: `src/app/auth/login/feishu/handler.ts`
 - Modify: `src/app/auth/login/feishu/route.ts`
@@ -342,14 +342,14 @@ Expected: Local uses synthetic identities through the real adapter/persistence p
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260034_feishu_sync_control.sql supabase/tests/feishu_sync_control.sql src/app/auth/login/feishu src/app/auth/callback src/features/feishu src/app/api/workstation/feishu 'src/app/(workspace)/people/sync-issues/page.tsx' tests/e2e/directory-sync.spec.ts
+git add supabase/migrations/202608260039_feishu_sync_control.sql supabase/tests/feishu_sync_control.sql src/app/auth/login/feishu src/app/auth/callback src/features/feishu src/app/api/workstation/feishu 'src/app/(workspace)/people/sync-issues/page.tsx' tests/e2e/directory-sync.spec.ts
 git commit -m "feat: add resilient Feishu OAuth directory sync"
 ```
 
 ### Task 8: Add direct-manager mapping and a distinct supervisor scope
 
 **Files:**
-- Create: `supabase/migrations/202608260041_manager_supervisor_scope.sql`
+- Create: `supabase/migrations/202608260046_manager_supervisor_scope.sql`
 - Modify: `supabase/tests/organization_commands.sql`
 - Modify: `src/features/auth/workspace-session-types.ts`
 - Modify: `src/features/auth/workspace-access.ts`
@@ -390,6 +390,6 @@ Expected: employee, supervisor, department head, HR, finance, admin and owner be
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260041_manager_supervisor_scope.sql supabase/tests/organization_commands.sql src/features/auth src/features/organization src/app/api/workstation/organization/members tests/e2e/people.spec.ts
+git add supabase/migrations/202608260046_manager_supervisor_scope.sql supabase/tests/organization_commands.sql src/features/auth src/features/organization src/app/api/workstation/organization/members tests/e2e/people.spec.ts
 git commit -m "feat: add direct manager and supervisor scope"
 ```

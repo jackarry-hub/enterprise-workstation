@@ -23,7 +23,7 @@
 ### Task 1: Add versioned Agent definitions and publish commands
 
 **Files:**
-- Create: `supabase/migrations/202608260027_agent_versions.sql`
+- Create: `supabase/migrations/202608260032_agent_versions.sql`
 - Create: `supabase/tests/agent_runtime.sql`
 - Create: `src/features/agents/agent-command-handler.ts`
 - Create: `src/features/agents/agent-command-handler.test.ts`
@@ -61,14 +61,14 @@ Expected: manager flow passes; employee, invalid model, overwrite and cross-tena
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260027_agent_versions.sql supabase/tests/agent_runtime.sql src/features/agents/agent-command-handler.ts src/features/agents/agent-command-handler.test.ts src/app/api/workstation/agents/route.ts src/app/api/workstation/agents/[agentId]/versions/route.ts src/app/api/workstation/agents/[agentId]/publish/route.ts
+git add supabase/migrations/202608260032_agent_versions.sql supabase/tests/agent_runtime.sql src/features/agents/agent-command-handler.ts src/features/agents/agent-command-handler.test.ts src/app/api/workstation/agents/route.ts src/app/api/workstation/agents/[agentId]/versions/route.ts src/app/api/workstation/agents/[agentId]/publish/route.ts
 git commit -m "feat: add versioned Agent definitions"
 ```
 
 ### Task 2: Add Agent permission requests and grants
 
 **Files:**
-- Create: `supabase/migrations/202608260028_agent_permission_requests.sql`
+- Create: `supabase/migrations/202608260033_agent_permission_requests.sql`
 - Modify: `supabase/tests/agent_runtime.sql`
 - Create: `src/features/agents/agent-permission-handler.ts`
 - Create: `src/features/agents/agent-permission-handler.test.ts`
@@ -105,14 +105,14 @@ Expected: duplicate request, approval linkage, grant scope, expiry and revocatio
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260028_agent_permission_requests.sql supabase/tests/agent_runtime.sql src/features/agents/agent-permission-handler.ts src/features/agents/agent-permission-handler.test.ts src/app/api/workstation/agents/[agentId]/permission-requests/route.ts
+git add supabase/migrations/202608260033_agent_permission_requests.sql supabase/tests/agent_runtime.sql src/features/agents/agent-permission-handler.ts src/features/agents/agent-permission-handler.test.ts src/app/api/workstation/agents/[agentId]/permission-requests/route.ts
 git commit -m "feat: add Agent permission requests"
 ```
 
 ### Task 3: Add versioned Agent orchestration with DAG validation
 
 **Files:**
-- Create: `supabase/migrations/202608260029_agent_orchestration.sql`
+- Create: `supabase/migrations/202608260034_agent_orchestration.sql`
 - Modify: `supabase/tests/agent_runtime.sql`
 - Create: `src/features/agents/orchestration-handler.ts`
 - Create: `src/features/agents/orchestration-handler.test.ts`
@@ -148,14 +148,14 @@ Expected: valid DAG publishes; cycle, mismatch, unauthorized and cross-tenant no
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260029_agent_orchestration.sql supabase/tests/agent_runtime.sql src/features/agents/orchestration-handler.ts src/features/agents/orchestration-handler.test.ts src/app/api/workstation/agent-orchestrations/route.ts src/app/api/workstation/agent-orchestrations/[orchestrationId]/publish/route.ts
+git add supabase/migrations/202608260034_agent_orchestration.sql supabase/tests/agent_runtime.sql src/features/agents/orchestration-handler.ts src/features/agents/orchestration-handler.test.ts src/app/api/workstation/agent-orchestrations/route.ts src/app/api/workstation/agent-orchestrations/[orchestrationId]/publish/route.ts
 git commit -m "feat: add versioned Agent orchestration"
 ```
 
 ### Task 4: Make Agent and orchestration execution append-only
 
 **Files:**
-- Create: `supabase/migrations/202608260030_agent_execution_commands.sql`
+- Create: `supabase/migrations/202608260035_agent_execution_commands.sql`
 - Modify: `supabase/tests/agent_runtime.sql`
 - Create: `src/features/agents/agent-runtime-handler.ts`
 - Create: `src/features/agents/agent-runtime-handler.test.ts`
@@ -193,7 +193,7 @@ Expected: forgery fails, authorized run succeeds, completed records remain immut
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260030_agent_execution_commands.sql supabase/tests/agent_runtime.sql src/features/agents/agent-runtime-handler.ts src/features/agents/agent-runtime-handler.test.ts src/app/api/workstation/agents/[agentId]/runs/route.ts src/app/api/workstation/agent-orchestrations/[orchestrationId]/runs/route.ts
+git add supabase/migrations/202608260035_agent_execution_commands.sql supabase/tests/agent_runtime.sql src/features/agents/agent-runtime-handler.ts src/features/agents/agent-runtime-handler.test.ts src/app/api/workstation/agents/[agentId]/runs/route.ts src/app/api/workstation/agent-orchestrations/[orchestrationId]/runs/route.ts
 git commit -m "security: make Agent execution append-only"
 ```
 
@@ -246,7 +246,7 @@ git commit -m "feat: deliver the real Agent Center"
 ### Task 6: Enforce Agent runtime allowlists, budgets, recovery and Kill Switch
 
 **Files:**
-- Create: `supabase/migrations/202608260040_agent_runtime_governance.sql`
+- Create: `supabase/migrations/202608260045_agent_runtime_governance.sql`
 - Modify: `supabase/tests/agent_runtime.sql`
 - Modify: `src/features/agents/agent-runtime-handler.ts`
 - Modify: `src/features/agents/agent-runtime-handler.test.ts`
@@ -289,6 +289,6 @@ Expected: all limits, human controls, evaluation and Kill Switch behavior hold a
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260040_agent_runtime_governance.sql supabase/tests/agent_runtime.sql src/features/agents src/app/api/workstation/agents tests/e2e/agents.spec.ts
+git add supabase/migrations/202608260045_agent_runtime_governance.sql supabase/tests/agent_runtime.sql src/features/agents src/app/api/workstation/agents tests/e2e/agents.spec.ts
 git commit -m "feat: govern Agent runtime and Kill Switch"
 ```
