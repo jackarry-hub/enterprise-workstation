@@ -1,25 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { ArrowLeft, Check, CheckCircle2, CircleDot, Clock3, FileText, MessageSquareText, UserRoundCheck, X } from "lucide-react";
+import { ArrowLeft, Check, CircleDot, Clock3, FileText, MessageSquareText, UserRoundCheck, X } from "lucide-react";
 
 import { MobileWorkspaceNav } from "@/components/shell/mobile-workspace-nav";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { GlassCard } from "@/components/ui/glass-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Textarea } from "@/components/ui/textarea";
 import { RealDataUnavailable } from "@/components/ui/real-data-boundary";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { useOperations } from "@/features/operations/use-operations";
 import { approvalStatusMeta, approvalTypeMeta } from "@/features/approvals/approval-meta";
-import type { Approval, ApprovalStatus } from "@/features/approvals/approval-types";
+import type { Approval } from "@/features/approvals/approval-types";
 import { cn } from "@/lib/utils";
-
-type Decision = "approve" | "reject";
 
 function Person({ person }: { person: Approval["applicant"] }) {
   return (
@@ -42,11 +36,7 @@ export function ApprovalDetailPage({
 }) {
   const session = useWorkspaceSession();
   const { isFixtureBound } = useOperations(session);
-  const [status, setStatus] = useState<ApprovalStatus>(approval.status);
-  const [decision, setDecision] = useState<Decision | null>(null);
-  const [feedback, setFeedback] = useState("");
-  const statusMeta = approvalStatusMeta[status];
-  const isPending = status === "pending";
+  const statusMeta = approvalStatusMeta[approval.status];
   const isSupabaseData = dataSource === "supabase";
 
   if (!isSupabaseData && !isFixtureBound) {
@@ -60,12 +50,6 @@ export function ApprovalDetailPage({
     );
   }
 
-  function confirmDecision() {
-    if (!decision) return;
-    setStatus(decision === "approve" ? "approved" : "rejected");
-    setDecision(null);
-  }
-
   return (
     <main className="mx-auto flex w-full max-w-420 flex-col gap-4 px-3 pt-5 pb-26 sm:px-4 lg:px-5 lg:pt-7 lg:pb-6">
       <Link href="/approvals" className="inline-flex w-fit items-center gap-2 rounded-xl px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-background/70 hover:text-primary"><ArrowLeft aria-hidden="true" className="size-4" />返回审批中心</Link>
@@ -75,12 +59,7 @@ export function ApprovalDetailPage({
           <PageHeader
             title={approval.title}
             description={`${approvalTypeMeta[approval.type].label} · ${approval.code}`}
-            actions={isPending ? (
-              <div className="flex gap-2">
-                <Button type="button" variant="outline" onClick={() => setDecision("reject")} className="rounded-xl"><X data-icon="inline-start" aria-hidden="true" />拒绝申请</Button>
-                <Button type="button" onClick={() => setDecision("approve")} className="rounded-xl"><Check data-icon="inline-start" aria-hidden="true" />同意申请</Button>
-              </div>
-            ) : <StatusBadge status={statusMeta.tone}>{statusMeta.label}</StatusBadge>}
+            actions={<StatusBadge status={statusMeta.tone}>{statusMeta.label}</StatusBadge>}
           />
           <div className="mt-5 grid gap-3 rounded-2xl border border-white/75 bg-background/65 p-4 sm:grid-cols-3">
             <div><p className="text-xs text-muted-foreground">申请人</p><div className="mt-2"><Person person={approval.applicant} /></div></div>
@@ -90,8 +69,7 @@ export function ApprovalDetailPage({
         </div>
       </GlassCard>
 
-      {status === "approved" ? <div role="status" className="flex items-center gap-2 rounded-2xl border border-success/20 bg-success/10 px-4 py-3 text-sm font-medium text-success"><CheckCircle2 aria-hidden="true" className="size-4" />审批已通过</div> : null}
-      {status === "rejected" ? <div role="status" className="flex items-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm font-medium text-destructive"><X aria-hidden="true" className="size-4" />审批已拒绝</div> : null}
+      <div role="status" className="rounded-2xl border border-info/20 bg-info/10 px-4 py-3 text-sm text-info">审批操作将在安全流程接通后开放</div>
 
       <section className="grid min-w-0 gap-4 xl:grid-cols-12">
         <div className="grid min-w-0 content-start gap-4 xl:col-span-8">
@@ -141,19 +119,6 @@ export function ApprovalDetailPage({
         </div>
       </section>
 
-      <Dialog open={decision !== null} onOpenChange={(open) => { if (!open) setDecision(null); }}>
-        <DialogContent aria-label={decision === "approve" ? "确认同意申请" : "确认拒绝申请"}>
-          <DialogHeader>
-            <DialogTitle>{decision === "approve" ? "确认同意申请" : "确认拒绝申请"}</DialogTitle>
-            <DialogDescription>{decision === "approve" ? "确认后，申请将进入下一个审批节点。" : "请填写拒绝原因，申请将退回发起人。"}</DialogDescription>
-          </DialogHeader>
-          <Textarea aria-label="审批意见" placeholder={decision === "approve" ? "审批意见（可选）" : "请输入拒绝原因"} value={feedback} onChange={(event) => setFeedback(event.target.value)} className="min-h-24 rounded-2xl bg-background/70" />
-          <DialogFooter>
-            <DialogClose asChild><Button type="button" variant="outline">取消</Button></DialogClose>
-            <Button type="button" variant={decision === "reject" ? "destructive" : "default"} onClick={confirmDecision}>{decision === "approve" ? "确认同意" : "确认拒绝"}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
       <MobileWorkspaceNav active="messages" />
     </main>
   );

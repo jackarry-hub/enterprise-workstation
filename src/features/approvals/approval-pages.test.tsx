@@ -83,19 +83,18 @@ describe("approval pages", () => {
     expect(within(list).queryByText("张伟")).not.toBeInTheDocument();
   });
 
-  it("shows fixed approval steps and completes an approve confirmation", async () => {
-    const user = userEvent.setup();
+  it.each(["mock", "supabase"] as const)("keeps %s approval detail read-only while the secure action flow is unavailable", (dataSource) => {
     const approval = approvalMockResult.data.approvals[1];
-    render(<ApprovalDetailPage approval={approval} />);
+    render(<ApprovalDetailPage approval={approval} dataSource={dataSource} />);
 
     expect(screen.getByRole("heading", { name: "报销申请" })).toBeVisible();
     expect(screen.getByRole("region", { name: "审批流程" })).toBeVisible();
     expect(screen.getByRole("region", { name: "审批记录" })).toBeVisible();
-
-    await user.click(screen.getByRole("button", { name: "同意申请" }));
-    expect(screen.getByRole("dialog", { name: "确认同意申请" })).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "确认同意" }));
-
-    expect(screen.getByText("审批已通过")).toBeVisible();
+    expect(screen.getAllByText("待审批").length).toBeGreaterThan(0);
+    expect(screen.getByText("审批操作将在安全流程接通后开放")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "同意申请" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "拒绝申请" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByText("审批已通过")).not.toBeInTheDocument();
   });
 });

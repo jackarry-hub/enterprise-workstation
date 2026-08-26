@@ -1,6 +1,6 @@
 begin;
 
-select plan(19);
+select plan(46);
 
 insert into public.tenants (name, slug, status)
 values
@@ -391,6 +391,131 @@ select is(
   'second-tenant self RPC derives only its own employee match'
 );
 reset role;
+
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+)
+values
+  ('00000000-0000-0000-0000-000000000000', '93000000-0000-4000-8000-000000000005', 'authenticated', 'authenticated', 'approval-a-approver@example.test', crypt('local-e2e-password', gen_salt('bf')), now(), '{}'::jsonb, '{}'::jsonb, now(), now()),
+  ('00000000-0000-0000-0000-000000000000', '93000000-0000-4000-8000-000000000006', 'authenticated', 'authenticated', 'approval-a-unrelated@example.test', crypt('local-e2e-password', gen_salt('bf')), now(), '{}'::jsonb, '{}'::jsonb, now(), now());
+
+insert into public.organization_members (tenant_id, organization_id, user_id, status)
+select tenant.id, organization.id, seed.user_id, 'active'
+from public.tenants tenant
+join public.organizations organization
+  on organization.tenant_id = tenant.id and organization.slug = 'salary-privacy-org'
+join (values
+  ('93000000-0000-4000-8000-000000000005'::uuid),
+  ('93000000-0000-4000-8000-000000000006'::uuid)
+) as seed(user_id) on true
+where tenant.slug = 'salary-privacy-a';
+
+insert into public.member_roles (tenant_id, member_id, role_id)
+select member.tenant_id, member.id, role.id
+from public.organization_members member
+join public.roles role on role.tenant_id = member.tenant_id and role.code = 'salary_manager'
+where member.user_id = '93000000-0000-4000-8000-000000000006'::uuid;
+
+insert into public.employee_profiles (
+  tenant_id, organization_id, organization_member_id, employee_no, display_name,
+  department_id, position_template_id, job_title, salary_grade_code, job_level,
+  employment_status, skills
+)
+select member.tenant_id, member.organization_id, member.id,
+  case when member.user_id = '93000000-0000-4000-8000-000000000005'::uuid then 'A-APR' else 'A-OTHER' end,
+  case when member.user_id = '93000000-0000-4000-8000-000000000005'::uuid then 'A approver' else 'A unrelated' end,
+  department.id, position.id, 'Principal', 'P6', 20, 'active', '{}'::text[]
+from public.organization_members member
+join public.departments department
+  on department.tenant_id = member.tenant_id
+ and department.organization_id = member.organization_id
+ and department.code = 'ENG'
+join public.position_templates position
+  on position.tenant_id = member.tenant_id
+ and position.organization_id = member.organization_id
+ and position.code = 'ENG20'
+where member.user_id in (
+  '93000000-0000-4000-8000-000000000005'::uuid,
+  '93000000-0000-4000-8000-000000000006'::uuid
+);
+
+insert into public.approvals (
+  organization_id, applicant_employee_id, owner_employee_id, approval_code,
+  approval_type, title, status, submitted_at
+)
+select organization.id,
+  (select profile.id from public.employee_profiles profile join public.organization_members member on member.id = profile.organization_member_id where member.user_id = '93000000-0000-4000-8000-000000000001'::uuid),
+  (select profile.id from public.employee_profiles profile join public.organization_members member on member.id = profile.organization_member_id where member.user_id = '93000000-0000-4000-8000-000000000002'::uuid),
+  'APR-PRIVACY-001', 'reimbursement', 'Participant-only approval', 'pending', now()
+from public.organizations organization
+join public.tenants tenant on tenant.id = organization.tenant_id
+where tenant.slug = 'salary-privacy-a' and organization.slug = 'salary-privacy-org';
+
+insert into public.approval_steps (organization_id, approval_id, step_order, name, approver_employee_id)
+select approval.organization_id, approval.id, 1, 'Assigned approver',
+  (select profile.id from public.employee_profiles profile join public.organization_members member on member.id = profile.organization_member_id where member.user_id = '93000000-0000-4000-8000-000000000005'::uuid)
+from public.approvals approval
+where approval.approval_code = 'APR-PRIVACY-001';
+
+insert into public.approval_actions (organization_id, approval_id, actor_employee_id, action_type, content)
+select approval.organization_id, approval.id,
+  (select profile.id from public.employee_profiles profile join public.organization_members member on member.id = profile.organization_member_id where member.user_id = '93000000-0000-4000-8000-000000000006'::uuid),
+  'comment', 'ordinary actor must not become a participant'
+from public.approvals approval
+where approval.approval_code = 'APR-PRIVACY-001';
+
+select set_config('request.jwt.claim.sub', '93000000-0000-4000-8000-000000000001', true);
+set local role authenticated;
+select is((select count(*) from public.approvals where approval_code = 'APR-PRIVACY-001'), 1::bigint, 'applicant reads the approval');
+select is((select count(*) from public.approval_steps where approval_id = (select id from public.approvals where approval_code = 'APR-PRIVACY-001')), 1::bigint, 'applicant reads the approval steps');
+select is((select count(*) from public.approval_actions where approval_id = (select id from public.approvals where approval_code = 'APR-PRIVACY-001')), 1::bigint, 'applicant reads the approval actions');
+reset role;
+
+select set_config('request.jwt.claim.sub', '93000000-0000-4000-8000-000000000002', true);
+set local role authenticated;
+select is((select count(*) from public.approvals where approval_code = 'APR-PRIVACY-001'), 1::bigint, 'owner reads the approval');
+select is((select count(*) from public.approval_steps where approval_id = (select id from public.approvals where approval_code = 'APR-PRIVACY-001')), 1::bigint, 'owner reads the approval steps');
+select is((select count(*) from public.approval_actions where approval_id = (select id from public.approvals where approval_code = 'APR-PRIVACY-001')), 1::bigint, 'owner reads the approval actions');
+reset role;
+
+select set_config('request.jwt.claim.sub', '93000000-0000-4000-8000-000000000005', true);
+set local role authenticated;
+select is((select count(*) from public.approvals where approval_code = 'APR-PRIVACY-001'), 1::bigint, 'assigned approver reads the approval');
+select is((select count(*) from public.approval_steps where approval_id = (select id from public.approvals where approval_code = 'APR-PRIVACY-001')), 1::bigint, 'assigned approver reads the approval steps');
+select is((select count(*) from public.approval_actions where approval_id = (select id from public.approvals where approval_code = 'APR-PRIVACY-001')), 1::bigint, 'assigned approver reads the approval actions');
+reset role;
+
+select set_config('request.jwt.claim.sub', '93000000-0000-4000-8000-000000000006', true);
+set local role authenticated;
+select is((select count(*) from public.approvals where approval_code = 'APR-PRIVACY-001'), 0::bigint, 'unrelated employee with a manager role reads zero approvals');
+select is((select count(*) from public.approval_steps), 0::bigint, 'unrelated active employee reads zero approval steps');
+select is((select count(*) from public.approval_actions), 0::bigint, 'unrelated action actor reads zero approval actions');
+reset role;
+
+select set_config('request.jwt.claim.sub', '93000000-0000-4000-8000-000000000003', true);
+set local role authenticated;
+select is((select count(*) from public.approvals), 0::bigint, 'other-tenant employee reads zero approvals');
+select is((select count(*) from public.approval_steps), 0::bigint, 'other-tenant employee reads zero approval steps');
+select is((select count(*) from public.approval_actions), 0::bigint, 'other-tenant employee reads zero approval actions');
+reset role;
+
+select set_config('request.jwt.claim.sub', '93000000-0000-4000-8000-000000000001', true);
+set local role authenticated;
+select throws_ok($$ insert into public.approvals (organization_id, applicant_employee_id, approval_code, approval_type, title) select organization_id, applicant_employee_id, 'APR-PRIVACY-DENIED', 'leave', 'denied' from public.approvals where approval_code = 'APR-PRIVACY-001' $$, '42501', 'authenticated callers cannot directly insert approvals');
+select throws_ok($$ update public.approvals set title = 'mutated' where approval_code = 'APR-PRIVACY-001' $$, '42501', 'authenticated callers cannot directly update approvals');
+select throws_ok($$ delete from public.approvals where approval_code = 'APR-PRIVACY-001' $$, '42501', 'authenticated callers cannot directly delete approvals');
+select throws_ok($$ insert into public.approval_steps (organization_id, approval_id, step_order, name) select organization_id, id, 2, 'denied' from public.approvals where approval_code = 'APR-PRIVACY-001' $$, '42501', 'authenticated callers cannot directly insert approval steps');
+select throws_ok($$ update public.approval_steps set name = 'mutated' $$, '42501', 'authenticated callers cannot directly update approval steps');
+select throws_ok($$ delete from public.approval_steps $$, '42501', 'authenticated callers cannot directly delete approval steps');
+select throws_ok($$ insert into public.approval_actions (organization_id, approval_id, actor_employee_id, action_type) select approval.organization_id, approval.id, approval.applicant_employee_id, 'comment' from public.approvals approval where approval.approval_code = 'APR-PRIVACY-001' $$, '42501', 'authenticated callers cannot directly insert approval actions');
+select throws_ok($$ update public.approval_actions set content = 'mutated' $$, '42501', 'authenticated callers cannot directly update approval actions');
+select throws_ok($$ delete from public.approval_actions $$, '42501', 'authenticated callers cannot directly delete approval actions');
+reset role;
+
+select is((select title from public.approvals where approval_code = 'APR-PRIVACY-001'), 'Participant-only approval', 'denied approval writes leave the approval unchanged');
+select is((select name from public.approval_steps where approval_id = (select id from public.approvals where approval_code = 'APR-PRIVACY-001')), 'Assigned approver', 'denied step writes leave the step unchanged');
+select is((select content from public.approval_actions where approval_id = (select id from public.approvals where approval_code = 'APR-PRIVACY-001')), 'ordinary actor must not become a participant', 'denied action writes leave the action unchanged');
 
 select * from finish();
 
