@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { getCommercialModuleForPath, getModuleCapabilities } from "@/features/commercial/module-capabilities";
 import { getOperationNotifications, markAllOperationNotificationsRead, markOperationNotificationRead } from "@/features/operations/operations-data";
 import { useOperations } from "@/features/operations/use-operations";
 
@@ -26,8 +27,12 @@ function displayTime(value: string) {
 export function NotificationCenter() {
   const session = useWorkspaceSession();
   const { state, context, actor } = useOperations(session);
+  const capabilities = getModuleCapabilities(session);
   const [filter, setFilter] = useState<"all" | "unread">("unread");
-  const notifications = getOperationNotifications(state, actor.id);
+  const notifications = getOperationNotifications(state, actor.id).filter((item) => {
+    const commercialModule = getCommercialModuleForPath(item.href);
+    return commercialModule === null || capabilities[commercialModule];
+  });
   const unread = notifications.filter((item) => !item.read);
   const visible = filter === "unread" ? unread : notifications;
 

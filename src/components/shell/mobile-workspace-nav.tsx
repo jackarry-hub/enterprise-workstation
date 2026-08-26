@@ -4,12 +4,15 @@ import Link from "next/link";
 import { BriefcaseBusiness, House, MessageCircle, UserRound } from "lucide-react";
 
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { getModuleCapabilities } from "@/features/commercial/module-capabilities";
 import { cn } from "@/lib/utils";
 
 export function MobileWorkspaceNav({ active = "work" }: { active?: "home" | "work" | "messages" | "profile" }) {
-  const { actor } = useWorkspaceSession();
-  const workHref = actor.role === "executive" ? "/projects" : actor.role === "department_head" || actor.role === "employee" ? "/tasks" : actor.landingPath;
-  const profileHref = actor.role === "hr" || actor.role === "department_head" || actor.role === "executive" ? "/people" : actor.role === "finance" ? "/payroll" : "/leave";
+  const session = useWorkspaceSession();
+  const { actor } = session;
+  const capabilities = getModuleCapabilities(session);
+  const workHref = capabilities.projects ? "/projects" : capabilities.tasks ? "/tasks" : actor.landingPath;
+  const profileHref = capabilities.people ? "/people" : capabilities.payroll ? "/payroll" : actor.landingPath;
   const items = [
     { href: actor.landingPath, label: "首页", icon: House, value: "home" as const },
     { href: workHref, label: "工作", icon: BriefcaseBusiness, value: "work" as const },

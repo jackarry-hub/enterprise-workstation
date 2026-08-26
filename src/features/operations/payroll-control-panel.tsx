@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { Banknote, Calculator, Check, CircleDot, LockKeyhole, Send, ShieldCheck, WalletCards } from "lucide-react";
 
@@ -41,7 +40,7 @@ export function PayrollControlPanel() {
   }
 
   return <GlassCard className="overflow-hidden border-primary/20">
-    <div className="flex flex-col gap-3 border-b border-border/70 bg-brand-soft/55 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5"><div><div className="flex flex-wrap items-center gap-2"><WalletCards className="size-5 text-primary" /><h2 className="text-lg font-semibold">2026 年 08 月薪资周期</h2><Badge variant={run.status === "paid" ? "success" : run.attendanceLocked ? "info" : "warning"}>{statusLabel[run.status]}</Badge></div><p className="mt-1 text-sm text-muted-foreground">考勤封账后由财务核算、人事复核、领导批准，最后由财务发放。</p></div>{next ? <Button onClick={advance}><next.icon />{next.label}</Button> : run.status === "draft" && !run.attendanceLocked ? <Button asChild variant="outline"><Link href="/attendance"><LockKeyhole />等待人事封账</Link></Button> : <Badge variant="outline">当前节点责任人：{run.status === "calculated" ? "人事" : run.status === "verified" ? "决策人" : run.status === "approved" ? "财务" : "已完成"}</Badge>}</div>
+    <div className="flex flex-col gap-3 border-b border-border/70 bg-brand-soft/55 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5"><div><div className="flex flex-wrap items-center gap-2"><WalletCards className="size-5 text-primary" /><h2 className="text-lg font-semibold">2026 年 08 月薪资周期</h2><Badge variant={run.status === "paid" ? "success" : run.attendanceLocked ? "info" : "warning"}>{statusLabel[run.status]}</Badge></div><p className="mt-1 text-sm text-muted-foreground">核算前置条件由服务器工作流校验后才会开放。</p></div>{next ? <Button onClick={advance}><next.icon />{next.label}</Button> : run.status === "draft" && !run.attendanceLocked ? <Badge variant="outline"><LockKeyhole />等待服务器前置条件</Badge> : <Badge variant="outline">当前节点责任人：{run.status === "calculated" ? "人事" : run.status === "verified" ? "决策人" : run.status === "approved" ? "财务" : "已完成"}</Badge>}</div>
     {feedback ? <p role="status" className={cn("mx-4 mt-3 rounded-xl px-3 py-2 text-xs font-medium sm:mx-5", feedback.error ? "bg-danger-soft text-destructive" : "bg-success-soft text-success")}>{feedback.message}</p> : null}
     <div className="grid gap-4 p-4 sm:p-5 xl:grid-cols-[1.15fr_1fr]">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{[{ label: "计薪人数", value: `${run.headcount} 人`, icon: CircleDot }, { label: "应发合计", value: currency(run.grossAmount), icon: Banknote }, { label: "扣款合计", value: currency(run.deductionAmount), icon: Calculator }, { label: "实发合计", value: currency(run.netAmount), icon: WalletCards }].map(({ label, value, icon: Icon }) => <div key={label} className="rounded-xl bg-muted/55 p-3"><Icon className="size-4 text-primary" /><p className="mt-2 text-sm font-semibold">{value}</p><p className="mt-0.5 text-[11px] text-muted-foreground">{label}</p></div>)}</div>

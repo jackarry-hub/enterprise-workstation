@@ -1,55 +1,51 @@
 import { describe, expect, it } from "vitest";
 
 import { canRoleAccessPath } from "@/features/operations/role-access";
-import type { WorkspaceRole } from "@/features/auth/workspace-session-types";
+import { executiveWorkspaceSession } from "@/test/workspace-session-test-utils";
+import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
 
-const workspaceRoles = [
-  "executive",
-  "department_head",
-  "employee",
-  "finance",
-  "hr",
-] as const satisfies readonly WorkspaceRole[];
+function session(roleCodes: WorkspaceSession["roleCodes"], permissionCodes: WorkspaceSession["permissionCodes"]) {
+  return { ...executiveWorkspaceSession, roleCodes, permissionCodes };
+}
 
 describe("role access policy", () => {
   it("keeps every role inside its own workstation", () => {
-    expect(canRoleAccessPath("executive", "/dashboard")).toBe(true);
-    expect(canRoleAccessPath("executive", "/finance")).toBe(false);
-    expect(canRoleAccessPath("department_head", "/department")).toBe(true);
-    expect(canRoleAccessPath("department_head", "/projects/demo-project")).toBe(true);
-    expect(canRoleAccessPath("employee", "/execution")).toBe(true);
-    expect(canRoleAccessPath("employee", "/people")).toBe(false);
-    expect(canRoleAccessPath("finance", "/payroll")).toBe(true);
-    expect(canRoleAccessPath("finance", "/hr")).toBe(false);
-    expect(canRoleAccessPath("hr", "/people/employee-1")).toBe(true);
-    expect(canRoleAccessPath("hr", "/analytics")).toBe(false);
+    expect(canRoleAccessPath(session(["owner"], ["dashboard.read"]), "/dashboard")).toBe(true);
+    expect(canRoleAccessPath(session(["owner"], ["dashboard.read"]), "/finance")).toBe(false);
+    expect(canRoleAccessPath(session(["department_head"], ["project.manage"]), "/department")).toBe(true);
+    expect(canRoleAccessPath(session(["department_head"], ["project.manage"]), "/projects/demo-project")).toBe(true);
+    expect(canRoleAccessPath(session(["employee"], ["task.execute"]), "/execution")).toBe(true);
+    expect(canRoleAccessPath(session(["employee"], ["task.execute"]), "/people")).toBe(false);
+    expect(canRoleAccessPath(session(["finance"], ["salary.manage"]), "/payroll")).toBe(true);
+    expect(canRoleAccessPath(session(["finance"], ["salary.manage"]), "/hr")).toBe(false);
+    expect(canRoleAccessPath(session(["hr"], ["hr.manage"]), "/people/employee-1")).toBe(true);
+    expect(canRoleAccessPath(session(["hr"], ["hr.manage"]), "/analytics")).toBe(false);
   });
 
   it("removes the standalone knowledge module for every role", () => {
-    for (const role of workspaceRoles) {
-      expect(canRoleAccessPath(role, "/knowledge")).toBe(false);
+    for (const role of [["owner"], ["department_head"], ["employee"], ["finance"], ["hr"]] as const) {
+      expect(canRoleAccessPath(session([...role], ["knowledge.manage"]), "/knowledge")).toBe(false);
     }
   });
 
   it("allows every role to use help and its own notification center", () => {
-    for (const role of workspaceRoles) {
-      expect(canRoleAccessPath(role, "/help")).toBe(true);
-      expect(canRoleAccessPath(role, "/notifications")).toBe(true);
+    for (const role of [["owner"], ["department_head"], ["employee"], ["finance"], ["hr"]] as const) {
+      expect(canRoleAccessPath(session([...role], []), "/help")).toBe(true);
+      expect(canRoleAccessPath(session([...role], []), "/notifications")).toBe(true);
     }
   });
 
-  it("lets every role deliver tasks and follow old attendance bookmarks to that work", () => {
-    for (const role of workspaceRoles) {
-      expect(canRoleAccessPath(role, "/tasks")).toBe(true);
-      expect(canRoleAccessPath(role, "/attendance")).toBe(true);
+  it("lets every role deliver tasks but removes attendance from every route policy", () => {
+    for (const role of [["owner"], ["department_head"], ["employee"], ["finance"], ["hr"]] as const) {
+      expect(canRoleAccessPath(session([...role], ["task.execute"]), "/tasks")).toBe(true);
+      expect(canRoleAccessPath(session([...role], ["attendance.self"]), "/attendance")).toBe(false);
+      expect(canRoleAccessPath(session([...role], []), "/leave")).toBe(false);
     }
   });
 
   it("lets authenticated roles reach the standalone workstation and AI API boundary", () => {
-    for (const role of workspaceRoles) {
-      expect(canRoleAccessPath(role, "/quantxy-ai-workbench-fused.html")).toBe(true);
-      expect(canRoleAccessPath(role, "/api/ai/config")).toBe(true);
-      expect(canRoleAccessPath(role, "/api/ai/chat")).toBe(true);
-    }
+    expect(canRoleAccessPath(session(["owner"], []), "/quantxy-ai-workbench-fused.html")).toBe(false);
+    expect(canRoleAccessPath(session(["owner"], []), "/api/ai/config")).toBe(false);
+    expect(canRoleAccessPath(session(["owner"], []), "/api/ai/chat")).toBe(false);
   });
 });

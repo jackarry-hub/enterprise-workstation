@@ -11,9 +11,10 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { navigationItems } from "@/config/navigation";
+import { getVisibleNavigationItems } from "@/config/navigation";
 import { signOut } from "@/features/auth/actions";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { getCommercialModuleForPath, getModuleCapabilities } from "@/features/commercial/module-capabilities";
 import { getOperationNotifications, markOperationNotificationRead } from "@/features/operations/operations-data";
 import { useOperations } from "@/features/operations/use-operations";
 
@@ -21,11 +22,15 @@ export function WorkspaceHeader() {
   const session = useWorkspaceSession();
   const { actor: workspaceActor, profile } = session;
   const { state, context, actor: operationActor } = useOperations(session);
+  const capabilities = getModuleCapabilities(session);
   const [searchOpen, setSearchOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const notifications = getOperationNotifications(state, operationActor.id);
+  const notifications = getOperationNotifications(state, operationActor.id).filter((item) => {
+    const commercialModule = getCommercialModuleForPath(item.href);
+    return commercialModule === null || capabilities[commercialModule];
+  });
   const unreadCount = notifications.filter(({ read }) => !read).length;
-  const helpLinks = navigationItems.filter(({ available, roles }) => available && (!roles || roles.includes(workspaceActor.role))).slice(0, 3);
+  const helpLinks = getVisibleNavigationItems(session).slice(0, 3);
 
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
@@ -74,7 +79,7 @@ export function WorkspaceHeader() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Button asChild variant="ghost" size="icon" className="hidden sm:inline-flex" aria-label="查看消息"><Link href="/approvals"><Mail aria-hidden="true" /></Link></Button>
+          <Button asChild variant="ghost" size="icon" className="hidden sm:inline-flex" aria-label="查看消息"><Link href={capabilities.approvals ? "/approvals" : "/notifications"}><Mail aria-hidden="true" /></Link></Button>
           <Button type="button" variant="ghost" size="icon" aria-label="帮助中心" className="hidden sm:inline-flex" onClick={() => setHelpOpen(true)}><CircleHelp aria-hidden="true" /></Button>
 
           <DropdownMenu>
@@ -95,11 +100,10 @@ export function WorkspaceHeader() {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                {workspaceActor.role === "executive" ? <><DropdownMenuItem asChild><Link href="/settings?tab=personal"><UserRound aria-hidden="true" />个人资料</Link></DropdownMenuItem><DropdownMenuItem asChild><Link href="/settings?tab=notifications"><Settings aria-hidden="true" />偏好设置</Link></DropdownMenuItem></> : null}
-                {workspaceActor.role === "department_head" ? <><DropdownMenuItem asChild><Link href="/people"><UsersRound aria-hidden="true" />我的团队</Link></DropdownMenuItem><DropdownMenuItem asChild><Link href="/leave"><UserRound aria-hidden="true" />请假与审批</Link></DropdownMenuItem></> : null}
-                {workspaceActor.role === "employee" ? <><DropdownMenuItem asChild><Link href="/tasks"><UserRound aria-hidden="true" />我的任务</Link></DropdownMenuItem><DropdownMenuItem asChild><Link href="/payroll"><Settings aria-hidden="true" />我的工资单</Link></DropdownMenuItem></> : null}
-                {workspaceActor.role === "finance" ? <><DropdownMenuItem asChild><Link href="/payroll"><UserRound aria-hidden="true" />薪资办理</Link></DropdownMenuItem><DropdownMenuItem asChild><Link href="/leave"><Settings aria-hidden="true" />我的请假</Link></DropdownMenuItem></> : null}
-                {workspaceActor.role === "hr" ? <><DropdownMenuItem asChild><Link href="/people"><UsersRound aria-hidden="true" />人员管理</Link></DropdownMenuItem><DropdownMenuItem asChild><Link href="/payroll"><Settings aria-hidden="true" />薪资复核</Link></DropdownMenuItem></> : null}
+                {capabilities.settings ? <><DropdownMenuItem asChild><Link href="/settings?tab=personal"><UserRound aria-hidden="true" />个人资料</Link></DropdownMenuItem><DropdownMenuItem asChild><Link href="/settings?tab=notifications"><Settings aria-hidden="true" />偏好设置</Link></DropdownMenuItem></> : null}
+                {capabilities.people ? <DropdownMenuItem asChild><Link href="/people"><UsersRound aria-hidden="true" />人员管理</Link></DropdownMenuItem> : null}
+                {capabilities.tasks ? <DropdownMenuItem asChild><Link href="/tasks"><UserRound aria-hidden="true" />我的任务</Link></DropdownMenuItem> : null}
+                {capabilities.payroll ? <DropdownMenuItem asChild><Link href="/payroll"><Settings aria-hidden="true" />薪资管理</Link></DropdownMenuItem> : null}
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <form action={signOut}>

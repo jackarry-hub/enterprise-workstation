@@ -25,8 +25,9 @@ function RedirectToLanding({ href }: { href: string }) {
 
 export function RoleAccessGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "/dashboard";
-  const { actor } = useWorkspaceSession();
-  const allowed = canRoleAccessPath(actor.role, pathname);
+  const session = useWorkspaceSession();
+  const { actor } = session;
+  const allowed = canRoleAccessPath(session, pathname);
 
   if (!allowed) {
     return <RedirectToLanding href={actor.landingPath} />;

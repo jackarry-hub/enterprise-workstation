@@ -7,9 +7,9 @@ import { CheckSquare2, FolderKanban, LayoutGrid, Search, UserRound } from "lucid
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { navigationItems } from "@/config/navigation";
+import { getVisibleNavigationItems } from "@/config/navigation";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
-import type { WorkspaceActor, WorkspaceRole } from "@/features/auth/workspace-session-types";
+import type { WorkspaceActor, WorkspaceSession } from "@/features/auth/workspace-session-types";
 import { useOperationFixtureContext } from "@/features/operations/use-operations";
 import { getEffectiveProjectDetails } from "@/features/projects/data/effective-project-details";
 
@@ -28,9 +28,9 @@ const kindIcons = {
   员工: UserRound,
 } as const;
 
-export function buildWorkspaceSearchItems(role: WorkspaceRole = "executive", actor?: WorkspaceActor, includeFixtureData = true): WorkspaceSearchItem[] {
-  const modules = navigationItems
-    .filter(({ available, roles }) => available && (!roles || roles.includes(role)))
+export function buildWorkspaceSearchItems(session: WorkspaceSession, actor?: WorkspaceActor, includeFixtureData = true): WorkspaceSearchItem[] {
+  const { primaryRole: role } = session;
+  const modules = getVisibleNavigationItems(session)
     .map(({ href, label }) => ({ id: `module-${href}`, label, meta: "企业工作站模块", href, kind: "模块" as const }));
   const projects = includeFixtureData ? getEffectiveProjectDetails() : [];
   const canSearchProjects = role === "executive" || role === "department_head";
@@ -76,7 +76,7 @@ export function WorkspaceSearchDialog({ open, onOpenChange }: { open: boolean; o
   const actor = fixtureActor ?? session.actor;
   const includeFixtureData = fixtureActor !== null;
   const [query, setQuery] = useState("");
-  const [items, setItems] = useState<WorkspaceSearchItem[]>(() => buildWorkspaceSearchItems(actor.role, actor, includeFixtureData));
+  const [items, setItems] = useState<WorkspaceSearchItem[]>(() => buildWorkspaceSearchItems(session, actor, includeFixtureData));
   const results = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("zh-CN");
     if (!normalized) return items.slice(0, 8);
@@ -84,9 +84,9 @@ export function WorkspaceSearchDialog({ open, onOpenChange }: { open: boolean; o
   }, [items, query]);
 
   useEffect(() => {
-    if (open) setItems(buildWorkspaceSearchItems(actor.role, actor, includeFixtureData));
+    if (open) setItems(buildWorkspaceSearchItems(session, actor, includeFixtureData));
     else setQuery("");
-  }, [actor, includeFixtureData, open]);
+  }, [actor, includeFixtureData, open, session]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

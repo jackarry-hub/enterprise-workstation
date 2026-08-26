@@ -14,7 +14,7 @@ import {
   getWorkspaceAccessFailureReason,
   isPublicAuthPath,
 } from "@/features/auth/workspace-access";
-import type { WorkspaceRole } from "@/features/auth/workspace-session-types";
+import type { WorkspacePermissionCode, WorkspaceRole } from "@/features/auth/workspace-session-types";
 import { middleware } from "@/middleware";
 
 const authUserId = "10000000-0000-4000-8000-000000000001";
@@ -39,15 +39,15 @@ const accessBase = {
 };
 
 const roleCases = [
-  ["executive", "owner", "/dashboard"],
-  ["department_head", "department_head", "/department"],
-  ["employee", "employee", "/execution"],
-  ["finance", "finance", "/finance"],
-  ["hr", "hr", "/hr"],
-] as const satisfies readonly (readonly [WorkspaceRole, string, string])[];
+  ["executive", "owner", "/dashboard", ["dashboard.read"]],
+  ["department_head", "department_head", "/department", ["project.manage"]],
+  ["employee", "employee", "/execution", ["task.execute"]],
+  ["finance", "finance", "/finance", ["salary.manage"]],
+  ["hr", "hr", "/hr", ["hr.manage"]],
+] as const satisfies readonly (readonly [WorkspaceRole, string, string, string[]])[];
 
-function accessRow(databaseRole: string) {
-  return { ...accessBase, roleCodes: [databaseRole] };
+function accessRow(databaseRole: string, permissionCodes = accessBase.permissionCodes) {
+  return { ...accessBase, roleCodes: [databaseRole], permissionCodes };
 }
 
 function refreshedSession({
@@ -220,8 +220,8 @@ describe("workspace middleware", () => {
 
   it.each(roleCases)(
     "allows the %s role to reach its server-checked landing path",
-    async (_workspaceRole, databaseRole, landingPath) => {
-      refreshedSession({ data: accessRow(databaseRole) });
+    async (_workspaceRole, databaseRole, landingPath, permissionCodes) => {
+      refreshedSession({ data: accessRow(databaseRole, permissionCodes) });
 
       const response = await middleware(
         new NextRequest(`https://brain.example${landingPath}`),
@@ -233,14 +233,14 @@ describe("workspace middleware", () => {
   );
 
   it.each(roleCases)(
-    "allows the %s role to enter through the formal fused workstation home",
-    async (_workspaceRole, databaseRole) => {
-      refreshedSession({ data: accessRow(databaseRole) });
+    "allows the %s role through the workspace root but rejects the retired formal fused UI",
+    async (_workspaceRole, databaseRole, landingPath, permissionCodes) => {
+      refreshedSession({ data: accessRow(databaseRole, permissionCodes) });
 
       const rootResponse = await middleware(
         new NextRequest("https://brain.example/"),
       );
-      refreshedSession({ data: accessRow(databaseRole) });
+      refreshedSession({ data: accessRow(databaseRole, permissionCodes) });
       const fusedResponse = await middleware(
         new NextRequest(
           "https://brain.example/quantxy-ai-workbench-fused.html?formal=1",
@@ -248,24 +248,32 @@ describe("workspace middleware", () => {
       );
 
       expect(rootResponse.headers.get("location")).toBeNull();
-      expect(fusedResponse.headers.get("location")).toBeNull();
+      expect(fusedResponse.headers.get("location")).toBe(
+        `https://brain.example${landingPath}?notice=no_access`,
+      );
     },
   );
 
   it.each(roleCases)(
-    "allows the %s role to use tasks and the legacy attendance redirect route",
-    async (_workspaceRole, databaseRole) => {
-      refreshedSession({ data: accessRow(databaseRole) });
+    "allows the %s role to use tasks when granted but blocks attendance direct routes",
+    async (_workspaceRole, databaseRole, landingPath, permissionCodes) => {
+      const taskPermissions = Array.from(new Set<WorkspacePermissionCode>([
+        ...permissionCodes,
+        "task.execute",
+      ]));
+      refreshedSession({ data: accessRow(databaseRole, taskPermissions) });
       const tasks = await middleware(
         new NextRequest("https://brain.example/tasks"),
       );
-      refreshedSession({ data: accessRow(databaseRole) });
+      refreshedSession({ data: accessRow(databaseRole, permissionCodes) });
       const attendance = await middleware(
         new NextRequest("https://brain.example/attendance"),
       );
 
       expect(tasks.headers.get("location")).toBeNull();
-      expect(attendance.headers.get("location")).toBeNull();
+      expect(attendance.headers.get("location")).toBe(
+        `https://brain.example${landingPath}?notice=no_access`,
+      );
     },
   );
 
@@ -277,7 +285,7 @@ describe("workspace middleware", () => {
     );
 
     expect(response.headers.get("location")).toBe(
-      "https://brain.example/quantxy-ai-workbench-fused.html?formal=1&notice=no_access",
+      "https://brain.example/execution?notice=no_access",
     );
   });
 
@@ -304,6 +312,25 @@ describe("workspace middleware", () => {
       path: "/",
       sameSite: "lax",
       secure: true,
+    });
+  });
+
+  it("overwrites a caller supplied private route header while preserving refreshed cookies", async () => {
+    const { response: refreshed } = refreshedSession({ data: accessRow("employee") });
+    refreshed.cookies.set("sb-session", "rotated", { httpOnly: true, path: "/" });
+
+    const response = await middleware(
+      new NextRequest("https://brain.example/tasks", {
+        headers: { "x-quantxy-workspace-path": "/settings" },
+      }),
+    );
+
+    expect(response.headers.get("x-middleware-request-x-quantxy-workspace-path")).toBe("/tasks");
+    expect(response.cookies.get("sb-session")).toMatchObject({
+      name: "sb-session",
+      value: "rotated",
+      httpOnly: true,
+      path: "/",
     });
   });
 });

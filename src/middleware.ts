@@ -1,13 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import {
-  FORMAL_WORKSTATION_PATH,
   getSafeReturnPath,
   getWorkspaceAccessFailureReason,
   isPublicAuthPath,
   parseWorkspaceAccess,
 } from "@/features/auth/workspace-access";
-import { canRoleAccessPath } from "@/features/operations/role-access";
+import {
+  assertServerRouteAccess,
+  WORKSPACE_PATH_HEADER,
+} from "@/features/auth/server-route-access";
 import { updateSupabaseSession } from "@/lib/supabase/middleware";
 
 function redirectWithRefreshedCookies(
@@ -19,6 +21,22 @@ function redirectWithRefreshedCookies(
     redirect.cookies.set(cookie);
   });
   return redirect;
+}
+
+function continueWithTrustedWorkspacePath(
+  response: NextResponse,
+  request: NextRequest,
+  pathname: string,
+) {
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.delete(WORKSPACE_PATH_HEADER);
+  requestHeaders.set(WORKSPACE_PATH_HEADER, pathname);
+
+  const next = NextResponse.next({ request: { headers: requestHeaders } });
+  response.cookies.getAll().forEach((cookie) => {
+    next.cookies.set(cookie);
+  });
+  return next;
 }
 
 function loginDestination(request: NextRequest) {
@@ -90,13 +108,15 @@ export async function middleware(request: NextRequest) {
     );
   }
 
-  if (!canRoleAccessPath(session.primaryRole, pathname)) {
-    const destination = new URL(FORMAL_WORKSTATION_PATH, request.url);
+  try {
+    assertServerRouteAccess(session, pathname);
+  } catch {
+    const destination = new URL(session.landingPath, request.url);
     destination.searchParams.set("notice", "no_access");
     return redirectWithRefreshedCookies(response, destination);
   }
 
-  return response;
+  return continueWithTrustedWorkspacePath(response, request, pathname);
 }
 
 export function isStandaloneAuthorizedPath(pathname: string) {

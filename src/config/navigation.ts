@@ -1,8 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
-  BriefcaseBusiness,
-  CalendarCheck2,
   CheckSquare2,
   ClipboardCheck,
   FolderKanban,
@@ -17,35 +15,41 @@ import {
   WalletCards,
   Workflow,
 } from "lucide-react";
-import type { WorkspaceRole } from "@/features/auth/workspace-session-types";
+import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
+import {
+  getModuleCapabilities,
+  getVisibleQuickWorkspaceActions,
+  type CommercialModule,
+} from "@/features/commercial/module-capabilities";
 
 export type NavigationItem = {
   label: string;
   href: string;
   icon: LucideIcon;
+  module: CommercialModule;
   available: boolean;
-  roles?: readonly WorkspaceRole[];
 };
 
-export const navigationItems: NavigationItem[] = [
-  { label: "AI 决策调度台", href: "/dashboard", icon: Gauge, available: true, roles: ["executive"] },
-  { label: "负责人推进台", href: "/department", icon: Workflow, available: true, roles: ["department_head"] },
-  { label: "我的执行台", href: "/execution", icon: Grid3X3, available: true, roles: ["employee"] },
-  { label: "财务执行中心", href: "/finance", icon: Landmark, available: true, roles: ["finance"] },
-  { label: "人事协同中心", href: "/hr", icon: UserCog, available: true, roles: ["hr"] },
-  { label: "项目管理", href: "/projects", icon: FolderKanban, available: true, roles: ["executive", "department_head"] },
-  { label: "活动推进", href: "/activities", icon: Megaphone, available: true, roles: ["executive", "department_head"] },
-  { label: "任务管理", href: "/tasks", icon: CheckSquare2, available: true, roles: ["executive", "department_head", "employee", "finance", "hr"] },
-  { label: "组织人事", href: "/people", icon: UsersRound, available: true, roles: ["hr", "executive", "department_head"] },
-  { label: "请假管理", href: "/leave", icon: CalendarCheck2, available: true, roles: ["hr", "department_head", "employee", "finance"] },
-  { label: "薪资管理", href: "/payroll", icon: WalletCards, available: true, roles: ["hr", "finance", "executive", "employee"] },
-  { label: "审批中心", href: "/approvals", icon: ClipboardCheck, available: true, roles: ["executive", "department_head", "employee", "finance", "hr"] },
-  { label: "客户管理", href: "/customers", icon: UserRound, available: true, roles: ["executive"] },
-  { label: "数据分析", href: "/analytics", icon: BarChart3, available: true, roles: ["executive", "department_head"] },
-  { label: "系统设置", href: "/settings", icon: Settings, available: true, roles: ["executive"] },
+export const navigationItems: readonly NavigationItem[] = [
+  { label: "AI 决策调度台", href: "/dashboard", icon: Gauge, module: "dashboard", available: true },
+  { label: "负责人推进台", href: "/department", icon: Workflow, module: "department", available: true },
+  { label: "我的执行台", href: "/execution", icon: Grid3X3, module: "execution", available: true },
+  { label: "财务执行中心", href: "/finance", icon: Landmark, module: "finance", available: true },
+  { label: "人事协同中心", href: "/hr", icon: UserCog, module: "hr", available: true },
+  { label: "项目管理", href: "/projects", icon: FolderKanban, module: "projects", available: true },
+  { label: "活动推进", href: "/activities", icon: Megaphone, module: "activities", available: true },
+  { label: "任务管理", href: "/tasks", icon: CheckSquare2, module: "tasks", available: true },
+  { label: "组织人事", href: "/people", icon: UsersRound, module: "people", available: true },
+  { label: "薪资管理", href: "/payroll", icon: WalletCards, module: "payroll", available: true },
+  { label: "审批中心", href: "/approvals", icon: ClipboardCheck, module: "approvals", available: true },
+  { label: "客户管理", href: "/customers", icon: UserRound, module: "customers", available: true },
+  { label: "数据分析", href: "/analytics", icon: BarChart3, module: "analytics", available: true },
+  { label: "系统设置", href: "/settings", icon: Settings, module: "settings", available: true },
 ];
 
-export const quickWorkspaceActions = [
-  { label: "项目协同", icon: BriefcaseBusiness },
-  { label: "审批协作", icon: ClipboardCheck },
-];
+export function getVisibleNavigationItems(session: WorkspaceSession) {
+  const capabilities = getModuleCapabilities(session);
+  return navigationItems.filter((item) => item.available && capabilities[item.module]);
+}
+
+export { getVisibleQuickWorkspaceActions };
