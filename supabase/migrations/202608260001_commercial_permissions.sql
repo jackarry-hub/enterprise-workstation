@@ -42,8 +42,9 @@ as $$
     and p_code = any (array['owner', 'admin']::text[]);
 $$;
 
-create or replace function public.apply_commercial_permission_baseline(
-  p_tenant_id bigint
+create or replace function public.grant_commercial_permission_baseline_to_role(
+  p_tenant_id bigint,
+  p_role_id bigint
 )
 returns void
 language plpgsql
@@ -51,30 +52,12 @@ security definer
 set search_path = ''
 as $$
 begin
-  if p_tenant_id is null then
-    raise exception 'Commercial permission baseline requires a tenant'
+  if p_tenant_id is null or p_role_id is null then
+    raise exception 'Commercial permission baseline requires a role and tenant'
       using errcode = '22023';
   end if;
 
-  perform pg_advisory_xact_lock(
-    hashtextextended('commercial-permission-baseline:' || p_tenant_id::text, 0)
-  );
   perform public.ensure_commercial_permission_catalog();
-
-  delete from public.role_permissions assignment
-  using public.roles role, public.permissions permission
-  where assignment.tenant_id = p_tenant_id
-    and assignment.tenant_id = role.tenant_id
-    and assignment.role_id = role.id
-    and assignment.permission_id = permission.id
-    and permission.code = any (array[
-      'ai.config.manage', 'role.manage', 'customer.manage', 'approval.submit',
-      'approval.act', 'expense.manage', 'knowledge.manage', 'agent.manage',
-      'agent.orchestrate', 'analytics.read', 'settings.manage'
-    ]::text[])
-    and not public.is_commercial_baseline_system_role(
-      role.is_system, role.is_enabled, role.organization_id, role.code
-    );
 
   insert into public.role_permissions (tenant_id, role_id, permission_id)
   select role.tenant_id, role.id, permission.id
@@ -85,6 +68,7 @@ begin
     'agent.orchestrate', 'analytics.read', 'settings.manage'
   ]::text[])
   where role.tenant_id = p_tenant_id
+    and role.id = p_role_id
     and public.is_commercial_baseline_system_role(
       role.is_system, role.is_enabled, role.organization_id, role.code
     )
@@ -100,18 +84,22 @@ set search_path = ''
 as $$
 begin
   -- Run before the row changes so a tenant_id update is not blocked by the
-  -- composite role_permissions foreign key. Only catalog assignments for OLD
-  -- are removed; every non-catalog assignment remains intact.
-  delete from public.role_permissions assignment
-  using public.permissions permission
-  where assignment.tenant_id = old.tenant_id
-    and assignment.role_id = old.id
-    and assignment.permission_id = permission.id
-    and permission.code = any (array[
-      'ai.config.manage', 'role.manage', 'customer.manage', 'approval.submit',
-      'approval.act', 'expense.manage', 'knowledge.manage', 'agent.manage',
-      'agent.orchestrate', 'analytics.read', 'settings.manage'
-    ]::text[]);
+  -- composite role_permissions foreign key. Ordinary/custom roles keep their
+  -- explicit catalog grants; only an OLD qualifying baseline role is revoked.
+  if public.is_commercial_baseline_system_role(
+    old.is_system, old.is_enabled, old.organization_id, old.code
+  ) then
+    delete from public.role_permissions assignment
+    using public.permissions permission
+    where assignment.tenant_id = old.tenant_id
+      and assignment.role_id = old.id
+      and assignment.permission_id = permission.id
+      and permission.code = any (array[
+        'ai.config.manage', 'role.manage', 'customer.manage', 'approval.submit',
+        'approval.act', 'expense.manage', 'knowledge.manage', 'agent.manage',
+        'agent.orchestrate', 'analytics.read', 'settings.manage'
+      ]::text[]);
+  end if;
 
   return new;
 end;
@@ -124,7 +112,13 @@ security definer
 set search_path = ''
 as $$
 begin
-  perform public.apply_commercial_permission_baseline(new.tenant_id);
+  if public.is_commercial_baseline_system_role(
+    new.is_system, new.is_enabled, new.organization_id, new.code
+  ) then
+    perform public.grant_commercial_permission_baseline_to_role(
+      new.tenant_id, new.id
+    );
+  end if;
   return new;
 end;
 $$;
@@ -134,7 +128,9 @@ revoke all on function public.ensure_commercial_permission_catalog()
 revoke all on function public.is_commercial_baseline_system_role(
   boolean, boolean, bigint, text
 ) from public, anon, authenticated;
-revoke all on function public.apply_commercial_permission_baseline(bigint)
+revoke all on function public.grant_commercial_permission_baseline_to_role(
+  bigint, bigint
+)
   from public, anon, authenticated;
 revoke all on function public.revoke_commercial_permissions_before_system_role_update()
   from public, anon, authenticated;
@@ -155,8 +151,12 @@ create trigger roles_commercial_permission_baseline_update
 after update of is_enabled, is_system, organization_id, code, tenant_id on public.roles
 for each row execute function public.apply_commercial_permissions_after_system_role_change();
 
-select public.apply_commercial_permission_baseline(tenant.id)
-from public.tenants tenant;
+select public.ensure_commercial_permission_catalog();
+select public.grant_commercial_permission_baseline_to_role(role.tenant_id, role.id)
+from public.roles role
+where public.is_commercial_baseline_system_role(
+  role.is_system, role.is_enabled, role.organization_id, role.code
+);
 
 create or replace function public.current_workspace_access()
 returns jsonb
