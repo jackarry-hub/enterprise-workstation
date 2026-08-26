@@ -30,17 +30,20 @@ describe("standalone workstation middleware boundary", () => {
     expect(isStandaloneAuthorizedPath("/login")).toBe(false);
   });
 
-  it("lets the non-formal fused workstation use demo preview auth", () => {
+  it("lets only a local non-formal fused workstation use preview auth", () => {
     expect(
       isLocalPreviewWorkstationPath(
-        "/quantxy-ai-workbench-fused.html",
-        new URLSearchParams("v=salary-grade"),
+        new URL("http://localhost:3030/quantxy-ai-workbench-fused.html?v=salary-grade"),
       ),
     ).toBe(true);
     expect(
       isLocalPreviewWorkstationPath(
-        "/quantxy-ai-workbench-fused.html",
-        new URLSearchParams("formal=1"),
+        new URL("https://work.quantumgalaxy.top/quantxy-ai-workbench-fused.html?v=salary-grade"),
+      ),
+    ).toBe(false);
+    expect(
+      isLocalPreviewWorkstationPath(
+        new URL("http://localhost:3030/quantxy-ai-workbench-fused.html?formal=1"),
       ),
     ).toBe(false);
   });

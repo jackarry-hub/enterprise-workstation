@@ -21,7 +21,7 @@ function sessionWithPermissions(permissionCodes: WorkspaceSession["permissionCod
 
 describe("server route access", () => {
   it("rejects direct routes without a server-derived capability", () => {
-    const employeeSession = sessionWithPermissions(["task.execute"]);
+    const employeeSession = sessionWithPermissions(["task.manage"]);
 
     expect(() => assertServerRouteAccess(employeeSession, "/settings")).toThrow("route_forbidden");
   });
@@ -42,7 +42,7 @@ describe("server route access", () => {
   it("allows a capability route and its nested pages", () => {
     const employeeSession = sessionWithPermissions(["task.execute"]);
 
-    expect(() => assertServerRouteAccess(employeeSession, "/tasks")).not.toThrow();
-    expect(() => assertServerRouteAccess(employeeSession, "/tasks/task-1")).not.toThrow();
+    expect(() => assertServerRouteAccess(employeeSession, "/tasks")).toThrow("route_forbidden");
+    expect(() => assertServerRouteAccess(employeeSession, "/tasks/task-1")).toThrow("route_forbidden");
   });
 });

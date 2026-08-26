@@ -4,9 +4,9 @@ import { GET } from "./route";
 import { createWorkstationHtmlResponse } from "./route-support";
 
 describe("formal workstation html route", () => {
-  it("serves the fused workstation html instead of the Next login/not-found shell", async () => {
+  it("serves the fused workstation preview only from a local host", async () => {
     const response = await GET(
-      new Request("https://work.quantumgalaxy.top/quantxy-ai-workbench-fused.html?v=preview"),
+      new Request("http://127.0.0.1/quantxy-ai-workbench-fused.html?v=preview"),
     );
     const html = await response.text();
 
@@ -19,51 +19,26 @@ describe("formal workstation html route", () => {
     expect(html).not.toContain("/_next/static/chunks/app/login");
   });
 
-  it("embeds the authenticated formal bootstrap before loading the browser adapter", async () => {
-    const response = await createWorkstationHtmlResponse(
-      new Request("https://work.quantumgalaxy.top/quantxy-ai-workbench-fused.html?formal=1"),
-      {
-        loadSession: async () => ({ member: { id: 7 } }),
-        loadBootstrap: async () => ({
-          session: {
-            authenticated: true,
-            authMode: "feishu",
-            dataMode: "server",
-            memberId: 7,
-            permissions: ["task.manage"],
-          },
-          members: [{ id: 7, n: "董佳瑶", r: "CEO", lv: 6 }],
-          projects: [],
-          tasks: [],
-          payroll: { 7: [] },
-          features: { identitySwitch: false, demoReset: false },
-        }),
-      },
+  it("rejects a non-local fused preview even when the route handler is called directly", async () => {
+    const response = await GET(
+      new Request("https://work.quantumgalaxy.top/quantxy-ai-workbench-fused.html?v=preview"),
     );
-    const html = await response.text();
 
-    expect(response.status).toBe(200);
-    expect(html).toContain('id="qxy-server-bootstrap"');
-    expect(html).toContain("window.__QUANTXY_SERVER_BOOTSTRAP__=");
-    expect(html).toContain('"memberId":7');
-    expect(html.indexOf("window.__QUANTXY_SERVER_BOOTSTRAP__="))
-      .toBeLessThan(html.indexOf("workstation-server-adapter.js"));
+    expect(response.status).toBe(404);
   });
 
-  it("redirects unauthenticated formal requests back to login with a safe return path", async () => {
+  it("rejects the retired formal fused entry before loading a bootstrap", async () => {
+    const response = await createWorkstationHtmlResponse(
+      new Request("https://work.quantumgalaxy.top/quantxy-ai-workbench-fused.html?formal=1"),
+    );
+    expect(response.status).toBe(404);
+  });
+
+  it("rejects formal fused requests without invoking the legacy login path", async () => {
     const response = await createWorkstationHtmlResponse(
       new Request("https://work.quantumgalaxy.top/quantxy-ai-workbench-fused.html?formal=1&v=live"),
-      {
-        loadSession: async () => null,
-        loadBootstrap: async () => {
-          throw new Error("should_not_load_bootstrap_without_session");
-        },
-      },
     );
 
-    expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe(
-      "https://work.quantumgalaxy.top/login?next=%2Fquantxy-ai-workbench-fused.html%3Fformal%3D1%26v%3Dlive",
-    );
+    expect(response.status).toBe(404);
   });
 });

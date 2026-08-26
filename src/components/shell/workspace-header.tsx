@@ -75,11 +75,11 @@ export function WorkspaceHeader() {
                 </DropdownMenuItem>
               ))}
               {!notifications.length ? <p className="px-3 py-5 text-center text-sm text-muted-foreground">当前没有新通知</p> : null}
-              <DropdownMenuSeparator /><DropdownMenuItem asChild className="rounded-xl"><Link href="/notifications" className="justify-center text-primary">查看全部通知</Link></DropdownMenuItem>
+              {capabilities.notifications ? <><DropdownMenuSeparator /><DropdownMenuItem asChild className="rounded-xl"><Link href="/notifications" className="justify-center text-primary">查看全部通知</Link></DropdownMenuItem></> : null}
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Button asChild variant="ghost" size="icon" className="hidden sm:inline-flex" aria-label="查看消息"><Link href={capabilities.approvals ? "/approvals" : "/notifications"}><Mail aria-hidden="true" /></Link></Button>
+          <Button asChild variant="ghost" size="icon" className="hidden sm:inline-flex" aria-label="查看消息"><Link href={capabilities.approvals ? "/approvals" : "/help"}><Mail aria-hidden="true" /></Link></Button>
           <Button type="button" variant="ghost" size="icon" aria-label="帮助中心" className="hidden sm:inline-flex" onClick={() => setHelpOpen(true)}><CircleHelp aria-hidden="true" /></Button>
 
           <DropdownMenu>

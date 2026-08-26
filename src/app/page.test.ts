@@ -34,13 +34,14 @@ describe("Home", () => {
     );
   });
 
-  it("does not swallow the redirect to an authenticated landing page", async () => {
+  it("redirects an authenticated user directly to the verified landing page", async () => {
     dependencies.getWorkspaceSession.mockResolvedValue({
       landingPath: "/execution",
     });
 
     await expect(Home()).rejects.toThrow(
-      "NEXT_REDIRECT:/quantxy-ai-workbench-fused.html?formal=1",
+      "NEXT_REDIRECT:/execution",
     );
+    expect(dependencies.redirect).toHaveBeenCalledWith("/execution");
   });
 });

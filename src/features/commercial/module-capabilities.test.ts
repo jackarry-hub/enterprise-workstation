@@ -1,8 +1,11 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
   getModuleCapabilities,
   getVisibleQuickWorkspaceActions,
+  commercialModuleRegistry,
 } from "@/features/commercial/module-capabilities";
 import {
   executiveWorkspaceSession,
@@ -26,13 +29,42 @@ function sessionWithPermissions(permissionCodes: WorkspaceSession["permissionCod
 
 describe("commercial module capabilities", () => {
   it("derives capabilities from the verified session permissions", () => {
-    const employeeSession = sessionWithPermissions(["task.execute"]);
+    const employeeSession = sessionWithPermissions(["task.manage"]);
     const capabilities = getModuleCapabilities(employeeSession);
 
-    expect(capabilities.tasks).toBe(true);
+    expect(capabilities.execution).toBe(false);
+    expect(commercialModuleRegistry.execution.requiredPermissions).toEqual(["task.manage"]);
     expect(capabilities.settings).toBe(false);
     expect(capabilities.attendance).toBe(false);
     expect(capabilities.leave).toBe(false);
+  });
+
+  it("tracks readiness explicitly for every registered production route", () => {
+    for (const definition of Object.values(commercialModuleRegistry)) {
+      if (definition.routes.length > 0) {
+        expect(definition).toHaveProperty("commercialReady");
+      }
+    }
+
+    expect(Object.entries(commercialModuleRegistry)
+      .filter(([, definition]) => definition.commercialReady)
+      .map(([module]) => module))
+      .toEqual(["help"]);
+  });
+
+  it("aligns the execution requirement with the shipped employee role matrix", async () => {
+    const matrix = await readFile(
+      path.join(process.cwd(), "supabase/migrations/202608100001_phase1_identity_rbac.sql"),
+      "utf8",
+    );
+    const laterAlignment = await readFile(
+      path.join(process.cwd(), "supabase/migrations/202608210003_task_management_role_alignment.sql"),
+      "utf8",
+    );
+
+    expect(matrix).toContain("('employee', 'task.manage')");
+    expect(laterAlignment).toContain("permission.code = 'task.manage'");
+    expect(commercialModuleRegistry.execution.requiredPermissions).toEqual(["task.manage"]);
   });
 
   it("does not publish unfinished or hidden-scope actions to quick create", () => {

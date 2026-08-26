@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { getVisibleNavigationItems } from "@/config/navigation";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import type { WorkspaceActor, WorkspaceSession } from "@/features/auth/workspace-session-types";
+import { getModuleCapabilities } from "@/features/commercial/module-capabilities";
 import { useOperationFixtureContext } from "@/features/operations/use-operations";
 import { getEffectiveProjectDetails } from "@/features/projects/data/effective-project-details";
 
@@ -30,11 +31,12 @@ const kindIcons = {
 
 export function buildWorkspaceSearchItems(session: WorkspaceSession, actor?: WorkspaceActor, includeFixtureData = true): WorkspaceSearchItem[] {
   const { primaryRole: role } = session;
+  const capabilities = getModuleCapabilities(session);
   const modules = getVisibleNavigationItems(session)
     .map(({ href, label }) => ({ id: `module-${href}`, label, meta: "企业工作站模块", href, kind: "模块" as const }));
   const projects = includeFixtureData ? getEffectiveProjectDetails() : [];
-  const canSearchProjects = role === "executive" || role === "department_head";
-  const canSearchTasks = role === "department_head" || role === "employee";
+  const canSearchProjects = capabilities.projects && (role === "executive" || role === "department_head");
+  const canSearchTasks = capabilities.tasks && (role === "department_head" || role === "employee");
   const scopedProjects = role === "department_head" && actor
     ? projects.filter(({ project, members }) => project.ownerId === actor.memberId || members.some(({ member }) => member.id === actor.memberId))
     : projects;
@@ -55,7 +57,7 @@ export function buildWorkspaceSearchItems(session: WorkspaceSession, actor?: Wor
     kind: "任务" as const,
   }))) : [];
   const members = new Map<string, WorkspaceSearchItem>();
-  if (role === "executive" || role === "department_head" || role === "hr") projects.forEach(({ members: projectMembers }) => {
+  if (capabilities.people && (role === "executive" || role === "department_head" || role === "hr")) projects.forEach(({ members: projectMembers }) => {
     projectMembers.forEach(({ member }) => {
       members.set(member.id, {
         id: `member-${member.id}`,

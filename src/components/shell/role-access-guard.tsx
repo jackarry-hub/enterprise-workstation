@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { getModuleCapabilities } from "@/features/commercial/module-capabilities";
 import { canRoleAccessPath } from "@/features/operations/role-access";
 
 function RedirectToLanding({ href }: { href: string }) {
@@ -27,10 +28,11 @@ export function RoleAccessGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "/dashboard";
   const session = useWorkspaceSession();
   const { actor } = session;
+  const capabilities = getModuleCapabilities(session);
   const allowed = canRoleAccessPath(session, pathname);
 
   if (!allowed) {
-    return <RedirectToLanding href={actor.landingPath} />;
+    return <RedirectToLanding href={capabilities.help ? "/help" : actor.landingPath} />;
   }
 
   return children;

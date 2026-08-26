@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   title: "量子星河 AI企业大脑",
   description: "把经营目标转成可执行项目、任务与结果的企业内部工作系统。",
   applicationName: "量子星河 AI企业大脑",
-  keywords: ["企业工作台", "任务协同", "项目管理", "审批", "考勤", "薪资"],
+  keywords: ["企业工作台", "任务协同", "项目管理", "审批", "薪资"],
 };
 
 export default function RootLayout({

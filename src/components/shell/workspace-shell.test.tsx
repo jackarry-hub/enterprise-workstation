@@ -1,6 +1,12 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/help",
+  useRouter: () => ({ replace: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}));
 
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { WorkspaceHeader } from "@/components/shell/workspace-header";
@@ -125,7 +131,7 @@ describe("WorkspaceShell", () => {
     expect(screen.getAllByRole("menuitem", { name: "退出登录" })).toHaveLength(1);
   });
 
-  it("exposes the enterprise navigation and workspace controls", () => {
+  it("keeps unavailable business destinations out of the formal workspace shell", () => {
     render(
       <WorkspaceShell session={executiveSession}>
         <p>驾驶舱内容</p>
@@ -137,47 +143,43 @@ describe("WorkspaceShell", () => {
     expect(
       screen.getByRole("img", { name: "量子星河 QuantXY" }),
     ).toBeVisible();
-    expect(screen.getByText("AI 决策调度台")).toBeVisible();
-    expect(screen.getByText("项目管理")).toBeVisible();
-    expect(screen.getByText("审批中心")).toBeVisible();
-    expect(screen.getByRole("link", { name: "任务管理" })).toHaveAttribute("href", "/tasks");
+    expect(screen.queryByText("AI 决策调度台")).not.toBeInTheDocument();
+    expect(screen.queryByText("项目管理")).not.toBeInTheDocument();
+    expect(screen.queryByText("审批中心")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "任务管理" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "知识库" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "客户管理" })).toHaveAttribute("href", "/customers");
-    expect(screen.getByRole("link", { name: "数据分析" })).toHaveAttribute("href", "/analytics");
+    expect(screen.queryByRole("link", { name: "客户管理" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "数据分析" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "全局搜索" })).toBeVisible();
     expect(screen.getByRole("button", { name: "查看通知" })).toBeVisible();
-    expect(screen.getByRole("link", { name: "查看消息" })).toHaveAttribute("href", "/approvals");
+    expect(screen.getByRole("link", { name: "查看消息" })).toHaveAttribute("href", "/help");
     expect(screen.getByText("张星河")).toBeVisible();
     expect(screen.getByText("驾驶舱内容")).toBeVisible();
   });
 
-  it("opens global search and exposes working shell destinations", async () => {
+  it("opens global search without exposing unavailable fixture destinations", async () => {
     const user = userEvent.setup();
     render(<WorkspaceShell session={executiveSession}><p>内容</p></WorkspaceShell>);
 
     await user.click(screen.getByRole("button", { name: "全局搜索" }));
     const search = screen.getByLabelText("输入全局搜索关键词");
     await user.type(search, "企业官网升级");
-    const projectResult = screen.getAllByRole("link", { name: /企业官网升级项目/ }).find((link) => !link.getAttribute("href")?.includes("?"));
-    expect(projectResult).toHaveAttribute("href", expect.stringContaining("/projects/"));
+    expect(screen.queryByRole("link", { name: /企业官网升级项目/ })).not.toBeInTheDocument();
 
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "查看通知" }));
-    expect(screen.getByRole("menuitem", { name: /查看全部通知/ })).toHaveAttribute("href", "/notifications");
+    expect(screen.queryByRole("menuitem", { name: /查看全部通知/ })).not.toBeInTheDocument();
 
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "打开用户菜单" }));
-    expect(screen.getByRole("menuitem", { name: /个人资料/ })).toHaveAttribute("href", "/settings?tab=personal");
-    expect(screen.getByRole("menuitem", { name: /偏好设置/ })).toHaveAttribute("href", "/settings?tab=notifications");
+    expect(screen.queryByRole("menuitem", { name: /个人资料/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /偏好设置/ })).not.toBeInTheDocument();
   });
 
-  it("connects the project overview submenu to the existing project overview section", () => {
+  it("does not render the project overview submenu before projects are ready", () => {
     render(withSession(executiveSession, <AppSidebar currentPath="/projects" />));
 
-    expect(screen.getByRole("link", { name: "项目总览" })).toHaveAttribute(
-      "href",
-      "/projects?view=overview#project-overview",
-    );
+    expect(screen.queryByRole("link", { name: "项目总览" })).not.toBeInTheDocument();
   });
 
   it("uses the server session instead of browser-selected fixture identity", async () => {
@@ -191,7 +193,7 @@ describe("WorkspaceShell", () => {
     expect(screen.queryByText("李总")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "打开用户菜单" }));
-    expect(screen.getByRole("menuitem", { name: /我的任务/ })).toHaveAttribute("href", "/tasks");
+    expect(screen.queryByRole("menuitem", { name: /我的任务/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /我的考勤/ })).not.toBeInTheDocument();
   });
 });

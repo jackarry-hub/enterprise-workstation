@@ -28,30 +28,30 @@ export type CommercialModule =
 export type CommercialModuleDefinition = {
   readonly routes: readonly string[];
   readonly requiredPermissions: readonly WorkspacePermissionCode[];
-  readonly available: boolean;
+  readonly commercialReady: boolean;
 };
 
 export const commercialModuleRegistry: Readonly<Record<CommercialModule, CommercialModuleDefinition>> = {
-  dashboard: { routes: ["/dashboard"], requiredPermissions: ["dashboard.read"], available: true },
-  department: { routes: ["/department"], requiredPermissions: ["project.manage"], available: true },
-  execution: { routes: ["/execution"], requiredPermissions: ["task.execute"], available: true },
-  finance: { routes: ["/finance"], requiredPermissions: ["expense.manage", "salary.manage"], available: true },
-  hr: { routes: ["/hr"], requiredPermissions: ["hr.manage"], available: true },
-  projects: { routes: ["/projects"], requiredPermissions: ["project.read", "project.create", "project.manage"], available: true },
-  activities: { routes: ["/activities"], requiredPermissions: ["project.manage", "task.manage"], available: true },
-  tasks: { routes: ["/tasks"], requiredPermissions: ["task.execute", "task.manage"], available: true },
-  people: { routes: ["/people"], requiredPermissions: ["hr.manage", "organization.manage", "department.manage"], available: true },
-  payroll: { routes: ["/payroll"], requiredPermissions: ["salary.self", "salary.manage"], available: true },
-  approvals: { routes: ["/approvals"], requiredPermissions: ["approval.self", "approval.manage", "approval.submit", "approval.act"], available: true },
-  customers: { routes: ["/customers"], requiredPermissions: ["customer.manage"], available: true },
-  analytics: { routes: ["/analytics"], requiredPermissions: ["analytics.read"], available: true },
-  settings: { routes: ["/settings"], requiredPermissions: ["settings.manage", "organization.manage", "role.manage", "ai.config.manage"], available: true },
-  notifications: { routes: ["/notifications"], requiredPermissions: [], available: true },
-  help: { routes: ["/help"], requiredPermissions: [], available: true },
-  knowledge: { routes: ["/knowledge"], requiredPermissions: ["knowledge.manage"], available: false },
-  attendance: { routes: ["/attendance"], requiredPermissions: [], available: false },
-  leave: { routes: ["/leave"], requiredPermissions: [], available: false },
-  fused: { routes: ["/quantxy-ai-workbench-fused.html"], requiredPermissions: [], available: false },
+  dashboard: { routes: ["/dashboard"], requiredPermissions: ["dashboard.read"], commercialReady: false },
+  department: { routes: ["/department"], requiredPermissions: ["project.manage"], commercialReady: false },
+  execution: { routes: ["/execution"], requiredPermissions: ["task.manage"], commercialReady: false },
+  finance: { routes: ["/finance"], requiredPermissions: ["expense.manage", "salary.manage"], commercialReady: false },
+  hr: { routes: ["/hr"], requiredPermissions: ["hr.manage"], commercialReady: false },
+  projects: { routes: ["/projects"], requiredPermissions: ["project.read", "project.create", "project.manage"], commercialReady: false },
+  activities: { routes: ["/activities"], requiredPermissions: ["project.manage", "task.manage"], commercialReady: false },
+  tasks: { routes: ["/tasks"], requiredPermissions: ["task.manage"], commercialReady: false },
+  people: { routes: ["/people"], requiredPermissions: ["hr.manage", "organization.manage", "department.manage"], commercialReady: false },
+  payroll: { routes: ["/payroll"], requiredPermissions: ["salary.self", "salary.manage"], commercialReady: false },
+  approvals: { routes: ["/approvals"], requiredPermissions: ["approval.self", "approval.manage", "approval.submit", "approval.act"], commercialReady: false },
+  customers: { routes: ["/customers"], requiredPermissions: ["customer.manage"], commercialReady: false },
+  analytics: { routes: ["/analytics"], requiredPermissions: ["analytics.read"], commercialReady: false },
+  settings: { routes: ["/settings"], requiredPermissions: ["settings.manage", "organization.manage", "role.manage", "ai.config.manage"], commercialReady: false },
+  notifications: { routes: ["/notifications"], requiredPermissions: [], commercialReady: false },
+  help: { routes: ["/help"], requiredPermissions: [], commercialReady: true },
+  knowledge: { routes: ["/knowledge"], requiredPermissions: ["knowledge.manage"], commercialReady: false },
+  attendance: { routes: ["/attendance"], requiredPermissions: [], commercialReady: false },
+  leave: { routes: ["/leave"], requiredPermissions: [], commercialReady: false },
+  fused: { routes: ["/quantxy-ai-workbench-fused.html"], requiredPermissions: [], commercialReady: false },
 };
 
 export type ContextualCreateAction = {
@@ -80,7 +80,7 @@ export function hasModuleCapability(
   module: CommercialModule,
 ) {
   const definition = commercialModuleRegistry[module];
-  return definition.available
+  return definition.commercialReady
     && (definition.requiredPermissions.length === 0
       || definition.requiredPermissions.some((permission) => session.permissionCodes.includes(permission)));
 }

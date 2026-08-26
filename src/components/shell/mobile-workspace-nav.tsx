@@ -11,12 +11,13 @@ export function MobileWorkspaceNav({ active = "work" }: { active?: "home" | "wor
   const session = useWorkspaceSession();
   const { actor } = session;
   const capabilities = getModuleCapabilities(session);
-  const workHref = capabilities.projects ? "/projects" : capabilities.tasks ? "/tasks" : actor.landingPath;
-  const profileHref = capabilities.people ? "/people" : capabilities.payroll ? "/payroll" : actor.landingPath;
+  const fallbackHref = capabilities.help ? "/help" : actor.landingPath;
+  const workHref = capabilities.projects ? "/projects" : capabilities.tasks ? "/tasks" : fallbackHref;
+  const profileHref = capabilities.people ? "/people" : capabilities.payroll ? "/payroll" : fallbackHref;
   const items = [
-    { href: actor.landingPath, label: "首页", icon: House, value: "home" as const },
+    { href: fallbackHref, label: "首页", icon: House, value: "home" as const },
     { href: workHref, label: "工作", icon: BriefcaseBusiness, value: "work" as const },
-    { href: "/approvals", label: "待办", icon: MessageCircle, value: "messages" as const },
+    { href: capabilities.approvals ? "/approvals" : fallbackHref, label: "待办", icon: MessageCircle, value: "messages" as const },
     { href: profileHref, label: "我的", icon: UserRound, value: "profile" as const },
   ];
   return (

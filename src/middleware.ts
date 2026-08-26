@@ -52,7 +52,7 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   if (
     isStandaloneAuthorizedPath(pathname)
-    || isLocalPreviewWorkstationPath(pathname, request.nextUrl.searchParams)
+    || isLocalPreviewWorkstationPath(request.nextUrl)
   ) {
     return NextResponse.next();
   }
@@ -111,8 +111,7 @@ export async function middleware(request: NextRequest) {
   try {
     assertServerRouteAccess(session, pathname);
   } catch {
-    const destination = new URL(session.landingPath, request.url);
-    destination.searchParams.set("notice", "no_access");
+    const destination = noAccessDestination(session, request.url);
     return redirectWithRefreshedCookies(response, destination);
   }
 
@@ -138,12 +137,21 @@ export function isStandaloneAuthorizedPath(pathname: string) {
     || pathname === "/api/ai/chat";
 }
 
-export function isLocalPreviewWorkstationPath(
-  pathname: string,
-  searchParams: URLSearchParams,
-) {
-  return pathname === "/quantxy-ai-workbench-fused.html"
-    && searchParams.get("formal") !== "1";
+function noAccessDestination(session: Parameters<typeof assertServerRouteAccess>[0], requestUrl: string) {
+  try {
+    assertServerRouteAccess(session, session.landingPath);
+    const destination = new URL(session.landingPath, requestUrl);
+    destination.searchParams.set("notice", "no_access");
+    return destination;
+  } catch {
+    return new URL("/access-pending?reason=no_access", requestUrl);
+  }
+}
+
+export function isLocalPreviewWorkstationPath(url: URL) {
+  return url.pathname === "/quantxy-ai-workbench-fused.html"
+    && url.searchParams.get("formal") !== "1"
+    && isLocalPreviewHost(url.hostname);
 }
 
 export function getLocalPreviewAccessPendingRedirect(url: URL) {

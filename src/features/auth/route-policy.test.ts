@@ -15,7 +15,7 @@ import {
   isPublicAuthPath,
 } from "@/features/auth/workspace-access";
 import type { WorkspacePermissionCode, WorkspaceRole } from "@/features/auth/workspace-session-types";
-import { middleware } from "@/middleware";
+import { isLocalPreviewWorkstationPath, middleware } from "@/middleware";
 
 const authUserId = "10000000-0000-4000-8000-000000000001";
 const accessBase = {
@@ -219,7 +219,7 @@ describe("workspace middleware", () => {
   );
 
   it.each(roleCases)(
-    "allows the %s role to reach its server-checked landing path",
+    "fails closed when the %s landing module is not commercial-ready",
     async (_workspaceRole, databaseRole, landingPath, permissionCodes) => {
       refreshedSession({ data: accessRow(databaseRole, permissionCodes) });
 
@@ -227,8 +227,9 @@ describe("workspace middleware", () => {
         new NextRequest(`https://brain.example${landingPath}`),
       );
 
-      expect(response.status).toBe(200);
-      expect(response.headers.get("location")).toBeNull();
+      expect(response.headers.get("location")).toBe(
+        "https://brain.example/access-pending?reason=no_access",
+      );
     },
   );
 
@@ -249,7 +250,7 @@ describe("workspace middleware", () => {
 
       expect(rootResponse.headers.get("location")).toBeNull();
       expect(fusedResponse.headers.get("location")).toBe(
-        `https://brain.example${landingPath}?notice=no_access`,
+        "https://brain.example/access-pending?reason=no_access",
       );
     },
   );
@@ -270,9 +271,11 @@ describe("workspace middleware", () => {
         new NextRequest("https://brain.example/attendance"),
       );
 
-      expect(tasks.headers.get("location")).toBeNull();
+      expect(tasks.headers.get("location")).toBe(
+        "https://brain.example/access-pending?reason=no_access",
+      );
       expect(attendance.headers.get("location")).toBe(
-        `https://brain.example${landingPath}?notice=no_access`,
+        "https://brain.example/access-pending?reason=no_access",
       );
     },
   );
@@ -285,7 +288,19 @@ describe("workspace middleware", () => {
     );
 
     expect(response.headers.get("location")).toBe(
-      "https://brain.example/execution?notice=no_access",
+      "https://brain.example/access-pending?reason=no_access",
+    );
+  });
+
+  it("uses no-access status instead of redirecting back to a denied landing page", async () => {
+    refreshedSession({ data: accessRow("employee", ["task.manage"]) });
+
+    const response = await middleware(
+      new NextRequest("https://brain.example/execution"),
+    );
+
+    expect(response.headers.get("location")).toBe(
+      "https://brain.example/access-pending?reason=no_access",
     );
   });
 
@@ -315,17 +330,36 @@ describe("workspace middleware", () => {
     });
   });
 
+  it("allows the fused preview bypass only from a local host", async () => {
+    expect(isLocalPreviewWorkstationPath(
+      new URL("http://127.0.0.1/quantxy-ai-workbench-fused.html?v=preview"),
+    )).toBe(true);
+    expect(isLocalPreviewWorkstationPath(
+      new URL("https://brain.example/quantxy-ai-workbench-fused.html?v=preview"),
+    )).toBe(false);
+
+    const { supabase } = refreshedSession({ subject: null });
+    const response = await middleware(
+      new NextRequest("https://brain.example/quantxy-ai-workbench-fused.html?v=preview"),
+    );
+
+    expect(supabase.rpc).not.toHaveBeenCalled();
+    expect(response.headers.get("location")).toBe(
+      "https://brain.example/login?next=%2Fquantxy-ai-workbench-fused.html%3Fv%3Dpreview",
+    );
+  });
+
   it("overwrites a caller supplied private route header while preserving refreshed cookies", async () => {
     const { response: refreshed } = refreshedSession({ data: accessRow("employee") });
     refreshed.cookies.set("sb-session", "rotated", { httpOnly: true, path: "/" });
 
     const response = await middleware(
-      new NextRequest("https://brain.example/tasks", {
+      new NextRequest("https://brain.example/help", {
         headers: { "x-quantxy-workspace-path": "/settings" },
       }),
     );
 
-    expect(response.headers.get("x-middleware-request-x-quantxy-workspace-path")).toBe("/tasks");
+    expect(response.headers.get("x-middleware-request-x-quantxy-workspace-path")).toBe("/help");
     expect(response.cookies.get("sb-session")).toMatchObject({
       name: "sb-session",
       value: "rotated",
