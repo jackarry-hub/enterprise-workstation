@@ -142,6 +142,86 @@ test("preserves allowlisted domain errors for mutations without accepting raw en
   dom.window.close();
 });
 
+test("normalizes inherited allowlist property names on bootstrap and mutation failures", async () => {
+  const source = await readFile(
+    path.join(process.cwd(), "public", "workstation-server-adapter.js"),
+    "utf8",
+  );
+  const bootstrap = {
+    session: {
+      authenticated: true,
+      authMode: "feishu",
+      dataMode: "server",
+      memberId: "m7",
+      permissions: ["salary.manage"],
+    },
+    members: [{ id: "m7", n: "薪资管理员" }],
+    projects: [], tasks: [], payroll: { m7: [] },
+    features: { identitySwitch: false, demoReset: false },
+  };
+  const requestId = "a1111111-1111-4111-8111-111111111131";
+  const inheritedNames = ["constructor", "toString", "__proto__"];
+
+  for (const code of inheritedNames) {
+    const dom = new JSDOM("<!doctype html><script></script>", {
+      url: "https://work.quantumgalaxy.top/quantxy-ai-workbench-fused.html?formal=1",
+      runScripts: "outside-only",
+    });
+    dom.window.fetch = async () => response(false, {
+      code,
+      error: code,
+      requestId,
+      message: "relation internal_table leaks raw bootstrap diagnostic",
+      details: "raw bootstrap database detail",
+    }, 500);
+
+    dom.window.eval(source);
+    await assert.rejects(
+      dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.ready(),
+      (error) => {
+        assert.equal(error.message, "workstation_unavailable", `bootstrap ${code}`);
+        assert.equal(error.code, "workstation_unavailable", `bootstrap ${code}`);
+        assert.equal(error.requestId, undefined, `bootstrap ${code}`);
+        assert.doesNotMatch(String(error.message), /relation|database|diagnostic|detail/i);
+        assert.equal(Object.hasOwn(error, "details"), false);
+        return true;
+      },
+    );
+    dom.window.close();
+  }
+
+  for (const code of inheritedNames) {
+    const dom = new JSDOM("<!doctype html><script></script>", {
+      url: "https://work.quantumgalaxy.top/quantxy-ai-workbench-fused.html?formal=1",
+      runScripts: "outside-only",
+    });
+    dom.window.fetch = async (url) => String(url) === "/api/workstation/bootstrap"
+      ? response(true, bootstrap)
+      : response(false, {
+        code,
+        error: code,
+        requestId,
+        message: "relation internal_table leaks raw mutation diagnostic",
+        details: "raw mutation database detail",
+      }, 500);
+
+    dom.window.eval(source);
+    await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.ready();
+    await assert.rejects(
+      dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.previewPayroll({}),
+      (error) => {
+        assert.equal(error.message, "workstation_unavailable", `mutation ${code}`);
+        assert.equal(error.code, "workstation_unavailable", `mutation ${code}`);
+        assert.equal(error.requestId, undefined, `mutation ${code}`);
+        assert.doesNotMatch(String(error.message), /relation|database|diagnostic|detail/i);
+        assert.equal(Object.hasOwn(error, "details"), false);
+        return true;
+      },
+    );
+    dom.window.close();
+  }
+});
+
 test("loads the formal bootstrap through XHR when fetch is unavailable", async () => {
   const source = await readFile(
     path.join(process.cwd(), "public", "workstation-server-adapter.js"),

@@ -111,12 +111,14 @@
 
   function bootstrapFailure(body) {
     var value = body && typeof body === "object" ? body : {};
-    var code = typeof value.code === "string" && bootstrapErrorCodes[value.code]
-      ? value.code
+    var requestedCode = typeof value.code === "string" ? value.code : "";
+    var explicitCode = Object.prototype.hasOwnProperty.call(bootstrapErrorCodes, requestedCode);
+    var code = explicitCode
+      ? requestedCode
       : "workstation_unavailable";
     var error = new Error(code);
     error.code = code;
-    if (typeof value.requestId === "string" && requestIdPattern.test(value.requestId)) {
+    if (explicitCode && typeof value.requestId === "string" && requestIdPattern.test(value.requestId)) {
       error.requestId = value.requestId;
     }
     return error;
@@ -126,7 +128,9 @@
     var value = body && typeof body === "object" ? body : {};
     var valueCode = typeof value.error === "string" ? value.error
       : typeof value.code === "string" ? value.code : "";
-    var code = domainErrorCodes[valueCode] ? valueCode : "workstation_unavailable";
+    var code = Object.prototype.hasOwnProperty.call(domainErrorCodes, valueCode)
+      ? valueCode
+      : "workstation_unavailable";
     var error = new Error(code);
     error.code = code;
     return error;
