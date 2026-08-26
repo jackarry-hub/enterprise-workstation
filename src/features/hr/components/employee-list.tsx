@@ -33,12 +33,6 @@ const statusMeta: Record<EmploymentStatus, {
   departed: { label: "已离职", tone: "neutral" },
 };
 
-function formatDate(date?: string) {
-  if (!date) return "未记录";
-  const [year, month, day] = date.split("-");
-  return `${year}.${month}.${day}`;
-}
-
 function EmployeeAvatar({ employee, large = false }: {
   employee: EmployeeDirectoryItem;
   large?: boolean;
@@ -83,7 +77,6 @@ export function EmployeeList({ employees }: { employees: EmployeeDirectoryItem[]
               <TableHead>工号</TableHead>
               <TableHead>部门 / 岗位</TableHead>
               <TableHead>直属负责人</TableHead>
-              <TableHead>入职时间</TableHead>
               <TableHead>状态</TableHead>
               <TableHead><span className="sr-only">查看详情</span></TableHead>
             </TableRow>
@@ -98,7 +91,7 @@ export function EmployeeList({ employees }: { employees: EmployeeDirectoryItem[]
                       <EmployeeAvatar employee={employee} />
                       <div className="min-w-0">
                         <p className="truncate font-medium text-foreground">{profile.displayName}</p>
-                        <p className="truncate text-xs text-muted-foreground">{profile.workEmail ?? "未绑定企业邮箱"}</p>
+                        <p className="truncate text-xs text-muted-foreground">{profile.employeeNo}</p>
                       </div>
                     </div>
                   </TableCell>
@@ -108,7 +101,6 @@ export function EmployeeList({ employees }: { employees: EmployeeDirectoryItem[]
                     <p className="mt-0.5 text-xs text-muted-foreground">{profile.jobTitle}</p>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{manager?.displayName ?? "—"}</TableCell>
-                  <TableCell className="text-muted-foreground">{formatDate(profile.hireDate)}</TableCell>
                   <TableCell><EmployeeStatusBadge status={profile.employmentStatus} /></TableCell>
                   <TableCell className="pr-4 text-right">
                     <Link

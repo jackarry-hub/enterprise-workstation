@@ -16,8 +16,6 @@ export type EmployeeAccount = {
 
 export type Department = {
   id: string;
-  organizationId: string;
-  parentDepartmentId?: string;
   code: string;
   name: string;
   status: DepartmentStatus;
@@ -26,26 +24,30 @@ export type Department = {
 
 export type EmployeeProfile = {
   id: string;
-  organizationId: string;
   employeeNo: string;
   displayName: string;
   avatarUrl?: string;
-  workEmail?: string;
-  phone?: string;
   departmentId?: string;
   jobTitle: string;
   managerEmployeeId?: string;
   employmentType: EmploymentType;
   employmentStatus: EmploymentStatus;
+  account?: EmployeeAccount;
+};
+
+export type EmployeePrivateProfile = {
+  employeePublicId: string;
+  privateEmail?: string;
+  phone?: string;
   hireDate?: string;
   departureDate?: string;
-  account?: EmployeeAccount;
+  sensitiveHrNotes?: string;
 };
 
 export type EmployeeDirectoryItem = {
   profile: EmployeeProfile;
   department?: Department;
-  manager?: Pick<EmployeeProfile, "id" | "displayName" | "jobTitle">;
+  manager?: Pick<EmployeeProfile, "id" | "displayName">;
 };
 
 export type EmployeeDirectoryStats = {
@@ -71,4 +73,10 @@ export type EmployeeDirectoryData = {
 export type EmployeeDirectoryResult = {
   source: "mock" | "supabase";
   data: EmployeeDirectoryData;
+};
+
+export type EmployeePrivateProfileResult = {
+  source: "supabase";
+  data?: EmployeePrivateProfile;
+  loadError?: string;
 };

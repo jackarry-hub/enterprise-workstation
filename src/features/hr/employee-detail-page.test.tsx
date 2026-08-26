@@ -32,8 +32,9 @@ describe("EmployeeDetailPage", () => {
     render(<EmployeeDetailPage employee={employee} />);
 
     expect(screen.getByRole("heading", { name: "基本信息" })).toBeVisible();
-    expect(screen.getByText("wang.fang@quantxy.cn")).toBeVisible();
-    expect(screen.getByText("138 0000 1002")).toBeVisible();
+    expect(screen.getByText("公开目录基础档案")).toBeVisible();
+    expect(screen.queryByText("wang.fang@quantxy.cn")).not.toBeInTheDocument();
+    expect(screen.queryByText("138 0000 1002")).not.toBeInTheDocument();
 
     expect(screen.getByRole("heading", { name: "组织关系" })).toBeVisible();
     expect(screen.getAllByText("人力资源部").length).toBeGreaterThanOrEqual(1);

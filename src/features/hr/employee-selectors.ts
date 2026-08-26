@@ -15,8 +15,6 @@ export function filterEmployees(
     const matchesQuery = !query || [
       profile.displayName,
       profile.employeeNo,
-      profile.workEmail,
-      profile.phone,
       profile.jobTitle,
       department?.name,
     ].some((value) => value?.toLocaleLowerCase("zh-CN").includes(query));
