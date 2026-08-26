@@ -583,8 +583,12 @@ for select to authenticated using (
   tenant_id = (select public.current_tenant_id())
   and organization_id in (
     select member.organization_id from public.organization_members member
-    join public.member_roles assignment on assignment.member_id = member.id
-    join public.role_permissions rp on rp.role_id = assignment.role_id
+    join public.member_roles assignment
+      on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+    join public.roles role
+      on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
+    join public.role_permissions rp
+      on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
     join public.permissions permission on permission.id = rp.permission_id
     where member.user_id = (select auth.uid()) and member.status = 'active'
       and permission.code = 'organization.manage'
@@ -756,14 +760,18 @@ begin
   if public.active_workspace_organization_id(p_actor_auth_user_id) is distinct from v_organization_id
      or not exists (
        select 1
-       from public.member_roles assignment
-       join public.role_permissions rp
+      from public.member_roles assignment
+      join public.roles role
+        on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
+      join public.role_permissions rp
          on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
        join public.permissions permission
          on permission.id = rp.permission_id
        where assignment.tenant_id = v_tenant_id
-         and assignment.member_id = v_actor_member_id
-         and permission.code = 'organization.manage'
+        and assignment.member_id = v_actor_member_id
+        and role.is_enabled
+        and (role.organization_id is null or role.organization_id = v_organization_id)
+        and permission.code = 'organization.manage'
      ) then
     raise exception 'forbidden' using errcode = '42501';
   end if;
@@ -800,8 +808,7 @@ begin
      and run.tenant_id = v_tenant_id
      and run.organization_id = v_organization_id
      and run.connection_id = v_connection_id
-     and run.actor_member_id = v_actor_member_id
-   for update;
+    and run.actor_member_id = v_actor_member_id;
   if v_sync_run_status <> 'running' then
     raise exception 'sync_run_terminal' using errcode = '55000';
   end if;
@@ -1489,6 +1496,63 @@ revoke all on function public.get_feishu_offboarding_proof(text)
 from public, anon, authenticated, service_role;
 grant execute on function public.get_feishu_offboarding_proof(text) to service_role;
 
+-- Counts only the exact access boundaries associated with one organization
+-- member. This service-only proof is used by local E2E to establish non-zero
+-- preconditions and exact zero postconditions without exposing auth rows.
+create or replace function public.get_feishu_member_access_proof(p_member_public_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_scope record;
+begin
+  select profile.tenant_id, profile.organization_id,
+         profile.organization_member_id, profile.employment_status as profile_status,
+         member.user_id, member.status as member_status
+    into strict v_scope
+    from public.employee_profiles profile
+    join public.organization_members member
+      on member.tenant_id = profile.tenant_id
+     and member.organization_id = profile.organization_id
+     and member.id = profile.organization_member_id
+   where profile.public_id = p_member_public_id
+     and profile.deleted_at is null;
+
+  return jsonb_build_object(
+    'sessionCount', (
+      select count(*) from auth.sessions session
+       where session.user_id = v_scope.user_id
+    ),
+    'refreshTokenCount', (
+      select count(*) from auth.refresh_tokens refresh_token
+       where refresh_token.user_id = v_scope.user_id::text
+    ),
+    'queuedGrantCount', (
+      select count(*) from public.feishu_access_grants grant_row
+       where grant_row.tenant_id = v_scope.tenant_id
+         and grant_row.organization_id = v_scope.organization_id
+         and grant_row.organization_member_id = v_scope.organization_member_id
+         and grant_row.status = 'queued'
+    ),
+    'identityActiveCount', (
+      select count(*) from public.external_identities identity
+       where identity.tenant_id = v_scope.tenant_id
+         and identity.organization_id = v_scope.organization_id
+         and identity.organization_member_id = v_scope.organization_member_id
+         and identity.status = 'active'
+    ),
+    'profileStatus', v_scope.profile_status,
+    'memberStatus', v_scope.member_status
+  );
+end;
+$$;
+
+revoke all on function public.get_feishu_member_access_proof(uuid)
+from public, anon, authenticated, service_role;
+grant execute on function public.get_feishu_member_access_proof(uuid) to service_role;
+
 alter table public.feishu_sync_leases
   add column actor_auth_user_id uuid references auth.users(id) on delete set null;
 
@@ -1536,12 +1600,18 @@ for select to authenticated using (
   organization_id = (select public.current_active_workspace_organization_id())
   and exists (
     select 1 from public.organization_members member
-    join public.member_roles assignment on assignment.member_id = member.id
-    join public.role_permissions rp on rp.role_id = assignment.role_id
+    join public.member_roles assignment
+      on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+    join public.roles role
+      on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
+    join public.role_permissions rp
+      on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
     join public.permissions permission on permission.id = rp.permission_id
     where member.user_id = (select auth.uid()) and member.status = 'active'
       and member.tenant_id = feishu_sync_conflicts.tenant_id
       and member.organization_id = feishu_sync_conflicts.organization_id
+      and role.is_enabled
+      and (role.organization_id is null or role.organization_id = feishu_sync_conflicts.organization_id)
       and permission.code = 'organization.manage'
   )
 );
@@ -1554,12 +1624,16 @@ for select to authenticated using (
     select 1 from public.organization_members member
     join public.member_roles assignment
       on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+    join public.roles role
+      on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
     join public.role_permissions rp
       on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
     join public.permissions permission on permission.id = rp.permission_id
     where member.user_id = (select auth.uid()) and member.status = 'active'
       and member.tenant_id = feishu_webhook_events.tenant_id
       and member.organization_id = feishu_webhook_events.organization_id
+      and role.is_enabled
+      and (role.organization_id is null or role.organization_id = feishu_webhook_events.organization_id)
       and permission.code = 'organization.manage'
   )
 );
@@ -1576,12 +1650,16 @@ for select to authenticated using (
     select 1 from public.organization_members member
     join public.member_roles assignment
       on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+    join public.roles role
+      on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
     join public.role_permissions rp
       on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
     join public.permissions permission on permission.id = rp.permission_id
     where member.user_id = (select auth.uid()) and member.status = 'active'
       and member.tenant_id = directory_connections.tenant_id
       and member.organization_id = directory_connections.organization_id
+      and role.is_enabled
+      and (role.organization_id is null or role.organization_id = directory_connections.organization_id)
       and permission.code = 'organization.manage'
   )
 );
@@ -1593,12 +1671,16 @@ for select to authenticated using (
     select 1 from public.organization_members member
     join public.member_roles assignment
       on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+    join public.roles role
+      on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
     join public.role_permissions rp
       on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
     join public.permissions permission on permission.id = rp.permission_id
     where member.user_id = (select auth.uid()) and member.status = 'active'
       and member.tenant_id = directory_entity_links.tenant_id
       and member.organization_id = directory_entity_links.organization_id
+      and role.is_enabled
+      and (role.organization_id is null or role.organization_id = directory_entity_links.organization_id)
       and permission.code = 'organization.manage'
   )
 );
@@ -1610,12 +1692,16 @@ for select to authenticated using (
     select 1 from public.organization_members member
     join public.member_roles assignment
       on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+    join public.roles role
+      on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
     join public.role_permissions rp
       on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
     join public.permissions permission on permission.id = rp.permission_id
     where member.user_id = (select auth.uid()) and member.status = 'active'
       and member.tenant_id = directory_sync_issues.tenant_id
       and member.organization_id = directory_sync_issues.organization_id
+      and role.is_enabled
+      and (role.organization_id is null or role.organization_id = directory_sync_issues.organization_id)
       and permission.code = 'organization.manage'
   )
 );
@@ -1627,12 +1713,16 @@ for select to authenticated using (
     select 1 from public.organization_members member
     join public.member_roles assignment
       on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+    join public.roles role
+      on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
     join public.role_permissions rp
       on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
     join public.permissions permission on permission.id = rp.permission_id
     where member.user_id = (select auth.uid()) and member.status = 'active'
       and member.tenant_id = directory_sync_runs.tenant_id
       and member.organization_id = directory_sync_runs.organization_id
+      and role.is_enabled
+      and (role.organization_id is null or role.organization_id = directory_sync_runs.organization_id)
       and permission.code = 'organization.manage'
   )
 );
@@ -1654,6 +1744,7 @@ as $$
 declare
   v_connection record;
   v_lease public.feishu_sync_leases%rowtype;
+  v_blocked record;
   v_run_id uuid;
   v_attempt integer := 1;
   v_actor uuid;
@@ -1673,29 +1764,135 @@ begin
     );
   end if;
 
-  select connection.id, connection.tenant_id, connection.organization_id,
-         tenant.public_id as tenant_public_id,
-         organization.public_id as organization_public_id
-    into v_connection
-    from public.directory_connections connection
-    join public.identity_providers provider
-      on provider.tenant_id = connection.tenant_id
-     and provider.id = connection.identity_provider_id
-    join public.tenants tenant on tenant.id = connection.tenant_id and tenant.status = 'active'
-    join public.organizations organization
-      on organization.tenant_id = connection.tenant_id
-     and organization.id = connection.organization_id
-   where connection.status = 'active'
-     and provider.provider_code = 'feishu' and provider.status = 'active'
-     and provider.provider_tenant_key = p_provider_tenant_key
-     and connection.external_tenant_key = p_provider_tenant_key
-     and (p_organization_public_id is null or organization.public_id = p_organization_public_id)
-   order by connection.last_sync_at nulls first, connection.id
-   for update of connection limit 1;
-  if not found then
+  if p_mode = 'incremental' then
+    -- The durable cursor identifies one exact connection. Resolve and lock that
+    -- connection directly instead of selecting an unrelated first row.
+    select connection.id, connection.tenant_id, connection.organization_id,
+           connection.identity_provider_id,
+           tenant.public_id as tenant_public_id,
+           organization.public_id as organization_public_id
+      into v_connection
+      from public.directory_connections connection
+      join public.feishu_webhook_events cursor_event
+        on cursor_event.connection_id = connection.id
+       and cursor_event.tenant_id = connection.tenant_id
+       and cursor_event.organization_id = connection.organization_id
+       and cursor_event.id::text = p_cursor
+      join public.identity_providers provider
+        on provider.tenant_id = connection.tenant_id
+       and provider.id = connection.identity_provider_id
+      join public.tenants tenant on tenant.id = connection.tenant_id and tenant.status = 'active'
+      join public.organizations organization
+        on organization.tenant_id = connection.tenant_id
+       and organization.id = connection.organization_id
+     where connection.status = 'active'
+       and provider.provider_code = 'feishu' and provider.status = 'active'
+       and provider.provider_tenant_key = p_provider_tenant_key
+       and connection.external_tenant_key = p_provider_tenant_key
+       and (p_organization_public_id is null or organization.public_id = p_organization_public_id)
+     for update of connection;
+    if not found then
+      return jsonb_build_object(
+        'acquired', false, 'runId', null, 'cursor', null, 'attempt', 0,
+        'reason', 'invalid_cursor', 'retryAfter', null
+      );
+    end if;
+  else
+    -- Ignore blocked connections while choosing full/reconcile work so an old
+    -- active or backed-off row cannot starve another ready connection.
+    select connection.id, connection.tenant_id, connection.organization_id,
+           connection.identity_provider_id,
+           tenant.public_id as tenant_public_id,
+           organization.public_id as organization_public_id
+      into v_connection
+      from public.directory_connections connection
+      join public.identity_providers provider
+        on provider.tenant_id = connection.tenant_id
+       and provider.id = connection.identity_provider_id
+      join public.tenants tenant on tenant.id = connection.tenant_id and tenant.status = 'active'
+      join public.organizations organization
+        on organization.tenant_id = connection.tenant_id
+       and organization.id = connection.organization_id
+      left join public.feishu_sync_leases candidate_lease
+        on candidate_lease.connection_id = connection.id
+       and candidate_lease.tenant_id = connection.tenant_id
+       and candidate_lease.organization_id = connection.organization_id
+     where connection.status = 'active'
+       and provider.provider_code = 'feishu' and provider.status = 'active'
+       and provider.provider_tenant_key = p_provider_tenant_key
+       and connection.external_tenant_key = p_provider_tenant_key
+       and (p_organization_public_id is null or organization.public_id = p_organization_public_id)
+       and (
+         candidate_lease.connection_id is null
+         or candidate_lease.status not in ('running', 'retry')
+         or (candidate_lease.status = 'running' and candidate_lease.lease_expires_at <= now())
+         or (candidate_lease.status = 'retry' and candidate_lease.retry_after <= now())
+       )
+     order by connection.last_sync_at nulls first, connection.id
+     for update of connection limit 1;
+
+    if not found then
+      select lease.run_id, lease.cursor, lease.attempt,
+             case when lease.status = 'running' then 'active_lease' else 'backoff' end as reason,
+             case when lease.status = 'running' then lease.lease_expires_at else lease.retry_after end as retry_after
+        into v_blocked
+        from public.directory_connections connection
+        join public.identity_providers provider
+          on provider.tenant_id = connection.tenant_id
+         and provider.id = connection.identity_provider_id
+        join public.tenants tenant on tenant.id = connection.tenant_id and tenant.status = 'active'
+        join public.organizations organization
+          on organization.tenant_id = connection.tenant_id
+         and organization.id = connection.organization_id
+        join public.feishu_sync_leases lease
+          on lease.connection_id = connection.id
+         and lease.tenant_id = connection.tenant_id
+         and lease.organization_id = connection.organization_id
+       where connection.status = 'active'
+         and provider.provider_code = 'feishu' and provider.status = 'active'
+         and provider.provider_tenant_key = p_provider_tenant_key
+         and connection.external_tenant_key = p_provider_tenant_key
+         and (p_organization_public_id is null or organization.public_id = p_organization_public_id)
+         and (
+           (lease.status = 'running' and lease.lease_expires_at > now())
+           or (lease.status = 'retry' and (lease.retry_after is null or lease.retry_after > now()))
+         )
+       order by case when lease.status = 'running' then 0 else 1 end,
+                coalesce(lease.lease_expires_at, lease.retry_after), connection.id
+       limit 1;
+      if found then
+        return jsonb_build_object(
+          'acquired', false, 'runId', v_blocked.run_id, 'cursor', v_blocked.cursor,
+          'attempt', v_blocked.attempt, 'reason', v_blocked.reason,
+          'retryAfter', v_blocked.retry_after
+        );
+      end if;
+      return jsonb_build_object(
+        'acquired', false, 'runId', null, 'cursor', p_cursor, 'attempt', 0,
+        'reason', 'no_connection', 'retryAfter', null
+      );
+    end if;
+  end if;
+
+  -- Every control path acquires mutable rows in the same order:
+  -- directory connection -> lease -> claimed run.
+  select * into v_lease from public.feishu_sync_leases lease
+   where lease.connection_id = v_connection.id
+     and lease.tenant_id = v_connection.tenant_id
+     and lease.organization_id = v_connection.organization_id
+   for update of lease;
+  if found and v_lease.status = 'running' and v_lease.lease_expires_at > now() then
     return jsonb_build_object(
-      'acquired', false, 'runId', null, 'cursor', p_cursor, 'attempt', 0,
-      'reason', 'no_connection', 'retryAfter', null
+      'acquired', false, 'runId', v_lease.run_id, 'cursor', v_lease.cursor,
+      'attempt', v_lease.attempt, 'reason', 'active_lease',
+      'retryAfter', v_lease.lease_expires_at
+    );
+  end if;
+  if found and v_lease.status = 'retry' and (v_lease.retry_after is null or v_lease.retry_after > now()) then
+    return jsonb_build_object(
+      'acquired', false, 'runId', v_lease.run_id, 'cursor', v_lease.cursor,
+      'attempt', v_lease.attempt, 'reason', 'backoff',
+      'retryAfter', v_lease.retry_after
     );
   end if;
 
@@ -1703,15 +1900,19 @@ begin
     if public.active_workspace_organization_id(p_actor_auth_user_id) is distinct from v_connection.organization_id
        or not exists (
          select 1 from public.organization_members member
-         join public.member_roles assignment
-           on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
-         join public.role_permissions rp
+          join public.member_roles assignment
+            on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+          join public.roles role
+            on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
+          join public.role_permissions rp
            on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
          join public.permissions permission on permission.id = rp.permission_id
         where member.tenant_id = v_connection.tenant_id
-          and member.user_id = p_actor_auth_user_id and member.status = 'active'
-          and member.organization_id = v_connection.organization_id
-          and permission.code = 'organization.manage'
+           and member.user_id = p_actor_auth_user_id and member.status = 'active'
+           and member.organization_id = v_connection.organization_id
+           and role.is_enabled
+           and (role.organization_id is null or role.organization_id = v_connection.organization_id)
+           and permission.code = 'organization.manage'
        ) then
       raise exception 'forbidden' using errcode = '42501';
     end if;
@@ -1723,15 +1924,20 @@ begin
         on identity.tenant_id = member.tenant_id and identity.organization_member_id = member.id
        and identity.organization_id = member.organization_id and identity.status = 'active'
        and identity.auth_user_id = member.user_id
+       and identity.identity_provider_id = v_connection.identity_provider_id
       join public.member_roles assignment
         on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+      join public.roles role
+        on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
       join public.role_permissions rp
         on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
       join public.permissions permission on permission.id = rp.permission_id
      where member.tenant_id = v_connection.tenant_id
-       and member.organization_id = v_connection.organization_id
-       and member.status = 'active' and member.user_id is not null
-       and permission.code = 'organization.manage'
+        and member.organization_id = v_connection.organization_id
+        and member.status = 'active' and member.user_id is not null
+        and role.is_enabled
+        and (role.organization_id is null or role.organization_id = v_connection.organization_id)
+        and permission.code = 'organization.manage'
      order by member.id limit 1;
     if v_actor is null then raise exception 'sync_actor_missing' using errcode = '42501'; end if;
   end if;
@@ -1743,35 +1949,22 @@ begin
      and member.user_id = v_actor
      and member.status = 'active';
 
-  select * into v_lease from public.feishu_sync_leases
-   where connection_id = v_connection.id for update;
-  if found and v_lease.status = 'running' and v_lease.lease_expires_at > now() then
-    return jsonb_build_object(
-      'acquired', false, 'runId', v_lease.run_id, 'cursor', v_lease.cursor,
-      'attempt', v_lease.attempt, 'reason', 'active_lease',
-      'retryAfter', v_lease.lease_expires_at
-    );
-  end if;
-  if found and v_lease.status = 'retry' and v_lease.retry_after > now() then
-    return jsonb_build_object(
-      'acquired', false, 'runId', v_lease.run_id, 'cursor', v_lease.cursor,
-      'attempt', v_lease.attempt, 'reason', 'backoff',
-      'retryAfter', v_lease.retry_after
-    );
-  end if;
-  if p_mode = 'incremental' and not exists (
-    select 1 from public.feishu_webhook_events event
-     where event.connection_id = v_connection.id and event.id::text = p_cursor
-  ) then
-    return jsonb_build_object(
-      'acquired', false, 'runId', null, 'cursor', null, 'attempt', 0,
-      'reason', 'invalid_cursor', 'retryAfter', null
-    );
-  end if;
-
   v_run_id := gen_random_uuid();
   v_previous_cursor := v_lease.cursor;
   v_attempt := case when v_lease.status = 'retry' then least(v_lease.attempt + 1, 9) else 1 end;
+  insert into public.feishu_sync_leases (
+    connection_id, tenant_id, organization_id, run_id, mode, cursor, status,
+    attempt, lease_expires_at, retry_after, started_at, completed_at, actor_auth_user_id
+  ) values (
+    v_connection.id, v_connection.tenant_id, v_connection.organization_id,
+    v_run_id, p_mode, coalesce(p_cursor, v_previous_cursor), 'running', v_attempt,
+    now() + make_interval(secs => p_lease_seconds), null, now(), null, v_actor
+  ) on conflict (connection_id) do update set
+    run_id = excluded.run_id, mode = excluded.mode,
+    cursor = coalesce(excluded.cursor, public.feishu_sync_leases.cursor),
+    status = 'running', attempt = excluded.attempt,
+    lease_expires_at = excluded.lease_expires_at, retry_after = null,
+    started_at = now(), completed_at = null, actor_auth_user_id = excluded.actor_auth_user_id;
   insert into public.directory_sync_runs (
     public_id, tenant_id, organization_id, connection_id, actor_member_id,
     status, snapshot_complete, departments_seen, employees_seen,
@@ -1787,19 +1980,6 @@ begin
     'directory_sync_run', v_run_id::text, v_run_id, null,
     jsonb_build_object('mode', p_mode, 'attempt', v_attempt)
   );
-  insert into public.feishu_sync_leases (
-    connection_id, tenant_id, organization_id, run_id, mode, cursor, status,
-    attempt, lease_expires_at, retry_after, started_at, completed_at, actor_auth_user_id
-  ) values (
-    v_connection.id, v_connection.tenant_id, v_connection.organization_id,
-    v_run_id, p_mode, coalesce(p_cursor, v_previous_cursor), 'running', v_attempt,
-    now() + make_interval(secs => p_lease_seconds), null, now(), null, v_actor
-  ) on conflict (connection_id) do update set
-    run_id = excluded.run_id, mode = excluded.mode,
-    cursor = coalesce(excluded.cursor, public.feishu_sync_leases.cursor),
-    status = 'running', attempt = excluded.attempt,
-    lease_expires_at = excluded.lease_expires_at, retry_after = null,
-    started_at = now(), completed_at = null, actor_auth_user_id = excluded.actor_auth_user_id;
   return jsonb_build_object(
     'acquired', true, 'runId', v_run_id,
     'cursor', coalesce(p_cursor, v_previous_cursor), 'attempt', v_attempt,
@@ -1849,6 +2029,7 @@ security definer
 set search_path = ''
 as $$
 declare
+  v_connection public.directory_connections%rowtype;
   v_lease public.feishu_sync_leases%rowtype;
   v_run public.directory_sync_runs%rowtype;
   v_tenant_public_id uuid;
@@ -1866,7 +2047,50 @@ begin
      and run.request_id = p_run_id
      and organization.public_id = p_organization_public_id
      and actor.user_id = p_actor_auth_user_id
+   ;
+
+  select connection.* into strict v_connection
+    from public.directory_connections connection
+   where connection.id = v_run.connection_id
+     and connection.tenant_id = v_run.tenant_id
+     and connection.organization_id = v_run.organization_id
+   for update of connection;
+  select lease.* into strict v_lease
+    from public.feishu_sync_leases lease
+   where lease.connection_id = v_connection.id
+     and lease.tenant_id = v_connection.tenant_id
+     and lease.organization_id = v_connection.organization_id
+   for update of lease;
+  select run.* into strict v_run
+    from public.directory_sync_runs run
+   where run.public_id = p_run_id
+     and run.request_id = p_run_id
+     and run.tenant_id = v_connection.tenant_id
+     and run.organization_id = v_connection.organization_id
+     and run.connection_id = v_connection.id
    for update of run;
+
+  if public.active_workspace_organization_id(p_actor_auth_user_id) is distinct from v_run.organization_id
+     or not exists (
+       select 1
+         from public.organization_members member
+         join public.member_roles assignment
+           on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+         join public.roles role
+           on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
+         join public.role_permissions rp
+           on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
+         join public.permissions permission on permission.id = rp.permission_id
+        where member.tenant_id = v_run.tenant_id
+          and member.organization_id = v_run.organization_id
+           and member.user_id = p_actor_auth_user_id
+           and member.status = 'active'
+           and role.is_enabled
+           and (role.organization_id is null or role.organization_id = v_run.organization_id)
+           and permission.code = 'organization.manage'
+     ) then
+    raise exception 'forbidden' using errcode = '42501';
+  end if;
 
   if v_run.status <> 'running' then
     return jsonb_build_object(
@@ -1881,34 +2105,12 @@ begin
     );
   end if;
 
-  if public.active_workspace_organization_id(p_actor_auth_user_id) is distinct from v_run.organization_id
-     or not exists (
-       select 1
-         from public.organization_members member
-         join public.member_roles assignment
-           on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
-         join public.role_permissions rp
-           on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
-         join public.permissions permission on permission.id = rp.permission_id
-        where member.tenant_id = v_run.tenant_id
-          and member.organization_id = v_run.organization_id
-          and member.user_id = p_actor_auth_user_id
-          and member.status = 'active'
-          and permission.code = 'organization.manage'
-     ) then
-    raise exception 'forbidden' using errcode = '42501';
+  if v_lease.run_id is distinct from p_run_id
+     or v_lease.actor_auth_user_id is distinct from p_actor_auth_user_id
+     or v_lease.status <> 'running'
+     or v_lease.lease_expires_at <= now() then
+    raise exception 'sync_lease_stale' using errcode = '55000';
   end if;
-
-  select lease.* into strict v_lease
-    from public.feishu_sync_leases lease
-   where lease.run_id = p_run_id
-     and lease.tenant_id = v_run.tenant_id
-     and lease.organization_id = v_run.organization_id
-     and lease.connection_id = v_run.connection_id
-     and lease.actor_auth_user_id = p_actor_auth_user_id
-     and lease.status = 'running'
-     and lease.lease_expires_at > now()
-   for update;
   return public.apply_feishu_directory_sync_exact(
     p_run_id, v_tenant_public_id, p_organization_public_id,
     p_actor_auth_user_id, p_snapshot
@@ -1933,6 +2135,7 @@ security definer
 set search_path = ''
 as $$
 declare
+  v_connection public.directory_connections%rowtype;
   v_lease public.feishu_sync_leases%rowtype;
   v_run public.directory_sync_runs%rowtype;
   v_audit_actor_auth_user_id uuid;
@@ -1943,14 +2146,37 @@ begin
      or p_organization_public_id is null then
     raise exception 'sync_finish_invalid' using errcode = '22023';
   end if;
+  select run.* into strict v_run
+    from public.directory_sync_runs run
+    join public.organizations organization
+      on organization.tenant_id = run.tenant_id
+     and organization.id = run.organization_id
+   where run.public_id = p_run_id
+     and run.request_id = p_run_id
+     and organization.public_id = p_organization_public_id
+     ;
+  select connection.* into strict v_connection
+    from public.directory_connections connection
+   where connection.id = v_run.connection_id
+     and connection.tenant_id = v_run.tenant_id
+     and connection.organization_id = v_run.organization_id
+   for update of connection;
   select lease.* into strict v_lease
     from public.feishu_sync_leases lease
-    join public.organizations organization
-      on organization.tenant_id = lease.tenant_id
-     and organization.id = lease.organization_id
-   where lease.run_id = p_run_id
-     and organization.public_id = p_organization_public_id
+   where lease.connection_id = v_connection.id
+     and lease.tenant_id = v_connection.tenant_id
+     and lease.organization_id = v_connection.organization_id
+     and lease.run_id = p_run_id
    for update of lease;
+  select run.* into strict v_run
+    from public.directory_sync_runs run
+   where run.public_id = p_run_id
+     and run.request_id = p_run_id
+     and run.tenant_id = v_lease.tenant_id
+     and run.organization_id = v_lease.organization_id
+     and run.connection_id = v_lease.connection_id
+   for update of run;
+
   if v_lease.status <> 'running' then
     if v_lease.status = p_status then
       return jsonb_build_object(
@@ -1960,24 +2186,16 @@ begin
     end if;
     raise exception 'sync_lease_missing' using errcode = 'P0002';
   end if;
+  if p_status = 'completed' and v_run.status <> 'completed' then
+    raise exception 'sync_run_incomplete' using errcode = '55000';
+  end if;
 
   update public.feishu_sync_leases lease set
     cursor = p_cursor, status = p_status, retry_after = p_retry_after,
     completed_at = clock_timestamp(), lease_expires_at = clock_timestamp()
-   where lease.run_id = p_run_id and lease.status = 'running'
+   where lease.connection_id = v_connection.id
+     and lease.run_id = p_run_id and lease.status = 'running'
   returning lease.* into v_lease;
-
-  select run.* into strict v_run
-    from public.directory_sync_runs run
-   where run.public_id = p_run_id
-     and run.request_id = p_run_id
-     and run.tenant_id = v_lease.tenant_id
-     and run.organization_id = v_lease.organization_id
-     and run.connection_id = v_lease.connection_id
-   for update;
-  if p_status = 'completed' and v_run.status <> 'completed' then
-    raise exception 'sync_run_incomplete' using errcode = '55000';
-  end if;
   if p_status = 'retry' and v_run.status = 'running' then
     update public.directory_sync_runs run set
       status = 'failed', error_count = greatest(run.error_count, 1),
@@ -2026,12 +2244,18 @@ begin
     from public.organizations organization
     join public.organization_members member
       on member.tenant_id = organization.tenant_id and member.organization_id = organization.id
-    join public.member_roles assignment on assignment.member_id = member.id
-    join public.role_permissions rp on rp.role_id = assignment.role_id
+    join public.member_roles assignment
+      on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
+    join public.roles role
+      on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
+    join public.role_permissions rp
+      on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
     join public.permissions permission on permission.id = rp.permission_id
    where organization.public_id = p_organization_public_id
      and organization.id = public.active_workspace_organization_id(p_actor_auth_user_id)
      and member.user_id = p_actor_auth_user_id and member.status = 'active'
+     and role.is_enabled
+     and (role.organization_id is null or role.organization_id = organization.id)
      and permission.code = 'organization.manage'
    limit 1;
   if not found then raise exception 'forbidden' using errcode = '42501'; end if;

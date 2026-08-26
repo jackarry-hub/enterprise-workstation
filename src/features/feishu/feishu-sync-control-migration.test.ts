@@ -113,4 +113,80 @@ describe("Feishu synchronization control migration", () => {
     expect(sql).toContain("identity.organization_id <> v_organization_id");
     expect(sql).toContain("'ambiguous_event', 'error', 'user'");
   });
+
+  it("authorizes every manager path through an enabled authoritative exact-organization role", () => {
+    const sql = migration();
+    const finalPolicyStart = sql.lastIndexOf("drop policy if exists feishu_sync_conflicts_manager_select");
+    const finalPolicies = sql.slice(finalPolicyStart, sql.indexOf("drop function if exists public.claim_feishu_sync_work", finalPolicyStart));
+    const claimStart = sql.lastIndexOf("create function public.claim_feishu_sync_work(");
+    const claim = sql.slice(claimStart, sql.indexOf("create or replace function public.heartbeat_feishu_sync_work", claimStart));
+    const exactStart = sql.indexOf("create or replace function public.apply_feishu_directory_sync_exact");
+    const exactApply = sql.slice(exactStart, sql.indexOf("create table public.feishu_offboarding_commands", exactStart));
+    const fencedStart = sql.lastIndexOf("create or replace function public.apply_feishu_directory_sync_fenced");
+    const fencedApply = sql.slice(fencedStart, sql.indexOf("drop function if exists public.finish_feishu_sync_work", fencedStart));
+    const resolveStart = sql.lastIndexOf("create or replace function public.resolve_feishu_sync_issue");
+    const resolve = sql.slice(resolveStart);
+
+    for (const block of [claim, exactApply, fencedApply, resolve]) {
+      expect(block).toContain("join public.roles role");
+      expect(block).toContain("role.tenant_id = assignment.tenant_id");
+      expect(block).toContain("role.id = assignment.role_id");
+      expect(block).toContain("role.is_enabled");
+      expect(block).toContain("role.organization_id is null");
+    }
+    expect(claim.match(/join public\.roles role/g)).toHaveLength(2);
+    expect(finalPolicies.match(/join public\.roles role/g)).toHaveLength(6);
+    expect(finalPolicies.match(/role\.is_enabled/g)).toHaveLength(6);
+    expect(finalPolicies.match(/role\.organization_id is null/g)).toHaveLength(6);
+  });
+
+  it("routes an incremental cursor directly and selects eligible unscoped work without starvation", () => {
+    const sql = migration();
+    const claimStart = sql.lastIndexOf("create function public.claim_feishu_sync_work(");
+    const claim = sql.slice(claimStart, sql.indexOf("create or replace function public.heartbeat_feishu_sync_work", claimStart));
+
+    expect(claim).toContain("join public.feishu_webhook_events cursor_event");
+    expect(claim).toContain("cursor_event.connection_id = connection.id");
+    expect(claim).toContain("cursor_event.id::text = p_cursor");
+    expect(claim.indexOf("cursor_event.id::text = p_cursor")).toBeLessThan(claim.indexOf("for update of connection"));
+    expect(claim).toContain("left join public.feishu_sync_leases candidate_lease");
+    expect(claim).toContain("candidate_lease.lease_expires_at <= now()");
+    expect(claim).toContain("candidate_lease.retry_after <= now()");
+  });
+
+  it("uses connection then lease then run locking for claim, apply and finish", () => {
+    const sql = migration();
+    const claimStart = sql.lastIndexOf("create function public.claim_feishu_sync_work(");
+    const claim = sql.slice(claimStart, sql.indexOf("create or replace function public.heartbeat_feishu_sync_work", claimStart));
+    const exactStart = sql.indexOf("create or replace function public.apply_feishu_directory_sync_exact");
+    const exactApply = sql.slice(exactStart, sql.indexOf("create table public.feishu_offboarding_commands", exactStart));
+    const fencedStart = sql.lastIndexOf("create or replace function public.apply_feishu_directory_sync_fenced");
+    const fencedApply = sql.slice(fencedStart, sql.indexOf("drop function if exists public.finish_feishu_sync_work", fencedStart));
+    const finishStart = sql.lastIndexOf("create function public.finish_feishu_sync_work(");
+    const finish = sql.slice(finishStart, sql.indexOf("create or replace function public.resolve_feishu_sync_issue", finishStart));
+
+    expect(claim.indexOf("for update of connection")).toBeGreaterThan(-1);
+    expect(claim.indexOf("for update of connection")).toBeLessThan(claim.indexOf("insert into public.feishu_sync_leases"));
+    expect(claim.indexOf("insert into public.feishu_sync_leases")).toBeLessThan(claim.indexOf("insert into public.directory_sync_runs"));
+    expect(exactApply).not.toContain("for update");
+
+    for (const block of [fencedApply, finish]) {
+      const connectionLock = block.indexOf("for update of connection");
+      const leaseLock = block.indexOf("for update of lease");
+      const runLock = block.indexOf("for update of run");
+      expect(connectionLock).toBeGreaterThan(-1);
+      expect(connectionLock).toBeLessThan(leaseLock);
+      expect(leaseLock).toBeLessThan(runLock);
+    }
+  });
+
+  it("exposes service-only exact access-boundary counts for offboarding E2E proof", () => {
+    const sql = migration();
+    expect(sql).toContain("get_feishu_member_access_proof");
+    expect(sql).toContain("'sessioncount'");
+    expect(sql).toContain("'refreshtokencount'");
+    expect(sql).toContain("'queuedgrantcount'");
+    expect(sql).toMatch(/revoke all on function public\.get_feishu_member_access_proof[\s\S]*from public, anon, authenticated, service_role/);
+    expect(sql).toMatch(/grant execute on function public\.get_feishu_member_access_proof[\s\S]*to service_role/);
+  });
 });

@@ -134,6 +134,25 @@ test.describe("commercial Feishu directory source contracts", () => {
   test("a signed deleted-user event completes durable transactional offboarding", async ({ request }) => {
     const openId = process.env.FEISHU_E2E_OFFBOARD_OPEN_ID?.trim();
     test.skip(!openId, "Requires a disposable local user seeded for offboarding.");
+    const environment = getAuthHarnessEnvironment();
+    const admin = createClient(environment.supabaseUrl, environment.serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const activeIdentity = await admin.from("external_identities")
+      .select("organization_member_id, status, auth_user_id")
+      .eq("provider_subject", `open_id:${openId!.toLowerCase()}`).single();
+    expect(activeIdentity.data?.status).toBe("active");
+    expect(activeIdentity.data?.auth_user_id).not.toBeNull();
+    const activeProfile = await admin.from("employee_profiles").select("public_id")
+      .eq("organization_member_id", activeIdentity.data!.organization_member_id).single();
+    const beforeAccess = await admin.rpc("get_feishu_member_access_proof", {
+      p_member_public_id: activeProfile.data!.public_id,
+    });
+    expect(beforeAccess.error).toBeNull();
+    expect(beforeAccess.data.sessionCount).toBeGreaterThan(0);
+    expect(beforeAccess.data.refreshTokenCount).toBeGreaterThan(0);
+    expect(beforeAccess.data.queuedGrantCount).toBeGreaterThan(0);
+
     const eventId = `synthetic-offboard-${randomUUID()}`;
     const rawBody = officialEvent(eventId, "contact.user.deleted_v3", openId!);
     const first = await ingest(request, rawBody);
@@ -141,10 +160,6 @@ test.describe("commercial Feishu directory source contracts", () => {
     expect(first.status()).toBe(202);
     expect(await retry.json()).toEqual(await first.json());
 
-    const environment = getAuthHarnessEnvironment();
-    const admin = createClient(environment.supabaseUrl, environment.serviceRoleKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
     const identity = await admin.from("external_identities")
       .select("organization_member_id, status, auth_user_id")
       .eq("provider_subject", `open_id:${openId!.toLowerCase()}`).single();
@@ -155,6 +170,18 @@ test.describe("commercial Feishu directory source contracts", () => {
     const profile = await admin.from("employee_profiles").select("employment_status")
       .eq("organization_member_id", identity.data!.organization_member_id).single();
     expect(profile.data).toEqual({ employment_status: "departed" });
+    const afterAccess = await admin.rpc("get_feishu_member_access_proof", {
+      p_member_public_id: activeProfile.data!.public_id,
+    });
+    expect(afterAccess.error).toBeNull();
+    expect(afterAccess.data).toMatchObject({
+      sessionCount: 0,
+      refreshTokenCount: 0,
+      queuedGrantCount: 0,
+      identityActiveCount: 0,
+      profileStatus: "departed",
+      memberStatus: "revoked",
+    });
     const eventIdDigest = createHash("sha256").update(eventId).digest("hex");
     const audit = await admin.from("audit_logs").select("id", { count: "exact" })
       .eq("action", "identity.revoked").contains("metadata", { eventIdDigest });
@@ -169,9 +196,9 @@ test.describe("commercial Feishu directory source contracts", () => {
       identityRevoked: true,
       queuedGrantsRemaining: 0,
       auditCount: 1,
-      sessionsRevoked: expect.any(Number),
-      refreshTokensRevoked: expect.any(Number),
-      queuedGrantsCancelled: expect.any(Number),
     });
+    expect(proof.data.sessionsRevoked).toBeGreaterThan(0);
+    expect(proof.data.refreshTokensRevoked).toBeGreaterThan(0);
+    expect(proof.data.queuedGrantsCancelled).toBeGreaterThan(0);
   });
 });
