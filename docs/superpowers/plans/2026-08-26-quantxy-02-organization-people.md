@@ -270,7 +270,23 @@ git commit -m "feat: secure profiles and verify employee skills"
 
 **Files:**
 - Modify: `src/app/(workspace)/people/page.tsx`
+- Modify: `src/app/(workspace)/people/[id]/page.tsx`
+- Modify: `src/features/hr/people-page.tsx`
 - Modify: `src/features/hr/people-workspace.tsx`
+- Modify: `src/features/hr/components/employee-filters.tsx`
+- Modify: `src/features/hr/components/employee-stats.tsx`
+- Modify: `src/features/commercial/module-capabilities.ts`
+- Modify: `src/features/commercial/module-capabilities.test.ts`
+- Modify: `src/features/auth/server-route-access.test.ts`
+- Modify: `src/features/auth/route-policy.test.ts`
+- Create: `src/features/organization/organization-command-data.ts`
+- Create: `src/features/organization/organization-command-data.test.ts`
+- Create: `src/features/work-profile/skill-verification-handler.ts`
+- Modify: `src/app/api/workstation/skills/[skillId]/verify/route.ts`
+- Modify: `src/features/work-profile/skill-verification.test.ts`
+- Modify: `tests/unit/phase1-e2e-real-session-contract.test.ts`
+- Modify: `src/components/shell/workspace-search-dialog.test.tsx`
+- Modify: `src/app/(workspace)/sensitive-routes.test.tsx`
 - Modify: `src/features/hr/people-page.test.tsx`
 - Modify: `src/features/hr/employee-detail-page.tsx`
 - Modify: `src/features/hr/employee-detail-page.test.tsx`
@@ -280,6 +296,11 @@ git commit -m "feat: secure profiles and verify employee skills"
 **Interfaces:**
 - Consumes public/private repositories and organization commands from Tasks 2-5; Task8 extends this UI with manager/supervisor capabilities and cross-department E2E coverage.
 - Produces server-backed list/detail UI with desktop table and mobile cards.
+- The list route must always pass an explicit repository result; the detail route must resolve the public directory item and the capability-scoped private profile through the dedicated repositories. Neither route nor component may gate real identities through the fixture compatibility adapter or fall back to mock employees.
+- Marks only the completed `people` module as commercial-ready. Every active authenticated workspace member may enter the safe public directory because the repository RPC itself enforces tenant/organization scope; management controls remain separately permission-gated and private fields remain target-authorized by the private RPC.
+- Produces a server-only, `role.manage`-gated role-command target model containing only selectable employee identity, internal command target ID and current role version. It explicitly filters by the verified session organization public ID in addition to database tenant/RLS protection, including for users with multiple organization memberships. The client must select a real employee and carry the server-read version; raw database IDs/versions are never manual form fields.
+- Preserves the completed Task 5 skill-verification behavior while moving its testable handler factory out of the Next Route Module; the production route exports only supported Next route symbols so a clean generated-type build passes.
+- Updates the cross-cutting real-session, workspace-search and sensitive-route contracts to the completed people capability and its dedicated private repository. Old assertions that real users must see an empty directory or that people remains commercially unavailable are prohibited.
 
 - [ ] **Step 1: Write failing real-session rendering tests**
 
@@ -297,7 +318,7 @@ Expected: non-fixture sessions are currently forced to an empty result.
 
 - [ ] **Step 3: Render real repositories and permission-aware commands**
 
-Remove fixture gating. Desktop uses directory table/detail panel; mobile uses employee cards/full-screen detail. Show sync/department/role actions only when server capability allows them.
+Remove fixture gating from both list and detail routes/components, remove the `PeoplePage` mock default, and enable the completed `people` capability in the server route registry so real sessions can actually reach both routes. The safe directory is available to every active workspace member, while management controls still require their specific server-derived permissions. The detail route loads the safe public record and separately requests the private profile; the secure repository/RLS result determines whether private fields exist, and absence must not be distinguishable from an unauthorized target. Do not render an "unlinked account" conclusion when the public repository did not return authoritative account data. Desktop uses directory table/detail panel; mobile uses employee cards/full-screen detail. Remove hard-coded trend claims such as fixed monthly growth or full coverage, and do not advertise searches over private fields excluded from the public projection. Show sync/department/role actions only when server capability allows them. Role assignment uses a server-loaded employee selector and hidden current version, never manual member/version inputs; conflict/error responses stay visible and success refreshes the authoritative server state. Move the Task 5 skill-verification handler factory into its feature module and leave the Route Module with supported Next exports only; keep its focused behavioral tests green. Update every affected cross-cutting test to assert the new real-session/readiness/private-loader contract rather than deleting coverage or relaxing fail-closed behavior for unfinished modules.
 
 - [ ] **Step 4: Verify GREEN and responsive E2E contract**
 
@@ -308,7 +329,7 @@ Expected: real local DB data survives refresh; private fields remain hidden from
 - [ ] **Step 5: Commit**
 
 ```bash
-git add 'src/app/(workspace)/people/page.tsx' src/features/hr/people-workspace.tsx src/features/hr/people-page.test.tsx src/features/hr/employee-detail-page.tsx src/features/hr/employee-detail-page.test.tsx src/features/organization/organization-dialogs.tsx tests/e2e/people.spec.ts
+git add 'src/app/(workspace)/people/page.tsx' 'src/app/(workspace)/people/[id]/page.tsx' src/features/hr/people-page.tsx src/features/hr/people-workspace.tsx src/features/hr/components/employee-filters.tsx src/features/hr/components/employee-stats.tsx src/features/hr/people-page.test.tsx src/features/hr/employee-detail-page.tsx src/features/hr/employee-detail-page.test.tsx src/features/organization/organization-dialogs.tsx src/features/organization/organization-command-data.ts src/features/organization/organization-command-data.test.ts src/features/commercial/module-capabilities.ts src/features/commercial/module-capabilities.test.ts src/features/auth/server-route-access.test.ts src/features/auth/route-policy.test.ts src/features/work-profile/skill-verification-handler.ts 'src/app/api/workstation/skills/[skillId]/verify/route.ts' src/features/work-profile/skill-verification.test.ts tests/unit/phase1-e2e-real-session-contract.test.ts src/components/shell/workspace-search-dialog.test.tsx 'src/app/(workspace)/sensitive-routes.test.tsx' tests/e2e/people.spec.ts
 git commit -m "feat: connect the people workspace to real data"
 ```
 
