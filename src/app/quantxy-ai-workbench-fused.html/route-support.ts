@@ -63,6 +63,32 @@ function htmlResponse(html: string) {
   });
 }
 
+function errorSummary(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return { message: String(error) };
+  }
+  const candidate = error as {
+    code?: unknown;
+    details?: unknown;
+    hint?: unknown;
+    message?: unknown;
+    name?: unknown;
+    queryName?: unknown;
+  };
+  return {
+    code: typeof candidate.code === "string" ? candidate.code : undefined,
+    name: typeof candidate.name === "string" ? candidate.name : undefined,
+    queryName: typeof candidate.queryName === "string"
+      ? candidate.queryName
+      : undefined,
+    message: typeof candidate.message === "string"
+      ? candidate.message
+      : String(error),
+    details: typeof candidate.details === "string" ? candidate.details : undefined,
+    hint: typeof candidate.hint === "string" ? candidate.hint : undefined,
+  };
+}
+
 export async function createWorkstationHtmlResponse(
   request: Request,
   dependencies: WorkstationBootstrapDependencies =
@@ -80,7 +106,8 @@ export async function createWorkstationHtmlResponse(
       session as Parameters<WorkstationBootstrapDependencies["loadBootstrap"]>[0],
     );
     return htmlResponse(injectServerBootstrap(html, bootstrap));
-  } catch {
+  } catch (error) {
+    console.error("formal_workstation_bootstrap_failed", errorSummary(error));
     return new Response("workstation_unavailable", {
       status: 503,
       headers: {

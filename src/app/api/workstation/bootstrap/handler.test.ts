@@ -500,4 +500,71 @@ describe("workstation bootstrap route", () => {
       calculationVersion: "",
     });
   });
+
+  it("keeps the authenticated workstation available when non-identity modules fail", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const members = query({
+      data: [{
+        id: 42,
+        organization_member_id: 7,
+        display_name: "商用用户",
+        job_title: "项目经理",
+        salary_grade_code: "P4",
+        job_level: 4,
+        skills: [],
+        department: { name: "产品中心" },
+      }],
+      error: null,
+    });
+    const failing = query({
+      data: null as never,
+      error: {
+        code: "42P01",
+        message: "relation does not exist",
+      },
+    });
+    const client = {
+      from: vi.fn((table: string) => {
+        if (table === "employee_profiles") return members;
+        return failing;
+      }),
+    };
+    const serviceClient = {
+      from: vi.fn(() => failing),
+    };
+    vi.mocked(getSupabaseServerClient).mockResolvedValue(client as never);
+    vi.mocked(getSupabaseServiceRoleClient).mockReturnValue(serviceClient as never);
+
+    const bootstrap = await defaultWorkstationBootstrapDependencies.loadBootstrap({
+      member: { id: 7 },
+      profile: {
+        displayName: "商用用户",
+        departmentName: "产品中心",
+        jobTitle: "项目经理",
+        avatarUrl: null,
+      },
+      permissionCodes: ["task.manage"],
+    } as never) as {
+      session: { authenticated: boolean };
+      members: unknown[];
+      projects: unknown[];
+      tasks: unknown[];
+      payroll: Record<string, unknown[]>;
+      agents: unknown[];
+      kb: unknown[];
+    };
+
+    expect(bootstrap.session.authenticated).toBe(true);
+    expect(bootstrap.members).toHaveLength(1);
+    expect(bootstrap.projects).toEqual([]);
+    expect(bootstrap.tasks).toEqual([]);
+    expect(bootstrap.payroll.m7).toEqual([]);
+    expect(bootstrap.agents).toEqual([]);
+    expect(bootstrap.kb).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(
+      "workstation_bootstrap_optional_query_failed",
+      expect.objectContaining({ query: "projects" }),
+    );
+    warn.mockRestore();
+  });
 });

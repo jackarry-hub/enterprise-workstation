@@ -78,6 +78,11 @@ type SalaryQueryResult = {
   error: unknown;
 };
 
+type BootstrapQueryResult = {
+  data: readonly Record<string, unknown>[] | null;
+  error: unknown;
+};
+
 type SalaryQueryBuilder = {
   eq: (column: string, value: unknown) => SalaryQueryBuilder;
   is: (column: string, value: unknown) => SalaryQueryBuilder;
@@ -96,6 +101,66 @@ function isMissingSalaryCalculationColumn(error: unknown) {
   const text = `${String(candidate.message ?? "")} ${String(candidate.details ?? "")}`;
   return candidate.code === "42703"
     || (/column/i.test(text) && /calculation_version|gross_salary|housing_fund_base|manual_adjustment_reason/i.test(text));
+}
+
+function errorSummary(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return { message: String(error) };
+  }
+  const candidate = error as {
+    code?: unknown;
+    details?: unknown;
+    hint?: unknown;
+    message?: unknown;
+    name?: unknown;
+  };
+  return {
+    code: typeof candidate.code === "string" ? candidate.code : undefined,
+    name: typeof candidate.name === "string" ? candidate.name : undefined,
+    message: typeof candidate.message === "string"
+      ? candidate.message
+      : String(error),
+    details: typeof candidate.details === "string" ? candidate.details : undefined,
+    hint: typeof candidate.hint === "string" ? candidate.hint : undefined,
+  };
+}
+
+function bootstrapQueryError(queryName: string, error: unknown) {
+  const summary = errorSummary(error);
+  const wrapped = new Error(
+    `workstation_bootstrap_query_failed:${queryName}:${summary.message}`,
+  );
+  return Object.assign(wrapped, {
+    cause: error,
+    queryName,
+    summary,
+  });
+}
+
+function logBootstrapError(event: string, details: Record<string, unknown>) {
+  console.error(event, details);
+}
+
+function logOptionalQueryFailure(queryName: string, error: unknown) {
+  console.warn("workstation_bootstrap_optional_query_failed", {
+    query: queryName,
+    ...errorSummary(error),
+  });
+}
+
+async function optionalBootstrapQuery<T extends BootstrapQueryResult>(
+  queryName: string,
+  query: PromiseLike<T>,
+): Promise<T> {
+  try {
+    const result = await query;
+    if (!result.error) return result;
+    logOptionalQueryFailure(queryName, result.error);
+    return { ...result, data: [], error: null } as T;
+  } catch (error) {
+    logOptionalQueryFailure(queryName, error);
+    return { data: [], error: null } as unknown as T;
+  }
 }
 
 async function loadSalaryRows(
@@ -128,7 +193,9 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       .is("deleted_at", null)
       .in("employment_status", ["probation", "active", "on_leave"])
       .order("display_name");
-    if (membersResult.error) throw membersResult.error;
+    if (membersResult.error) {
+      throw bootstrapQueryError("employee_profiles", membersResult.error);
+    }
 
     const employeeProfileId = numericProfileIdForMember(
       membersResult.data ?? [],
@@ -150,57 +217,45 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       agentInvocationsResult,
       knowledgeResult,
     ] = await Promise.all([
-      client.from("projects")
+      optionalBootstrapQuery("projects", client.from("projects")
         .select("id, public_id, name, owner_member_id, status, health, progress, priority, updated_at")
         .is("deleted_at", null)
-        .order("updated_at", { ascending: false }),
-      client.from("tasks")
+        .order("updated_at", { ascending: false })),
+      optionalBootstrapQuery("tasks", client.from("tasks")
         .select("id, public_id, project_id, title, description, assignee_member_id, reporter_member_id, status, priority, start_date, due_date, progress, acceptance_criteria, blocker, review_note, next_step, result_summary, result_link, result_files, accepted_at, submitted_at, reviewed_at, submission_count, rejection_count")
         .is("deleted_at", null)
-        .order("updated_at", { ascending: false }),
-      loadSalaryRows(client as unknown as SalaryClient, employeeProfileId),
-      client.from("task_notifications")
-        .select("task_id, status, last_error_code"),
+        .order("updated_at", { ascending: false })),
+      optionalBootstrapQuery("salary", loadSalaryRows(
+        client as unknown as SalaryClient,
+        employeeProfileId,
+      )),
+      optionalBootstrapQuery("task_notifications", client.from("task_notifications")
+        .select("task_id, status, last_error_code")),
       accessibleEmployeeProfileIds.length
-        ? serviceClient.from("employee_work_profiles")
+        ? optionalBootstrapQuery("employee_work_profiles", serviceClient.from("employee_work_profiles")
           .select("employee_profile_id, summary, preferred_task_types, growth_goals, weekly_capacity_hours, self_skills, updated_at")
-          .in("employee_profile_id", accessibleEmployeeProfileIds)
+          .in("employee_profile_id", accessibleEmployeeProfileIds))
         : Promise.resolve({ data: [], error: null }),
-      client.from("employee_skills")
-        .select("employee_profile_id, proficiency_level, years_experience, verification_status, skill:skill_tags(name)"),
-      client.from("agent_definitions")
+      optionalBootstrapQuery("employee_skills", client.from("employee_skills")
+        .select("employee_profile_id, proficiency_level, years_experience, verification_status, skill:skill_tags(name)")),
+      optionalBootstrapQuery("agent_definitions", client.from("agent_definitions")
         .select("id, public_id, name, icon, description, model_code, prompt_version, capabilities, visibility_scope, min_job_level, status, department:departments!agent_definitions_department_id_fkey(name)")
         .is("deleted_at", null)
         .in("status", ["enabled", "disabled"])
-        .order("updated_at", { ascending: false }),
-      client.from("agent_permissions")
+        .order("updated_at", { ascending: false })),
+      optionalBootstrapQuery("agent_permissions", client.from("agent_permissions")
         .select("agent_id, scope_type, min_job_level, department:departments!agent_permissions_department_id_fkey(name), member_id")
-        .is("deleted_at", null),
-      client.from("agent_invocations")
+        .is("deleted_at", null)),
+      optionalBootstrapQuery("agent_invocations", client.from("agent_invocations")
         .select("agent_id, status, latency_ms, output_summary, started_at, agent:agent_definitions!agent_invocations_agent_id_fkey(name, department:departments!agent_definitions_department_id_fkey(name)), actor:organization_members!agent_invocations_actor_member_id_fkey(id, profile:employee_profiles!employee_profiles_organization_member_id_fkey(display_name))")
         .order("started_at", { ascending: false })
-        .limit(40),
-      client.from("knowledge_documents")
+        .limit(40)),
+      optionalBootstrapQuery("knowledge_documents", client.from("knowledge_documents")
         .select("public_id, title, summary, category, tags, version, published_at")
         .eq("status", "published")
         .order("updated_at", { ascending: false })
-        .limit(30),
+        .limit(30)),
     ]);
-
-    const failed = [
-      projectsResult,
-      tasksResult,
-      salaryResult,
-      notificationsResult,
-      workProfilesResult,
-      employeeSkillsResult,
-      agentsResult,
-      agentPermissionsResult,
-      agentInvocationsResult,
-      knowledgeResult,
-    ]
-      .find((result) => result.error);
-    if (failed?.error) throw failed.error;
 
     const notificationByTask = new Map(
       (notificationsResult.data ?? []).map((row) => [row.task_id, {
@@ -455,7 +510,8 @@ export function createWorkstationBootstrapHandler(
         await dependencies.loadBootstrap(session as NonNullable<BootstrapSession>),
         { headers: { "cache-control": "no-store" } },
       );
-    } catch {
+    } catch (error) {
+      logBootstrapError("workstation_bootstrap_failed", errorSummary(error));
       return NextResponse.json(
         { error: "workstation_unavailable" },
         { status: 500 },
