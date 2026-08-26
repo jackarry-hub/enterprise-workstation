@@ -1556,6 +1556,14 @@ function loadAiConfig(force){
     .catch(function(e){ if(!LOGIN.authenticated) return; S.aiConfig.loaded=true; S.aiConfig.error=(e&&e.message)||aiConfigError('',0); })
     .then(function(){ if(!LOGIN.authenticated) return; S.aiConfig.loading=false; if(S.page==='set') render(); });
 }
+var AI_CONFIG_REQUEST_ID_PATTERN=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function createAiConfigRequestId(){
+  var secureCrypto=window&&window.crypto;
+  if(!secureCrypto||typeof secureCrypto.randomUUID!=='function') throw new Error('安全请求标识不可用，请使用支持 Web Crypto 的浏览器');
+  var requestId=secureCrypto.randomUUID();
+  if(!AI_CONFIG_REQUEST_ID_PATTERN.test(requestId)) throw new Error('安全请求标识无效，请重试');
+  return requestId;
+}
 function updateAiConfig(includeKey){
   if(S.aiConfig.saving) return;
   var modelEl=el('cfgModel'), keyEl=el('cfgNewKey');
@@ -1568,10 +1576,13 @@ function updateAiConfig(includeKey){
     payload.apiKey=key;
     if(keyEl) keyEl.value='';
   }
+  var requestId;
+  try{ requestId=createAiConfigRequestId(); }
+  catch(e){ S.aiConfig.error=(e&&e.message)||'安全请求标识不可用'; toast(S.aiConfig.error); return; }
   S.aiKeyDraft=''; S.showKey=false; S.aiConfig.saving=true; S.aiConfig.error='';
   render();
   fetch('/api/ai/config',{method:'PUT',credentials:'same-origin',
-    headers:{'content-type':'application/json'},body:JSON.stringify(payload)}).then(function(r){
+    headers:{'content-type':'application/json','Idempotency-Key':requestId},body:JSON.stringify(payload)}).then(function(r){
     return r.text().then(function(txt){
       var d=null; try{ d=JSON.parse(txt); }catch(e){}
       if(r.status===401){ expireSession(); return null; }

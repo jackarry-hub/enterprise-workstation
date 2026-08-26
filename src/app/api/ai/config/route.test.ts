@@ -59,11 +59,12 @@ describe("PUT /api/ai/config", () => {
     });
     mocks.createClient.mockReturnValue(serviceClient);
 
-    const response = await PUT(new Request("https://workspace.test/api/ai/config", {
+    const request = new Request("https://workspace.test/api/ai/config", {
       method: "PUT",
       headers: { "Idempotency-Key": "30000000-0000-4000-8000-000000000003" },
       body: JSON.stringify({ model: "deepseek-chat" }),
-    }));
+    });
+    const response = await PUT(request);
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
@@ -75,7 +76,7 @@ describe("PUT /api/ai/config", () => {
       updatedAt: "2026-08-26T12:00:00.000Z",
       canManage: true,
     });
-    expect(mocks.getWorkspaceApiSession).toHaveBeenCalledWith(undefined, authenticatedClient);
+    expect(mocks.getWorkspaceApiSession).toHaveBeenCalledWith(request, authenticatedClient);
     expect(authenticatedClient.rpc).toHaveBeenCalledWith(
       "update_current_ai_provider_config",
       expect.objectContaining({

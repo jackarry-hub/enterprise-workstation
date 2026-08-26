@@ -12,15 +12,22 @@ import {
 
 export const dynamic = "force-dynamic";
 
-async function authenticatedRequestContext() {
+async function authenticatedRequestContext(request: Request) {
   const client = await getSupabaseServerClient();
-  const session = await getWorkspaceApiSession(undefined, client);
+  const session = await getWorkspaceApiSession(request, client);
   return { client, session };
 }
 
-export async function GET() {
+function isDemoSession(session: Awaited<ReturnType<typeof getWorkspaceApiSession>>) {
+  return session?.identity.authProvider === "custom:demo";
+}
+
+export async function GET(request: Request) {
   try {
-    const { session } = await authenticatedRequestContext();
+    const { session } = await authenticatedRequestContext(request);
+    if (isDemoSession(session)) {
+      return handleGetAiConfig({ session, store: { get: async () => null } });
+    }
     // The configuration table remains server-only; this read is immediately
     // sanitized by the handler and is never used for a command.
     return handleGetAiConfig({
@@ -34,7 +41,11 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
-    const { client, session } = await authenticatedRequestContext();
+    const { client, session } = await authenticatedRequestContext(request);
+    if (isDemoSession(session)) return Response.json(
+      { error: "forbidden" },
+      { status: 403, headers: { "Cache-Control": "no-store" } },
+    );
     const { encryptionKey } = getAiConfigEnv();
     return handlePutAiConfig(request, {
       session,
