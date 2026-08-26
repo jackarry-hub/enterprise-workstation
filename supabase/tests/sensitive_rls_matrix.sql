@@ -1,6 +1,6 @@
 begin;
 
-select plan(86);
+select plan(98);
 
 insert into public.tenants (name, slug, status)
 values
@@ -592,9 +592,55 @@ select throws_ok($$ select nextval('public.agent_invocations_id_seq') $$, '42501
 select throws_ok($$ select nextval('public.agent_execution_logs_id_seq') $$, '42501', 'authenticated callers cannot consume the Agent execution log identity sequence');
 reset role;
 
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+)
+values (
+  '00000000-0000-0000-0000-000000000000', '93000000-0000-4000-8000-000000000007', 'authenticated', 'authenticated', 'agent-ledger-fixture@example.test', crypt('local-e2e-password', gen_salt('bf')), now(), '{}'::jsonb, '{}'::jsonb, now(), now()
+);
+
+insert into public.organization_members (tenant_id, organization_id, user_id, status)
+select tenant.id, organization.id, '93000000-0000-4000-8000-000000000007'::uuid, 'active'
+from public.tenants tenant
+join public.organizations organization
+  on organization.tenant_id = tenant.id and organization.slug = 'salary-privacy-org'
+where tenant.slug = 'salary-privacy-a';
+
+insert into public.agent_definitions (
+  tenant_id, organization_id, code, name, description, model_code, prompt_version,
+  system_prompt, tool_scope, visibility_scope, min_job_level, status
+)
+select tenant.id, organization.id, 'security-pgtap-execution-fixture', 'Security pgTAP execution fixture',
+  'An explicit ledger test fixture', 'deepseek-chat', 'v1', 'Use only server-owned policy.',
+  '{"tools":["task.read"]}'::jsonb, 'all', 1, 'enabled'
+from public.tenants tenant
+join public.organizations organization
+  on organization.tenant_id = tenant.id and organization.slug = 'salary-privacy-org'
+where tenant.slug = 'salary-privacy-a';
+
+insert into public.agent_permissions (
+  tenant_id, organization_id, agent_id, scope_type, member_id, min_job_level
+)
+select agent.tenant_id, agent.organization_id, agent.id, 'member', member.id, 1
+from public.agent_definitions agent
+join public.organization_members member
+  on member.tenant_id = agent.tenant_id and member.organization_id = agent.organization_id
+ and member.user_id = '93000000-0000-4000-8000-000000000007'::uuid and member.status = 'active'
+where agent.code = 'security-pgtap-execution-fixture';
+
+select ok(public.is_agent_execution_ready('deepseek-chat', 'v1', 'Use only server-owned policy.', '{"tools":["task.read"]}'::jsonb), 'execution-ready validator accepts the explicit fixture configuration');
+select ok(not public.is_agent_execution_ready('browser-model', 'v1', 'Use only server-owned policy.', '{"tools":["task.read"]}'::jsonb), 'execution-ready validator rejects models outside the shared allowlist');
+select ok(not public.is_agent_execution_ready('deepseek-chat', ' v1', 'Use only server-owned policy.', '{"tools":["task.read"]}'::jsonb), 'execution-ready validator rejects whitespace prompt versions');
+select ok(not public.is_agent_execution_ready('deepseek-chat', 'v1', repeat('x', 12001), '{"tools":["task.read"]}'::jsonb), 'execution-ready validator rejects overlong prompts');
+select ok(not public.is_agent_execution_ready('deepseek-chat', 'v1', 'Use only server-owned policy.', '{"tools":[" task.read"]}'::jsonb), 'execution-ready validator rejects whitespace tool codes');
+select ok(not public.is_agent_execution_ready('deepseek-chat', 'v1', 'Use only server-owned policy.', '{"tools":1}'::jsonb), 'execution-ready validator returns false for scalar tools without throwing');
+select ok(not public.is_agent_execution_ready('deepseek-chat', 'v1', 'Use only server-owned policy.', '42'::jsonb), 'execution-ready validator returns false for scalar tool scopes without throwing');
+select ok(not public.is_agent_execution_ready('deepseek-chat', 'v1', 'Use only server-owned policy.', '[]'::jsonb), 'execution-ready validator returns false for array tool scopes without throwing');
+
 select set_config('request.jwt.claim.sub', '93000000-0000-4000-8000-000000000001', true);
 set local role authenticated;
-select throws_ok($$ select system_prompt from public.agent_definitions $$, '42501', 'authenticated callers cannot read Agent system prompts');
+select throws_ok($$ select system_prompt from public.agent_definitions where code = 'security-pgtap-execution-fixture' $$, '42501', 'authenticated callers cannot read the fixture Agent system prompt');
 select lives_ok($$ select id, public_id, model_code, tool_scope from public.agent_definitions $$, 'authenticated callers can read safe Agent definition columns');
 select throws_ok($$ insert into public.agent_definitions default values $$, '42501', 'authenticated callers cannot directly insert Agent definitions');
 select throws_ok($$ update public.agent_definitions set name = 'mutated' $$, '42501', 'authenticated callers cannot directly update Agent definitions');
@@ -610,17 +656,36 @@ select ok(has_table_privilege('service_role', 'public.agent_execution_logs', 'SE
 select ok(not has_table_privilege('service_role', 'public.agent_execution_logs', 'UPDATE,DELETE,TRUNCATE'), 'service role cannot mutate or truncate Agent execution logs');
 
 set local role service_role;
-select lives_ok($$ insert into public.agent_invocations (tenant_id, organization_id, agent_id, actor_member_id, status, started_at, completed_at) select agent.tenant_id, agent.organization_id, agent.id, member.id, 'succeeded', clock_timestamp(), clock_timestamp() from public.agent_definitions agent join public.organization_members member on member.tenant_id = agent.tenant_id and member.organization_id = agent.organization_id and member.status = 'active' limit 1 $$, 'service role can append an Agent invocation');
-select throws_ok($$ insert into public.agent_invocations (tenant_id, organization_id, agent_id, actor_member_id, status, started_at) select agent.tenant_id, agent.organization_id, agent.id, member.id, 'succeeded', clock_timestamp() from public.agent_definitions agent join public.organization_members member on member.tenant_id = agent.tenant_id and member.organization_id = agent.organization_id and member.status = 'active' limit 1 $$, '23514', 'terminal Agent invocation requires completed_at');
-select throws_ok($$ insert into public.agent_invocations (tenant_id, organization_id, agent_id, actor_member_id, status, started_at, completed_at) select agent.tenant_id, agent.organization_id, agent.id, member.id, 'queued', clock_timestamp(), clock_timestamp() from public.agent_definitions agent join public.organization_members member on member.tenant_id = agent.tenant_id and member.organization_id = agent.organization_id and member.status = 'active' limit 1 $$, '23514', 'queued Agent invocation cannot have completed_at');
+select lives_ok($$ insert into public.agent_invocations (tenant_id, organization_id, agent_id, actor_member_id, status, input_summary, started_at, completed_at) values ((select tenant_id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select organization_id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select id from public.organization_members where user_id = '93000000-0000-4000-8000-000000000007'::uuid), 'succeeded', 'security-fixture-invocation', clock_timestamp(), clock_timestamp()) returning id $$, 'service role appends the explicit Agent invocation fixture');
+select is((select count(*) from public.agent_invocations where input_summary = 'security-fixture-invocation'), 1::bigint, 'service invocation INSERT RETURNING fixture added exactly one row');
+select throws_ok($$ insert into public.agent_invocations (tenant_id, organization_id, agent_id, actor_member_id, status, started_at) values ((select tenant_id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select organization_id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select id from public.organization_members where user_id = '93000000-0000-4000-8000-000000000007'::uuid), 'succeeded', clock_timestamp()) $$, '23514', 'terminal Agent invocation requires completed_at');
+select throws_ok($$ insert into public.agent_invocations (tenant_id, organization_id, agent_id, actor_member_id, status, started_at, completed_at) values ((select tenant_id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select organization_id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select id from public.agent_definitions where code = 'security-pgtap-execution-fixture'), (select id from public.organization_members where user_id = '93000000-0000-4000-8000-000000000007'::uuid), 'queued', clock_timestamp(), clock_timestamp()) $$, '23514', 'queued Agent invocation cannot have completed_at');
 select throws_ok($$ update public.agent_invocations set status = 'failed' $$, '42501', 'service role cannot update Agent invocations');
 select throws_ok($$ delete from public.agent_invocations $$, '42501', 'service role cannot delete Agent invocations');
 select throws_ok($$ truncate public.agent_invocations $$, '42501', 'service role cannot truncate Agent invocations');
-select lives_ok($$ insert into public.agent_execution_logs (tenant_id, organization_id, invocation_id, event_type) select invocation.tenant_id, invocation.organization_id, invocation.id, 'security.append_test' from public.agent_invocations invocation order by invocation.id desc limit 1 $$, 'service role can append an Agent execution log');
+select lives_ok($$ insert into public.agent_execution_logs (tenant_id, organization_id, invocation_id, event_type) values ((select tenant_id from public.agent_invocations where input_summary = 'security-fixture-invocation'), (select organization_id from public.agent_invocations where input_summary = 'security-fixture-invocation'), (select id from public.agent_invocations where input_summary = 'security-fixture-invocation'), 'security.append_test') returning id $$, 'service role appends the explicit Agent execution-log fixture');
+select is((select count(*) from public.agent_execution_logs where event_type = 'security.append_test'), 1::bigint, 'service execution-log INSERT RETURNING fixture added exactly one row');
 select throws_ok($$ update public.agent_execution_logs set event_type = 'mutated' $$, '42501', 'service role cannot update Agent execution logs');
 select throws_ok($$ delete from public.agent_execution_logs $$, '42501', 'service role cannot delete Agent execution logs');
 select throws_ok($$ truncate public.agent_execution_logs $$, '42501', 'service role cannot truncate Agent execution logs');
 reset role;
+
+select lives_ok($$ alter table public.agent_invocations drop constraint agent_invocations_terminal_completion_check $$, 'test transaction can create a pre-constraint terminal invocation');
+insert into public.agent_invocations (
+  tenant_id, organization_id, agent_id, actor_member_id, status, input_summary,
+  latency_ms, started_at, completed_at, created_at
+)
+values (
+  (select tenant_id from public.agent_definitions where code = 'security-pgtap-execution-fixture'),
+  (select organization_id from public.agent_definitions where code = 'security-pgtap-execution-fixture'),
+  (select id from public.agent_definitions where code = 'security-pgtap-execution-fixture'),
+  (select id from public.organization_members where user_id = '93000000-0000-4000-8000-000000000007'::uuid),
+  'succeeded', 'security-legacy-terminal', 750,
+  timestamptz '2026-08-01 00:00:00+00', null, timestamptz '2026-08-01 00:10:00+00'
+);
+select public.backfill_agent_invocation_timestamps();
+select is((select started_at from public.agent_invocations where input_summary = 'security-legacy-terminal'), timestamptz '2026-08-01 00:09:59.250+00', 'historical terminal starts before its created-at completion by its latency');
+select is((select completed_at from public.agent_invocations where input_summary = 'security-legacy-terminal'), timestamptz '2026-08-01 00:10:00+00', 'historical terminal completes at its historical creation point');
 
 select * from finish();
 

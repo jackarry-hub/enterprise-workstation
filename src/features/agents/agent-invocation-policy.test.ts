@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { evaluateAgentInvocationAccess } from "@/features/agents/agent-invocation-policy";
+import {
+  evaluateAgentInvocationAccess,
+  isAgentExecutionReady,
+  parseAgentExecutionConfig,
+} from "@/features/agents/agent-invocation-policy";
 
 const subject = {
   memberId: 10,
@@ -10,6 +14,37 @@ const subject = {
 };
 
 describe("evaluateAgentInvocationAccess", () => {
+  it("fails closed for every malformed execution configuration without throwing", () => {
+    const ready = {
+      modelCode: "deepseek-chat",
+      promptVersion: "v20",
+      systemPrompt: "Server-owned system prompt",
+      toolScope: { tools: ["task.read", "knowledge.search"] },
+    };
+    expect(parseAgentExecutionConfig(ready)).toEqual({
+      model: "deepseek-chat",
+      promptVersion: "v20",
+      systemPrompt: "Server-owned system prompt",
+      toolCodes: ["task.read", "knowledge.search"],
+    });
+    for (const malformed of [
+      { ...ready, modelCode: "browser-model" },
+      { ...ready, promptVersion: " v20" },
+      { ...ready, promptVersion: "v".repeat(41) },
+      { ...ready, systemPrompt: " ".repeat(12_001) },
+      { ...ready, toolScope: { tools: [" task.read"] } },
+      { ...ready, toolScope: { tools: ["task.read", "task.read"] } },
+      { ...ready, toolScope: { tools: "task.read" } },
+      { ...ready, toolScope: 42 },
+      null,
+      "not-an-object",
+    ]) {
+      expect(() => isAgentExecutionReady(malformed)).not.toThrow();
+      expect(isAgentExecutionReady(malformed)).toBe(false);
+      expect(parseAgentExecutionConfig(malformed)).toBeNull();
+    }
+  });
+
   it("does not let a member-only grant authorize another employee", () => {
     expect(evaluateAgentInvocationAccess(subject, {
       status: "enabled", minJobLevel: 1, configured: true,

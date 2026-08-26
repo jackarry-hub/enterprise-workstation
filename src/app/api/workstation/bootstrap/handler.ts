@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { getWorkspaceSession } from "@/features/auth/workspace-session";
 import {
   evaluateAgentInvocationAccess,
+  isAgentExecutionReady,
   type AgentInvocationRule,
 } from "@/features/agents/agent-invocation-policy";
 import { buildServerBootstrap } from "@/features/workstation/server-bootstrap";
@@ -55,6 +56,11 @@ export function shanghaiBusinessDate(now: Date = new Date()): string {
 
 function numberOrNull(value: unknown) {
   return parseNullableNumber(value);
+}
+
+function positiveIntegerOrNull(value: unknown) {
+  const number = numberOrNull(value);
+  return number !== null && Number.isSafeInteger(number) && number > 0 ? number : null;
 }
 
 function stringOrNull(value: unknown) {
@@ -315,7 +321,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
     const client = await getSupabaseServerClient();
     const canManageSalary = session.permissionCodes.includes("salary.manage");
     const membersResult = await client.from("employee_profiles")
-      .select("id, organization_member_id, display_name, job_title, department_id, position_template_id, salary_grade_code, job_level, skills, department:departments!employee_profiles_department_id_fkey(name)")
+      .select("id, tenant_id, organization_id, organization_member_id, display_name, job_title, department_id, position_template_id, salary_grade_code, job_level, skills, department:departments!employee_profiles_department_id_fkey(name)")
       .is("deleted_at", null)
       .in("employment_status", ["probation", "active", "on_leave"])
       .order("display_name");
@@ -331,6 +337,19 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       .map((row) => Number(row.id))
       .filter((id) => Number.isSafeInteger(id) && id > 0);
     const serviceClient = getSupabaseServiceRoleClient();
+    const currentMember = (membersResult.data ?? []).find((row) =>
+      Number(row.organization_member_id) === session.member.id,
+    );
+    const agentTenantId = currentMember ? positiveIntegerOrNull(currentMember.tenant_id) : null;
+    const agentOrganizationId = currentMember ? positiveIntegerOrNull(currentMember.organization_id) : null;
+    const agentDefinitionsQuery = agentTenantId !== null && agentOrganizationId !== null
+      ? optionalBootstrapQuery("agent_definitions", serviceClient.from("agent_definitions")
+        .select("id, public_id, name, icon, description, model_code, prompt_version, system_prompt, tool_scope, capabilities, visibility_scope, min_job_level, status, department_id")
+        .eq("tenant_id", agentTenantId).eq("organization_id", agentOrganizationId)
+        .is("deleted_at", null)
+        .in("status", ["enabled", "disabled"])
+        .order("updated_at", { ascending: false }))
+      : Promise.resolve({ data: [], error: null, moduleError: true });
     const [
       projectsResult,
       tasksResult,
@@ -389,11 +408,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
         : Promise.resolve({ data: [], error: null }),
       optionalBootstrapQuery("employee_skills", client.from("employee_skills")
         .select("employee_profile_id, proficiency_level, years_experience, verification_status, skill:skill_tags(name)")),
-      optionalBootstrapQuery("agent_definitions", client.from("agent_definitions")
-        .select("id, public_id, name, icon, description, model_code, prompt_version, capabilities, visibility_scope, min_job_level, status, department_id")
-        .is("deleted_at", null)
-        .in("status", ["enabled", "disabled"])
-        .order("updated_at", { ascending: false })),
+      agentDefinitionsQuery,
       optionalBootstrapQuery("agent_permissions", client.from("agent_permissions")
         .select("agent_id, scope_type, min_job_level, department_id, role_code, member_id")
         .is("deleted_at", null)),
@@ -560,9 +575,6 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
     const agentModuleFailed = Boolean(
       agentsResult.moduleError || agentPermissionsResult.moduleError || agentInvocationsResult.moduleError,
     );
-    const currentMember = (membersResult.data ?? []).find((row) =>
-      Number(row.organization_member_id) === session.member.id,
-    );
     const currentDepartmentId = currentMember ? numberOrNull(currentMember.department_id) : null;
     const currentJobLevel = currentMember ? numberOrNull(currentMember.job_level) : null;
 
@@ -698,7 +710,12 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
             }, {
               status: String(row.status),
               minJobLevel: Number(row.min_job_level),
-              configured: row.status === "enabled",
+              configured: isAgentExecutionReady({
+                modelCode: row.model_code,
+                promptVersion: row.prompt_version,
+                systemPrompt: row.system_prompt,
+                toolScope: row.tool_scope,
+              }),
               rules: invocationRulesByAgent.get(Number(row.id)) ?? [],
             })
             : { canInvoke: false, reason: "agent_not_configured" as const };

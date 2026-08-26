@@ -25,4 +25,17 @@ describe("Agent invocation append-only migration", () => {
     expect(migration).toContain("terminal rows require completed_at");
     expect(migration).toContain("revoke all on sequence public.agent_invocations_id_seq, public.agent_execution_logs_id_seq from service_role");
   });
+
+  it("uses one total execution-ready validator for disabling and constraining definitions", () => {
+    expect(migration).toContain("create or replace function public.is_agent_execution_ready");
+    expect(migration).toContain("language plpgsql");
+    expect(migration).toContain("exception when others then");
+    expect(migration).toContain("not public.is_agent_execution_ready(model_code, prompt_version, system_prompt, tool_scope)");
+    expect(migration).toContain("public.is_agent_execution_ready(model_code, prompt_version, system_prompt, tool_scope)");
+  });
+
+  it("backfills terminal timing from the historical creation point without a future completion", () => {
+    expect(migration).toContain("completed_at = created_at");
+    expect(migration).toContain("started_at = created_at - (coalesce(latency_ms, 0) * interval '1 millisecond')");
+  });
 });

@@ -1,54 +1,87 @@
 -- Finalize Agent definitions as publishable server configuration and preserve
 -- invocation history as an immutable, service-owned ledger.
 
-create or replace function public.is_valid_agent_tool_scope(value jsonb)
+create or replace function public.is_agent_execution_ready(
+  model_code text,
+  prompt_version text,
+  system_prompt text,
+  tool_scope jsonb
+)
 returns boolean
-language sql
+language plpgsql
 immutable
 set search_path = ''
 as $$
-  select jsonb_typeof(value) = 'object'
-    and jsonb_typeof(value -> 'tools') = 'array'
-    and jsonb_array_length(value -> 'tools') <= 30
-    and not exists (
-      select 1
-      from jsonb_array_elements(value -> 'tools') item
-      where jsonb_typeof(item) <> 'string'
-         or btrim(item #>> '{}') = ''
-         or length(item #>> '{}') > 80
-    )
-    and (
-      select count(*) = count(distinct item #>> '{}')
-      from jsonb_array_elements(value -> 'tools') item
-    );
+declare
+  item jsonb;
+  tool_code text;
+  seen_codes text[] := '{}';
+begin
+  if model_code is null
+     or model_code not in ('deepseek-v4-flash', 'deepseek-chat', 'deepseek-reasoner')
+     or prompt_version is null
+     or btrim(prompt_version) is distinct from prompt_version
+     or char_length(prompt_version) not between 1 and 40
+     or system_prompt is null
+     or btrim(system_prompt) is distinct from system_prompt
+     or char_length(system_prompt) not between 1 and 12000
+     or tool_scope is null
+     or jsonb_typeof(tool_scope) is distinct from 'object'
+     or jsonb_typeof(tool_scope -> 'tools') is distinct from 'array'
+     or jsonb_array_length(tool_scope -> 'tools') > 30 then
+    return false;
+  end if;
+
+  for item in select value from jsonb_array_elements(tool_scope -> 'tools') loop
+    if jsonb_typeof(item) is distinct from 'string' then
+      return false;
+    end if;
+    tool_code := item #>> '{}';
+    if btrim(tool_code) is distinct from tool_code
+       or char_length(tool_code) not between 1 and 80
+       or tool_code = any(seen_codes) then
+      return false;
+    end if;
+    seen_codes := array_append(seen_codes, tool_code);
+  end loop;
+
+  return true;
+exception when others then
+  return false;
+end;
 $$;
 
 update public.agent_definitions
 set status = 'disabled', updated_at = now()
 where status = 'enabled'
-  and not (
-    model_code in ('deepseek-v4-flash', 'deepseek-chat', 'deepseek-reasoner')
-    and btrim(system_prompt) <> ''
-    and public.is_valid_agent_tool_scope(tool_scope)
-  );
+  and not public.is_agent_execution_ready(model_code, prompt_version, system_prompt, tool_scope);
 
 alter table public.agent_definitions
   drop constraint if exists agent_definitions_enabled_execution_ready,
   add constraint agent_definitions_enabled_execution_ready check (
-    status <> 'enabled' or (
-      model_code in ('deepseek-v4-flash', 'deepseek-chat', 'deepseek-reasoner')
-      and btrim(system_prompt) <> ''
-      and public.is_valid_agent_tool_scope(tool_scope)
-    )
+    status <> 'enabled'
+    or public.is_agent_execution_ready(model_code, prompt_version, system_prompt, tool_scope)
   );
 
-update public.agent_invocations
-set completed_at = started_at + (coalesce(latency_ms, 0) * interval '1 millisecond')
-where status in ('succeeded', 'failed') and completed_at is null;
+create or replace function public.backfill_agent_invocation_timestamps()
+returns void
+language plpgsql
+set search_path = ''
+as $$
+begin
+  update public.agent_invocations
+  set completed_at = created_at,
+      started_at = created_at - (coalesce(latency_ms, 0) * interval '1 millisecond')
+  where status in ('succeeded', 'failed') and completed_at is null;
 
-update public.agent_invocations
-set completed_at = null
-where status in ('queued', 'running') and completed_at is not null;
+  update public.agent_invocations
+  set completed_at = null
+  where status in ('queued', 'running') and completed_at is not null;
+end;
+$$;
+
+select public.backfill_agent_invocation_timestamps();
+revoke all on function public.backfill_agent_invocation_timestamps() from public, authenticated, service_role;
 
 alter table public.agent_invocations
   drop constraint if exists agent_invocations_terminal_completion_check,

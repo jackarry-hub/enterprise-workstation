@@ -150,6 +150,8 @@ describe("workstation bootstrap route", () => {
     const members = query({
       data: [{
         id: 42,
+        tenant_id: 2,
+        organization_id: 3,
         organization_member_id: 7,
         display_name: "张云帆",
         job_title: "产品经理",
@@ -336,6 +338,8 @@ describe("workstation bootstrap route", () => {
         description: "拆成任务和验收标准",
         model_code: "deepseek-v4-flash",
         prompt_version: "v1",
+        system_prompt: " ",
+        tool_scope: { tools: ["task.read"] },
         capabilities: ["目标拆解", "验收标准"],
         visibility_scope: "all",
         min_job_level: 1,
@@ -403,7 +407,6 @@ describe("workstation bootstrap route", () => {
         if (table === "task_notifications") return builders.notifications;
         if (table === "departments") return builders.departments;
         if (table === "employee_skills") return builders.employeeSkills;
-        if (table === "agent_definitions") return builders.agents;
         if (table === "agent_permissions") return builders.agentPermissions;
         if (table === "agent_invocations") return builders.agentInvocations;
         if (table === "knowledge_documents") return builders.knowledge;
@@ -417,6 +420,7 @@ describe("workstation bootstrap route", () => {
     const serviceClient = {
       from: vi.fn((table: string) => {
         if (table === "employee_work_profiles") return builders.workProfiles;
+        if (table === "agent_definitions") return builders.agents;
         throw new Error(`unexpected service table ${table}`);
       }),
     };
@@ -436,6 +440,7 @@ describe("workstation bootstrap route", () => {
       members: Array<Record<string, unknown>>;
       tasks: Array<Record<string, unknown>>;
       payroll: Record<string, Array<Record<string, unknown>>>;
+      agents: Array<Record<string, unknown>>;
     };
 
     expect(client.from).toHaveBeenCalledWith("task_notifications");
@@ -443,14 +448,16 @@ describe("workstation bootstrap route", () => {
     expect(serviceClient.from).toHaveBeenCalledWith("employee_work_profiles");
     expect(client.rpc).toHaveBeenCalledWith("current_salary_grade_policy");
     expect(client.from).toHaveBeenCalledWith("employee_skills");
-    expect(client.from).toHaveBeenCalledWith("agent_definitions");
+    expect(serviceClient.from).toHaveBeenCalledWith("agent_definitions");
     expect(client.from).toHaveBeenCalledWith("agent_permissions");
     expect(client.from).toHaveBeenCalledWith("agent_invocations");
     expect(client.from).toHaveBeenCalledWith("knowledge_documents");
     expect(notifications.select).toHaveBeenCalledWith(
       "task_id, status, last_error_code",
     );
-    expect(agents.select).toHaveBeenCalledWith(expect.stringContaining("department_id"));
+    expect(agents.select).toHaveBeenCalledWith(expect.stringContaining("system_prompt"));
+    expect(agents.eq).toHaveBeenCalledWith("tenant_id", 2);
+    expect(agents.eq).toHaveBeenCalledWith("organization_id", 3);
     expect(agents.select).not.toHaveBeenCalledWith(expect.stringContaining("department:"));
     expect(agentPermissions.select).toHaveBeenCalledWith(expect.stringContaining("scope_type"));
     expect(agentPermissions.select).toHaveBeenCalledWith(expect.stringContaining("department_id"));
@@ -537,6 +544,10 @@ describe("workstation bootstrap route", () => {
           v: "v3",
         }),
       ],
+    });
+    expect(bootstrap.agents[0]).toMatchObject({
+      canInvoke: false,
+      denialReason: "agent_not_configured",
     });
     expect(JSON.stringify(bootstrap)).not.toMatch(
       /task_id|9001|9002|open_id|tenant_access_token|app_secret|raw provider response/i,

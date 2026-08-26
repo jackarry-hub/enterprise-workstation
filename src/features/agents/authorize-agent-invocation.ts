@@ -1,6 +1,7 @@
-import { isAllowedAiModel, type AiModel } from "@/features/ai-config/ai-config-types";
+import { type AiModel } from "@/features/ai-config/ai-config-types";
 import {
   evaluateAgentInvocationAccess,
+  parseAgentExecutionConfig,
   type AgentInvocationRule,
 } from "@/features/agents/agent-invocation-policy";
 import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
@@ -68,18 +69,6 @@ async function rows<T extends Record<string, unknown>>(
   const { data, error } = await query;
   if (error) forbidden();
   return data ?? [];
-}
-
-function parseToolCodes(value: unknown): string[] | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const tools = (value as { tools?: unknown }).tools;
-  if (!Array.isArray(tools) || tools.length > 30) return null;
-  const unique = new Set<string>();
-  for (const tool of tools) {
-    if (!nonEmptyText(tool, 80) || unique.has(tool)) return null;
-    unique.add(tool);
-  }
-  return [...unique];
 }
 
 /**
@@ -178,12 +167,16 @@ export async function authorizeAgentInvocation(
   );
   const definitionId = positiveInteger(agent.id);
   const agentMinimum = positiveInteger(agent.min_job_level);
-  const toolCodes = parseToolCodes(agent.tool_scope);
+  const execution = parseAgentExecutionConfig({
+    modelCode: agent.model_code,
+    promptVersion: agent.prompt_version,
+    systemPrompt: agent.system_prompt,
+    toolScope: agent.tool_scope,
+  });
   if (!definitionId || positiveInteger(agent.tenant_id) !== tenantId
     || positiveInteger(agent.organization_id) !== organizationId || agent.status !== "enabled"
     || agent.deleted_at !== null || !agentMinimum || agentMinimum > 20 || jobLevel < agentMinimum
-    || !nonEmptyText(agent.prompt_version, 40) || !nonEmptyText(agent.system_prompt)
-    || !isAllowedAiModel(agent.model_code) || toolCodes === null) forbidden();
+    || execution === null) forbidden();
 
   const permissions = await rows(
     client.from<ScopedRow>("agent_permissions")
@@ -216,9 +209,9 @@ export async function authorizeAgentInvocation(
     definitionId,
     tenantId,
     organizationId,
-    version: agent.prompt_version,
-    systemPrompt: agent.system_prompt,
-    model: agent.model_code,
-    toolCodes,
+    version: execution.promptVersion,
+    systemPrompt: execution.systemPrompt,
+    model: execution.model,
+    toolCodes: execution.toolCodes,
   };
 }

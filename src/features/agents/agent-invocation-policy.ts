@@ -1,3 +1,5 @@
+import { isAllowedAiModel, type AiModel } from "@/features/ai-config/ai-config-types";
+
 export type AgentInvocationSubject = {
   memberId: number;
   departmentId: number;
@@ -24,6 +26,45 @@ export type AgentInvocationAccess = {
   canInvoke: boolean;
   reason: "" | "agent_disabled" | "agent_not_configured" | "agent_forbidden";
 };
+
+export type AgentExecutionConfig = {
+  model: AiModel;
+  promptVersion: string;
+  systemPrompt: string;
+  toolCodes: string[];
+};
+
+function isTrimmedText(value: unknown, max: number): value is string {
+  return typeof value === "string" && value.trim() === value
+    && value.length >= 1 && value.length <= max;
+}
+
+/** Parses server-owned Agent execution fields and rejects every malformed input. */
+export function parseAgentExecutionConfig(value: unknown): AgentExecutionConfig | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  if (!isAllowedAiModel(row.modelCode)
+    || !isTrimmedText(row.promptVersion, 40)
+    || !isTrimmedText(row.systemPrompt, 12_000)
+    || !row.toolScope || typeof row.toolScope !== "object" || Array.isArray(row.toolScope)) return null;
+  const tools = (row.toolScope as Record<string, unknown>).tools;
+  if (!Array.isArray(tools) || tools.length > 30) return null;
+  const unique = new Set<string>();
+  for (const tool of tools) {
+    if (!isTrimmedText(tool, 80) || unique.has(tool)) return null;
+    unique.add(tool);
+  }
+  return {
+    model: row.modelCode,
+    promptVersion: row.promptVersion,
+    systemPrompt: row.systemPrompt,
+    toolCodes: [...unique],
+  };
+}
+
+export function isAgentExecutionReady(value: unknown): boolean {
+  return parseAgentExecutionConfig(value) !== null;
+}
 
 function validLevel(level: number) {
   return Number.isSafeInteger(level) && level >= 1 && level <= 20;
