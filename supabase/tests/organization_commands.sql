@@ -1,5 +1,5 @@
 begin;
-select plan(52);
+select plan(63);
 
 insert into public.tenants (name,slug,status) values ('Organization command A','organization-command-a','active'),('Organization command B','organization-command-b','active');
 insert into public.organizations (tenant_id,name,slug)
@@ -64,6 +64,17 @@ join public.skill_tags tag on tag.tenant_id=profile.tenant_id and tag.organizati
 where member.user_id in ('97000000-0000-4000-8000-000000000001'::uuid,'97000000-0000-4000-8000-000000000006'::uuid);
 select set_config('test.organization.employee_skill',(select skill.public_id::text from public.employee_skills skill join public.employee_profiles profile on profile.id=skill.employee_profile_id join public.organization_members member on member.id=profile.organization_member_id where member.user_id='97000000-0000-4000-8000-000000000001'::uuid),true);
 select set_config('test.organization.foreign_employee_skill',(select skill.public_id::text from public.employee_skills skill join public.employee_profiles profile on profile.id=skill.employee_profile_id join public.organization_members member on member.id=profile.organization_member_id where member.user_id='97000000-0000-4000-8000-000000000006'::uuid),true);
+insert into public.employee_work_profiles (tenant_id,organization_id,employee_profile_id,summary,preferred_task_types,growth_goals,weekly_capacity_hours,self_skills)
+select profile.tenant_id,profile.organization_id,profile.id,
+  case when member.user_id='97000000-0000-4000-8000-000000000006'::uuid then 'Foreign work profile' else 'Initial current work profile' end,
+  array['Analysis']::text[],array['Growth']::text[],36,'[{"name":"Analysis","level":3}]'::jsonb
+from public.employee_profiles profile
+join public.organization_members member on member.id=profile.organization_member_id
+where member.user_id in ('97000000-0000-4000-8000-000000000001'::uuid,'97000000-0000-4000-8000-000000000006'::uuid);
+select set_config('test.organization.employee_work_profile',(select work_profile.public_id::text from public.employee_work_profiles work_profile join public.employee_profiles profile on profile.id=work_profile.employee_profile_id join public.organization_members member on member.id=profile.organization_member_id where member.user_id='97000000-0000-4000-8000-000000000001'::uuid),true);
+select set_config('test.organization.foreign_employee_profile',(select profile.public_id::text from public.employee_profiles profile join public.organization_members member on member.id=profile.organization_member_id where member.user_id='97000000-0000-4000-8000-000000000006'::uuid),true);
+select set_config('test.organization.foreign_work_profile',(select work_profile.public_id::text from public.employee_work_profiles work_profile join public.employee_profiles profile on profile.id=work_profile.employee_profile_id join public.organization_members member on member.id=profile.organization_member_id where member.user_id='97000000-0000-4000-8000-000000000006'::uuid),true);
+select set_config('test.organization.foreign_work_profile_summary',(select summary from public.employee_work_profiles where public_id=current_setting('test.organization.foreign_work_profile')::uuid),true);
 
 select ok(has_function('public','create_current_department',array['text','text','text','integer','bigint','text','uuid','uuid']::name[]),'department command carries version reason request and idempotency');
 select ok(has_function('public','assign_current_member_role',array['bigint','text','bigint','text','uuid','uuid']::name[]),'role command carries version reason request and idempotency');
@@ -116,7 +127,20 @@ select throws_ok($$ update public.employee_skills set verification_status='verif
 select throws_ok($$ insert into public.employee_skills (tenant_id,organization_id,employee_profile_id,skill_tag_id,proficiency_level,verification_status) select skill.tenant_id,skill.organization_id,skill.employee_profile_id,skill.skill_tag_id,3,'verified' from public.employee_skills skill where skill.public_id=current_setting('test.organization.employee_skill')::uuid $$,'42501',null,'employee cannot directly insert a verified skill');
 select lives_ok($$ update public.employee_skills set proficiency_level=4 where public_id=current_setting('test.organization.employee_skill')::uuid $$,'employee retains a safe self skill edit');
 select lives_ok($$ select public.update_current_employee_work_profile('Current profile',array['Analysis']::text[],array['Growth']::text[],36,'[{"name":"Analysis","level":4}]'::jsonb,'97000000-0000-4000-8000-000000000102'::uuid) $$,'employee work profile is atomically saved by current authenticated context');
-select ok(exists(select 1 from public.audit_logs where request_id='97000000-0000-4000-8000-000000000102'::uuid and action='profile.updated' and metadata->>'outcome'='success'),'work profile command writes its safe audit in the same transaction');
+reset role;
+select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000002',true); set local role authenticated;
+select ok(exists(select 1 from public.audit_logs audit where audit.request_id='97000000-0000-4000-8000-000000000102'::uuid and audit.action='profile.updated' and audit.target_type='employee_work_profile' and audit.target_ref=current_setting('test.organization.employee_work_profile') and audit.metadata->>'permissionScope'='profile.self.update' and audit.metadata->>'businessReason'='current_employee_self_service' and audit.metadata->>'outcome'='success' and audit.metadata->'before'->>'summary'='Initial current work profile' and audit.metadata->'after'->>'summary'='Current profile'),'work profile audit records exact work-profile target, scope, reason, request, before, after, and success');
+reset role;
+select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000001',true); set local role authenticated;
+select is((select count(*) from public.employee_work_profiles where public_id=current_setting('test.organization.foreign_work_profile')::uuid),0::bigint,'employee cannot access the captured real foreign work profile');
+reset role;
+select is((select summary from public.employee_work_profiles where public_id=current_setting('test.organization.foreign_work_profile')::uuid),current_setting('test.organization.foreign_work_profile_summary'),'current self command leaves the real foreign work profile unchanged');
+select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000001',true); set local role authenticated;
+select throws_ok($$ select public.update_current_employee_work_profile('Rejected extra key',array['Analysis']::text[],array['Growth']::text[],36,'[{"name":"Analysis","level":4,"untrusted":"extra"}]'::jsonb,'97000000-0000-4000-8000-000000000108'::uuid) $$,'22023','Employee work profile request is invalid','work-profile RPC rejects an extra self-skill object key');
+select is((select self_skills from public.employee_work_profiles where public_id=current_setting('test.organization.employee_work_profile')::uuid),'[{"name":"Analysis","level":4}]'::jsonb,'invalid self-skill payload leaves the current work profile unchanged');
+reset role;
+select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000002',true); set local role authenticated;
+select is((select count(*) from public.audit_logs where request_id='97000000-0000-4000-8000-000000000108'::uuid),0::bigint,'invalid self-skill payload writes no profile audit');
 reset role;
 update public.organization_members set status='suspended' where user_id='97000000-0000-4000-8000-000000000001'::uuid;
 select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000001',true); set local role authenticated;
@@ -129,12 +153,24 @@ reset role;
 
 select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000005',true); set local role authenticated;
 select lives_ok($$ select public.verify_current_employee_skill(current_setting('test.organization.employee_skill')::uuid,'verified','HR reviewed evidence','97000000-0000-4000-8000-000000000103'::uuid) $$,'HR with real hr.manage verifies the employee skill');
-select ok(exists(select 1 from public.audit_logs where request_id='97000000-0000-4000-8000-000000000103'::uuid and actor_member_id=(select id from public.organization_members where user_id='97000000-0000-4000-8000-000000000005'::uuid) and metadata->>'decision'='verified' and metadata->'before'->>'verificationStatus'='unverified' and metadata->'after'->>'verificationStatus'='verified'),'verification audit records verifier decision and state transition');
-select throws_ok($$ select public.verify_current_employee_skill(current_setting('test.organization.employee_skill')::uuid,null,'Missing decision','97000000-0000-4000-8000-000000000104'::uuid) $$,'22023','Employee skill verification request is invalid','NULL verification decision is rejected');
-select throws_ok($$ select public.verify_current_employee_skill(current_setting('test.organization.employee_skill')::uuid,'rejected','Unsupported decision','97000000-0000-4000-8000-000000000105'::uuid) $$,'22023','Employee skill verification request is invalid','unsupported verification decision is rejected');
 select is((select count(*) from public.current_organization_skill_verifications() where skill_public_id=current_setting('test.organization.employee_skill')::uuid),1::bigint,'HR manager projection exposes same-organization verification evidence');
 select is((select count(*) from public.current_organization_skill_verifications() where skill_public_id=current_setting('test.organization.foreign_employee_skill')::uuid),0::bigint,'HR manager projection does not disclose a real foreign skill');
+reset role;
+select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000002',true); set local role authenticated;
+select is((select metadata->>'businessReason' from public.audit_logs where request_id='97000000-0000-4000-8000-000000000103'::uuid),'HR reviewed evidence','verification audit persists the business reason');
+select ok((select metadata->>'verifiedAt' is not null from public.audit_logs where request_id='97000000-0000-4000-8000-000000000103'::uuid),'verification audit persists a non-null timestamp');
+select is((select actor_member_id from public.audit_logs where request_id='97000000-0000-4000-8000-000000000103'::uuid),(select id from public.organization_members where user_id='97000000-0000-4000-8000-000000000005'::uuid),'verification audit persists the exact verifier member');
+select is((select request_id from public.audit_logs where request_id='97000000-0000-4000-8000-000000000103'::uuid),'97000000-0000-4000-8000-000000000103'::uuid,'verification audit persists the request identifier');
+select is((select metadata->'before'->>'verificationStatus' from public.audit_logs where request_id='97000000-0000-4000-8000-000000000103'::uuid),'unverified','verification audit persists the prior verification state');
+select is((select metadata->'after'->>'verificationStatus' from public.audit_logs where request_id='97000000-0000-4000-8000-000000000103'::uuid),'verified','verification audit persists the new verification state');
+select is((select metadata->>'outcome' from public.audit_logs where request_id='97000000-0000-4000-8000-000000000103'::uuid),'success','verification audit persists the success outcome');
+reset role;
+select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000005',true); set local role authenticated;
+select throws_ok($$ select public.verify_current_employee_skill(current_setting('test.organization.employee_skill')::uuid,null,'Missing decision','97000000-0000-4000-8000-000000000104'::uuid) $$,'22023','Employee skill verification request is invalid','NULL verification decision is rejected');
+select throws_ok($$ select public.verify_current_employee_skill(current_setting('test.organization.employee_skill')::uuid,'rejected','Unsupported decision','97000000-0000-4000-8000-000000000105'::uuid) $$,'22023','Employee skill verification request is invalid','unsupported verification decision is rejected');
 select is((select public.verify_current_employee_skill(current_setting('test.organization.foreign_employee_skill')::uuid,'verified','Foreign target','97000000-0000-4000-8000-000000000106'::uuid)->>'error'),'not_found','real foreign skill returns stable not found');
-select ok(exists(select 1 from public.audit_logs where request_id='97000000-0000-4000-8000-000000000106'::uuid and action='employee_skill.verification_failed' and metadata->>'failure'='not_found'),'foreign not-found commits a safe durable failure audit');
+reset role;
+select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000002',true); set local role authenticated;
+select ok(exists(select 1 from public.audit_logs where request_id='97000000-0000-4000-8000-000000000106'::uuid and action='employee_skill.verification_failed' and metadata->>'failure'='not_found' and metadata->>'outcome'='failure'),'foreign not-found commits a safe durable failure audit');
 reset role;
 select * from finish(); rollback;

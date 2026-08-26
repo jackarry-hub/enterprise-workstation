@@ -39,12 +39,30 @@ describe("employee work profile command hardening", () => {
     )?.[0] ?? "";
 
     expect(sql).toContain("revoke insert, update on table public.employee_work_profiles from authenticated");
+    expect(sql).toContain("v_profile.public_id::text");
+    expect(sql).toMatch(/'permissionscope',\s*'profile\.self\.update'/);
+    expect(sql).toMatch(/'businessreason',\s*'current_employee_self_service'/);
     expect(command).toContain("security definer");
     expect(command).toContain("set search_path = ''");
     expect(command).toContain("external.auth_user_id = (select auth.uid())");
     expect(command).toContain("member.status = 'active'");
     expect(command).toContain("profile.organization_member_id = member.id");
     expect(command).not.toMatch(/p_tenant|p_organization|p_member|p_profile/);
+  });
+
+  it("enforces the exact self-skill object boundary inside the work-profile RPC", () => {
+    const helper = sql.match(
+      /create or replace function public\.valid_current_employee_self_skills\([\s\S]*?\$\$;/i,
+    )?.[0];
+    const command = sql.match(
+      /create or replace function public\.update_current_employee_work_profile\([\s\S]*?\$\$;/i,
+    )?.[0];
+
+    expect(helper).toBeDefined();
+    expect(helper).toContain("jsonb_object_keys(v_skill)");
+    expect(helper).toContain("v_skill ? 'name'");
+    expect(helper).toContain("v_skill ? 'level'");
+    expect(command).toContain("not public.valid_current_employee_self_skills(p_self_skills)");
   });
 
   it("keeps verification evidence out of direct authenticated access", () => {

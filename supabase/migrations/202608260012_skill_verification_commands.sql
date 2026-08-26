@@ -185,6 +185,35 @@ alter table public.employee_skills
     references public.organization_members (tenant_id, organization_id, id)
     on delete restrict;
 
+create or replace function public.valid_current_employee_self_skills(p_skills jsonb)
+returns boolean
+language plpgsql
+immutable
+set search_path = ''
+as $$
+declare
+  v_skill jsonb;
+begin
+  if p_skills is null
+     or jsonb_typeof(p_skills) <> 'array'
+     or jsonb_array_length(p_skills) > 20 then
+    return false;
+  end if;
+
+  for v_skill in select value from jsonb_array_elements(p_skills)
+  loop
+    if jsonb_typeof(v_skill) <> 'object'
+       or not (v_skill ? 'name')
+       or not (v_skill ? 'level')
+       or (select count(*) from jsonb_object_keys(v_skill)) <> 2 then
+      return false;
+    end if;
+  end loop;
+
+  return public.valid_employee_self_skills(p_skills);
+end;
+$$;
+
 create or replace function public.update_current_employee_work_profile(
   p_summary text,
   p_preferred_task_types text[],
@@ -204,7 +233,6 @@ declare
   v_organization_id bigint;
   v_member_id bigint;
   v_profile_id bigint;
-  v_profile_public_id uuid;
   v_before jsonb := 'null'::jsonb;
   v_profile public.employee_work_profiles%rowtype;
 begin
@@ -216,12 +244,12 @@ begin
      or not public.valid_employee_work_labels(p_growth_goals, 8)
      or p_weekly_capacity_hours is null
      or p_weekly_capacity_hours not between 1 and 80
-     or not public.valid_employee_self_skills(p_self_skills) then
+     or not public.valid_current_employee_self_skills(p_self_skills) then
     raise exception 'Employee work profile request is invalid' using errcode = '22023';
   end if;
 
-  select member.tenant_id, member.organization_id, member.id, profile.id, profile.public_id
-  into v_tenant_id, v_organization_id, v_member_id, v_profile_id, v_profile_public_id
+  select member.tenant_id, member.organization_id, member.id, profile.id
+  into v_tenant_id, v_organization_id, v_member_id, v_profile_id
   from public.external_identities external
   join public.identity_providers provider
     on provider.tenant_id = external.tenant_id
@@ -278,9 +306,11 @@ begin
 
   perform public.append_audit_log(
     v_tenant_id, v_organization_id, (select auth.uid()), v_member_id,
-    'profile.updated', 'employee_work_profile', v_profile_public_id::text, request_id, null,
+    'profile.updated', 'employee_work_profile', v_profile.public_id::text, request_id, null,
     jsonb_build_object(
       'outcome', 'success', 'requestId', request_id,
+      'permissionScope', 'profile.self.update',
+      'businessReason', 'current_employee_self_service',
       'before', v_before,
       'after', jsonb_build_object(
         'summary', v_profile.summary,
@@ -420,6 +450,8 @@ as $$
 $$;
 
 revoke all on function public.update_current_employee_work_profile(text,text[],text[],smallint,jsonb,uuid)
+  from public, anon, authenticated, service_role;
+revoke all on function public.valid_current_employee_self_skills(jsonb)
   from public, anon, authenticated, service_role;
 revoke all on function public.verify_current_employee_skill(uuid,text,text,uuid)
   from public, anon, authenticated, service_role;
