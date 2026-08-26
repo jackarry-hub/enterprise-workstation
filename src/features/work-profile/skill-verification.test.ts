@@ -31,6 +31,7 @@ describe("employee skill verification route", () => {
 
   it("lets an authorized HR member record a bounded verification decision", async () => {
     const verifySkill = vi.fn().mockResolvedValue({
+      outcome: "success",
       skillId,
       verificationStatus: "verified",
     });
@@ -57,9 +58,7 @@ describe("employee skill verification route", () => {
   it("maps a real foreign skill target to not found without leaking provider details", async () => {
     const response = await createSkillVerificationHandler({
       loadSession: async () => ({ member: { id: 8, status: "active" }, permissionCodes: ["hr.manage"] }),
-      verifySkill: async () => {
-        throw Object.assign(new Error("provider relation and tenant details"), { code: "P0002" });
-      },
+      verifySkill: async () => ({ outcome: "failure", error: "not_found" }),
       createRequestId: () => requestId,
     })(request({ decision: "verified", reason: "岗位能力材料已复核" }), {
       params: Promise.resolve({ skillId }),
@@ -67,5 +66,19 @@ describe("employee skill verification route", () => {
 
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toEqual({ error: "skill_not_found" });
+  });
+
+  it("rejects malformed verification input before the authenticated command", async () => {
+    const verifySkill = vi.fn();
+    const response = await createSkillVerificationHandler({
+      loadSession: async () => ({ member: { id: 8, status: "active" }, permissionCodes: ["hr.manage"] }),
+      verifySkill,
+    })(request({ decision: null, reason: "岗位能力材料已复核" }), {
+      params: Promise.resolve({ skillId }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "invalid_request" });
+    expect(verifySkill).not.toHaveBeenCalled();
   });
 });

@@ -33,40 +33,41 @@ function currentSession() {
 
 describe("work profile update route", () => {
   it("rejects an unauthenticated request", async () => {
-    const saveProfile = vi.fn();
+    const updateProfile = vi.fn();
     const response = await createWorkProfileUpdateHandler({
       loadSession: async () => null,
-      saveProfile,
+      updateProfile,
     })(request(validProfile));
 
     expect(response.status).toBe(401);
-    expect(saveProfile).not.toHaveBeenCalled();
+    expect(updateProfile).not.toHaveBeenCalled();
   });
 
   it("rejects invalid profile input before persistence", async () => {
-    const saveProfile = vi.fn();
+    const updateProfile = vi.fn();
     const response = await createWorkProfileUpdateHandler({
       loadSession: async () => currentSession(),
-      saveProfile,
+      updateProfile,
     })(request({ ...validProfile, weeklyCapacityHours: 100 }));
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({ error: "invalid_request" });
-    expect(saveProfile).not.toHaveBeenCalled();
+    expect(updateProfile).not.toHaveBeenCalled();
   });
 
-  it("writes only the signed-in employee profile and returns safe fields", async () => {
+  it("uses the authenticated RPC without browser authority fields", async () => {
     const saved = { ...validProfile, updatedAt: "2026-08-21T02:00:00.000Z" };
-    const saveProfile = vi.fn().mockResolvedValue(saved);
+    const updateProfile = vi.fn().mockResolvedValue({ outcome: "success", profile: saved });
     const response = await createWorkProfileUpdateHandler({
       loadSession: async () => currentSession(),
-      saveProfile,
+      updateProfile,
+      createRequestId: () => "40000000-0000-4000-8000-000000000001",
     })(request({ ...validProfile, memberId: 999, summary: ` ${validProfile.summary} ` }));
 
     expect(response.status).toBe(200);
-    expect(saveProfile).toHaveBeenCalledWith(
-      currentSession(),
+    expect(updateProfile).toHaveBeenCalledWith(
       validProfile,
+      "40000000-0000-4000-8000-000000000001",
     );
     await expect(response.json()).resolves.toEqual({ profile: saved });
   });
@@ -74,7 +75,7 @@ describe("work profile update route", () => {
   it("maps persistence failures to one stable response", async () => {
     const response = await createWorkProfileUpdateHandler({
       loadSession: async () => currentSession(),
-      saveProfile: async () => {
+      updateProfile: async () => {
         throw new Error("database details and employee data leaked");
       },
     })(request(validProfile));
@@ -91,11 +92,7 @@ describe("work profile update route", () => {
         organization: { id: "20000000-0000-4000-8000-000000000001" },
         member: { id: 7, employeeProfileId: "10000000-0000-4000-8000-000000000007", status: "active" as const },
       }),
-      saveProfile: async () => {
-        throw Object.assign(new Error("foreign profile must stay hidden"), {
-          code: "P0002",
-        });
-      },
+      updateProfile: async () => ({ outcome: "failure", error: "profile_not_found" }),
     })(request(validProfile));
 
     expect(response.status).toBe(404);

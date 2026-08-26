@@ -17,10 +17,9 @@ type SkillVerificationInput = {
   requestId: string;
 };
 
-type SkillVerificationResult = {
-  skillId: string;
-  verificationStatus: "verified";
-};
+type SkillVerificationResult =
+  | { outcome: "success"; skillId: string; verificationStatus: "verified" }
+  | { outcome: "failure"; error: "not_found" };
 
 type SkillVerificationDependencies = {
   loadSession: () => Promise<SkillVerificationSession | null>;
@@ -85,7 +84,13 @@ export function createSkillVerificationHandler(
         ...input,
         requestId: dependencies.createRequestId?.() ?? randomUUID(),
       });
-      return json({ verification });
+      if (verification.outcome === "failure") {
+        return json({ error: "skill_not_found" }, 404);
+      }
+      return json({ verification: {
+        skillId: verification.skillId,
+        verificationStatus: verification.verificationStatus,
+      } });
     } catch (error) {
       return failure(error);
     }
@@ -106,10 +111,13 @@ const defaultDependencies: SkillVerificationDependencies = {
       throw result.error ?? Object.assign(new Error("skill_verification_failed"), { code: "P0001" });
     }
     const value = result.data as Record<string, unknown>;
+    if (value.outcome === "failure" && value.error === "not_found") {
+      return { outcome: "failure", error: "not_found" };
+    }
     if (value.outcome !== "success" || typeof value.skillId !== "string" || value.verificationStatus !== "verified") {
       throw Object.assign(new Error("skill_verification_failed"), { code: "P0001" });
     }
-    return { skillId: value.skillId, verificationStatus: "verified" };
+    return { outcome: "success", skillId: value.skillId, verificationStatus: "verified" };
   },
 };
 
