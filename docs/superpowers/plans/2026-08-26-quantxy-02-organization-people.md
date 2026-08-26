@@ -348,23 +348,53 @@ git commit -m "feat: connect the people workspace to real data"
 ### Task 7: Complete Feishu OAuth and resilient directory synchronization
 
 **Files:**
-- Create: `supabase/migrations/202608260039_feishu_sync_control.sql`
+- Create: `supabase/migrations/202608270002_feishu_sync_control.sql`
 - Create: `supabase/tests/feishu_sync_control.sql`
+- Create: `src/features/feishu/feishu-sync-control-migration.test.ts`
 - Modify: `src/app/auth/login/feishu/handler.ts`
 - Modify: `src/app/auth/login/feishu/route.ts`
 - Modify: `src/app/auth/login/feishu/route.test.ts`
 - Modify: `src/app/auth/callback/route.ts`
 - Modify: `src/app/auth/callback/route.test.ts`
+- Modify: `src/features/auth/oauth-start.ts`
+- Create: `src/features/auth/oauth-start.test.ts`
+- Create: `src/features/auth/feishu-oauth-attempt.ts`
+- Create: `src/features/auth/feishu-oauth-attempt.test.ts`
 - Modify: `src/features/feishu/directory-sync.ts`
+- Modify: `src/features/feishu/directory-sync.test.ts`
 - Create: `src/features/feishu/directory-sync-worker.ts`
 - Create: `src/features/feishu/directory-sync-worker.test.ts`
+- Modify: `src/app/api/workstation/directory-sync/handler.ts`
+- Modify: `src/app/api/workstation/directory-sync/handler.test.ts`
+- Modify: `src/app/api/workstation/directory-sync/route.ts`
+- Create: `src/features/feishu/webhook-event.ts`
+- Create: `src/features/feishu/webhook-event.test.ts`
+- Create: `src/app/api/workstation/feishu/webhook/handler.ts`
+- Create: `src/app/api/workstation/feishu/webhook/handler.test.ts`
 - Create: `src/app/api/workstation/feishu/webhook/route.ts`
-- Create: `src/app/api/workstation/feishu/webhook/route.test.ts`
+- Create: `src/app/api/internal/feishu-directory-sync/handler.ts`
+- Create: `src/app/api/internal/feishu-directory-sync/handler.test.ts`
+- Create: `src/app/api/internal/feishu-directory-sync/route.ts`
+- Create: `src/features/feishu/sync-issues-data.ts`
+- Create: `src/features/feishu/sync-issues-data.test.ts`
+- Create: `src/features/feishu/sync-issues-panel.tsx`
+- Create: `src/features/feishu/sync-issues-panel.test.tsx`
 - Create: `src/app/(workspace)/people/sync-issues/page.tsx`
+- Create: `src/app/(workspace)/people/sync-issues/page.test.tsx`
+- Create: `src/app/api/workstation/feishu/sync-issues/[issueId]/resolve/handler.ts`
+- Create: `src/app/api/workstation/feishu/sync-issues/[issueId]/resolve/handler.test.ts`
+- Create: `src/app/api/workstation/feishu/sync-issues/[issueId]/resolve/route.ts`
+- Modify: `tests/e2e/directory-sync.spec.ts`
 
 **Interfaces:**
 - Produces `startFeishuFullSync`, `resumeFeishuIncrementalSync(cursor)` and `reconcileFeishuDirectory` with `{ runId, cursor, status, retryAfter }`.
 - Extends the canonical `/auth/login/feishu` and `/auth/callback` flow; produces signed webhook persistence keyed by provider event ID, an out-of-order sequence guard, scheduled reconciliation worker/cron, and `revokeDepartedMemberAccess(memberPublicId, eventId)`.
+- Uses a forward migration later than the already-present `202608260048` observability migration; upgraded databases must receive the control tables, RPCs, ACL changes and audit actions without rewriting an applied migration.
+- Adds an application OAuth-attempt state around the existing Supabase custom-provider PKCE flow: the database stores only a digest of a high-entropy nonce plus a single-use state ID, safe return path, expiry and terminal status. The browser receives only a Secure, HttpOnly, SameSite=Lax nonce cookie scoped to `/auth/callback`; callback must atomically validate/consume exactly one unexpired attempt before accepting the exchanged identity. Provider/Supabase tokens, raw nonce and unsafe return URLs are never persisted or logged.
+- Implements the official Feishu webhook contract against the raw request body: URL-verification challenge is gated by the configured Verification Token; production events require `X-Lark-Request-Timestamp`, `X-Lark-Request-Nonce` and `X-Lark-Signature = sha256(timestamp + nonce + encryptKey + rawBody)`, constant-time comparison, a bounded timestamp window, AES-256-CBC decryption when the official encrypted envelope is used, and post-decrypt Verification Token/app/tenant checks. Only the declared contact user/department v3 event types are accepted; provider payloads and secrets never reach client responses or logs.
+- Persists sanitized event metadata and payload digest, dedupes by provider event ID, converts official `header.create_time` into a monotonic per-entity sequence guard, and sends ambiguous equal/out-of-order events to reconciliation instead of applying stale data. Immediate departure handling revokes the member, external identity, active auth sessions/refresh tokens and queued access grants in one database transaction before acknowledging the event.
+- Reuses the real full-snapshot adapter and observed apply RPC. Incremental work consumes the durable event cursor; scheduled cron uses the existing constant-time bearer-secret pattern, lease/idempotency controls, bounded attempts/exponential backoff, and periodic full reconciliation. No in-memory queue, fixture adapter, or direct production credential is allowed.
+- Produces a server-only, organization-bound `organization.manage` issue repository plus audited resolution command. The responsive issue page shows sanitized real runs/events/conflicts and actionable retry/reconcile/resolve states; Feishu-owned identity, department, position and lifecycle fields remain read-only. The page and all mobile actions keep at least 44px touch targets.
 
 - [ ] **Step 1: Write failing OAuth, webhook, move/offboarding and reconciliation tests**
 
@@ -382,7 +412,7 @@ Expected: OAuth/webhook control state, conflict UI and revocation path are absen
 
 - [ ] **Step 3: Implement controlled OAuth and synchronization lifecycle**
 
-Use the isolated environment's Feishu app only. Extend the canonical login/callback routes rather than creating a parallel callback. Persist OAuth state/nonce, cursor, attempts, backoff, failures and reconciliation differences; reject invalid signatures, dedupe events, order by provider sequence, and run scheduled incremental/full reconciliation. Audit department move, transfer, conflict resolution and immediate departure revoke; revoke active Session, refresh token and queued access grants in the same offboarding transaction. Keep Feishu-owned fields read-only while showing a manager-authorized conflict resolution UI.
+Use the isolated environment's Feishu app only. Extend the canonical login/callback routes rather than creating a parallel callback. Wrap the existing Supabase custom-provider PKCE flow with a durable single-use OAuth attempt and HttpOnly nonce cookie; preserve only a validated relative return path. Persist cursor, attempts, backoff, failures and reconciliation differences in the forward-only migration. Verify the official Feishu raw-body signature and encrypted envelope, reject replay/invalid app or tenant/type, dedupe by event ID, and guard official create-time sequences before any mutation. Run scheduled incremental/full reconciliation through a constant-time bearer-protected internal route with a durable lease. Audit department move, transfer, conflict resolution and immediate departure revoke; revoke active sessions, refresh tokens and queued access grants in the same offboarding transaction. Keep Feishu-owned fields read-only while showing a real, organization-bound manager-authorized conflict resolution UI. Local tests use synthetic official-shape events through the real verification/persistence/worker path; Staging remains blocked until isolated credentials are explicitly supplied.
 
 - [ ] **Step 4: Verify GREEN in Local and authorized Staging**
 
@@ -394,7 +424,7 @@ Expected: Local uses synthetic identities through the real adapter/persistence p
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260039_feishu_sync_control.sql supabase/tests/feishu_sync_control.sql src/app/auth/login/feishu src/app/auth/callback src/features/feishu src/app/api/workstation/feishu 'src/app/(workspace)/people/sync-issues/page.tsx' tests/e2e/directory-sync.spec.ts
+git add supabase/migrations/202608270002_feishu_sync_control.sql supabase/tests/feishu_sync_control.sql src/app/auth/login/feishu src/app/auth/callback src/features/auth/oauth-start.ts src/features/auth/oauth-start.test.ts src/features/auth/feishu-oauth-attempt.ts src/features/auth/feishu-oauth-attempt.test.ts src/features/feishu src/app/api/workstation/directory-sync src/app/api/workstation/feishu src/app/api/internal/feishu-directory-sync 'src/app/(workspace)/people/sync-issues' tests/e2e/directory-sync.spec.ts
 git commit -m "feat: add resilient Feishu OAuth directory sync"
 ```
 
