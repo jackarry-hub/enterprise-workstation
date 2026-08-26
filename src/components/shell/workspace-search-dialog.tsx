@@ -2,83 +2,37 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { CheckSquare2, FolderKanban, LayoutGrid, Search, UserRound } from "lucide-react";
+import { LayoutGrid, Search } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { getVisibleNavigationItems } from "@/config/navigation";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
-import type { WorkspaceActor, WorkspaceSession } from "@/features/auth/workspace-session-types";
-import { getModuleCapabilities } from "@/features/commercial/module-capabilities";
-import { useOperationFixtureContext } from "@/features/operations/use-operations";
-import { getEffectiveProjectDetails } from "@/features/projects/data/effective-project-details";
+import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
 
 type WorkspaceSearchItem = {
   id: string;
   label: string;
   meta: string;
   href: string;
-  kind: "模块" | "项目" | "任务" | "员工";
+  kind: "模块";
 };
 
 const kindIcons = {
   模块: LayoutGrid,
-  项目: FolderKanban,
-  任务: CheckSquare2,
-  员工: UserRound,
 } as const;
 
-export function buildWorkspaceSearchItems(session: WorkspaceSession, actor?: WorkspaceActor, includeFixtureData = true): WorkspaceSearchItem[] {
-  const { primaryRole: role } = session;
-  const capabilities = getModuleCapabilities(session);
+export function buildWorkspaceSearchItems(session: WorkspaceSession): WorkspaceSearchItem[] {
   const modules = getVisibleNavigationItems(session)
     .map(({ href, label }) => ({ id: `module-${href}`, label, meta: "企业工作站模块", href, kind: "模块" as const }));
-  const projects = includeFixtureData ? getEffectiveProjectDetails() : [];
-  const canSearchProjects = capabilities.projects && (role === "executive" || role === "department_head");
-  const canSearchTasks = capabilities.tasks && (role === "department_head" || role === "employee");
-  const scopedProjects = role === "department_head" && actor
-    ? projects.filter(({ project, members }) => project.ownerId === actor.memberId || members.some(({ member }) => member.id === actor.memberId))
-    : projects;
-  const projectItems = canSearchProjects ? scopedProjects.map(({ project }) => ({
-    id: `project-${project.id}`,
-    label: project.name,
-    meta: project.code,
-    href: `/projects/${project.id}`,
-    kind: "项目" as const,
-  })) : [];
-  const taskItems = canSearchTasks ? projects.flatMap(({ project, tasks }) => tasks
-    .filter((task) => role === "department_head" || !actor || task.assigneeId === actor.memberId || task.reporterId === actor.memberId)
-    .map((task) => ({
-    id: `task-${task.id}`,
-    label: task.title,
-    meta: project.name,
-    href: role === "department_head" ? `/projects/${project.id}?tab=tasks&task=${task.id}` : "/tasks",
-    kind: "任务" as const,
-  }))) : [];
-  const members = new Map<string, WorkspaceSearchItem>();
-  if (capabilities.people && (role === "executive" || role === "department_head" || role === "hr")) projects.forEach(({ members: projectMembers }) => {
-    projectMembers.forEach(({ member }) => {
-      members.set(member.id, {
-        id: `member-${member.id}`,
-        label: member.displayName,
-        meta: `${member.department ?? "企业成员"} · ${member.title ?? "员工"}`,
-        href: "/people",
-        kind: "员工",
-      });
-    });
-  });
-
-  return [...modules, ...projectItems, ...taskItems, ...members.values()];
+  return modules;
 }
 
 export function WorkspaceSearchDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const session = useWorkspaceSession();
-  const { actor: fixtureActor } = useOperationFixtureContext(session);
-  const actor = fixtureActor ?? session.actor;
-  const includeFixtureData = fixtureActor !== null;
   const [query, setQuery] = useState("");
-  const [items, setItems] = useState<WorkspaceSearchItem[]>(() => buildWorkspaceSearchItems(session, actor, includeFixtureData));
+  const [items, setItems] = useState<WorkspaceSearchItem[]>(() => buildWorkspaceSearchItems(session));
   const results = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("zh-CN");
     if (!normalized) return items.slice(0, 8);
@@ -86,9 +40,9 @@ export function WorkspaceSearchDialog({ open, onOpenChange }: { open: boolean; o
   }, [items, query]);
 
   useEffect(() => {
-    if (open) setItems(buildWorkspaceSearchItems(session, actor, includeFixtureData));
+    if (open) setItems(buildWorkspaceSearchItems(session));
     else setQuery("");
-  }, [actor, includeFixtureData, open, session]);
+  }, [open, session]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

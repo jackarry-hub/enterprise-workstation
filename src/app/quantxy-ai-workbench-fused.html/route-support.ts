@@ -1,6 +1,11 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import {
+  isLocalPreviewHost,
+  isServerPreviewEnabled,
+} from "@/lib/runtime/workstation-mode";
+
 const SERVER_ADAPTER_SCRIPT =
   '<script src="/workstation-server-adapter.js?v=server-embed-85755e6"></script>';
 
@@ -55,17 +60,14 @@ export async function createWorkstationHtmlResponse(
   request: Request,
 ) {
   const url = new URL(request.url);
-  if (isFormalRequest(request) || !isLocalPreviewHost(url.hostname)) {
+  if (
+    isFormalRequest(request)
+    || !isServerPreviewEnabled()
+    || !isLocalPreviewHost(url.hostname)
+  ) {
     return new Response("workstation_preview_forbidden", { status: 404 });
   }
 
   const html = await readFusedWorkbenchHtml();
   return htmlResponse(html);
-}
-
-function isLocalPreviewHost(hostname: string) {
-  return hostname === "localhost"
-    || hostname === "127.0.0.1"
-    || hostname === "::1"
-    || hostname === "[::1]";
 }

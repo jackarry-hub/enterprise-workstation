@@ -40,7 +40,7 @@ describe("workspace server layout", () => {
     }));
 
     await expect(WorkspaceLayout({ children: <p>private</p> })).rejects
-      .toThrow("NEXT_REDIRECT:/execution");
-    expect(dependencies.redirect).toHaveBeenCalledWith("/execution");
+      .toThrow("NEXT_REDIRECT:/access-pending?reason=no_access");
+    expect(dependencies.redirect).toHaveBeenCalledWith("/access-pending?reason=no_access");
   });
 });

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { assertServerRouteAccess } from "@/features/auth/server-route-access";
+import {
+  assertServerRouteAccess,
+  resolveNoAccessFallbackPath,
+} from "@/features/auth/server-route-access";
 import { executiveWorkspaceSession } from "@/test/workspace-session-test-utils";
 import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
 
@@ -44,5 +47,19 @@ describe("server route access", () => {
 
     expect(() => assertServerRouteAccess(employeeSession, "/tasks")).toThrow("route_forbidden");
     expect(() => assertServerRouteAccess(employeeSession, "/tasks/task-1")).toThrow("route_forbidden");
+  });
+
+  it("uses access-pending instead of a denied landing path and preserves a ready landing", () => {
+    expect(resolveNoAccessFallbackPath(sessionWithPermissions(["task.manage"]))).toBe(
+      "/access-pending?reason=no_access",
+    );
+    expect(resolveNoAccessFallbackPath({
+      ...sessionWithPermissions([]),
+      landingPath: "/help",
+      actor: {
+        ...sessionWithPermissions([]).actor,
+        landingPath: "/help",
+      },
+    })).toBe("/help?notice=no_access");
   });
 });

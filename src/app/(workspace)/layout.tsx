@@ -5,6 +5,7 @@ import { WorkspaceShell } from "@/components/shell/workspace-shell";
 import { requireWorkspaceSession } from "@/features/auth/workspace-session";
 import {
   assertServerRouteAccess,
+  resolveNoAccessFallbackPath,
   WORKSPACE_PATH_HEADER,
 } from "@/features/auth/server-route-access";
 
@@ -18,7 +19,7 @@ export default async function WorkspaceLayout({
     if (!pathname) throw new Error("route_forbidden");
     assertServerRouteAccess(session, pathname);
   } catch {
-    redirect(session.landingPath);
+    redirect(resolveNoAccessFallbackPath(session));
   }
 
   return <WorkspaceShell session={session}>{children}</WorkspaceShell>;

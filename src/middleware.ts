@@ -8,8 +8,13 @@ import {
 } from "@/features/auth/workspace-access";
 import {
   assertServerRouteAccess,
+  resolveNoAccessFallbackPath,
   WORKSPACE_PATH_HEADER,
 } from "@/features/auth/server-route-access";
+import {
+  isLocalPreviewHost,
+  isServerPreviewEnabled,
+} from "@/lib/runtime/workstation-mode";
 import { updateSupabaseSession } from "@/lib/supabase/middleware";
 
 function redirectWithRefreshedCookies(
@@ -138,19 +143,13 @@ export function isStandaloneAuthorizedPath(pathname: string) {
 }
 
 function noAccessDestination(session: Parameters<typeof assertServerRouteAccess>[0], requestUrl: string) {
-  try {
-    assertServerRouteAccess(session, session.landingPath);
-    const destination = new URL(session.landingPath, requestUrl);
-    destination.searchParams.set("notice", "no_access");
-    return destination;
-  } catch {
-    return new URL("/access-pending?reason=no_access", requestUrl);
-  }
+  return new URL(resolveNoAccessFallbackPath(session), requestUrl);
 }
 
 export function isLocalPreviewWorkstationPath(url: URL) {
   return url.pathname === "/quantxy-ai-workbench-fused.html"
     && url.searchParams.get("formal") !== "1"
+    && isServerPreviewEnabled()
     && isLocalPreviewHost(url.hostname);
 }
 
@@ -158,6 +157,7 @@ export function getLocalPreviewAccessPendingRedirect(url: URL) {
   if (
     url.pathname !== "/access-pending"
     || url.searchParams.get("reason") !== "auth_error"
+    || !isServerPreviewEnabled()
     || !isLocalPreviewHost(url.hostname)
   ) {
     return null;
@@ -166,13 +166,6 @@ export function getLocalPreviewAccessPendingRedirect(url: URL) {
   const destination = new URL("/quantxy-ai-workbench-fused.html", url);
   destination.searchParams.set("v", "local-preview");
   return destination;
-}
-
-function isLocalPreviewHost(hostname: string) {
-  return hostname === "localhost"
-    || hostname === "127.0.0.1"
-    || hostname === "::1"
-    || hostname === "[::1]";
 }
 
 export const config = {

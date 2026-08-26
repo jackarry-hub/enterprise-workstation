@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -112,6 +114,27 @@ function withSession(session: WorkspaceSession, children: React.ReactNode) {
 
 describe("WorkspaceShell", () => {
   beforeEach(() => window.localStorage.clear());
+
+  it("keeps formal help shell consumers free of fixture modules and business storage", async () => {
+    const shellRoot = path.join(process.cwd(), "src", "components", "shell");
+    const [headerSource, searchSource] = await Promise.all([
+      readFile(path.join(shellRoot, "workspace-header.tsx"), "utf8"),
+      readFile(path.join(shellRoot, "workspace-search-dialog.tsx"), "utf8"),
+    ]);
+
+    expect(headerSource).not.toContain("@/features/operations");
+    expect(searchSource).not.toContain("@/features/operations");
+    expect(searchSource).not.toContain("@/features/projects/data/effective-project-details");
+  });
+
+  it("renders the formal help shell without reading business local storage", () => {
+    const getItem = vi.spyOn(Storage.prototype, "getItem");
+
+    render(<WorkspaceShell session={executiveSession}><p>帮助内容</p></WorkspaceShell>);
+
+    expect(screen.getByText("帮助内容")).toBeVisible();
+    expect(getItem).not.toHaveBeenCalled();
+  });
 
   it("renders the reviewed server session identity without demo switching controls", async () => {
     const user = userEvent.setup();

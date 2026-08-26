@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const dependencies = vi.hoisted(() => ({
   updateSupabaseSession: vi.fn(),
@@ -171,6 +171,8 @@ describe("workspace middleware", () => {
     dependencies.updateSupabaseSession.mockReset();
   });
 
+  afterEach(() => vi.unstubAllEnvs());
+
   it.each(["/login", "/auth/callback", "/access-pending", "/api/auth/feishu/userinfo"])(
     "does not query workspace access for public path %s",
     async (pathname) => {
@@ -330,7 +332,10 @@ describe("workspace middleware", () => {
     });
   });
 
-  it("allows the fused preview bypass only from a local host", async () => {
+  it("allows the fused preview bypass only from an explicitly enabled local development host", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("WORKSTATION_DEMO_ENABLED", "true");
+
     expect(isLocalPreviewWorkstationPath(
       new URL("http://127.0.0.1/quantxy-ai-workbench-fused.html?v=preview"),
     )).toBe(true);

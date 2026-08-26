@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   getLocalPreviewAccessPendingRedirect,
@@ -7,6 +7,7 @@ import {
 } from "@/middleware";
 
 describe("standalone workstation middleware boundary", () => {
+  afterEach(() => vi.unstubAllEnvs());
   it("protects the fused workstation with Feishu while self-authorizing APIs stay reachable", () => {
     expect(isStandaloneAuthorizedPath("/quantxy-ai-workbench-fused.html")).toBe(false);
     expect(isStandaloneAuthorizedPath("/api/demo-auth/login")).toBe(true);
@@ -30,7 +31,9 @@ describe("standalone workstation middleware boundary", () => {
     expect(isStandaloneAuthorizedPath("/login")).toBe(false);
   });
 
-  it("lets only a local non-formal fused workstation use preview auth", () => {
+  it("lets only an explicitly enabled development local preview use preview auth", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("WORKSTATION_DEMO_ENABLED", "true");
     expect(
       isLocalPreviewWorkstationPath(
         new URL("http://localhost:3030/quantxy-ai-workbench-fused.html?v=salary-grade"),
@@ -48,7 +51,29 @@ describe("standalone workstation middleware boundary", () => {
     ).toBe(false);
   });
 
+  it("rejects localhost preview when the server preview gate is disabled or production", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("WORKSTATION_DEMO_ENABLED", "false");
+    expect(
+      isLocalPreviewWorkstationPath(
+        new URL("http://localhost:3030/quantxy-ai-workbench-fused.html?v=salary-grade"),
+      ),
+    ).toBe(false);
+
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("WORKSTATION_DEMO_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_WORKSTATION_ALLOW_MOCK_DATA", "true");
+    expect(
+      isLocalPreviewWorkstationPath(
+        new URL("http://localhost:3030/quantxy-ai-workbench-fused.html?v=salary-grade"),
+      ),
+    ).toBe(false);
+  });
+
   it("rescues local preview tabs stuck on auth_error access pending", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("WORKSTATION_DEMO_ENABLED", "true");
+
     expect(
       getLocalPreviewAccessPendingRedirect(
         new URL("http://localhost:3030/access-pending?reason=auth_error"),

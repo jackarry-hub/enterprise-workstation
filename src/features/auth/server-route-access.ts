@@ -19,3 +19,14 @@ export function assertServerRouteAccess(
     throw new Error("route_forbidden");
   }
 }
+
+export function resolveNoAccessFallbackPath(session: WorkspaceSession) {
+  try {
+    assertServerRouteAccess(session, session.landingPath);
+    const landing = new URL(session.landingPath, "http://quantxy.local");
+    landing.searchParams.set("notice", "no_access");
+    return `${landing.pathname}${landing.search}`;
+  } catch {
+    return "/access-pending?reason=no_access";
+  }
+}

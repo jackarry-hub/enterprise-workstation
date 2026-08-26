@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { canRoleAccessPath } from "@/features/operations/role-access";
+import { commercialModuleRegistry } from "@/features/commercial/module-capabilities";
 import { executiveWorkspaceSession } from "@/test/workspace-session-test-utils";
 import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
 
@@ -9,17 +10,13 @@ function session(roleCodes: WorkspaceSession["roleCodes"], permissionCodes: Work
 }
 
 describe("role access policy", () => {
-  it("keeps every role inside its own workstation", () => {
-    expect(canRoleAccessPath(session(["owner"], ["dashboard.read"]), "/dashboard")).toBe(true);
-    expect(canRoleAccessPath(session(["owner"], ["dashboard.read"]), "/finance")).toBe(false);
-    expect(canRoleAccessPath(session(["department_head"], ["project.manage"]), "/department")).toBe(true);
-    expect(canRoleAccessPath(session(["department_head"], ["project.manage"]), "/projects/demo-project")).toBe(true);
-    expect(canRoleAccessPath(session(["employee"], ["task.execute"]), "/execution")).toBe(true);
-    expect(canRoleAccessPath(session(["employee"], ["task.execute"]), "/people")).toBe(false);
-    expect(canRoleAccessPath(session(["finance"], ["salary.manage"]), "/payroll")).toBe(true);
-    expect(canRoleAccessPath(session(["finance"], ["salary.manage"]), "/hr")).toBe(false);
-    expect(canRoleAccessPath(session(["hr"], ["hr.manage"]), "/people/employee-1")).toBe(true);
-    expect(canRoleAccessPath(session(["hr"], ["hr.manage"]), "/analytics")).toBe(false);
+  it("fails closed for every commercial route that is not ready", () => {
+    for (const definition of Object.values(commercialModuleRegistry)) {
+      if (definition.commercialReady) continue;
+      for (const route of definition.routes) {
+        expect(canRoleAccessPath(session(["owner"], ["dashboard.read", "task.manage", "project.manage"]), route)).toBe(false);
+      }
+    }
   });
 
   it("removes the standalone knowledge module for every role", () => {
@@ -28,16 +25,16 @@ describe("role access policy", () => {
     }
   });
 
-  it("allows every role to use help and its own notification center", () => {
+  it("keeps help available but notifications unavailable for every role", () => {
     for (const role of [["owner"], ["department_head"], ["employee"], ["finance"], ["hr"]] as const) {
       expect(canRoleAccessPath(session([...role], []), "/help")).toBe(true);
-      expect(canRoleAccessPath(session([...role], []), "/notifications")).toBe(true);
+      expect(canRoleAccessPath(session([...role], []), "/notifications")).toBe(false);
     }
   });
 
-  it("lets every role deliver tasks but removes attendance from every route policy", () => {
+  it("removes task delivery, attendance, and leave from every route policy", () => {
     for (const role of [["owner"], ["department_head"], ["employee"], ["finance"], ["hr"]] as const) {
-      expect(canRoleAccessPath(session([...role], ["task.execute"]), "/tasks")).toBe(true);
+      expect(canRoleAccessPath(session([...role], ["task.manage"]), "/tasks")).toBe(false);
       expect(canRoleAccessPath(session([...role], ["attendance.self"]), "/attendance")).toBe(false);
       expect(canRoleAccessPath(session([...role], []), "/leave")).toBe(false);
     }

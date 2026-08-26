@@ -14,22 +14,15 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { getVisibleNavigationItems } from "@/config/navigation";
 import { signOut } from "@/features/auth/actions";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
-import { getCommercialModuleForPath, getModuleCapabilities } from "@/features/commercial/module-capabilities";
-import { getOperationNotifications, markOperationNotificationRead } from "@/features/operations/operations-data";
-import { useOperations } from "@/features/operations/use-operations";
+import { getModuleCapabilities } from "@/features/commercial/module-capabilities";
 
 export function WorkspaceHeader() {
   const session = useWorkspaceSession();
   const { actor: workspaceActor, profile } = session;
-  const { state, context, actor: operationActor } = useOperations(session);
   const capabilities = getModuleCapabilities(session);
   const [searchOpen, setSearchOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const notifications = getOperationNotifications(state, operationActor.id).filter((item) => {
-    const commercialModule = getCommercialModuleForPath(item.href);
-    return commercialModule === null || capabilities[commercialModule];
-  });
-  const unreadCount = notifications.filter(({ read }) => !read).length;
+  const unreadCount = 0;
   const helpLinks = getVisibleNavigationItems(session).slice(0, 3);
 
   useEffect(() => {
@@ -69,12 +62,7 @@ export function WorkspaceHeader() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-80 rounded-2xl p-2">
               <DropdownMenuLabel className="flex items-center justify-between"><span>最新通知</span><span className="text-xs font-normal text-muted-foreground">{unreadCount} 条未读</span></DropdownMenuLabel><DropdownMenuSeparator />
-              {notifications.slice(0, 4).map((item) => (
-                <DropdownMenuItem key={item.id} asChild className="rounded-xl p-0">
-                  <Link href={item.href} onClick={() => markOperationNotificationRead(context, item.id, operationActor.id)} className="block px-3 py-2.5"><span className="flex items-center gap-2 text-sm font-medium">{!item.read ? <span className="size-1.5 shrink-0 rounded-full bg-primary" /> : null}{item.title}</span><span className="mt-0.5 block line-clamp-2 text-xs text-muted-foreground">{item.description}</span></Link>
-                </DropdownMenuItem>
-              ))}
-              {!notifications.length ? <p className="px-3 py-5 text-center text-sm text-muted-foreground">当前没有新通知</p> : null}
+              <p className="px-3 py-5 text-center text-sm text-muted-foreground">当前没有新通知</p>
               {capabilities.notifications ? <><DropdownMenuSeparator /><DropdownMenuItem asChild className="rounded-xl"><Link href="/notifications" className="justify-center text-primary">查看全部通知</Link></DropdownMenuItem></> : null}
             </DropdownMenuContent>
           </DropdownMenu>

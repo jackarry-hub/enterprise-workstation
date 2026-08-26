@@ -5,7 +5,7 @@ import { executiveWorkspaceSession } from "@/test/workspace-session-test-utils";
 
 describe("workspace search readiness", () => {
   it("does not expose fixture business records while their modules are not commercial-ready", () => {
-    const items = buildWorkspaceSearchItems(executiveWorkspaceSession, executiveWorkspaceSession.actor, true);
+    const items = buildWorkspaceSearchItems(executiveWorkspaceSession);
 
     expect(items.filter(({ kind }) => kind !== "模块")).toEqual([]);
     expect(items).toEqual([]);

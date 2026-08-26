@@ -1,10 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { GET } from "./route";
 import { createWorkstationHtmlResponse } from "./route-support";
 
 describe("formal workstation html route", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   it("serves the fused workstation preview only from a local host", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("WORKSTATION_DEMO_ENABLED", "true");
     const response = await GET(
       new Request("http://127.0.0.1/quantxy-ai-workbench-fused.html?v=preview"),
     );
@@ -17,6 +21,18 @@ describe("formal workstation html route", () => {
     expect(html).toContain("workstation-server-adapter.js");
     expect(html).not.toContain("/_next/static/chunks/app/not-found");
     expect(html).not.toContain("/_next/static/chunks/app/login");
+  });
+
+  it("rejects a localhost fused preview in production even if demo or public flags are set", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("WORKSTATION_DEMO_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_WORKSTATION_ALLOW_MOCK_DATA", "true");
+
+    const response = await GET(
+      new Request("http://localhost:3030/quantxy-ai-workbench-fused.html?v=preview"),
+    );
+
+    expect(response.status).toBe(404);
   });
 
   it("rejects a non-local fused preview even when the route handler is called directly", async () => {
