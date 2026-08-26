@@ -335,6 +335,30 @@ describe("parseWorkspaceAccess", () => {
     ).toEqual(permissionCodes);
   });
 
+  it("accepts the commercial permissions returned for an authorized workspace session", () => {
+    const permissionCodes = [
+      "ai.config.manage",
+      "role.manage",
+      "customer.manage",
+      "approval.submit",
+      "approval.act",
+      "expense.manage",
+      "knowledge.manage",
+      "agent.manage",
+      "agent.orchestrate",
+      "analytics.read",
+      "settings.manage",
+    ];
+
+    expect(
+      parseWorkspaceAccess({
+        ...base,
+        roleCodes: ["owner"],
+        permissionCodes,
+      })?.permissionCodes,
+    ).toEqual(permissionCodes);
+  });
+
   it.each([
     ["not an array", "product"],
     ["wrong item type", ["product", null]],

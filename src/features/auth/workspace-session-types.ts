@@ -32,7 +32,18 @@ export type WorkspacePermissionCode =
   | "salary.manage"
   | "approval.self"
   | "approval.manage"
-  | "files.manage";
+  | "files.manage"
+  | "ai.config.manage"
+  | "role.manage"
+  | "customer.manage"
+  | "approval.submit"
+  | "approval.act"
+  | "expense.manage"
+  | "knowledge.manage"
+  | "agent.manage"
+  | "agent.orchestrate"
+  | "analytics.read"
+  | "settings.manage";
 
 export type WorkspaceActor = {
   id: string;

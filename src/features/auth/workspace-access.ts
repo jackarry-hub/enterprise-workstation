@@ -70,6 +70,17 @@ const workspacePermissions = new Set<WorkspacePermissionCode>([
   "approval.self",
   "approval.manage",
   "files.manage",
+  "ai.config.manage",
+  "role.manage",
+  "customer.manage",
+  "approval.submit",
+  "approval.act",
+  "expense.manage",
+  "knowledge.manage",
+  "agent.manage",
+  "agent.orchestrate",
+  "analytics.read",
+  "settings.manage",
 ]);
 
 const UUID_PATTERN =
