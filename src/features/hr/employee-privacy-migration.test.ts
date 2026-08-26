@@ -43,11 +43,7 @@ describe("employee private profile migration contract", () => {
     expect(publicGrant).toContain("display_name");
     expect(publicGrant).not.toMatch(/work_email|phone|hire_date|departure_date|salary_grade_code|job_level/);
     expect(migration).toContain("revoke insert, update on table public.employee_profiles from public, anon, authenticated");
-    expect(publicWriteGrants).toHaveLength(2);
-    for (const grant of publicWriteGrants) {
-      expect(grant).toContain("display_name");
-      expect(grant).not.toMatch(/work_email|phone|hire_date|departure_date|salary_grade_code|job_level/);
-    }
+    expect(publicWriteGrants).toHaveLength(0);
 
     expect(directoryFunction).toContain("security definer");
     expect(directoryFunction).toContain("set search_path = ''");

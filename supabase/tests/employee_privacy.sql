@@ -1,6 +1,6 @@
 begin;
 
-select plan(38);
+select plan(42);
 
 insert into public.tenants (name, slug, status)
 values
@@ -391,9 +391,32 @@ select throws_ok(
   '42501',
   'HR cannot update a legacy private employee field directly'
 );
-select lives_ok(
+select ok(
+  not has_column_privilege('authenticated', 'public.employee_profiles', 'organization_member_id', 'INSERT,UPDATE')
+  and not has_column_privilege('authenticated', 'public.employee_profiles', 'employee_no', 'INSERT,UPDATE')
+  and not has_column_privilege('authenticated', 'public.employee_profiles', 'employment_status', 'INSERT,UPDATE')
+  and not has_column_privilege('authenticated', 'public.employee_profiles', 'position_template_id', 'INSERT,UPDATE'),
+  'authenticated cannot insert or update provider-owned identity and lifecycle profile columns'
+);
+select throws_ok(
+  $$ update public.employee_profiles set organization_member_id = null where employee_no = 'PVT-A-EMP' $$,
+  '42501',
+  'HR cannot directly rebind an employee profile membership'
+);
+select throws_ok(
+  $$ update public.employee_profiles set employee_no = 'PVT-A-HIJACKED' where employee_no = 'PVT-A-EMP' $$,
+  '42501',
+  'HR cannot directly change an employee number'
+);
+select throws_ok(
+  $$ update public.employee_profiles set employment_status = 'departed' where employee_no = 'PVT-A-EMP' $$,
+  '42501',
+  'HR cannot directly change employment lifecycle status'
+);
+select throws_ok(
   $$ update public.employee_profiles set job_title = 'Privacy-safe HR update' where employee_no = 'PVT-A-EMP' $$,
-  'HR can update an explicitly granted safe public employee field'
+  '42501',
+  'HR cannot bypass controlled employee mutation through a public display field'
 );
 reset role;
 update public.employee_profiles

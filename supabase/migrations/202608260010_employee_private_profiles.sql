@@ -299,31 +299,3 @@ grant select (
   updated_at,
   deleted_at
 ) on table public.employee_profiles to authenticated;
-grant insert (
-  tenant_id,
-  organization_id,
-  organization_member_id,
-  employee_no,
-  display_name,
-  avatar_url,
-  department_id,
-  position_template_id,
-  job_title,
-  manager_employee_id,
-  employment_type,
-  employment_status,
-  skills
-) on table public.employee_profiles to authenticated;
-grant update (
-  organization_member_id,
-  employee_no,
-  display_name,
-  avatar_url,
-  department_id,
-  position_template_id,
-  job_title,
-  manager_employee_id,
-  employment_type,
-  employment_status,
-  skills
-) on table public.employee_profiles to authenticated;
