@@ -272,6 +272,11 @@ git commit -m "feat: complete real payroll administration"
 - Create: `src/features/approvals/approval-exception-panel.tsx`
 - Create: `src/features/expenses/finance-review-panel.tsx`
 - Create: `src/features/salary/payroll-batch-panel.tsx`
+- Modify: `src/features/approvals/approvals-workspace.tsx`
+- Modify: `src/features/expenses/expense-dialog.tsx`
+- Modify: `src/features/salary/payroll-workspace.tsx`
+- Create: `src/app/api/cron/approval-exceptions/route.ts`
+- Create: `tests/e2e/commercial-finance-controls.spec.ts`
 
 **Interfaces:**
 - Produces migration/RPCs `transfer_current_approval`, `withdraw_current_approval`, `expire_pending_approvals`, `reassign_departed_approver`, `finance_review_current_expense`, `mark_current_expense_paid`, `lock_current_payroll_batch`, `publish_current_payroll_batch`, `unpublish_current_payroll_batch` and `export_current_payroll_batch`.
@@ -302,8 +307,8 @@ Evaluate server-owned basic conditions, snapshot template/form/approver data at 
 
 Run: `npx vitest run src/features/approvals src/features/expenses src/features/salary`
 Run: `npm run db:test`
-Run: `npx playwright test tests/e2e/approvals.spec.ts tests/e2e/expenses.spec.ts tests/e2e/payroll-calculation.spec.ts --project=chrome`
-Expected: snapshots are immutable, duplicate submissions have one result, employee reads self only and finance actions are fully audited.
+Run: `npx playwright test tests/e2e/approvals.spec.ts tests/e2e/expenses.spec.ts tests/e2e/payroll-calculation.spec.ts tests/e2e/commercial-finance-controls.spec.ts --project=chrome`
+Expected: transfer, withdrawal, timeout/departed-approver reassignment, finance review/payment and payroll lock/publish/unpublish/export persist after refresh and each state/audit is asserted.
 
 - [ ] **Step 5: Commit**
 

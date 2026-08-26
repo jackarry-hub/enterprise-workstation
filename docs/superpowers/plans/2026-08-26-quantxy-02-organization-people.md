@@ -27,11 +27,13 @@
 - Create: `scripts/environment-guard.test.mjs`
 - Create: `scripts/db-command-runner.mjs`
 - Create: `scripts/db-command-runner.test.mjs`
+- Create: `scripts/phase-gates.mjs`
+- Create: `scripts/phase-gates.test.mjs`
 - Modify: `package.json`
 
 **Interfaces:**
 - Produces `assertSafeDatabaseTarget({ command, environment, databaseUrl }): EnvironmentFingerprint`; `unknown`, `internal` and `production` always throw `environment_mutation_forbidden` before opening a DB connection.
-- Produces exactly `db:reset:test`, `db:migrate:dry-run`, `db:test`, `db:seed:validate`, `db:rollback:test`; Local/CI-Test may mutate only their isolated target, while Staging accepts only its explicit non-destructive validation context.
+- Produces exactly `db:reset:test`, `db:migrate:dry-run`, `db:test`, `db:seed:validate`, `db:rollback:test`, `test:coverage`, `test:security`, `test:rls`; removes/disables raw `db:reset` and tests its absence. Local/CI-Test may mutate only isolated targets while Staging accepts only explicit non-destructive validation.
 
 - [ ] **Step 1: Write failing fail-closed command tests**
 
@@ -39,6 +41,8 @@
 await assert.rejects(() => runDbCommand({ command: "db:reset:test", environment: "unknown" }), /environment_mutation_forbidden/);
 await assert.rejects(() => runDbCommand({ command: "db:test", environment: "production" }), /environment_mutation_forbidden/);
 await assert.rejects(() => runDbCommand({ command: "db:seed:validate", environment: "internal" }), /environment_mutation_forbidden/);
+await assert.rejects(() => runDbCommand({ command: "db:reset:test", environment: "local", databaseUrl: "https://prod.example" }), /environment_mutation_forbidden/);
+assert.equal(await packageHasScript("db:reset"), false);
 ```
 
 - [ ] **Step 2: Verify RED**
@@ -48,11 +52,14 @@ Expected: the common guard and safe named commands do not exist.
 
 - [ ] **Step 3: Implement the one shared guard and package commands**
 
-Parse an explicit environment marker plus URL/host fingerprint. Reject unknown, Internal and Customer Production before invoking Supabase/PostgreSQL tools; do not infer safety from a name alone. Permit only isolated Local/CI-Test reset/seed/rollback and an explicitly non-mutating Staging dry run. All later plans consume these commands and must not create another environment guard.
+Parse explicit marker plus URL/host fingerprint; a spoofed `local` marker with remote/production URL, unknown, Internal and Customer Production must fail before any connection. Remove raw `db:reset`; implement and test coverage/security/RLS aliases as shared phase scripts. All later plans consume these commands and must not create another guard.
 
 - [ ] **Step 4: Verify GREEN**
 
-Run: `node --test scripts/environment-guard.test.mjs scripts/db-command-runner.test.mjs`
+Run: `node --test scripts/environment-guard.test.mjs scripts/db-command-runner.test.mjs scripts/phase-gates.test.mjs`
+Run: `npm run test:coverage`
+Run: `npm run test:security`
+Run: `npm run test:rls`
 Run: `npm run db:migrate:dry-run`
 Run: `npm run db:test`
 Expected: safe Local/CI-Test commands work; unknown/Internal/Production hard-fail before mutation.
@@ -60,7 +67,7 @@ Expected: safe Local/CI-Test commands work; unknown/Internal/Production hard-fai
 - [ ] **Step 5: Commit**
 
 ```bash
-git add scripts/environment-guard.mjs scripts/environment-guard.test.mjs scripts/db-command-runner.mjs scripts/db-command-runner.test.mjs package.json
+git add scripts/environment-guard.mjs scripts/environment-guard.test.mjs scripts/db-command-runner.mjs scripts/db-command-runner.test.mjs scripts/phase-gates.mjs scripts/phase-gates.test.mjs package.json
 git commit -m "test: add fail-closed database command guard"
 ```
 

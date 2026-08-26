@@ -20,7 +20,7 @@
 - Leave and attendance stay hidden and are not implemented.
 - Local synthetic data must still use real adapters and persistence; production data/credentials never enter Local, CI/Test or Staging. Internal/Customer Production require explicit authorization.
 
-**Execution status boundary:** Tasks 1-6 were completed and independently reviewed at implementation HEAD `5467c97`; preserve their history and continue from the current execution position. This plan does not restart them or absorb later global hardening: environment guards, migration protection, HTTP/security scans, operations and release evidence are Plan 10 work.
+**Execution status boundary:** Tasks 1-6 were completed and independently reviewed at implementation HEAD `5467c97`; preserve their history and continue from the current execution position. Plan02 Task1 owns the sole environment/DB guard and shared phase scripts; Plan10 only consumes/verifies them. This plan does not restart completed tasks or absorb later migration, HTTP/security, operations or release evidence work.
 
 ---
 
@@ -318,4 +318,4 @@ git commit -m "feat: centralize commercial module access"
 
 Tasks 1-6 and every checklist step in those tasks are complete and independently reviewed at implementation HEAD `5467c97`. Their historical unchecked boxes are retained only as the original implementation record; they are not an execution queue and must not be rerun or rewritten. This appendix is the authoritative completion marker for Plan01.
 
-Plan01 completion does **not** open Internal or Customer Production release gates. Plan10 still owns the remaining environment-command verification, migration safety, security/performance/recovery evidence, Staging canary and explicit-authorized retirement/release decisions.
+Plan01 completion does **not** open Internal or Customer Production release gates. Plan02 owns shared environment/DB phase commands; Plan10 owns their consumption/verification plus migration safety, security/performance/recovery evidence, Staging canary and explicit-authorized retirement/release decisions.

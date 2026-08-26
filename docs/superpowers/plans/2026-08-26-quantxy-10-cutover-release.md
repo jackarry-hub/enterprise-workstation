@@ -34,10 +34,14 @@
 - Delete: `src/app/(workspace)/attendance/page.test.tsx`
 - Delete: `tests/e2e/attendance.spec.ts`
 - Modify: `README.md`
+- Modify: `docs/企业工作站使用说明.md`
+- Modify: `docs/企业工作站使用说明.docx`
 - Modify: `scripts/build_usage_manual.py`
 - Modify: `src/app/layout.tsx`
 - Modify: `src/features/help/help-center.tsx`
 - Modify: `src/app/(workspace)/help/page.tsx`
+- Modify: `src/features/settings/settings-workspace.tsx`
+- Modify: `src/features/salary/payroll-workspace.tsx`
 
 **Interfaces:**
 - `/` and role home routes resolve to Next workspaces only.
@@ -60,18 +64,20 @@ Expected: forbidden production imports, excluded public references and dead link
 
 - [ ] **Step 3: Remove excluded public routes and references without touching historical data**
 
-Delete the leave/attendance App Routes and public E2E route coverage; remove all public navigation, metadata, README/manual/generator/help references and dead links. Preserve historical database tables/migrations and all fused assets. Test-only fixture utilities may remain only under test paths; no production page or feature entry imports them.
+Delete the leave/attendance App Routes and public E2E route coverage; remove all detected public navigation, metadata, README, `docs/企业工作站使用说明.md`, generated DOCX/manual generator, help, settings-permission-matrix and salary/payroll aside-copy/state references and dead links. Preserve historical database tables/migrations and all fused assets.
 
 - [ ] **Step 4: Verify GREEN and route build**
 
 Run: `npx vitest run tests/unit/commercial-source-boundary.test.ts`
+Run: `npx vitest run tests/unit/excluded-scope-public-surface.test.ts`
 Run: `npm run build`
+Run: `rg -n -i "leave|attendance" .next README.md docs src/features/help src/features/settings src/features/salary`
 Expected: only supported public routes build, excluded-scope source/link checks are empty, and fused assets are still present.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add README.md scripts/build_usage_manual.py src/app/layout.tsx 'src/app/(workspace)/leave' 'src/app/(workspace)/attendance' 'src/app/(workspace)/help/page.tsx' src/config/navigation.ts src/features/help/help-center.tsx src/features/operations/role-access.ts src/middleware.ts tests/e2e/attendance.spec.ts tests/unit/commercial-source-boundary.test.ts tests/unit/excluded-scope-public-surface.test.ts
+git add README.md docs/企业工作站使用说明.md docs/企业工作站使用说明.docx scripts/build_usage_manual.py src/app/layout.tsx 'src/app/(workspace)/leave' 'src/app/(workspace)/attendance' 'src/app/(workspace)/help/page.tsx' src/config/navigation.ts src/features/help/help-center.tsx src/features/settings/settings-workspace.tsx src/features/salary/payroll-workspace.tsx src/features/operations/role-access.ts src/middleware.ts tests/e2e/attendance.spec.ts tests/unit/commercial-source-boundary.test.ts tests/unit/excluded-scope-public-surface.test.ts
 git commit -m "refactor: remove excluded public leave and attendance scope"
 ```
 
@@ -131,12 +137,15 @@ git commit -m "test: require clean database security verification"
 - Create: `scripts/verify-commercial-staging.mjs`
 - Create: `scripts/verify-commercial-evidence.mjs`
 - Create: `scripts/verify-commercial.test.mjs`
+- Create: `scripts/validate-delivery-artifacts.mjs`
+- Create: `scripts/validate-delivery-artifacts.test.mjs`
 - Modify: `package.json`
 
 **Interfaces:**
 - Produces `verify:commercial:local`: `npm ci`, `db:migrate:dry-run`, typecheck, lint, production build, unit, coverage, `db:test` with pgTAP/RLS denial, integration, desktop and emulated-mobile E2E, a11y, dependency scan, secret scan and load harness.
 - Produces authorized `verify:commercial:staging`: isolated Staging smoke, OAuth/webhook, Storage, security, backup restore, canary and real-device evidence only; it returns `BLOCKED` without approved Staging configuration.
 - Produces final `verify:commercial`, which validates hash/version-linked local and Staging evidence plus RPO/RTO, artifact manifest and canary; missing or unsigned evidence hard-fails with `commercial_evidence_blocked`.
+- Task7 owns the load runner, thresholds, manifest/OpenAPI/template/checksum validators and their tests; Task3 local verification is preliminary until Task7 artifacts validate.
 
 - [ ] **Step 1: Write failing command-order and failure-propagation tests**
 
@@ -173,6 +182,13 @@ git commit -m "ci: add QuantXY commercial release gate"
 
 **Files:**
 - Modify: `next.config.ts`
+- Modify: `src/middleware.ts`
+- Create: `src/features/security/distributed-rate-limit.ts`
+- Create: `src/features/security/distributed-rate-limit.test.ts`
+- Create: `src/features/security/csrf-origin.ts`
+- Create: `src/features/security/csrf-origin.test.ts`
+- Modify: `src/app/auth/login/feishu/handler.ts`
+- Modify: `src/app/auth/login/feishu/route.test.ts`
 - Create: `src/app/api/health/ready/route.ts`
 - Create: `src/app/api/health/ready/route.test.ts`
 - Modify: `Dockerfile`
@@ -182,6 +198,7 @@ git commit -m "ci: add QuantXY commercial release gate"
 **Interfaces:**
 - Produces `/api/health/ready` that checks database reachability, required migration marker, and auth configuration without exposing secret values.
 - Adds CSP, HSTS, frame, content-type, referrer and permissions headers.
+- Produces distributed persistent tenant/user/IP limiter, login throttle/lockout, CSRF/origin validation and WAF/middleware policy.
 
 - [ ] **Step 1: Write failing readiness and header tests**
 
@@ -189,6 +206,9 @@ git commit -m "ci: add QuantXY commercial release gate"
 expect((await readyWithDatabaseFailure()).status).toBe(503);
 expect((await readyWithOldMigration()).status).toBe(503);
 expect(headers["content-security-policy"]).toBeDefined();
+expect(await limitAcrossRestart({ tenantId, userId, ip })).toMatchObject({ allowed: false });
+expect(await rejectCrossOriginMutation()).toMatchObject({ status: 403 });
+expect(await throttleLoginAbuse(ip)).toMatchObject({ status: 429 });
 ```
 
 - [ ] **Step 2: Verify RED**
@@ -199,7 +219,7 @@ Expected: readiness route is absent and security-header assertion fails.
 
 - [ ] **Step 3: Implement readiness, headers, and runtime restrictions**
 
-Compose uses `read_only`, tmpfs for required writable paths, `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`, PID/CPU/memory limits, and the new readiness endpoint. Keep non-root runtime.
+Compose uses `read_only`, tmpfs for required writable paths, `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`, PID/CPU/memory limits, and the new readiness endpoint. Keep non-root runtime. Key limiter state by tenant/user/IP in durable shared storage, apply login lockout and CSRF/origin checks before mutations, and verify multi-instance/restart persistence.
 
 - [ ] **Step 4: Verify GREEN and inspect the built container**
 
@@ -211,7 +231,7 @@ Expected: tests/build/config exit 0 and readiness fails when DB/migration checks
 - [ ] **Step 5: Commit**
 
 ```bash
-git add next.config.ts src/app/api/health/ready/route.ts src/app/api/health/ready/route.test.ts Dockerfile compose.yaml docs/operations/container-security.md
+git add next.config.ts src/middleware.ts src/features/security src/app/auth/login/feishu src/app/api/health/ready/route.ts src/app/api/health/ready/route.test.ts Dockerfile compose.yaml docs/operations/container-security.md
 git commit -m "security: harden runtime and readiness"
 ```
 
@@ -301,6 +321,8 @@ git commit -m "docs: add staging and recovery validation runbooks"
 
 **Files:**
 - Create: `tests/load/commercial-thresholds.yml`
+- Create: `tests/load/run-commercial-load.mjs`
+- Create: `tests/load/run-commercial-load.test.mjs`
 - Create: `docs/operations/commercial-delivery-manifest.md`
 - Create: `docs/operations/architecture.md`
 - Create: `docs/operations/database-er.md`
@@ -326,7 +348,7 @@ git commit -m "docs: add staging and recovery validation runbooks"
 - Create: `docs/operations/commercial-acceptance-checklist.md`
 
 **Interfaces:**
-- Consumes Plan02's shared DB guard and Task3 verifier; no command may reset/drop/truncate/seed an Internal or Customer Production target.
+- Owns `load:commercial`, `validate:delivery-artifacts` and the Task3 verifier integrations; consumes Plan02's shared DB guard. No command may reset/drop/truncate/seed an Internal or Customer Production target.
 - Produces the individually version-linked and hash-listed delivery artifacts named above. The manifest maps every artifact to candidate commit, migration hash, author/date, checksum and its validation command; `secret-locations.md` records only location/purpose, never secret values.
 
 - [ ] **Step 1: Write failing environment guard, load and manifest tests**
@@ -339,7 +361,7 @@ expect(manifest.requiredEvidence).toContain("backup_restore");
 
 - [ ] **Step 2: Verify RED**
 
-Run: `node --test scripts/verify-commercial.test.mjs`
+Run: `node --test scripts/verify-commercial.test.mjs scripts/validate-delivery-artifacts.test.mjs tests/load/run-commercial-load.test.mjs`
 Run: `npm run verify:commercial:local`
 Expected: full evidence aggregation, artifact-hash validation and commercial thresholds are not yet fully enforced.
 
@@ -373,13 +395,14 @@ git commit -m "docs: add commercial operations and acceptance package"
 - Modify: `docs/operations/commercial-delivery-manifest.md`
 
 **Interfaces:**
-- Consumes signed/hash-matched parity, data-validation, Staging canary, rollback and explicit retirement authorization evidence. Missing any item is `BLOCKED`; it is never a GREEN path.
+- Produces prospective retirement patch/tree hash before deletion. Pre-retirement Staging/restore/canary evidence must be signed against that prospective hash; after deletion final verification additionally requires post-deletion local/source-boundary evidence plus fresh Staging/canary for the final commit, or an explicit cryptographic evidence-link rule. Fused presence/reachability makes final `verify:commercial` BLOCKED.
 
 - [ ] **Step 1: Write failing retirement-authorization tests**
 
 ```ts
 expect(await assertFusedRetirementEvidence({ authorization: null })).toMatchObject({ status: "BLOCKED" });
 expect(await assertFusedRetirementEvidence({ canary: "failed" })).toMatchObject({ status: "BLOCKED" });
+expect(await assertFusedRetirementEvidence({ prospectiveTreeHash, stagingTreeHash: "other" })).toMatchObject({ status: "BLOCKED" });
 ```
 
 - [ ] **Step 2: Verify BLOCKED before deletion**

@@ -22,7 +22,7 @@
 
 ## Execution Order
 
-- `2026-08-26-quantxy-01-security-entry.md` — completed security/entry baseline; do not restart Tasks 1-6; remaining platform hardening belongs to Plan 10.
+- `2026-08-26-quantxy-01-security-entry.md` — completed security/entry baseline; do not restart Tasks 1-6; Plan02 owns shared phase command safety and Plan10 owns later release evidence.
 - `2026-08-26-quantxy-02-organization-people.md` — first shared fail-closed DB command guard, OAuth plus full/incremental Feishu sync, direct-manager/supervisor scope, private PII and offboarding revoke.
 - `2026-08-26-quantxy-03-project-task-delivery.md` — members, activities/milestones/tasks/dependencies/acceptance, files/history/archive and durable notifications.
 - `2026-08-26-quantxy-04-customer-crm.md` — contacts/opportunities/follow-ups, dedupe, ownership transfer, history, import/export and audit/archive.
@@ -34,6 +34,8 @@
 - `2026-08-26-quantxy-10-cutover-release.md` — consumes the shared guard; migration safety, separate local/Staging/final evidence gates, authorized fused retirement, canary/runbooks and delivery bundle.
 
 ## Phase Gate
+
+Plan02 Task1 owns the executable aliases `test:coverage`, `test:security`, `test:rls`, `db:reset:test`, `db:migrate:dry-run`, `db:test`, `db:seed:validate` and `db:rollback:test`; all later plans consume them.
 
 After each plan:
 
