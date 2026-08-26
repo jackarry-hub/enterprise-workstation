@@ -10,6 +10,7 @@ type SessionInput = {
 export type WorkstationMemberRow = {
   id: number;
   profileId?: number;
+  departmentId?: number | null;
   displayName: string;
   departmentName: string;
   jobTitle: string;
@@ -29,6 +30,16 @@ export type WorkstationMemberRow = {
     weeklyCapacityHours: number;
     selfSkills: readonly { name: string; level: number }[];
     updatedAt: string;
+  } | null;
+  salaryPolicy?: {
+    publicId: string;
+    baseSalary: number;
+    salaryBandMin: number;
+    salaryBandMax: number;
+    performanceWeight: number;
+    effectiveFrom: string;
+    effectiveTo: string | null;
+    matchedDepartment: boolean;
   } | null;
 };
 
@@ -323,6 +334,7 @@ export function buildServerBootstrap(
     (rows.agents ?? []).map((agent) => [agent.id, agent.publicId]),
   );
   const ownMemberId = memberId(session.memberId);
+  const canManageSalary = session.permissionCodes.includes("salary.manage");
 
   return {
     mode: "server",
@@ -335,7 +347,7 @@ export function buildServerBootstrap(
     },
     members: rows.members.map((member) => {
       const evidence = workEvidence(member, rows.tasks);
-      return {
+      const bootstrapMember = {
         id: memberId(member.id),
         n: member.displayName,
         r: member.jobTitle,
@@ -356,6 +368,35 @@ export function buildServerBootstrap(
           updatedAt: member.workProfile?.updatedAt ?? "",
         },
       };
+      if (canManageSalary || member.id === session.memberId) {
+        return {
+          ...bootstrapMember,
+          salaryBand: member.salaryPolicy
+          ? {
+            source: "server" as const,
+            policyId: member.salaryPolicy.publicId,
+            base: Number(member.salaryPolicy.baseSalary),
+            min: Number(member.salaryPolicy.salaryBandMin),
+            max: Number(member.salaryPolicy.salaryBandMax),
+            performanceWeight: Number(member.salaryPolicy.performanceWeight),
+            effectiveFrom: member.salaryPolicy.effectiveFrom,
+            effectiveTo: member.salaryPolicy.effectiveTo ?? "",
+            matchedDepartment: member.salaryPolicy.matchedDepartment,
+          }
+          : {
+            source: "missing" as const,
+            policyId: "",
+            base: 0,
+            min: 0,
+            max: 0,
+            performanceWeight: 0,
+            effectiveFrom: "",
+            effectiveTo: "",
+            matchedDepartment: false,
+          },
+        };
+      }
+      return bootstrapMember;
     }),
     projects: rows.projects.map((project) => ({
       id: project.publicId,

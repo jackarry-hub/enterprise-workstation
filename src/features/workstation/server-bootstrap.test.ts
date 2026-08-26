@@ -127,6 +127,16 @@ describe("formal workstation bootstrap", () => {
             salaryGradeCode: "P6",
             jobLevel: 6,
             skills: ["prd"],
+            salaryPolicy: {
+              publicId: "policy-product-p6-l6",
+              baseSalary: 42000,
+              salaryBandMin: 36000,
+              salaryBandMax: 52000,
+              performanceWeight: 0.18,
+              effectiveFrom: "2026-08-01",
+              effectiveTo: null,
+              matchedDepartment: true,
+            },
           },
           {
             id: 8,
@@ -136,6 +146,16 @@ describe("formal workstation bootstrap", () => {
             salaryGradeCode: "P4",
             jobLevel: 4,
             skills: [],
+            salaryPolicy: {
+              publicId: "policy-engineering-p4-l4",
+              baseSalary: 39000,
+              salaryBandMin: 33000,
+              salaryBandMax: 48000,
+              performanceWeight: 0.2,
+              effectiveFrom: "2026-08-01",
+              effectiveTo: null,
+              matchedDepartment: true,
+            },
           },
         ],
         projects: [],
@@ -145,9 +165,29 @@ describe("formal workstation bootstrap", () => {
     );
 
     expect(bootstrap.members).toEqual([
-      expect.objectContaining({ id: "m7", grade: "P6", lv: 6 }),
-      expect.objectContaining({ id: "m8", grade: "P4", lv: 4 }),
+      expect.objectContaining({
+        id: "m7",
+        grade: "P6",
+        lv: 6,
+        salaryBand: expect.objectContaining({
+          source: "server",
+          policyId: "policy-product-p6-l6",
+          base: 42000,
+          min: 36000,
+          max: 52000,
+          performanceWeight: 0.18,
+          matchedDepartment: true,
+        }),
+      }),
+      expect.objectContaining({
+        id: "m8",
+        grade: "P4",
+        lv: 4,
+      }),
     ]);
+    const colleague = bootstrap.members.find((member) => member.id === "m8");
+    expect(colleague && "salaryBand" in colleague).toBe(false);
+    expect(JSON.stringify(bootstrap.members)).not.toContain("39000");
   });
 
   it("maps enterprise agent center definitions and recent invocations for the fused workstation", () => {

@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createWorkstationBootstrapHandler,
   defaultWorkstationBootstrapDependencies,
+  matchSalaryPolicy,
   numericProfileIdForMember,
+  parseNullableNumber,
 } from "@/app/api/workstation/bootstrap/handler";
 import {
   getSupabaseServerClient,
@@ -43,6 +45,78 @@ describe("workstation bootstrap route", () => {
     ], 7)).toBe(42);
   });
 
+  it("preserves nullable compensation numbers instead of converting absence into zero", () => {
+    expect(parseNullableNumber(null)).toBeNull();
+    expect(parseNullableNumber(undefined)).toBeNull();
+    expect(parseNullableNumber("")).toBeNull();
+    expect(parseNullableNumber("  ")).toBeNull();
+    expect(parseNullableNumber("not-a-number")).toBeNull();
+    expect(parseNullableNumber(false)).toBeNull();
+    expect(parseNullableNumber(0)).toBe(0);
+    expect(parseNullableNumber("0")).toBe(0);
+  });
+
+  it("matches the exact job family, department and fixed effective date", () => {
+    const policies = [
+      {
+        publicId: "organization-wide-engineering",
+        departmentId: null,
+        jobFamily: "engineering",
+        salaryGradeCode: "P6",
+        jobLevel: 20,
+        baseSalary: 61000,
+        salaryBandMin: 56000,
+        salaryBandMax: 70000,
+        performanceWeight: 0.2,
+        effectiveFrom: "2026-08-01",
+        effectiveTo: null,
+      },
+      {
+        publicId: "department-engineering",
+        departmentId: 21,
+        jobFamily: "engineering",
+        salaryGradeCode: "P6",
+        jobLevel: 20,
+        baseSalary: 66000,
+        salaryBandMin: 60000,
+        salaryBandMax: 74000,
+        performanceWeight: 0.2,
+        effectiveFrom: "2026-08-15",
+        effectiveTo: null,
+      },
+      {
+        publicId: "product-family-only",
+        departmentId: 21,
+        jobFamily: "product",
+        salaryGradeCode: "P6",
+        jobLevel: 20,
+        baseSalary: 88000,
+        salaryBandMin: 82000,
+        salaryBandMax: 93000,
+        performanceWeight: 0.2,
+        effectiveFrom: "2026-08-01",
+        effectiveTo: null,
+      },
+    ];
+    const subject = {
+      policies,
+      departmentId: 21,
+      jobFamily: "engineering",
+      gradeCode: "P6",
+      jobLevel: 20,
+      effectiveOn: "2026-08-26",
+    };
+
+    expect(matchSalaryPolicy(subject)).toMatchObject({
+      publicId: "department-engineering",
+      jobFamily: "engineering",
+      baseSalary: 66000,
+    });
+    expect(matchSalaryPolicy({ ...subject, jobFamily: "product" })?.jobFamily).toBe("product");
+    expect(matchSalaryPolicy({ ...subject, jobLevel: 19 })).toBeNull();
+    expect(matchSalaryPolicy({ ...subject, effectiveOn: "2026-07-31" })).toBeNull();
+  });
+
   it("rejects an unauthenticated browser", async () => {
     const response = await createWorkstationBootstrapHandler({
       loadSession: async () => null,
@@ -73,8 +147,23 @@ describe("workstation bootstrap route", () => {
         organization_member_id: 7,
         display_name: "张云帆",
         job_title: "产品经理",
+        department_id: 21,
+        position_template_id: 51,
+        salary_grade_code: "P6",
+        job_level: 6,
         skills: ["prd"],
         department: { name: "产品中心" },
+      }, {
+        id: 43,
+        organization_member_id: 8,
+        display_name: "李明",
+        job_title: "算法工程师",
+        department_id: 22,
+        position_template_id: 52,
+        salary_grade_code: "P6",
+        job_level: 6,
+        skills: ["typescript"],
+        department: { name: "研发中心" },
       }],
       error: null,
     });
@@ -202,6 +291,26 @@ describe("workstation bootstrap route", () => {
       }],
       error: null,
     });
+    const departments = query({
+      data: [{ id: 21, name: "产品中心" }],
+      error: null,
+    });
+    const selfSalaryPolicy = query({
+      data: [{
+        public_id: "66666666-6666-4666-8666-666666666666",
+        department_id: 21,
+        job_family: "product",
+        salary_grade_code: "P6",
+        job_level: 6,
+        base_salary: 42000,
+        salary_band_min: 36000,
+        salary_band_max: 52000,
+        performance_weight: 0.18,
+        effective_from: "2026-08-01",
+        effective_to: null,
+      }],
+      error: null,
+    });
     const employeeSkills = query({
       data: [{
         employee_profile_id: 42,
@@ -225,7 +334,7 @@ describe("workstation bootstrap route", () => {
         visibility_scope: "all",
         min_job_level: 1,
         status: "enabled",
-        department: { name: "产品中心" },
+        department_id: 21,
       }],
       error: null,
     });
@@ -235,7 +344,7 @@ describe("workstation bootstrap route", () => {
           agent_id: 91,
           scope_type: "all",
           min_job_level: 1,
-          department: null,
+          department_id: null,
           member_id: null,
         },
       ],
@@ -244,18 +353,11 @@ describe("workstation bootstrap route", () => {
     const agentInvocations = query({
       data: [{
         agent_id: 91,
+        actor_member_id: 7,
         status: "succeeded",
         latency_ms: 930,
         output_summary: "已生成 4 个任务",
         started_at: "2026-08-25T03:20:00.000Z",
-        agent: {
-          name: "任务拆解 Agent",
-          department: { name: "产品中心" },
-        },
-        actor: {
-          id: 7,
-          profile: [{ display_name: "张云帆" }],
-        },
       }],
       error: null,
     });
@@ -278,6 +380,8 @@ describe("workstation bootstrap route", () => {
       salary,
       notifications,
       workProfiles,
+      departments,
+      selfSalaryPolicy,
       employeeSkills,
       agents,
       agentPermissions,
@@ -291,12 +395,17 @@ describe("workstation bootstrap route", () => {
         if (table === "tasks") return builders.tasks;
         if (table === "salary") return builders.salary;
         if (table === "task_notifications") return builders.notifications;
+        if (table === "departments") return builders.departments;
         if (table === "employee_skills") return builders.employeeSkills;
         if (table === "agent_definitions") return builders.agents;
         if (table === "agent_permissions") return builders.agentPermissions;
         if (table === "agent_invocations") return builders.agentInvocations;
         if (table === "knowledge_documents") return builders.knowledge;
         throw new Error(`unexpected table ${table}`);
+      }),
+      rpc: vi.fn((name: string) => {
+        if (name === "current_salary_grade_policy") return builders.selfSalaryPolicy;
+        throw new Error(`unexpected rpc ${name}`);
       }),
     };
     const serviceClient = {
@@ -324,7 +433,9 @@ describe("workstation bootstrap route", () => {
     };
 
     expect(client.from).toHaveBeenCalledWith("task_notifications");
+    expect(client.from).toHaveBeenCalledWith("departments");
     expect(serviceClient.from).toHaveBeenCalledWith("employee_work_profiles");
+    expect(client.rpc).toHaveBeenCalledWith("current_salary_grade_policy");
     expect(client.from).toHaveBeenCalledWith("employee_skills");
     expect(client.from).toHaveBeenCalledWith("agent_definitions");
     expect(client.from).toHaveBeenCalledWith("agent_permissions");
@@ -333,9 +444,14 @@ describe("workstation bootstrap route", () => {
     expect(notifications.select).toHaveBeenCalledWith(
       "task_id, status, last_error_code",
     );
-    expect(agents.select).toHaveBeenCalledWith(expect.stringContaining("public_id"));
+    expect(agents.select).toHaveBeenCalledWith(expect.stringContaining("department_id"));
+    expect(agents.select).not.toHaveBeenCalledWith(expect.stringContaining("department:"));
     expect(agentPermissions.select).toHaveBeenCalledWith(expect.stringContaining("scope_type"));
+    expect(agentPermissions.select).toHaveBeenCalledWith(expect.stringContaining("department_id"));
     expect(agentInvocations.select).toHaveBeenCalledWith(expect.stringContaining("output_summary"));
+    expect(agentInvocations.select).toHaveBeenCalledWith(expect.stringContaining("actor_member_id"));
+    expect(agentInvocations.select).not.toHaveBeenCalledWith(expect.stringContaining("agent:"));
+    expect(client.from).not.toHaveBeenCalledWith("salary_grade_policies");
     expect(knowledge.select).toHaveBeenCalledWith(expect.stringContaining("public_id"));
     expect(tasks.select).toHaveBeenCalledWith(expect.stringContaining("id, public_id"));
     expect(salary.select).toHaveBeenCalledWith(
@@ -376,6 +492,22 @@ describe("workstation bootstrap route", () => {
       }],
       selfSkills: [{ name: "客户访谈", level: 4 }],
     });
+    expect(bootstrap.members[0]).toMatchObject({
+      grade: "P6",
+      lv: 6,
+      salaryBand: expect.objectContaining({
+        source: "server",
+        policyId: "66666666-6666-4666-8666-666666666666",
+        base: 42000,
+        min: 36000,
+        max: 52000,
+        performanceWeight: 0.18,
+        matchedDepartment: true,
+      }),
+    });
+    const colleague = bootstrap.members.find((member) => member.id === "m8");
+    expect(colleague?.salaryBand).toBeUndefined();
+    expect(JSON.stringify(bootstrap.members)).not.toContain("39000");
     expect(bootstrap).toMatchObject({
       agents: [
         expect.objectContaining({
@@ -443,6 +575,8 @@ describe("workstation bootstrap route", () => {
     });
     const notifications = query({ data: [], error: null });
     const workProfiles = query({ data: [], error: null });
+    const departments = query({ data: [], error: null });
+    const salaryGradePolicies = query({ data: [], error: null });
     const employeeSkills = query({ data: [], error: null });
     const agents = query({ data: [], error: null });
     const agentPermissions = query({ data: [], error: null });
@@ -456,6 +590,8 @@ describe("workstation bootstrap route", () => {
         if (table === "tasks") return tasks;
         if (table === "salary") return salaryCalls++ === 0 ? detailedSalary : legacySalary;
         if (table === "task_notifications") return notifications;
+        if (table === "departments") return departments;
+        if (table === "salary_grade_policies") return salaryGradePolicies;
         if (table === "employee_skills") return employeeSkills;
         if (table === "agent_definitions") return agents;
         if (table === "agent_permissions") return agentPermissions;
@@ -463,6 +599,7 @@ describe("workstation bootstrap route", () => {
         if (table === "knowledge_documents") return knowledge;
         throw new Error(`unexpected table ${table}`);
       }),
+      rpc: vi.fn(() => query({ data: [], error: null })),
     };
     const serviceClient = {
       from: vi.fn((table: string) => {
@@ -528,6 +665,7 @@ describe("workstation bootstrap route", () => {
         if (table === "employee_profiles") return members;
         return failing;
       }),
+      rpc: vi.fn(() => failing),
     };
     const serviceClient = {
       from: vi.fn(() => failing),

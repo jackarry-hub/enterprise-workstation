@@ -315,8 +315,44 @@ test("payroll admin derives base salary from department and level and frames pro
     primaryRole: "ceo",
   });
   bootstrap.members = [
-    { id: "member-product-l3", n: "产品三级", r: "产品经理", dept: "产品中心", lv: 3 },
-    { id: "member-rd-l4", n: "研发四级", r: "算法工程师", dept: "研发中心", lv: 4 },
+    {
+      id: "member-product-l3",
+      n: "产品三级",
+      r: "产品经理",
+      dept: "产品中心",
+      grade: "P3",
+      lv: 3,
+      salaryBand: {
+        source: "server",
+        policyId: "salary-policy-product-p3",
+        base: 26000,
+        min: 22000,
+        max: 30000,
+        performanceWeight: 0.16,
+        effectiveFrom: "2026-08-01",
+        effectiveTo: "",
+        matchedDepartment: true,
+      },
+    },
+    {
+      id: "member-rd-l20",
+      n: "研发二十级",
+      r: "算法工程师",
+      dept: "研发中心",
+      grade: "P4",
+      lv: 20,
+      salaryBand: {
+        source: "missing",
+        policyId: "",
+        base: 0,
+        min: 0,
+        max: 0,
+        performanceWeight: 0,
+        effectiveFrom: "",
+        effectiveTo: "",
+        matchedDepartment: false,
+      },
+    },
     { id: "salary-admin", n: "薪资管理员", r: "CEO", dept: "管理层", lv: 5 },
   ];
   const dom = await openFormalWorkbench(
@@ -332,20 +368,21 @@ test("payroll admin derives base salary from department and level and frames pro
     const firstBasis = dom.window.document.querySelector("[data-salary-basis-card]");
     assert.equal(firstBasis?.getAttribute("data-dept"), "产品中心");
     assert.equal(firstBasis?.getAttribute("data-level"), "3");
-    assert.equal(firstBasis?.getAttribute("data-base"), "22000");
-    assert.match(firstBasis.textContent, /部门\+职级|项目奖金池|任务难度|验收质量|效率/);
-    assert.equal(dom.window.document.querySelector("#salaryBase").value, "22000.00");
+    assert.equal(firstBasis?.getAttribute("data-base"), "26000");
+    assert.match(firstBasis.textContent, /真实薪资档位|salary-policy-product-p3|项目奖金池|任务难度|验收质量|效率/);
+    assert.equal(dom.window.document.querySelector("#salaryBase").value, "26000.00");
     assert.equal(dom.window.document.querySelector("#salaryBase").readOnly, true);
 
     const select = dom.window.document.querySelector('[data-f="salaryMember"]');
-    select.value = "member-rd-l4";
+    select.value = "member-rd-l20";
     select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
 
     const secondBasis = dom.window.document.querySelector("[data-salary-basis-card]");
     assert.equal(secondBasis?.getAttribute("data-dept"), "研发中心");
-    assert.equal(secondBasis?.getAttribute("data-level"), "4");
-    assert.equal(secondBasis?.getAttribute("data-base"), "35000");
-    assert.equal(dom.window.document.querySelector("#salaryBase").value, "35000.00");
+    assert.equal(secondBasis?.getAttribute("data-level"), "20");
+    assert.equal(secondBasis?.getAttribute("data-base"), "0");
+    assert.match(secondBasis.textContent, /薪资档位待配置/);
+    assert.equal(dom.window.document.querySelector("#salaryBase").value, "0.00");
   } finally {
     dom.window.close();
   }

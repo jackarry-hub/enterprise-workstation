@@ -1023,20 +1023,41 @@ function moneyFixed(value){
 }
 function memberLevelValue(member){
   var raw=parseInt(member&&(member.lv||member.level),10);
-  return Math.max(1,Math.min(5,isFinite(raw)?raw:1));
+  return Math.max(1,Math.min(20,isFinite(raw)?raw:1));
 }
 function memberDeptName(member){
   return String(member&&(member.dept||member.department)||'未分配部门');
 }
+function memberGradeLabel(member,level){
+  var grade=String(member&&member.grade||'').trim();
+  return grade?grade+' · L'+level:'L'+level;
+}
 function salaryBandForMember(member){
   var dept=memberDeptName(member), level=memberLevelValue(member);
+  if(!isDemoRuntime()){
+    var imported=member&&member.salaryBand&&typeof member.salaryBand==='object'?member.salaryBand:null;
+    if(imported&&imported.source==='server'&&Number(imported.base)>0){
+      var baseServer=Number(imported.base);
+      var perfWeight=Number(imported.performanceWeight||0);
+      var performanceTargetServer=Math.round(baseServer*perfWeight);
+      return {source:'server',dept:dept,level:level,grade:memberGradeLabel(member,level),levelName:lvName(level),base:baseServer,
+        baseSalary:moneyFixed(baseServer),baseText:'¥ '+num(baseServer,0),
+        min:Number(imported.min||0),max:Number(imported.max||0),policyId:String(imported.policyId||''),
+        performanceTarget:performanceTargetServer,performanceTargetText:moneyFixed(performanceTargetServer),
+        canAutoFill:true,matchedDepartment:imported.matchedDepartment!==false,
+        policy:'真实薪资档位来自 salary_grade_policies，基本工资按部门+职级自动带出，项目奖金池按任务贡献分配'};
+    }
+    return {source:'missing',dept:dept,level:level,grade:memberGradeLabel(member,level),levelName:lvName(level),base:0,baseSalary:'0.00',baseText:'待配置',
+      min:0,max:0,policyId:'',performanceTarget:0,performanceTargetText:'0.00',canAutoFill:false,matchedDepartment:false,
+      policy:'薪资档位待配置：请先由财务/HR导入 salary_grade_policies 后再核算基本工资'};
+  }
   var matrix=SALARY_GRADE_MATRIX[dept]||DEFAULT_SALARY_GRADE;
   var base=Number(matrix[level]||DEFAULT_SALARY_GRADE[level]||DEFAULT_SALARY_GRADE[1]);
   var targetRate=level>=5?0.20:(level>=3?0.15:0.10);
   var performanceTarget=Math.round(base*targetRate);
-  return {dept:dept,level:level,levelName:lvName(level),base:base,baseSalary:moneyFixed(base),
+  return {source:'demo',dept:dept,level:level,grade:memberGradeLabel(member,level),levelName:lvName(level),base:base,baseSalary:moneyFixed(base),baseText:'¥ '+num(base,0),
     performanceTarget:performanceTarget,performanceTargetText:moneyFixed(performanceTarget),
-    policy:'部门+职级定基本工资，项目奖金池按任务贡献分配'};
+    canAutoFill:true,matchedDepartment:true,policy:'演示薪资矩阵：部门+职级定基本工资，项目奖金池按任务贡献分配'};
 }
 function taskBonusWeight(task){
   task=task||{};
@@ -1085,9 +1106,9 @@ function applyDepartmentLevelSalaryDraft(draft,force){
   var member=MB[draft.memberId]||MEMBERS[0]||{};
   var band=salaryBandForMember(member), bonus=projectBonusSuggestion(draft.memberId,draft.month);
   var next=Object.assign({},draft);
-  if(force||!String(next.baseSalary||'').trim()||Number(next.baseSalary)<=0) next.baseSalary=band.baseSalary;
-  if(force||!String(next.socialBase||'').trim()||Number(next.socialBase)<=0) next.socialBase=band.baseSalary;
-  if(force||!String(next.housingFundBase||'').trim()||Number(next.housingFundBase)<=0) next.housingFundBase=band.baseSalary;
+  if(force||!String(next.baseSalary||'').trim()||Number(next.baseSalary)<=0) next.baseSalary=band.canAutoFill?band.baseSalary:'0.00';
+  if(force||!String(next.socialBase||'').trim()||Number(next.socialBase)<=0) next.socialBase=band.canAutoFill?band.baseSalary:'0.00';
+  if(force||!String(next.housingFundBase||'').trim()||Number(next.housingFundBase)<=0) next.housingFundBase=band.canAutoFill?band.baseSalary:'0.00';
   if(force||!String(next.projectBonus||'').trim()||Number(next.projectBonus)<=0) next.projectBonus=moneyFixed(bonus.amount);
   return next;
 }
@@ -2674,7 +2695,7 @@ function viewFin(){
   var band=salaryBandForMember(member);
   var selected=payrollRow(S.me,S.f.payMonth);
   var salaryIdentity='<div class="card fade" data-salary-identity style="margin-bottom:16px"><div class="bd" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
-    av(member.n||'员',1)+'<div style="flex:1;min-width:220px"><b style="font-size:16px">'+esc(member.n||'当前员工')+'</b><p class="hint" style="margin-top:4px">部门：'+esc(band.dept)+' · 职级：'+esc(band.levelName)+' · 岗位：'+esc(member.r||'员工')+'</p><p class="hint" style="margin-top:3px">薪资档位：'+esc(band.dept)+' L'+band.level+' · 基准月薪 '+payrollMoney(band.base)+' · 项目奖金池按任务贡献结算</p></div>'+
+    av(member.n||'员',1)+'<div style="flex:1;min-width:220px"><b style="font-size:16px">'+esc(member.n||'当前员工')+'</b><p class="hint" style="margin-top:4px">部门：'+esc(band.dept)+' · 职级：'+esc(band.levelName)+' · 岗位：'+esc(member.r||'员工')+'</p><p class="hint" style="margin-top:3px">薪资档位：'+(band.source==='missing'?'待配置':esc(band.dept+' '+band.grade))+' · 基准月薪 '+esc(band.baseText||payrollMoney(band.base))+' · 项目奖金池按任务贡献结算</p></div>'+
     '<span class="tag t-b">薪资仅本人可见</span></div></div>';
   if(!rows.length){
     return payrollManagerEntry()+salaryIdentity+'<div class="card fade"><div class="hd"><h3>我的薪酬</h3></div><div class="bd"><div class="grid payroll-summary-grid" data-payroll-summary style="grid-template-columns:repeat(5,1fr)"></div></div><div class="empty">当前身份暂无工资记录</div></div>';
@@ -3416,7 +3437,7 @@ var PREV={'new-member':pvMember,'new-project':pvProject,'new-file':pvFile,'new-t
 
 /* ---------------- 职级与权限模型 ---------------- */
 var LEVELS=[{v:1,l:'L1 员工'},{v:2,l:'L2 主管'},{v:3,l:'L3 经理'},{v:4,l:'L4 总监'},{v:5,l:'L5 决策层'}];
-function lvName(v){ var x=LEVELS.filter(function(l){ return l.v===(v||1); })[0]; return x?x.l:'L1 员工'; }
+function lvName(v){ var level=Math.max(1,Math.min(20,parseInt(v,10)||1)),x=LEVELS.filter(function(l){ return l.v===level; })[0]; return x?x.l:'L'+level; }
 function isAdmin(mid){ var m=MB[mid||S.me]; return isWorkstationCEO() || (!!m && (m.r==='企业决策人' || (m.lv||1)>=4)); }
 /* 调用权限判定：决策层直通 → 单独授权 → 职级门槛 → 部门范围 */
 function canUse(a,mid){
@@ -3836,8 +3857,8 @@ function viewPayrollAdmin(){
     '<div class="card" style="margin-top:16px"><div class="bd" style="max-width:920px">',
       '<div class="frow"><div>'+fld('员工',fsel('salaryMember',d.memberId,memOpts()),'',1)+'</div><div>'+fld('月份','<input class="inp" id="salaryMonth" type="month" value="'+attr(d.month)+'">','',1)+'</div></div>',
       '<div data-salary-basis-card data-dept="'+attr(salaryBand.dept)+'" data-level="'+attr(salaryBand.level)+'" data-base="'+attr(salaryBand.base)+'" style="margin:12px 0 16px;padding:14px;border:1px solid #bfdbfe;border-radius:14px;background:linear-gradient(120deg,#eff6ff,#fff)">',
-        '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="width:36px;height:36px;border-radius:12px;background:var(--brand-s);display:grid;place-items:center">'+ic('money',18,'#2563eb')+'</span><div style="flex:1;min-width:240px"><b>部门+职级定薪</b><p class="hint" style="margin-top:4px">部门：'+esc(salaryBand.dept)+' · 职级：'+esc(salaryBand.levelName)+' · 基准月薪：¥ '+esc(salaryBand.baseSalary)+'</p></div><span class="tag t-b">自动带出</span></div>',
-        '<div class="hint" style="margin-top:10px;line-height:1.75">项目奖金池：按项目预算提取，结合任务难度、优先级、验收质量、效率和角色权重分配；财务确认后进入工资单。</div>',
+        '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="width:36px;height:36px;border-radius:12px;background:var(--brand-s);display:grid;place-items:center">'+ic('money',18,'#2563eb')+'</span><div style="flex:1;min-width:240px"><b>'+(salaryBand.source==='missing'?'薪资档位待配置':'真实薪资档位')+'</b><p class="hint" style="margin-top:4px">部门：'+esc(salaryBand.dept)+' · 职级：'+esc(salaryBand.grade||salaryBand.levelName)+' · 基准月薪：'+esc(salaryBand.baseText||('¥ '+salaryBand.baseSalary))+'</p>'+(salaryBand.policyId?'<p class="hint" style="margin-top:3px">档位 ID：'+esc(salaryBand.policyId)+' · 薪资带：¥ '+esc(moneyFixed(salaryBand.min))+' ~ ¥ '+esc(moneyFixed(salaryBand.max))+'</p>':'')+'</div><span class="tag '+(salaryBand.source==='missing'?'t-o':'t-b')+'">'+(salaryBand.source==='missing'?'待配置':'自动带出')+'</span></div>',
+        '<div class="hint" style="margin-top:10px;line-height:1.75">'+esc(salaryBand.policy)+'；项目奖金池：按项目预算提取，结合任务难度、优先级、验收质量、效率和角色权重分配；财务确认后进入工资单。</div>',
       '</div>',
       '<h4 style="margin:18px 0 10px">收入</h4>',
       '<div class="frow"><div>'+moneyField('基本工资（部门+职级自动带出）','salaryBase',d.baseSalary,1,'由员工部门和职级决定，财务不在工资单内手动改基本工资。',true)+'</div><div>'+moneyField('绩效奖金','salaryPerformance',d.performanceBonus)+'</div></div>',

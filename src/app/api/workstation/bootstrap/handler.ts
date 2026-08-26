@@ -25,41 +25,20 @@ function relationName(value: unknown) {
     : "未分配部门";
 }
 
-function optionalRelationName(value: unknown) {
-  const relation = Array.isArray(value) ? value[0] : value;
-  return typeof relation === "object" && relation !== null
-    && typeof (relation as { name?: unknown }).name === "string"
-    ? (relation as { name: string }).name
-    : null;
+export function parseNullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" && !value.trim()) return null;
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  const number = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
-function nestedAgentName(value: unknown) {
-  const relation = Array.isArray(value) ? value[0] : value;
-  return typeof relation === "object" && relation !== null
-    && typeof (relation as { name?: unknown }).name === "string"
-    ? (relation as { name: string }).name
-    : "未知 Agent";
+function numberOrNull(value: unknown) {
+  return parseNullableNumber(value);
 }
 
-function actorName(value: unknown) {
-  const actor = Array.isArray(value) ? value[0] : value;
-  if (typeof actor !== "object" || actor === null) return null;
-  const profile = Array.isArray((actor as { profile?: unknown }).profile)
-    ? (actor as { profile?: unknown[] }).profile?.[0]
-    : (actor as { profile?: unknown }).profile;
-  if (typeof profile === "object" && profile !== null
-    && typeof (profile as { display_name?: unknown }).display_name === "string") {
-    return (profile as { display_name: string }).display_name;
-  }
-  return null;
-}
-
-function actorMemberId(value: unknown) {
-  const actor = Array.isArray(value) ? value[0] : value;
-  return typeof actor === "object" && actor !== null
-    && Number.isSafeInteger((actor as { id?: unknown }).id)
-    ? Number((actor as { id: number }).id)
-    : null;
+function stringOrNull(value: unknown) {
+  return typeof value === "string" && value.trim() ? value : null;
 }
 
 export function numericProfileIdForMember(
@@ -94,6 +73,61 @@ type SalaryClient = {
     select: (columns: string) => SalaryQueryBuilder;
   };
 };
+
+export type SalaryPolicy = {
+  publicId: string;
+  departmentId: number | null;
+  jobFamily: string;
+  salaryGradeCode: string;
+  jobLevel: number;
+  baseSalary: number;
+  salaryBandMin: number;
+  salaryBandMax: number;
+  performanceWeight: number;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+};
+
+export type MatchSalaryPolicyInput = {
+  policies: readonly SalaryPolicy[];
+  departmentId: number | null;
+  jobFamily: string | null;
+  gradeCode: string | null;
+  jobLevel: number | null;
+  effectiveOn: string;
+};
+
+export function matchSalaryPolicy({
+  policies,
+  departmentId,
+  jobFamily,
+  gradeCode,
+  jobLevel,
+  effectiveOn,
+}: MatchSalaryPolicyInput): SalaryPolicy | null {
+  if (!jobFamily || !gradeCode || jobLevel === null || jobLevel < 1 || jobLevel > 20
+    || !/^\d{4}-\d{2}-\d{2}$/.test(effectiveOn)) {
+    return null;
+  }
+  return policies
+    .filter((policy) =>
+      policy.jobFamily === jobFamily
+      && policy.salaryGradeCode === gradeCode
+      && policy.jobLevel === jobLevel
+      && policy.effectiveFrom <= effectiveOn
+      && (!policy.effectiveTo || policy.effectiveTo >= effectiveOn)
+      && (policy.departmentId === departmentId || policy.departmentId === null),
+    )
+    .sort((left, right) => {
+      const leftDepartmentMatch = left.departmentId === departmentId ? 1 : 0;
+      const rightDepartmentMatch = right.departmentId === departmentId ? 1 : 0;
+      if (leftDepartmentMatch !== rightDepartmentMatch) {
+        return rightDepartmentMatch - leftDepartmentMatch;
+      }
+      return right.effectiveFrom.localeCompare(left.effectiveFrom)
+        || left.publicId.localeCompare(right.publicId);
+    })[0] ?? null;
+}
 
 function isMissingSalaryCalculationColumn(error: unknown) {
   if (!error || typeof error !== "object") return false;
@@ -163,6 +197,76 @@ async function optionalBootstrapQuery<T extends BootstrapQueryResult>(
   }
 }
 
+function normalizeSalaryGradePolicies(
+  rows: readonly Record<string, unknown>[],
+): SalaryPolicy[] {
+  return rows.flatMap((row) => {
+    const publicId = stringOrNull(row.public_id);
+    const jobFamily = stringOrNull(row.job_family);
+    const salaryGradeCode = stringOrNull(row.salary_grade_code);
+    const jobLevel = numberOrNull(row.job_level);
+    const baseSalary = numberOrNull(row.base_salary);
+    const salaryBandMin = numberOrNull(row.salary_band_min);
+    const salaryBandMax = numberOrNull(row.salary_band_max);
+    const performanceWeight = numberOrNull(row.performance_weight);
+    const effectiveFrom = stringOrNull(row.effective_from);
+    if (!publicId || !jobFamily || !salaryGradeCode || jobLevel === null
+      || jobLevel < 1 || jobLevel > 20
+      || baseSalary === null || salaryBandMin === null || salaryBandMax === null
+      || performanceWeight === null || !effectiveFrom) {
+      return [];
+    }
+    return [{
+      publicId,
+      departmentId: numberOrNull(row.department_id),
+      jobFamily,
+      salaryGradeCode,
+      jobLevel,
+      baseSalary,
+      salaryBandMin,
+      salaryBandMax,
+      performanceWeight,
+      effectiveFrom,
+      effectiveTo: stringOrNull(row.effective_to),
+    }];
+  });
+}
+
+function salaryPolicyForMember(
+  member: Record<string, unknown>,
+  policies: readonly SalaryPolicy[],
+  positionJobFamilyById: ReadonlyMap<number, string>,
+  effectiveOn: string,
+) {
+  const salaryGradeCode = stringOrNull(member.salary_grade_code);
+  const jobLevel = numberOrNull(member.job_level);
+  const departmentId = numberOrNull(member.department_id);
+  const positionTemplateId = numberOrNull(member.position_template_id);
+  const jobFamily = positionTemplateId === null
+    ? null
+    : positionJobFamilyById.get(positionTemplateId) ?? null;
+  const policy = matchSalaryPolicy({
+    policies,
+    departmentId,
+    jobFamily,
+    gradeCode: salaryGradeCode,
+    jobLevel,
+    effectiveOn,
+  });
+
+  if (!policy) return null;
+  return {
+    publicId: policy.publicId,
+    baseSalary: policy.baseSalary,
+    salaryBandMin: policy.salaryBandMin,
+    salaryBandMax: policy.salaryBandMax,
+    performanceWeight: policy.performanceWeight,
+    effectiveFrom: policy.effectiveFrom,
+    effectiveTo: policy.effectiveTo,
+    matchedDepartment: policy.departmentId === departmentId,
+  };
+}
+
 async function loadSalaryRows(
   client: SalaryClient,
   employeeProfileId: number,
@@ -188,8 +292,9 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
   loadSession: getWorkspaceSession,
   async loadBootstrap(session) {
     const client = await getSupabaseServerClient();
+    const canManageSalary = session.permissionCodes.includes("salary.manage");
     const membersResult = await client.from("employee_profiles")
-      .select("id, organization_member_id, display_name, job_title, salary_grade_code, job_level, skills, department:departments!employee_profiles_department_id_fkey(name)")
+      .select("id, organization_member_id, display_name, job_title, department_id, position_template_id, salary_grade_code, job_level, skills, department:departments!employee_profiles_department_id_fkey(name)")
       .is("deleted_at", null)
       .in("employment_status", ["probation", "active", "on_leave"])
       .order("display_name");
@@ -210,6 +315,10 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       tasksResult,
       salaryResult,
       notificationsResult,
+      departmentsResult,
+      salaryGradePoliciesResult,
+      positionTemplatesResult,
+      selfSalaryPolicyResult,
       workProfilesResult,
       employeeSkillsResult,
       agentsResult,
@@ -231,6 +340,27 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       )),
       optionalBootstrapQuery("task_notifications", client.from("task_notifications")
         .select("task_id, status, last_error_code")),
+      optionalBootstrapQuery("departments", client.from("departments")
+        .select("id, name")
+        .is("deleted_at", null)),
+      canManageSalary
+        ? optionalBootstrapQuery("salary_grade_policies", client.from("salary_grade_policies")
+          .select("public_id, department_id, job_family, salary_grade_code, job_level, base_salary, salary_band_min, salary_band_max, performance_weight, effective_from, effective_to")
+          .eq("status", "active")
+          .is("deleted_at", null)
+          .order("effective_from", { ascending: false }))
+        : Promise.resolve({ data: [], error: null }),
+      canManageSalary
+        ? optionalBootstrapQuery("position_templates", client.from("position_templates")
+          .select("id, category")
+          .eq("status", "active")
+          .is("deleted_at", null))
+        : Promise.resolve({ data: [], error: null }),
+      canManageSalary
+        ? Promise.resolve({ data: [], error: null })
+        : optionalBootstrapQuery("current_salary_grade_policy", client.rpc(
+          "current_salary_grade_policy",
+        )),
       accessibleEmployeeProfileIds.length
         ? optionalBootstrapQuery("employee_work_profiles", serviceClient.from("employee_work_profiles")
           .select("employee_profile_id, summary, preferred_task_types, growth_goals, weekly_capacity_hours, self_skills, updated_at")
@@ -239,15 +369,15 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       optionalBootstrapQuery("employee_skills", client.from("employee_skills")
         .select("employee_profile_id, proficiency_level, years_experience, verification_status, skill:skill_tags(name)")),
       optionalBootstrapQuery("agent_definitions", client.from("agent_definitions")
-        .select("id, public_id, name, icon, description, model_code, prompt_version, capabilities, visibility_scope, min_job_level, status, department:departments!agent_definitions_department_id_fkey(name)")
+        .select("id, public_id, name, icon, description, model_code, prompt_version, capabilities, visibility_scope, min_job_level, status, department_id")
         .is("deleted_at", null)
         .in("status", ["enabled", "disabled"])
         .order("updated_at", { ascending: false })),
       optionalBootstrapQuery("agent_permissions", client.from("agent_permissions")
-        .select("agent_id, scope_type, min_job_level, department:departments!agent_permissions_department_id_fkey(name), member_id")
+        .select("agent_id, scope_type, min_job_level, department_id, member_id")
         .is("deleted_at", null)),
       optionalBootstrapQuery("agent_invocations", client.from("agent_invocations")
-        .select("agent_id, status, latency_ms, output_summary, started_at, agent:agent_definitions!agent_invocations_agent_id_fkey(name, department:departments!agent_definitions_department_id_fkey(name)), actor:organization_members!agent_invocations_actor_member_id_fkey(id, profile:employee_profiles!employee_profiles_organization_member_id_fkey(display_name))")
+        .select("agent_id, actor_member_id, status, latency_ms, output_summary, started_at")
         .order("started_at", { ascending: false })
         .limit(40)),
       optionalBootstrapQuery("knowledge_documents", client.from("knowledge_documents")
@@ -262,6 +392,51 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
         status: row.status,
         errorCode: row.last_error_code ?? "",
       }]),
+    );
+    const departmentNameById = new Map(
+      (departmentsResult.data ?? []).flatMap((row) => {
+        const id = Number(row.id);
+        return Number.isSafeInteger(id) && typeof row.name === "string"
+          ? [[id, row.name] as const]
+          : [];
+      }),
+    );
+    const salaryGradePolicies = normalizeSalaryGradePolicies(
+      salaryGradePoliciesResult.data ?? [],
+    );
+    const positionJobFamilyById = new Map(
+      (positionTemplatesResult.data ?? []).flatMap((row) => {
+        const id = numberOrNull(row.id);
+        const category = stringOrNull(row.category);
+        return id !== null && category ? [[id, category] as const] : [];
+      }),
+    );
+    const selfSalaryPolicy = normalizeSalaryGradePolicies(
+      selfSalaryPolicyResult.data ?? [],
+    )[0] ?? null;
+    const effectiveOn = new Date().toISOString().slice(0, 10);
+    const memberNameByMemberId = new Map(
+      (membersResult.data ?? []).flatMap((row) => (
+        Number.isSafeInteger(row.organization_member_id)
+          && typeof row.display_name === "string"
+          ? [[Number(row.organization_member_id), row.display_name] as const]
+          : []
+      )),
+    );
+    const agentMetaById = new Map(
+      (agentsResult.data ?? []).flatMap((row) => {
+        const id = Number(row.id);
+        if (!Number.isSafeInteger(id)) return [];
+        const departmentId = row.department_id === null
+          ? null
+          : Number(row.department_id);
+        return [[id, {
+          name: typeof row.name === "string" ? row.name : "未知 Agent",
+          departmentName: departmentId !== null && Number.isSafeInteger(departmentId)
+            ? departmentNameById.get(departmentId) ?? null
+            : null,
+        }] as const];
+      }),
     );
     const workProfileByEmployee = new Map(
       (workProfilesResult.data ?? []).map((row) => [row.employee_profile_id, {
@@ -318,7 +493,10 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       previous.minJobLevel = Math.min(previous.minJobLevel, Number(row.min_job_level ?? 1));
       if (row.scope_type === "dept") {
         previous.scope = previous.scope === "all" ? "dept" : "list";
-        const departmentName = optionalRelationName(row.department);
+        const departmentId = Number(row.department_id);
+        const departmentName = Number.isSafeInteger(departmentId)
+          ? departmentNameById.get(departmentId)
+          : null;
         if (departmentName && !previous.departments.includes(departmentName)) {
           previous.departments.push(departmentName);
         }
@@ -355,6 +533,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
         members: (membersResult.data ?? []).map((row) => ({
           id: row.organization_member_id,
           profileId: row.id,
+          departmentId: numberOrNull(row.department_id),
           displayName: row.display_name,
           departmentName: relationName(row.department),
           jobTitle: row.job_title,
@@ -363,6 +542,25 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
           skills: row.skills ?? [],
           verifiedSkills: verifiedSkillsByEmployee.get(row.id) ?? [],
           workProfile: workProfileByEmployee.get(row.id) ?? null,
+          salaryPolicy: canManageSalary
+            ? salaryPolicyForMember(
+              row,
+              salaryGradePolicies,
+              positionJobFamilyById,
+              effectiveOn,
+            )
+            : row.organization_member_id === session.member.id
+              ? selfSalaryPolicy && {
+                publicId: selfSalaryPolicy.publicId,
+                baseSalary: selfSalaryPolicy.baseSalary,
+                salaryBandMin: selfSalaryPolicy.salaryBandMin,
+                salaryBandMax: selfSalaryPolicy.salaryBandMax,
+                performanceWeight: selfSalaryPolicy.performanceWeight,
+                effectiveFrom: selfSalaryPolicy.effectiveFrom,
+                effectiveTo: selfSalaryPolicy.effectiveTo,
+                matchedDepartment: selfSalaryPolicy.departmentId !== null,
+               }
+               : null,
         })),
         projects: (projectsResult.data ?? []).map((row) => ({
           id: row.id,
@@ -449,7 +647,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
             id: row.id,
             publicId: row.public_id,
             name: row.name,
-            departmentName: optionalRelationName(row.department),
+            departmentName: agentMetaById.get(Number(row.id))?.departmentName ?? null,
             icon: row.icon,
             description: row.description,
             modelCode: row.model_code,
@@ -470,12 +668,14 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
         }),
         agentInvocations: (agentInvocationsResult.data ?? []).map((row) => ({
           agentId: row.agent_id,
-          agentName: nestedAgentName(row.agent),
-          departmentName: typeof row.agent === "object" && row.agent !== null
-            ? optionalRelationName((row.agent as { department?: unknown }).department)
+          agentName: agentMetaById.get(Number(row.agent_id))?.name ?? "未知 Agent",
+          departmentName: agentMetaById.get(Number(row.agent_id))?.departmentName ?? null,
+          actorMemberId: Number.isSafeInteger(row.actor_member_id)
+            ? Number(row.actor_member_id)
             : null,
-          actorMemberId: actorMemberId(row.actor),
-          actorName: actorName(row.actor),
+          actorName: Number.isSafeInteger(row.actor_member_id)
+            ? memberNameByMemberId.get(Number(row.actor_member_id)) ?? null
+            : null,
           status: row.status,
           latencyMs: row.latency_ms === null ? null : Number(row.latency_ms),
           outputSummary: row.output_summary,
