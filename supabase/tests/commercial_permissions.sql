@@ -92,6 +92,15 @@ cross join (values
 ) as seed(code, name, description)
 where tenant.slug = 'commercial-baseline-test';
 
+insert into public.role_permissions (tenant_id, role_id, permission_id)
+select tenant.id, role.id, permission.id
+from public.tenants tenant
+join public.roles role
+  on role.tenant_id = tenant.id
+  and role.code = 'employee'
+join public.permissions permission on permission.code = 'task.manage'
+where tenant.slug = 'commercial-baseline-test';
+
 select is(
   (
     select count(*)
