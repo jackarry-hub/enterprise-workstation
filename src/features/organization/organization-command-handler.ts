@@ -219,7 +219,7 @@ function isFailureResult(value: unknown): value is { outcome: "failure"; error: 
 function failureStatus(error: string) {
   if (error === "forbidden") return 403;
   if (error === "not_found") return 404;
-  if (error === "stale_version" || error === "duplicate_request" || error === "conflict") return 409;
+  if (error === "stale_version" || error === "duplicate_request" || error === "conflict" || error === "scope_conflict") return 409;
   return 400;
 }
 

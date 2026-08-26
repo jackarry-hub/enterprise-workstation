@@ -118,6 +118,22 @@ describe("organization command handler", () => {
     expect(await conflict.json()).toEqual({ error: "stale_version" });
   });
 
+  it("maps a cross-organization idempotency collision to a stable conflict", async () => {
+    const response = await handleOrganizationCommand(
+      request({ type: "create_department", code: "OPS", name: "Operations", version: 0, reason: "Operational structure" }),
+      {
+        session: adminSession,
+        rpc: vi.fn().mockResolvedValue({
+          data: { outcome: "failure", error: "scope_conflict" },
+          error: null,
+        }),
+      },
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "scope_conflict" });
+  });
+
   it("rejects create commands without explicit version zero or a business reason", async () => {
     const missingVersion = await handleOrganizationCommand(
       request({ type: "create_department", code: "OPS", name: "Operations", reason: "Needed" }),

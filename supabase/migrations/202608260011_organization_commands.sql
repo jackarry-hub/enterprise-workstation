@@ -84,7 +84,8 @@ begin
   ) else jsonb_build_object('outcome', 'failure', 'error', p_error) end;
   update public.organization_command_idempotency
   set result = v_result
-  where tenant_id = p_tenant_id and operation = p_operation and idempotency_key = p_idempotency_key;
+  where tenant_id = p_tenant_id and organization_id = p_organization_id
+    and operation = p_operation and idempotency_key = p_idempotency_key;
   perform public.append_audit_log(
     p_tenant_id, p_organization_id, p_actor_auth_user_id, p_actor_member_id,
     case when p_outcome = 'success' then p_success_action else 'organization.command_failed' end,
@@ -100,12 +101,30 @@ begin
 end;
 $$;
 
+create or replace function public.audit_organization_command_scope_conflict(
+  p_tenant_id bigint, p_organization_id bigint, p_actor_auth_user_id uuid, p_actor_member_id bigint,
+  p_operation text, p_target_type text, p_request_id uuid, p_idempotency_key uuid, p_permission text, p_reason text
+) returns jsonb language plpgsql security definer set search_path = '' as $$
+begin
+  perform public.append_audit_log(
+    p_tenant_id, p_organization_id, p_actor_auth_user_id, p_actor_member_id,
+    'organization.command_failed', p_target_type, null, p_request_id, null,
+    jsonb_build_object(
+      'outcome', 'failure', 'requestId', p_request_id, 'idempotencyKey', p_idempotency_key,
+      'permissionScope', p_permission, 'businessReason', p_reason,
+      'before', 'null'::jsonb, 'after', 'null'::jsonb, 'failure', 'scope_conflict'
+    )
+  );
+  return jsonb_build_object('outcome', 'failure', 'error', 'scope_conflict');
+end;
+$$;
+
 create or replace function public.create_current_department(
   p_label text, p_name text, p_description text, p_sort_order integer, p_version bigint,
   p_reason text, request_id uuid, idempotency_key uuid
 ) returns jsonb language plpgsql security definer set search_path = '' as $$
 declare v_tenant bigint; v_org bigint; v_actor bigint; v_user uuid; v_claimed boolean;
-  v_key uuid := idempotency_key; v_existing jsonb; v_department public.departments%rowtype; v_after jsonb;
+  v_key uuid := idempotency_key; v_existing_org bigint; v_existing jsonb; v_department public.departments%rowtype; v_after jsonb;
 begin
   select * into v_tenant, v_org, v_actor, v_user from public.current_organization_command_context('organization.manage');
   if request_id is null or idempotency_key is null or request_id = idempotency_key
@@ -119,10 +138,14 @@ begin
   values (v_tenant, v_org, 'create_current_department', idempotency_key, request_id)
   on conflict do nothing returning true into v_claimed;
   if not coalesce(v_claimed, false) then
-    select result into v_existing from public.organization_command_idempotency
+    select organization_id, result into v_existing_org, v_existing from public.organization_command_idempotency
     where public.organization_command_idempotency.tenant_id = v_tenant
       and public.organization_command_idempotency.operation = 'create_current_department'
-      and public.organization_command_idempotency.idempotency_key = v_key;
+       and public.organization_command_idempotency.idempotency_key = v_key;
+    if v_existing_org is distinct from v_org then
+      return public.audit_organization_command_scope_conflict(v_tenant, v_org, v_user, v_actor,
+        'create_current_department', 'department', request_id, idempotency_key, 'organization.manage', btrim(p_reason));
+    end if;
     return v_existing;
   end if;
   begin
@@ -146,7 +169,7 @@ create or replace function public.update_current_department(
   p_department_public_id uuid, p_name text, p_description text, p_sort_order integer, p_version bigint,
   p_reason text, request_id uuid, idempotency_key uuid
 ) returns jsonb language plpgsql security definer set search_path = '' as $$
-declare v_tenant bigint; v_org bigint; v_actor bigint; v_user uuid; v_claimed boolean; v_existing jsonb;
+declare v_tenant bigint; v_org bigint; v_actor bigint; v_user uuid; v_claimed boolean; v_existing_org bigint; v_existing jsonb;
   v_key uuid := idempotency_key; v_department public.departments%rowtype; v_before jsonb; v_after jsonb;
 begin
   select * into v_tenant, v_org, v_actor, v_user from public.current_organization_command_context('organization.manage');
@@ -156,10 +179,12 @@ begin
      or length(p_description) > 1000 or p_sort_order is null or p_sort_order < 0 then raise exception 'Department command is invalid' using errcode = '22023'; end if;
   insert into public.organization_command_idempotency (tenant_id, organization_id, operation, idempotency_key, request_id)
   values (v_tenant, v_org, 'update_current_department', idempotency_key, request_id) on conflict do nothing returning true into v_claimed;
-  if not coalesce(v_claimed, false) then select result into v_existing from public.organization_command_idempotency
+  if not coalesce(v_claimed, false) then select organization_id, result into v_existing_org, v_existing from public.organization_command_idempotency
     where public.organization_command_idempotency.tenant_id = v_tenant
       and public.organization_command_idempotency.operation = 'update_current_department'
-      and public.organization_command_idempotency.idempotency_key = v_key; return v_existing; end if;
+       and public.organization_command_idempotency.idempotency_key = v_key;
+    if v_existing_org is distinct from v_org then return public.audit_organization_command_scope_conflict(v_tenant,v_org,v_user,v_actor,'update_current_department','department',request_id,idempotency_key,'organization.manage',btrim(p_reason)); end if;
+    return v_existing; end if;
   select * into v_department from public.departments department where department.tenant_id = v_tenant
     and department.organization_id = v_org and department.public_id = p_department_public_id and department.deleted_at is null for update;
   if not found then return public.complete_organization_command(v_tenant,v_org,v_user,v_actor,'update_current_department','organization.department_updated','department',p_department_public_id::text,request_id,idempotency_key,'organization.manage',btrim(p_reason),'failure','not_found',null,null); end if;
@@ -176,16 +201,18 @@ create or replace function public.upsert_current_position(
   p_position_public_id uuid, p_label text, p_name text, p_category text, p_description text,
   p_department_public_id uuid, p_version bigint, p_reason text, request_id uuid, idempotency_key uuid
 ) returns jsonb language plpgsql security definer set search_path = '' as $$
-declare v_tenant bigint; v_org bigint; v_actor bigint; v_user uuid; v_claimed boolean; v_existing jsonb;
+declare v_tenant bigint; v_org bigint; v_actor bigint; v_user uuid; v_claimed boolean; v_existing_org bigint; v_existing jsonb;
   v_key uuid := idempotency_key; v_department_id bigint; v_position public.position_templates%rowtype; v_before jsonb; v_after jsonb;
 begin
   select * into v_tenant,v_org,v_actor,v_user from public.current_organization_command_context('organization.manage');
   if request_id is null or idempotency_key is null or request_id=idempotency_key or p_reason is null or length(btrim(p_reason)) not between 1 and 500 or p_label is null or p_label<>upper(btrim(p_label)) or length(p_label) not between 1 and 80 or p_name is null or length(btrim(p_name)) not between 1 and 120 or p_category is null or length(btrim(p_category)) not between 1 and 80 or p_description is null or length(p_description)>1000 or p_version is null or p_version<0 then raise exception 'Position command is invalid' using errcode='22023'; end if;
   insert into public.organization_command_idempotency (tenant_id,organization_id,operation,idempotency_key,request_id) values (v_tenant,v_org,'upsert_current_position',idempotency_key,request_id) on conflict do nothing returning true into v_claimed;
-  if not coalesce(v_claimed,false) then select result into v_existing from public.organization_command_idempotency
+  if not coalesce(v_claimed,false) then select organization_id, result into v_existing_org, v_existing from public.organization_command_idempotency
     where public.organization_command_idempotency.tenant_id=v_tenant
       and public.organization_command_idempotency.operation='upsert_current_position'
-      and public.organization_command_idempotency.idempotency_key=v_key; return v_existing; end if;
+       and public.organization_command_idempotency.idempotency_key=v_key;
+    if v_existing_org is distinct from v_org then return public.audit_organization_command_scope_conflict(v_tenant,v_org,v_user,v_actor,'upsert_current_position','position',request_id,idempotency_key,'organization.manage',btrim(p_reason)); end if;
+    return v_existing; end if;
   if p_department_public_id is not null then select id into v_department_id from public.departments where tenant_id=v_tenant and organization_id=v_org and public_id=p_department_public_id and deleted_at is null; if v_department_id is null then return public.complete_organization_command(v_tenant,v_org,v_user,v_actor,'upsert_current_position','organization.position_upserted','position',p_department_public_id::text,request_id,idempotency_key,'organization.manage',btrim(p_reason),'failure','not_found',null,null); end if; end if;
   if p_position_public_id is null then
     if p_version<>0 then return public.complete_organization_command(v_tenant,v_org,v_user,v_actor,'upsert_current_position','organization.position_upserted','position',null,request_id,idempotency_key,'organization.manage',btrim(p_reason),'failure','stale_version',null,null); end if;
@@ -198,7 +225,11 @@ begin
     if v_position.source<>'manual' or exists (select 1 from public.directory_entity_links link where link.tenant_id=v_tenant and link.organization_id=v_org and link.entity_type='position' and link.position_template_id=v_position.id) then return public.complete_organization_command(v_tenant,v_org,v_user,v_actor,'upsert_current_position','organization.position_upserted','position',v_position.public_id::text,request_id,idempotency_key,'organization.manage',btrim(p_reason),'failure','forbidden',null,null); end if;
     if v_position.version<>p_version then return public.complete_organization_command(v_tenant,v_org,v_user,v_actor,'upsert_current_position','organization.position_upserted','position',v_position.public_id::text,request_id,idempotency_key,'organization.manage',btrim(p_reason),'failure','stale_version',null,null); end if;
     v_before:=jsonb_build_object('positionRef',v_position.public_id,'name',v_position.name,'version',v_position.version);
-    update public.position_templates set department_id=v_department_id,code=p_label,name=btrim(p_name),category=btrim(p_category),description=btrim(p_description),version=version+1,updated_at=clock_timestamp() where id=v_position.id returning * into v_position;
+    begin
+      update public.position_templates set department_id=v_department_id,code=p_label,name=btrim(p_name),category=btrim(p_category),description=btrim(p_description),version=version+1,updated_at=clock_timestamp() where id=v_position.id returning * into v_position;
+    exception when unique_violation then
+      return public.complete_organization_command(v_tenant,v_org,v_user,v_actor,'upsert_current_position','organization.position_upserted','position',v_position.public_id::text,request_id,idempotency_key,'organization.manage',btrim(p_reason),'failure','conflict',v_before,null);
+    end;
   end if;
   v_after:=jsonb_build_object('positionRef',v_position.public_id,'positionLabel',v_position.code,'name',v_position.name,'version',v_position.version);
   return public.complete_organization_command(v_tenant,v_org,v_user,v_actor,'upsert_current_position','organization.position_upserted','position',v_position.public_id::text,request_id,idempotency_key,'organization.manage',btrim(p_reason),'success',null,v_before,v_after);
@@ -208,16 +239,18 @@ $$;
 create or replace function public.assign_current_member_role(
   p_member_id bigint, p_role_name text, p_version bigint, p_reason text, request_id uuid, idempotency_key uuid
 ) returns jsonb language plpgsql security definer set search_path = '' as $$
-declare v_tenant bigint; v_org bigint; v_actor bigint; v_user uuid; v_claimed boolean; v_existing jsonb;
+declare v_tenant bigint; v_org bigint; v_actor bigint; v_user uuid; v_claimed boolean; v_existing_org bigint; v_existing jsonb;
   v_key uuid := idempotency_key; v_target public.organization_members%rowtype; v_role_id bigint; v_before jsonb; v_after jsonb;
 begin
   select * into v_tenant,v_org,v_actor,v_user from public.current_organization_command_context('role.manage');
   if request_id is null or idempotency_key is null or request_id=idempotency_key or p_reason is null or length(btrim(p_reason)) not between 1 and 500 or p_member_id is null or p_version is null or p_version<1 or p_role_name not in ('admin','department_head','employee','finance','hr') then raise exception 'Role command is invalid' using errcode='22023'; end if;
   insert into public.organization_command_idempotency (tenant_id,organization_id,operation,idempotency_key,request_id) values (v_tenant,v_org,'assign_current_member_role',idempotency_key,request_id) on conflict do nothing returning true into v_claimed;
-  if not coalesce(v_claimed,false) then select result into v_existing from public.organization_command_idempotency
+  if not coalesce(v_claimed,false) then select organization_id, result into v_existing_org, v_existing from public.organization_command_idempotency
     where public.organization_command_idempotency.tenant_id=v_tenant
       and public.organization_command_idempotency.operation='assign_current_member_role'
-      and public.organization_command_idempotency.idempotency_key=v_key; return v_existing; end if;
+       and public.organization_command_idempotency.idempotency_key=v_key;
+    if v_existing_org is distinct from v_org then return public.audit_organization_command_scope_conflict(v_tenant,v_org,v_user,v_actor,'assign_current_member_role','organization_member',request_id,idempotency_key,'role.manage',btrim(p_reason)); end if;
+    return v_existing; end if;
   select * into v_target from public.organization_members where tenant_id=v_tenant and organization_id=v_org and id=p_member_id and status in ('active','invited') for update;
   if not found then return public.complete_organization_command(v_tenant,v_org,v_user,v_actor,'assign_current_member_role','organization.role_assigned','organization_member',p_member_id::text,request_id,idempotency_key,'role.manage',btrim(p_reason),'failure','not_found',null,null); end if;
   if exists (select 1 from public.member_roles assignment where assignment.tenant_id=v_tenant and assignment.member_id=v_target.id and assignment.assignment_source='directory') then return public.complete_organization_command(v_tenant,v_org,v_user,v_actor,'assign_current_member_role','organization.role_assigned','organization_member',v_target.id::text,request_id,idempotency_key,'role.manage',btrim(p_reason),'failure','directory_role_owned',null,null); end if;
@@ -236,6 +269,7 @@ $$;
 
 revoke all on function public.current_organization_command_context(text) from public, anon, authenticated, service_role;
 revoke all on function public.complete_organization_command(bigint,bigint,uuid,bigint,text,text,text,text,uuid,uuid,text,text,text,text,jsonb,jsonb) from public, anon, authenticated, service_role;
+revoke all on function public.audit_organization_command_scope_conflict(bigint,bigint,uuid,bigint,text,text,uuid,uuid,text,text) from public, anon, authenticated, service_role;
 revoke all on function public.create_current_department(text,text,text,integer,bigint,text,uuid,uuid) from public, anon;
 revoke all on function public.update_current_department(uuid,text,text,integer,bigint,text,uuid,uuid) from public, anon;
 revoke all on function public.upsert_current_position(uuid,text,text,text,text,uuid,bigint,text,uuid,uuid) from public, anon;
