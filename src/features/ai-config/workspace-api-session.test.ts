@@ -23,6 +23,7 @@ const access = {
   jobTitle: "董事长",
   skills: ["strategy"],
   roleCodes: ["owner"],
+  customRoleCodes: [],
   permissionCodes: ["dashboard.read"],
 };
 

@@ -20,18 +20,18 @@ describe("workstation runtime mode", () => {
     expect(isDemoAuthEnabled(env({}))).toBe(false);
   });
 
-  it("allows mock business data only outside production or when explicitly opted in", () => {
+  it("never allows mock business data in production, even when explicitly opted in", () => {
     expect(shouldAllowMockBusinessData(env({
       NODE_ENV: "production",
     }))).toBe(false);
     expect(shouldAllowMockBusinessData(env({
       WORKSTATION_ALLOW_MOCK_DATA: "true",
       NODE_ENV: "production",
-    }))).toBe(true);
+    }))).toBe(false);
     expect(shouldAllowMockBusinessData(env({
       NEXT_PUBLIC_WORKSTATION_ALLOW_MOCK_DATA: "true",
       NODE_ENV: "production",
-    }))).toBe(true);
+    }))).toBe(false);
     expect(shouldAllowMockBusinessData(env({
       NODE_ENV: "development",
     }))).toBe(true);
