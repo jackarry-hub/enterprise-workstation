@@ -35,6 +35,8 @@ declare
   v_envelope_key_count integer;
   v_ciphertext text;
   v_iv text;
+  v_before jsonb;
+  v_after jsonb;
   v_result jsonb;
 begin
   if v_actor_auth_user_id is null then
@@ -140,10 +142,20 @@ begin
     where assignment.tenant_id = v_tenant_id
       and assignment.member_id = v_actor_member_id
       and role.is_enabled
+      and (role.organization_id is null or role.organization_id = v_organization_id)
+      and (
+        not public.is_canonical_workspace_role_code(role.code)
+        or (role.is_system and role.organization_id is null)
+      )
       and permission.code = 'ai.config.manage'
   ) then
     raise exception 'AI configuration management permission required' using errcode = '42501';
   end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(v_tenant_public_id::text || ':' || provider, 0)
+  );
+
   if exists (
     select 1 from public.audit_logs audit
     where audit.tenant_id = v_tenant_id
@@ -152,6 +164,16 @@ begin
   ) then
     raise exception 'request_id has already been used' using errcode = '23505';
   end if;
+
+  select jsonb_build_object(
+    'provider', config.provider,
+    'model', config.model_name,
+    'keyConfigured', config.encrypted_api_key is not null and config.api_key_iv is not null
+  ) into v_before
+  from public.ai_provider_configs config
+  where config.tenant_id = v_tenant_public_id
+    and config.provider = provider
+  for update;
 
   insert into public.ai_provider_configs as config (
     tenant_id, provider, model_name, api_base_url,
@@ -175,7 +197,12 @@ begin
         else excluded.key_hint
       end,
       updated_at = now(),
-      updated_by = v_actor_auth_user_id;
+      updated_by = v_actor_auth_user_id
+  returning jsonb_build_object(
+    'provider', config.provider,
+    'model', config.model_name,
+    'keyConfigured', config.encrypted_api_key is not null and config.api_key_iv is not null
+  ) into v_after;
 
   perform public.append_audit_log(
     v_tenant_id,
@@ -188,9 +215,8 @@ begin
     request_id,
     null,
     jsonb_build_object(
-      'provider', provider,
-      'model', model,
-      'keyUpdated', encrypted_key is not null
+      'before', v_before,
+      'after', v_after
     )
   );
 

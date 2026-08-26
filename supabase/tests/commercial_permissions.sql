@@ -1,6 +1,6 @@
 begin;
 
-select plan(47);
+select plan(56);
 
 select is(
   (
@@ -677,6 +677,136 @@ select ok(not has_function_privilege(
   'EXECUTE'
 ), 'anonymous users cannot invoke the AI configuration command');
 
+insert into public.roles (
+  tenant_id, organization_id, code, name, description, is_system, is_enabled
+)
+select tenant.id, organization.id, seed.code, seed.name, seed.description, false, true
+from public.tenants tenant
+cross join (values
+  ('commercial-baseline-org-secondary', 'other_org_ai_config_manager', 'Other organization AI manager',
+    'Historical cross-organization role that must not grant AI configuration management'),
+  (null::text, 'global_ai_config_manager', 'Global AI manager',
+    'Global custom role used to prove AI configuration permission aggregation'),
+  ('commercial-baseline-org', 'same_org_ai_config_manager', 'Same organization AI manager',
+    'Same-organization custom role used to prove AI configuration permission aggregation')
+) as seed(organization_slug, code, name, description)
+left join public.organizations organization
+  on organization.tenant_id = tenant.id
+ and organization.slug = seed.organization_slug
+where tenant.slug = 'commercial-baseline-test'
+  and (seed.organization_slug is null or organization.id is not null);
+
+insert into public.role_permissions (tenant_id, role_id, permission_id)
+select tenant.id, role.id, permission.id
+from public.tenants tenant
+join public.roles role
+  on role.tenant_id = tenant.id
+ and role.code in (
+   'other_org_ai_config_manager',
+   'global_ai_config_manager',
+   'same_org_ai_config_manager'
+ )
+join public.permissions permission on permission.code = 'ai.config.manage'
+where tenant.slug = 'commercial-baseline-test';
+
+alter table public.member_roles disable trigger member_roles_organization_compatibility;
+insert into public.member_roles (tenant_id, member_id, role_id)
+select tenant.id, member.id, role.id
+from public.tenants tenant
+join public.employee_profiles profile
+  on profile.tenant_id = tenant.id and profile.employee_no = 'COM-EMPLOYEE'
+join public.organization_members member
+  on member.tenant_id = profile.tenant_id and member.id = profile.organization_member_id
+join public.roles role
+  on role.tenant_id = tenant.id and role.code = 'other_org_ai_config_manager'
+where tenant.slug = 'commercial-baseline-test';
+alter table public.member_roles enable trigger member_roles_organization_compatibility;
+
+select set_config('request.jwt.claim.sub', '22000000-0000-4000-8000-000000000001', true);
+set local role authenticated;
+select throws_ok(
+  $$
+    select public.update_current_ai_provider_config(
+      'deepseek', 'deepseek-chat',
+      '{"v":1,"ciphertext":"Y3Jvc3Mtb3JnLWNpcGhlcnRleHQtMTIzNDU2Nzg5MA==","iv":"MTIzNDU2Nzg5MDEy"}',
+      '7890', '40000000-0000-4000-8000-000000000010'::uuid
+    )
+  $$,
+  '42501',
+  'AI configuration management permission required',
+  'a historical same-tenant role from another organization cannot grant AI configuration management'
+);
+reset role;
+select ok(not exists (
+  select 1
+  from public.ai_provider_configs config
+  join public.tenants tenant on tenant.public_id = config.tenant_id
+  where tenant.slug = 'commercial-baseline-test'
+) and not exists (
+  select 1
+  from public.audit_logs audit
+  join public.tenants tenant on tenant.id = audit.tenant_id
+  where tenant.slug = 'commercial-baseline-test'
+    and audit.action = 'ai.config.updated'
+), 'cross-organization role denial leaves the commercial tenant configuration and audit unchanged');
+
+insert into public.member_roles (tenant_id, member_id, role_id)
+select tenant.id, member.id, role.id
+from public.tenants tenant
+join public.employee_profiles profile
+  on profile.tenant_id = tenant.id and profile.employee_no = 'COM-EMPLOYEE'
+join public.organization_members member
+  on member.tenant_id = profile.tenant_id and member.id = profile.organization_member_id
+join public.roles role
+  on role.tenant_id = tenant.id and role.code = 'global_ai_config_manager'
+where tenant.slug = 'commercial-baseline-test';
+
+select set_config('request.jwt.claim.sub', '22000000-0000-4000-8000-000000000001', true);
+set local role authenticated;
+select lives_ok(
+  $$
+    select public.update_current_ai_provider_config(
+      'deepseek', 'deepseek-chat',
+      '{"v":1,"ciphertext":"Z2xvYmFsLWNpcGhlcnRleHQtMTIzNDU2Nzg5MA==","iv":"MTIzNDU2Nzg5MDEy"}',
+      '7890', '40000000-0000-4000-8000-000000000011'::uuid
+    )
+  $$,
+  'an enabled global custom role grants AI configuration management'
+);
+reset role;
+
+delete from public.member_roles assignment
+using public.roles role, public.tenants tenant
+where assignment.tenant_id = role.tenant_id
+  and assignment.role_id = role.id
+  and role.tenant_id = tenant.id
+  and tenant.slug = 'commercial-baseline-test'
+  and role.code = 'global_ai_config_manager';
+
+insert into public.member_roles (tenant_id, member_id, role_id)
+select tenant.id, member.id, role.id
+from public.tenants tenant
+join public.employee_profiles profile
+  on profile.tenant_id = tenant.id and profile.employee_no = 'COM-EMPLOYEE'
+join public.organization_members member
+  on member.tenant_id = profile.tenant_id and member.id = profile.organization_member_id
+join public.roles role
+  on role.tenant_id = tenant.id and role.code = 'same_org_ai_config_manager'
+where tenant.slug = 'commercial-baseline-test';
+
+select set_config('request.jwt.claim.sub', '22000000-0000-4000-8000-000000000001', true);
+set local role authenticated;
+select lives_ok(
+  $$
+    select public.update_current_ai_provider_config(
+      'deepseek', 'deepseek-reasoner', null, null,
+      '40000000-0000-4000-8000-000000000012'::uuid
+    )
+  $$,
+  'an enabled same-organization custom role grants AI configuration management'
+);
+reset role;
+
 create temporary table ai_config_employee_before as
 select count(*) as config_count
 from public.ai_provider_configs config
@@ -766,17 +896,79 @@ select ok(exists (
     and audit.actor_auth_user_id = '11000000-0000-4000-8000-000000000012'::uuid
     and audit.request_id = '40000000-0000-4000-8000-000000000002'::uuid
 ), 'admin command appends an audit event with the current tenant and actor');
+select is(
+  (
+    select audit.metadata
+    from public.audit_logs audit
+    where audit.request_id = '40000000-0000-4000-8000-000000000002'::uuid
+  ),
+  '{"before":null,"after":{"provider":"deepseek","model":"deepseek-chat","keyConfigured":true}}'::jsonb,
+  'the first AI configuration audit records an unconfigured before state and a secret-free after state'
+);
+
+select set_config('request.jwt.claim.sub', '11000000-0000-4000-8000-000000000012', true);
+set local role authenticated;
+select lives_ok(
+  $$
+    select public.update_current_ai_provider_config(
+      'deepseek', 'deepseek-reasoner', null, null,
+      '40000000-0000-4000-8000-000000000004'::uuid
+    )
+  $$,
+  'a model-only AI configuration update succeeds without resubmitting the existing key'
+);
+reset role;
+select is(
+  (
+    select audit.metadata
+    from public.audit_logs audit
+    where audit.request_id = '40000000-0000-4000-8000-000000000004'::uuid
+  ),
+  '{"before":{"provider":"deepseek","model":"deepseek-chat","keyConfigured":true},"after":{"provider":"deepseek","model":"deepseek-reasoner","keyConfigured":true}}'::jsonb,
+  'a model change audit reconstructs the old and new model without secret material'
+);
+
+select set_config('request.jwt.claim.sub', '11000000-0000-4000-8000-000000000012', true);
+set local role authenticated;
+select lives_ok(
+  $$
+    select public.update_current_ai_provider_config(
+      'deepseek', 'deepseek-reasoner',
+      '{"v":1,"ciphertext":"cm90YXRlZC1jaXBoZXJ0ZXh0LTEyMzQ1Njc4OTA=","iv":"QUJDREVGR0hJSktM"}',
+      '4321', '40000000-0000-4000-8000-000000000005'::uuid
+    )
+  $$,
+  'a key rotation succeeds while the provider and model remain unchanged'
+);
+reset role;
+select is(
+  (
+    select audit.metadata
+    from public.audit_logs audit
+    where audit.request_id = '40000000-0000-4000-8000-000000000005'::uuid
+  ),
+  '{"before":{"provider":"deepseek","model":"deepseek-reasoner","keyConfigured":true},"after":{"provider":"deepseek","model":"deepseek-reasoner","keyConfigured":true}}'::jsonb,
+  'a key rotation audit preserves the unchanged provider and model in both secret-free summaries'
+);
 select ok(not exists (
   select 1
   from public.audit_logs audit
-  where audit.request_id = '40000000-0000-4000-8000-000000000002'::uuid
+  where audit.action = 'ai.config.updated'
+    and audit.request_id = any (array[
+      '40000000-0000-4000-8000-000000000002'::uuid,
+      '40000000-0000-4000-8000-000000000004'::uuid,
+      '40000000-0000-4000-8000-000000000005'::uuid
+    ])
     and (
       audit.metadata ?| array['encrypted_key', 'ciphertext', 'iv', 'key_hint', 'keyHint']
       or position('c2VjcmV0LWNpcGhlcnRleHQtMTIzNDU2Nzg5MA==' in audit.metadata::text) > 0
       or position('MTIzNDU2Nzg5MDEy' in audit.metadata::text) > 0
       or position('7890' in audit.metadata::text) > 0
+      or position('cm90YXRlZC1jaXBoZXJ0ZXh0LTEyMzQ1Njc4OTA=' in audit.metadata::text) > 0
+      or position('QUJDREVGR0hJSktM' in audit.metadata::text) > 0
+      or position('4321' in audit.metadata::text) > 0
     )
-), 'AI configuration audit metadata excludes ciphertext IV and key hint');
+), 'AI configuration audit metadata excludes every ciphertext IV and key hint across create model change and rotation');
 
 select set_config('request.jwt.claim.sub', '11000000-0000-4000-8000-000000000012', true);
 set local role authenticated;
@@ -784,7 +976,7 @@ select throws_ok(
   $$
     select public.update_current_ai_provider_config(
       'deepseek', 'deepseek-reasoner', null, null,
-      '40000000-0000-4000-8000-000000000002'::uuid
+      '40000000-0000-4000-8000-000000000005'::uuid
     )
   $$,
   '23505',
@@ -806,7 +998,7 @@ reset role;
 select is(
   (
     select count(*) from public.audit_logs audit
-    where audit.request_id = '40000000-0000-4000-8000-000000000002'::uuid
+    where audit.request_id = '40000000-0000-4000-8000-000000000005'::uuid
   ),
   1::bigint,
   'a duplicate request id leaves exactly one audit event'
@@ -826,7 +1018,7 @@ select is(
     join public.tenants tenant on tenant.public_id = config.tenant_id
     where tenant.slug = 'quantxy' and config.provider = 'deepseek'
   ),
-  'deepseek-chat',
+  'deepseek-reasoner',
   'a duplicate idempotency key leaves the original configuration unchanged'
 );
 select is(
