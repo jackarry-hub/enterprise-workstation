@@ -21,7 +21,7 @@ const LEGACY_SALARY_SELECT = "payroll_month, base_salary, bonus, social_security
 
 export type WorkstationBootstrapDependencies = {
   loadSession: () => Promise<BootstrapSession | { member: { id: number } } | null>;
-  loadBootstrap: (session: NonNullable<BootstrapSession>) => Promise<unknown>;
+  loadBootstrap: (session: NonNullable<BootstrapSession>, requestId?: string) => Promise<unknown>;
 };
 
 function relationName(value: unknown) {
@@ -171,37 +171,23 @@ function isMissingSalaryCalculationColumn(error: unknown) {
     || (/column/i.test(text) && /calculation_version|gross_salary|housing_fund_base|manual_adjustment_reason/i.test(text));
 }
 
-function errorSummary(error: unknown) {
-  if (!error || typeof error !== "object") {
-    return { message: String(error) };
-  }
-  const candidate = error as {
-    code?: unknown;
-    details?: unknown;
-    hint?: unknown;
-    message?: unknown;
-    name?: unknown;
-  };
+function safeErrorDiagnostic(error: unknown) {
+  const candidate = error && typeof error === "object"
+    ? error as { code?: unknown; name?: unknown }
+    : {};
   return {
-    code: typeof candidate.code === "string" ? candidate.code : undefined,
-    name: typeof candidate.name === "string" ? candidate.name : undefined,
-    message: typeof candidate.message === "string"
-      ? candidate.message
-      : String(error),
-    details: typeof candidate.details === "string" ? candidate.details : undefined,
-    hint: typeof candidate.hint === "string" ? candidate.hint : undefined,
+    errorCode: typeof candidate.code === "string" ? candidate.code.slice(0, 32) : "unknown",
+    errorType: typeof candidate.name === "string" ? candidate.name.slice(0, 80) : "unknown",
   };
 }
 
-function bootstrapQueryError(queryName: string, error: unknown) {
-  const summary = errorSummary(error);
-  const wrapped = new Error(
-    `workstation_bootstrap_query_failed:${queryName}:${summary.message}`,
-  );
+function bootstrapQueryError(requestId: string, queryName: string, error: unknown) {
+  const diagnostic = safeErrorDiagnostic(error);
+  const wrapped = new Error(`workstation_bootstrap_query_failed:${queryName}`);
   return Object.assign(wrapped, {
-    cause: error,
+    requestId,
     queryName,
-    summary,
+    diagnostic,
   });
 }
 
@@ -209,26 +195,43 @@ function logBootstrapError(event: string, details: Record<string, unknown>) {
   console.error(event, details);
 }
 
-function logOptionalQueryFailure(queryName: string, error: unknown) {
+function logOptionalQueryFailure(
+  queryName: string,
+  requestId: string,
+  error: unknown,
+  reason?: string,
+) {
   console.warn("workstation_bootstrap_optional_query_failed", {
     query: queryName,
-    ...errorSummary(error),
+    requestId,
+    ...(reason ? { reason } : {}),
+    ...safeErrorDiagnostic(error),
   });
 }
 
 async function optionalBootstrapQuery<T extends BootstrapQueryResult>(
   queryName: string,
   query: PromiseLike<T>,
+  requestId: string,
 ): Promise<T & { moduleError?: boolean }> {
   try {
     const result = await query;
     if (!result.error) return result;
-    logOptionalQueryFailure(queryName, result.error);
+    logOptionalQueryFailure(queryName, requestId, result.error);
     return { ...result, data: [], error: null, moduleError: true } as T & { moduleError: boolean };
   } catch (error) {
-    logOptionalQueryFailure(queryName, error);
+    logOptionalQueryFailure(queryName, requestId, error);
     return { data: [], error: null, moduleError: true } as unknown as T & { moduleError: boolean };
   }
+}
+
+function syntheticOptionalBootstrapFailure(
+  queryName: string,
+  requestId: string,
+  reason: string,
+): BootstrapQueryResult & { moduleError: true } {
+  logOptionalQueryFailure(queryName, requestId, undefined, reason);
+  return { data: [], error: null, moduleError: true };
 }
 
 function normalizeSalaryGradePolicies(
@@ -343,7 +346,8 @@ async function loadSalaryRows(
 
 export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDependencies = {
   loadSession: getWorkspaceSession,
-  async loadBootstrap(session) {
+  async loadBootstrap(session, suppliedRequestId) {
+    const requestId = suppliedRequestId ?? randomUUID();
     const client = await getSupabaseServerClient();
     const canManageSalary = session.permissionCodes.includes("salary.manage");
     const membersResult = await client.from("employee_profiles")
@@ -352,7 +356,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       .in("employment_status", ["probation", "active", "on_leave"])
       .order("display_name");
     if (membersResult.error) {
-      throw bootstrapQueryError("employee_profiles", membersResult.error);
+      throw bootstrapQueryError(requestId, "employee_profiles", membersResult.error);
     }
 
     const employeeProfileId = numericProfileIdForMember(
@@ -377,6 +381,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
           ? "managed_employee_salary_classifications"
           : "current_employee_salary_classification",
       ),
+      requestId,
     );
     const agentDefinitionsQuery = agentTenantId !== null && agentOrganizationId !== null
       ? optionalBootstrapQuery("agent_definitions", serviceClient.from("agent_definitions")
@@ -384,8 +389,12 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
         .eq("tenant_id", agentTenantId).eq("organization_id", agentOrganizationId)
         .is("deleted_at", null)
         .in("status", ["enabled", "disabled"])
-        .order("updated_at", { ascending: false }))
-      : Promise.resolve({ data: [], error: null, moduleError: true });
+        .order("updated_at", { ascending: false }), requestId)
+      : Promise.resolve(syntheticOptionalBootstrapFailure(
+        "agent_definitions",
+        requestId,
+        "agent_context_unavailable",
+      ));
     const [
       projectsResult,
       tasksResult,
@@ -406,59 +415,59 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       optionalBootstrapQuery("projects", client.from("projects")
         .select("id, public_id, name, owner_member_id, status, health, progress, priority, updated_at")
         .is("deleted_at", null)
-        .order("updated_at", { ascending: false })),
+        .order("updated_at", { ascending: false }), requestId),
       optionalBootstrapQuery("tasks", client.from("tasks")
         .select("id, public_id, project_id, title, description, assignee_member_id, reporter_member_id, status, priority, start_date, due_date, progress, acceptance_criteria, blocker, review_note, next_step, result_summary, result_link, result_files, accepted_at, submitted_at, reviewed_at, submission_count, rejection_count")
         .is("deleted_at", null)
-        .order("updated_at", { ascending: false })),
+        .order("updated_at", { ascending: false }), requestId),
       optionalBootstrapQuery("salary", loadSalaryRows(
         client as unknown as SalaryClient,
         employeeProfileId,
-      )),
+      ), requestId),
       salaryClassificationsQuery,
       optionalBootstrapQuery("task_notifications", client.from("task_notifications")
-        .select("task_id, status, last_error_code")),
+        .select("task_id, status, last_error_code"), requestId),
       optionalBootstrapQuery("departments", client.from("departments")
         .select("id, name")
-        .is("deleted_at", null)),
+        .is("deleted_at", null), requestId),
       canManageSalary
         ? optionalBootstrapQuery("salary_grade_policies", client.from("salary_grade_policies")
           .select("public_id, department_id, job_family, salary_grade_code, job_level, base_salary, salary_band_min, salary_band_max, performance_weight, effective_from, effective_to")
           .eq("status", "active")
           .is("deleted_at", null)
-          .order("effective_from", { ascending: false }))
+          .order("effective_from", { ascending: false }), requestId)
         : Promise.resolve({ data: [], error: null }),
       canManageSalary
         ? optionalBootstrapQuery("position_templates", client.from("position_templates")
           .select("id, category")
           .eq("status", "active")
-          .is("deleted_at", null))
+          .is("deleted_at", null), requestId)
         : Promise.resolve({ data: [], error: null }),
       canManageSalary
         ? Promise.resolve({ data: [], error: null })
         : optionalBootstrapQuery("current_salary_grade_policy", client.rpc(
           "current_salary_grade_policy",
-        )),
+        ), requestId),
       accessibleEmployeeProfileIds.length
         ? optionalBootstrapQuery("employee_work_profiles", serviceClient.from("employee_work_profiles")
           .select("employee_profile_id, summary, preferred_task_types, growth_goals, weekly_capacity_hours, self_skills, updated_at")
-          .in("employee_profile_id", accessibleEmployeeProfileIds))
+          .in("employee_profile_id", accessibleEmployeeProfileIds), requestId)
         : Promise.resolve({ data: [], error: null }),
       optionalBootstrapQuery("employee_skills", client.from("employee_skills")
-        .select("employee_profile_id, proficiency_level, years_experience, verification_status, skill:skill_tags(name)")),
+        .select("employee_profile_id, proficiency_level, years_experience, verification_status, skill:skill_tags(name)"), requestId),
       agentDefinitionsQuery,
       optionalBootstrapQuery("agent_permissions", client.from("agent_permissions")
         .select("agent_id, scope_type, min_job_level, department_id, role_code, member_id")
-        .is("deleted_at", null)),
+        .is("deleted_at", null), requestId),
       optionalBootstrapQuery("agent_invocations", client.from("agent_invocations")
         .select("agent_id, actor_member_id, status, latency_ms, output_summary, started_at")
         .order("started_at", { ascending: false })
-        .limit(40)),
+        .limit(40), requestId),
       optionalBootstrapQuery("knowledge_documents", client.from("knowledge_documents")
         .select("public_id, title, summary, category, tags, version, published_at")
         .eq("status", "published")
         .order("updated_at", { ascending: false })
-        .limit(30)),
+        .limit(30), requestId),
     ]);
 
     const notificationByTask = new Map(
@@ -613,9 +622,8 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       invocationsByAgent.set(row.agent_id, current);
     }
 
-    const currentClassification = classificationsByMember.get(session.member.id) ?? null;
     const currentDepartmentId = currentMember ? numberOrNull(currentMember.department_id) : null;
-    const currentJobLevel = currentClassification?.jobLevel ?? null;
+    const currentJobLevel = positiveIntegerOrNull(session.profile.jobLevel);
     const failedModules = new Set<BootstrapModule>();
     if (optionalQueryFailed(projectsResult)) failedModules.add("projects");
     if (optionalQueryFailed(tasksResult) || optionalQueryFailed(notificationsResult)) failedModules.add("tasks");
@@ -633,11 +641,9 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       optionalQueryFailed(agentsResult)
       || optionalQueryFailed(agentPermissionsResult)
       || optionalQueryFailed(agentInvocationsResult)
-      || optionalQueryFailed(salaryClassificationsResult)
     ) failedModules.add("agents");
     if (optionalQueryFailed(knowledgeResult)) failedModules.add("knowledge");
-    const requestId = failedModules.size ? randomUUID() : null;
-    const moduleErrors = requestId
+    const moduleErrors = failedModules.size
       ? Object.fromEntries([...failedModules].map((module) => [module, {
         code: "workstation_module_unavailable",
         requestId,
@@ -860,17 +866,27 @@ export function createWorkstationBootstrapHandler(
   dependencies: WorkstationBootstrapDependencies,
 ) {
   return async function loadBootstrap() {
-    const session = await dependencies.loadSession();
-    if (!session) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
+    const requestId = randomUUID();
     try {
+      const session = await dependencies.loadSession();
+      if (!session) {
+        return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+      }
       return NextResponse.json(
-        await dependencies.loadBootstrap(session as NonNullable<BootstrapSession>),
+        await dependencies.loadBootstrap(session as NonNullable<BootstrapSession>, requestId),
         { headers: { "cache-control": "no-store" } },
       );
     } catch (error) {
-      logBootstrapError("workstation_bootstrap_failed", errorSummary(error));
+      const failure = error && typeof error === "object"
+        ? error as { queryName?: unknown; requestId?: unknown; diagnostic?: unknown }
+        : {};
+      logBootstrapError("workstation_bootstrap_failed", {
+        requestId: typeof failure.requestId === "string" ? failure.requestId : requestId,
+        query: typeof failure.queryName === "string" ? failure.queryName : "bootstrap",
+        ...(failure.diagnostic && typeof failure.diagnostic === "object"
+          ? failure.diagnostic as Record<string, unknown>
+          : safeErrorDiagnostic(error)),
+      });
       return NextResponse.json(
         { error: "workstation_unavailable" },
         { status: 500 },

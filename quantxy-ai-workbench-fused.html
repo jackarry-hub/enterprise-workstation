@@ -1284,6 +1284,9 @@ function applyTaskDeepLink(){
   if(isDemoRuntime()) return '';
   var params=new URLSearchParams(window.location.search), values=params.getAll('task');
   if(values.length!==1||!TASK_UUID_PATTERN.test(values[0])) return '';
+  if(pageModuleUnavailable('execution')){
+    S.sel.task=values[0]; S.page='execution'; return '';
+  }
   if(WORKSTATION_GATEWAY.loadMyTask(S.me,values[0])){
     S.sel.task=values[0]; S.page='execution'; return '';
   }
@@ -1745,7 +1748,8 @@ function renderTop(){
   var dateDays=parseInt(S.f.dateDays,10)||30;
   var dateStart=fmt(addD(today(),-(dateDays-1)));
   var dateEnd=fmt(today());
-  var notices=topNotifications();
+  var taskNotificationUnavailable=moduleDependencyUnavailable(['tasks']);
+  var notices=taskNotificationUnavailable?[]:topNotifications();
   var quickItems=isDemoRuntime()
     ?[['new-project','proj','新建项目'],['new-task','task','新建任务'],['new-member','user','添加成员'],['new-file','file','上传文档'],['sched','ai','AI 调度目标']]
     :(hasWorkstationPermission('task.manage')?[['new-task','task','新建任务']]:[]);
@@ -1779,9 +1783,9 @@ function renderTop(){
   var notificationControl=j([
     '<div class="top-tool"><button class="bell" data-act="notifications" aria-haspopup="menu" aria-expanded="',S.topPanel==='notifications'?'true':'false','" aria-label="通知，',notices.length,' 条待处理">',ic('bell',18),notices.length?'<i>'+notices.length+'</i>':'','</button>',
       S.topPanel==='notifications'?j(['<div class="menu top-popover" role="menu"><div class="hd">我的执行提醒</div>',
-        notices.length?notices.map(function(item){
+        taskNotificationUnavailable?taskNotificationUnavailable:(notices.length?notices.map(function(item){
           return '<button class="notice" data-notification-task data-act="open-execution" data-id="'+attr(item.task.id)+'"><span class="tag '+item.tone+'">'+item.label+'</span><span style="flex:1"><b>'+esc(item.task.n)+'</b><span>截止 '+esc(item.task.e||'待安排')+'</span></span></button>';
-        }).join(''):'<div class="empty">当前没有待处理提醒</div>','</div>']):'',
+        }).join(''):'<div class="empty">当前没有待处理提醒</div>'),'</div>']):'',
     '</div>'
   ]);
   el('top').className='top'+(employeePage?' employee-top':'');
@@ -2107,8 +2111,6 @@ function viewSched(){
 
 /* ---------------- 页面：项目中心 ---------------- */
 function viewProj(){
-  var unavailable=moduleUnavailable('projects','项目数据');
-  if(unavailable) return unavailable;
   var cats=['全部','AI研发','产品开发','市场活动','内部管理','数据治理'];
   var q=(S.f.projQ||'').trim();
   var list=PROJECTS.filter(function(p){
@@ -2189,8 +2191,6 @@ function viewProj(){
 /* ---------------- 页面：任务中心 ---------------- */
 var COLS=[['待处理','#f59e0b'],['进行中','#2563eb'],['待验收','#7c3aed'],['已完成','#10b981']];
 function viewFormalTasks(){
-  var unavailable=moduleUnavailable('tasks','任务数据');
-  if(unavailable) return unavailable;
   var canManage=hasWorkstationPermission('task.manage');
   var base=canManage?S.tasks:S.tasks.filter(function(t){ return t.own===S.me; });
   var q=(S.f.taskQ||'').trim(), status=S.f.taskSt||'all';
@@ -2684,8 +2684,6 @@ function viewInsight(){
 
 /* ---------------- 页面：财务中心 ---------------- */
 function viewFin(){
-  var unavailable=moduleUnavailable('salary','薪资数据');
-  if(unavailable) return unavailable;
   function payrollManagerEntry(){
     if(!hasWorkstationPermission('salary.manage')) return '';
     return '<div class="card fade" style="margin-bottom:16px;border-color:#bfdbfe;background:linear-gradient(120deg,#eff6ff,#fff)"><div class="bd" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
@@ -2765,8 +2763,6 @@ function viewFin(){
 
 /* ---------------- 页面：知识中心 ---------------- */
 function viewKb(){
-  var unavailable=moduleUnavailable('knowledge','知识库数据');
-  if(unavailable) return unavailable;
   var cats=[['公司制度',140,'#2563eb'],['业务流程',186,'#10b981'],['SOP模板',232,'#f59e0b'],['产品资料',98,'#7c3aed'],['培训资料',75,'#38bdf8']];
   var recommendations=[
     ['为什么需要建立知识库？','知识库能够集中沉淀企业知识资产，提升复用效率，降低沟通成本，并帮助新员工快速上手。','数字化转型白皮书 2025'],
@@ -3577,10 +3573,30 @@ function moduleUnavailable(module,label){
     '<b style="font-size:16px">'+esc(label)+'暂时不可用</b><p class="hint" style="margin:8px 0 0">服务端未能读取该模块。请稍后重试；若问题持续，请联系管理员并提供请求 ID。</p>'+
     '<p style="margin:12px 0 0;font-family:ui-monospace,monospace;font-size:12px;color:var(--mut)">请求 ID：'+esc(error.requestId)+'</p></div></div>';
 }
+var MODULE_LABELS={
+  agents:'Agent 数据',directory:'组织目录',knowledge:'知识库数据',
+  projects:'项目数据',salary:'薪资数据',tasks:'任务数据'
+};
+/* Salary covers payroll rows plus the current classification and policy lookups. */
+var PAGE_MODULE_DEPENDENCIES={
+  proj:['projects'], project:['projects','tasks'], activities:['projects','tasks'],
+  sched:['projects','tasks','directory'], task:['tasks'], execution:['tasks'], me:['tasks','projects','salary'],
+  profile:['directory'], org:['directory'], fin:['salary'],'pay-admin':['salary'],
+  kb:['knowledge'], flow:['agents'], agent:['agents'], 'new-project':['projects'],
+  'new-task':['projects','tasks','directory'], 'new-agent':['agents','directory'], 'new-file':['knowledge']
+};
+function moduleDependencyUnavailable(modules){
+  for(var i=0;i<(modules||[]).length;i++){
+    var module=modules[i], unavailable=moduleUnavailable(module,MODULE_LABELS[module]||'工作台数据');
+    if(unavailable) return unavailable;
+  }
+  return '';
+}
+function pageModuleUnavailable(page){
+  return moduleDependencyUnavailable(PAGE_MODULE_DEPENDENCIES[page]);
+}
 function viewAgents(){
   var tab=S.f.agentTab||'dir', me=MB[S.me];
-  var unavailable=moduleUnavailable('agents','Agent 数据');
-  if(unavailable) return unavailable;
   var okN=S.agents.filter(function(a){ return canUse(a).ok; }).length;
   var byDept={}; S.agents.forEach(function(a){ byDept[a.dept]=(byDept[a.dept]||0)+1; });
   var pend=S.reqs.filter(function(r){ return r.st==='待审批'; });
@@ -3850,8 +3866,6 @@ function viewNewAgent(){
 
 /* ---------------- 组织与权限（成员增删改 + 部门标签管理） ---------------- */
 function viewFormalOrg(){
-  var unavailable=moduleUnavailable('directory','组织目录');
-  if(unavailable) return unavailable;
   if(!hasWorkstationPermission('organization.manage')) return '<div class="card fade"><div class="empty">当前账号没有组织管理权限</div></div>';
   var q=(S.f.orgQ||'').trim(), df=S.f.orgDept||'all';
   var load={}; S.tasks.forEach(function(t){ if(t.st!=='已完成') load[t.own]=(load[t.own]||0)+1; });
@@ -4437,14 +4451,15 @@ function render(){
   renderNav(); renderTop();
   var pageChanged=LAST_RENDERED_PAGE!==S.page;
   var taskFocusChanged=LAST_RENDERED_TASK_FOCUS!==S.mobileTaskFocus;
-  el('view').innerHTML=(VIEWS[S.page]||viewDash)()+modalHTML();
+  var unavailable=pageModuleUnavailable(S.page);
+  el('view').innerHTML=unavailable||(VIEWS[S.page]||viewDash)()+modalHTML();
   LAST_RENDERED_PAGE=S.page;
   LAST_RENDERED_TASK_FOCUS=S.mobileTaskFocus;
   persistUiState();
   if(pageChanged||taskFocusChanged) resetPagePosition();
   var cb=el('chatBox'); if(cb) cb.scrollTop=cb.scrollHeight;
   if(S.page==='set'&&!S.aiConfig.loaded&&!S.aiConfig.loading) setTimeout(function(){ loadAiConfig(false); },0);
-  if((S.page==='set'||S.page==='pay-admin')&&hasWorkstationPermission('salary.manage')) setTimeout(ensurePayrollPolicy,0);
+  if(!unavailable&&(S.page==='set'||S.page==='pay-admin')&&hasWorkstationPermission('salary.manage')) setTimeout(ensurePayrollPolicy,0);
 }
 
 /* ---------------- 交互 ---------------- */

@@ -442,8 +442,10 @@ describe("workstation bootstrap route", () => {
         departmentName: "产品中心",
         jobTitle: "产品经理",
         avatarUrl: null,
+        jobLevel: 6,
       },
-      permissionCodes: ["task.manage"],
+      permissionCodes: ["task.manage", "salary.self"],
+      roleCodes: ["employee"],
     } as never) as {
       members: Array<Record<string, unknown>>;
       tasks: Array<Record<string, unknown>>;
@@ -569,6 +571,94 @@ describe("workstation bootstrap route", () => {
     expect(JSON.stringify(bootstrap)).not.toMatch(
       /task_id|9001|9002|open_id|tenant_access_token|app_secret|raw provider response/i,
     );
+  });
+
+  it("keeps department-head Agent access aligned with server authorization without salary permission", async () => {
+    const members = query({
+      data: [{
+        id: 42,
+        tenant_id: 2,
+        organization_id: 3,
+        organization_member_id: 7,
+        display_name: "部门负责人",
+        job_title: "研发负责人",
+        department_id: 21,
+        position_template_id: 51,
+        skills: [],
+        department: { name: "研发中心" },
+      }],
+      error: null,
+    });
+    const classifications = query({ data: [], error: null });
+    const empty = query({ data: [], error: null });
+    const agents = query({
+      data: [{
+        id: 91,
+        public_id: "44444444-4444-4444-8444-444444444444",
+        name: "研发 Agent",
+        icon: "bot",
+        description: "研发部门可调用",
+        model_code: "deepseek-chat",
+        prompt_version: "v1",
+        system_prompt: "Use server-owned context only.",
+        tool_scope: { tools: ["task.read"] },
+        capabilities: ["任务检索"],
+        visibility_scope: "department",
+        min_job_level: 6,
+        status: "enabled",
+        department_id: 21,
+      }],
+      error: null,
+    });
+    const agentPermissions = query({
+      data: [{
+        agent_id: 91,
+        scope_type: "dept",
+        min_job_level: 6,
+        department_id: 21,
+        role_code: null,
+        member_id: null,
+      }],
+      error: null,
+    });
+    const client = {
+      from: vi.fn((table: string) => {
+        if (table === "employee_profiles") return members;
+        if (table === "agent_permissions") return agentPermissions;
+        return empty;
+      }),
+      rpc: vi.fn((name: string) => {
+        if (name === "current_employee_salary_classification") return classifications;
+        if (name === "current_salary_grade_policy") return empty;
+        throw new Error(`unexpected rpc ${name}`);
+      }),
+    };
+    const serviceClient = {
+      from: vi.fn((table: string) => {
+        if (table === "agent_definitions") return agents;
+        return empty;
+      }),
+    };
+    vi.mocked(getSupabaseServerClient).mockResolvedValue(client as never);
+    vi.mocked(getSupabaseServiceRoleClient).mockReturnValue(serviceClient as never);
+
+    const bootstrap = await defaultWorkstationBootstrapDependencies.loadBootstrap({
+      member: { id: 7 },
+      profile: {
+        displayName: "部门负责人",
+        departmentName: "研发中心",
+        jobTitle: "研发负责人",
+        avatarUrl: null,
+        jobLevel: 8,
+      },
+      permissionCodes: ["task.manage"],
+      roleCodes: ["department_head"],
+    } as never) as { agents: Array<Record<string, unknown>>; members: Array<Record<string, unknown>> };
+
+    expect(client.rpc).toHaveBeenCalledWith("current_employee_salary_classification");
+    expect(bootstrap.agents[0]).toMatchObject({ canInvoke: true, denialReason: "" });
+    expect(bootstrap.members[0]).not.toHaveProperty("grade");
+    expect(bootstrap.members[0]).not.toHaveProperty("lv");
   });
 
   it("uses the manager-only classification RPC before exposing managed member classifications", async () => {
@@ -741,6 +831,67 @@ describe("workstation bootstrap route", () => {
       net: 4000,
       calculationVersion: "",
     });
+  });
+
+  it("correlates optional and synthetic Agent failures with the request bootstrap ID", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const members = query({
+      data: [{
+        id: 42,
+        tenant_id: null,
+        organization_id: null,
+        organization_member_id: 7,
+        display_name: "无 Agent 上下文的员工",
+        job_title: "产品经理",
+        department_id: 21,
+        position_template_id: 51,
+        skills: [],
+        department: { name: "产品中心" },
+      }],
+      error: null,
+    });
+    const failing = query({
+      data: null as never,
+      error: { code: "42P01", message: "relation must not reach client or log" },
+    });
+    const client = {
+      from: vi.fn((table: string) => table === "employee_profiles" ? members : failing),
+      rpc: vi.fn(() => failing),
+    };
+    vi.mocked(getSupabaseServerClient).mockResolvedValue(client as never);
+    vi.mocked(getSupabaseServiceRoleClient).mockReturnValue({ from: vi.fn(() => failing) } as never);
+    const requestId = "a1111111-1111-4111-8111-111111111119";
+
+    const bootstrap = await defaultWorkstationBootstrapDependencies.loadBootstrap({
+      member: { id: 7 },
+      profile: {
+        displayName: "无 Agent 上下文的员工",
+        departmentName: "产品中心",
+        jobTitle: "产品经理",
+        avatarUrl: null,
+        jobLevel: 6,
+      },
+      permissionCodes: ["task.manage"],
+      roleCodes: ["employee"],
+    } as never, requestId) as {
+      moduleErrors: Record<string, { code: string; requestId: string }>;
+    };
+
+    expect(bootstrap.moduleErrors.agents).toEqual({
+      code: "workstation_module_unavailable",
+      requestId,
+    });
+    expect(Object.values(bootstrap.moduleErrors).every((error) => error.requestId === requestId)).toBe(true);
+    expect(warn).toHaveBeenCalledWith(
+      "workstation_bootstrap_optional_query_failed",
+      expect.objectContaining({ query: "projects", requestId }),
+    );
+    expect(warn).toHaveBeenCalledWith(
+      "workstation_bootstrap_optional_query_failed",
+      expect.objectContaining({ query: "agent_definitions", requestId, reason: "agent_context_unavailable" }),
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("relation must not reach client or log");
+    warn.mockRestore();
   });
 
   it("keeps the authenticated workstation available when non-identity modules fail", async () => {

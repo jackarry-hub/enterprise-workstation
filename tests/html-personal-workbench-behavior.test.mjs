@@ -3831,6 +3831,93 @@ test("formal workbench renders each unavailable server module instead of an empt
   }
 });
 
+test("formal route dependency guard blocks direct detail pages and restored payroll admin", async () => {
+  const requestId = "a1111111-1111-4111-8111-111111111120";
+  const bootstrap = formalBootstrap({
+    permissions: ["task.manage", "salary.manage", "project.manage", "agent.manage"],
+  });
+  bootstrap.moduleErrors = {
+    tasks: { code: "workstation_module_unavailable", requestId },
+    salary: { code: "workstation_module_unavailable", requestId },
+    projects: { code: "workstation_module_unavailable", requestId },
+    agents: { code: "workstation_module_unavailable", requestId },
+  };
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    for (const [page, label] of [
+      ["execution", "任务数据暂时不可用"],
+      ["agent", "Agent 数据暂时不可用"],
+      ["fin", "薪资数据暂时不可用"],
+      ["pay-admin", "薪资数据暂时不可用"],
+      ["project", "项目数据暂时不可用"],
+      ["activities", "项目数据暂时不可用"],
+    ]) {
+      dom.window.Q.S.page = page;
+      dom.window.Q.render();
+      const text = dom.window.document.querySelector("#view").textContent;
+      assert.match(text, new RegExp(label));
+      assert.match(text, new RegExp(requestId));
+    }
+    dom.window.Q.S.topPanel = "notifications";
+    dom.window.Q.S.page = "task";
+    dom.window.Q.render();
+    const notificationText = dom.window.document.querySelector("#top").textContent;
+    assert.match(notificationText, /任务数据暂时不可用/);
+    assert.match(notificationText, new RegExp(requestId));
+  } finally {
+    dom.window.close();
+  }
+
+  const restored = await openFormalWorkbenchWithStorage(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+    {
+      "qxy.workstation.ui.v1": JSON.stringify({ page: "pay-admin", savedAt: Date.now() }),
+    },
+  );
+  try {
+    assert.equal(restored.window.Q.S.page, "pay-admin");
+    const text = restored.window.document.querySelector("#view").textContent;
+    assert.match(text, /薪资数据暂时不可用/);
+    assert.match(text, new RegExp(requestId));
+  } finally {
+    restored.window.close();
+  }
+});
+
+test("formal route dependency guard keeps successful empty detail states distinct from unavailable", async () => {
+  const bootstrap = formalBootstrap({
+    permissions: ["task.manage", "salary.manage", "project.manage", "agent.manage"],
+    agents: [],
+  });
+  bootstrap.tasks = [];
+  bootstrap.projects = [];
+  bootstrap.payroll = { [bootstrap.session.memberId]: [] };
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    for (const [page, expected] of [
+      ["execution", "任务不存在或当前身份无权查看"],
+      ["agent", "Agent 不存在"],
+      ["project", "项目不存在"],
+      ["fin", "当前身份暂无工资记录"],
+    ]) {
+      dom.window.Q.S.page = page;
+      dom.window.Q.render();
+      const text = dom.window.document.querySelector("#view").textContent;
+      assert.match(text, new RegExp(expected));
+      assert.doesNotMatch(text, /暂时不可用/);
+    }
+  } finally {
+    dom.window.close();
+  }
+});
+
 test("formal Agent Center trusts server canInvoke and marks disabled or unconfigured Agents unavailable", async () => {
   const bootstrap = formalBootstrap({ permissions: ["agent.manage"] });
   bootstrap.agents = [
