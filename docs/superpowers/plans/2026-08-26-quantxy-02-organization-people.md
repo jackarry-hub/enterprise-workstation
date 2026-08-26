@@ -127,6 +127,7 @@ git commit -m "security: isolate employee private profiles"
 **Files:**
 - Create: `supabase/migrations/202608260048_directory_sync_observability.sql`
 - Create: `supabase/tests/directory_sync_observability.sql`
+- Create: `src/features/feishu/directory-sync-observability-migration.test.ts`
 - Modify: `src/features/feishu/directory-sync.test.ts`
 - Modify: `src/features/feishu/directory-sync.ts`
 - Modify: `src/app/api/workstation/directory-sync/handler.test.ts`
@@ -152,7 +153,7 @@ Add pgTAP cases proving failed runs and sanitized issues are persisted through t
 
 - [ ] **Step 2: Verify RED**
 
-Run: `npx vitest run src/features/feishu/directory-sync.test.ts src/app/api/workstation/directory-sync/handler.test.ts`
+Run: `npx vitest run src/features/feishu/directory-sync.test.ts src/features/feishu/directory-sync-observability-migration.test.ts src/app/api/workstation/directory-sync/handler.test.ts`
 Run: `npm run db:test`
 Expected: the endless pager is currently accepted as a complete snapshot and there is no durable service-only failure command.
 
@@ -164,7 +165,7 @@ Implement typed synchronization errors, one global page budget, repeated-token d
 
 - [ ] **Step 4: Verify GREEN**
 
-Run: `npx vitest run src/features/feishu/directory-sync.test.ts src/app/api/workstation/directory-sync/handler.test.ts`
+Run: `npx vitest run src/features/feishu/directory-sync.test.ts src/features/feishu/directory-sync-observability-migration.test.ts src/app/api/workstation/directory-sync/handler.test.ts`
 Run: `npm run db:test`
 Run: `npx playwright test tests/e2e/directory-sync.spec.ts`
 Expected: limit exhaustion fails closed with one durable failed run/issue, the previous complete snapshot remains active, and normal pagination returns the exact completed run ID and counts.
@@ -172,7 +173,7 @@ Expected: limit exhaustion fails closed with one durable failed run/issue, the p
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260048_directory_sync_observability.sql supabase/tests/directory_sync_observability.sql src/features/feishu/directory-sync.test.ts src/features/feishu/directory-sync.ts src/app/api/workstation/directory-sync/handler.test.ts src/app/api/workstation/directory-sync/handler.ts tests/e2e/directory-sync.spec.ts
+git add supabase/migrations/202608260048_directory_sync_observability.sql supabase/tests/directory_sync_observability.sql src/features/feishu/directory-sync-observability-migration.test.ts src/features/feishu/directory-sync.test.ts src/features/feishu/directory-sync.ts src/app/api/workstation/directory-sync/handler.test.ts src/app/api/workstation/directory-sync/handler.ts tests/e2e/directory-sync.spec.ts
 git commit -m "fix: make directory synchronization fail closed"
 ```
 
