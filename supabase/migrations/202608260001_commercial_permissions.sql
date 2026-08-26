@@ -178,6 +178,7 @@ where role.is_enabled
 create or replace function public.enforce_canonical_workspace_role_shape()
 returns trigger
 language plpgsql
+security definer
 set search_path = ''
 as $$
 begin
@@ -197,7 +198,7 @@ revoke all on function public.enforce_canonical_workspace_role_shape()
 
 drop trigger if exists roles_canonical_workspace_role_shape on public.roles;
 create trigger roles_canonical_workspace_role_shape
-before insert or update of code, is_system, organization_id on public.roles
+before insert or update of code, is_system, organization_id, is_enabled on public.roles
 for each row execute function public.enforce_canonical_workspace_role_shape();
 
 create or replace function public.enforce_member_role_organization_compatibility()
@@ -310,6 +311,10 @@ as $$
         and assignment.member_id = member.id
         and r.is_enabled
         and (r.organization_id is null or r.organization_id = member.organization_id)
+        and (
+          not public.is_canonical_workspace_role_code(r.code)
+          or (r.is_system and r.organization_id is null)
+        )
     ), '{}'::text[])
   )
   from public.external_identities external

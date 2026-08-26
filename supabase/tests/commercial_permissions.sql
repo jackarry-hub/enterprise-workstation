@@ -1,6 +1,6 @@
 begin;
 
-select plan(41);
+select plan(47);
 
 select is(
   (
@@ -526,12 +526,55 @@ insert into public.roles (
   tenant_id, organization_id, code, name, description, is_system, is_enabled
 )
 select tenant.id, organization.id, 'admin', 'Historical scoped admin collision',
-  'A legacy collision is excluded from canonical workspace identity', false, true
+  'A legacy collision is excluded from canonical workspace identity and permission aggregation', false, false
 from public.tenants tenant
 join public.organizations organization on organization.tenant_id = tenant.id
 where tenant.slug = 'commercial-baseline-test'
   and organization.slug = 'commercial-baseline-org';
 alter table public.roles enable trigger roles_canonical_workspace_role_shape;
+
+insert into public.role_permissions (tenant_id, role_id, permission_id)
+select tenant.id, role.id, permission.id
+from public.tenants tenant
+join public.roles role
+  on role.tenant_id = tenant.id
+ and role.code = 'admin'
+ and role.organization_id is not null
+ and not role.is_system
+join public.permissions permission on permission.code = 'organization.manage'
+where tenant.slug = 'commercial-baseline-test';
+
+select is(
+  (
+    select count(*)
+    from public.role_permissions assignment
+    join public.roles role
+      on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
+    join public.permissions permission on permission.id = assignment.permission_id
+    where role.code = 'admin'
+      and role.organization_id is not null
+      and not role.is_system
+      and permission.code = 'organization.manage'
+  ),
+  1::bigint,
+  'historical disabled canonical collision holds its explicit privileged permission before session aggregation'
+);
+
+select throws_ok(
+  $$
+    update public.roles role
+    set is_enabled = true
+    from public.tenants tenant
+    where role.tenant_id = tenant.id
+      and tenant.slug = 'commercial-baseline-test'
+      and role.code = 'admin'
+      and role.organization_id is not null
+      and not role.is_system
+  $$,
+  '23514',
+  'Canonical workspace role codes require a global system role',
+  'a historical disabled canonical collision cannot be re-enabled'
+);
 
 insert into public.member_roles (tenant_id, member_id, role_id)
 select tenant.id, member.id, role.id
@@ -579,6 +622,44 @@ select ok(
   not ((public.current_workspace_access() -> 'permissionCodes') ? 'agent.orchestrate'),
   'current workspace access excludes commercial permissions held only by a disabled role'
 );
+select ok(
+  not ((public.current_workspace_access() -> 'permissionCodes') ? 'organization.manage'),
+  'a historical canonical collision cannot contribute explicit privileged permissions'
+);
+
+set local role service_role;
+select throws_ok(
+  $$ select public.is_canonical_workspace_role_code('employee') $$,
+  '42501',
+  null,
+  'service role cannot execute the canonical workspace role helper directly'
+);
+select lives_ok(
+  $$
+    insert into public.roles (
+      tenant_id, organization_id, code, name, description, is_system, is_enabled
+    )
+    select tenant.id, organization.id, 'service_role_custom', 'Service role custom role',
+      'A valid custom role can use the canonical shape trigger lifecycle', false, true
+    from public.tenants tenant
+    join public.organizations organization on organization.tenant_id = tenant.id
+    where tenant.slug = 'commercial-baseline-test'
+      and organization.slug = 'commercial-baseline-org'
+  $$,
+  'service role can insert a valid custom role through the canonical shape trigger'
+);
+select lives_ok(
+  $$
+    update public.roles role
+    set is_enabled = false
+    from public.tenants tenant
+    where role.tenant_id = tenant.id
+      and tenant.slug = 'commercial-baseline-test'
+      and role.code = 'service_role_custom'
+  $$,
+  'service role can update a valid custom role through the canonical shape trigger'
+);
+reset role;
 
 select has_function(
   'public', 'update_current_ai_provider_config',
