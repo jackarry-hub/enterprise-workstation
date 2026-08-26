@@ -11,6 +11,30 @@ using (
   and (select public.has_organization_permission(organization_id, 'salary.manage'))
 );
 
+drop policy if exists salary_grade_policies_finance_insert
+  on public.salary_grade_policies;
+drop policy if exists salary_grade_policies_finance_update
+  on public.salary_grade_policies;
+
+create policy salary_grade_policies_finance_insert
+on public.salary_grade_policies for insert to authenticated
+with check (
+  tenant_id = (select public.current_tenant_id())
+  and (select public.has_organization_permission(organization_id, 'salary.manage'))
+);
+
+create policy salary_grade_policies_finance_update
+on public.salary_grade_policies for update to authenticated
+using (
+  tenant_id = (select public.current_tenant_id())
+  and deleted_at is null
+  and (select public.has_organization_permission(organization_id, 'salary.manage'))
+)
+with check (
+  tenant_id = (select public.current_tenant_id())
+  and (select public.has_organization_permission(organization_id, 'salary.manage'))
+);
+
 create index if not exists salary_grade_policies_secure_lookup_idx
 on public.salary_grade_policies (
   tenant_id,
@@ -76,8 +100,9 @@ as $$
    and policy.job_level = profile.job_level
    and policy.status = 'active'
    and policy.deleted_at is null
-   and policy.effective_from <= current_date
-   and (policy.effective_to is null or policy.effective_to >= current_date)
+   and policy.effective_from <= timezone('Asia/Shanghai', statement_timestamp())::date
+   and (policy.effective_to is null
+     or policy.effective_to >= timezone('Asia/Shanghai', statement_timestamp())::date)
   where member.user_id = (select auth.uid())
     and member.status = 'active'
     and (
@@ -85,7 +110,7 @@ as $$
       or (select public.has_organization_permission(member.organization_id, 'salary.manage'))
     )
   order by
-    (policy.department_id = profile.department_id) desc,
+    case when policy.department_id = profile.department_id then 1 else 0 end desc,
     policy.effective_from desc,
     policy.id
   limit 1;

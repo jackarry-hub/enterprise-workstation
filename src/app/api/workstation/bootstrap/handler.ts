@@ -33,6 +33,20 @@ export function parseNullableNumber(value: unknown): number | null {
   return Number.isFinite(number) ? number : null;
 }
 
+export function shanghaiBusinessDate(now: Date = new Date()): string {
+  if (!Number.isFinite(now.getTime())) {
+    throw new Error("invalid_business_date");
+  }
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const values = new Map(parts.map((part) => [part.type, part.value]));
+  return `${values.get("year")}-${values.get("month")}-${values.get("day")}`;
+}
+
 function numberOrNull(value: unknown) {
   return parseNullableNumber(value);
 }
@@ -414,7 +428,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
     const selfSalaryPolicy = normalizeSalaryGradePolicies(
       selfSalaryPolicyResult.data ?? [],
     )[0] ?? null;
-    const effectiveOn = new Date().toISOString().slice(0, 10);
+    const effectiveOn = shanghaiBusinessDate();
     const memberNameByMemberId = new Map(
       (membersResult.data ?? []).flatMap((row) => (
         Number.isSafeInteger(row.organization_member_id)

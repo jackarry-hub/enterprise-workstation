@@ -6,6 +6,7 @@ import {
   matchSalaryPolicy,
   numericProfileIdForMember,
   parseNullableNumber,
+  shanghaiBusinessDate,
 } from "@/app/api/workstation/bootstrap/handler";
 import {
   getSupabaseServerClient,
@@ -104,7 +105,7 @@ describe("workstation bootstrap route", () => {
       jobFamily: "engineering",
       gradeCode: "P6",
       jobLevel: 20,
-      effectiveOn: "2026-08-26",
+      effectiveOn: shanghaiBusinessDate(new Date("2026-08-25T16:00:00.000Z")),
     };
 
     expect(matchSalaryPolicy(subject)).toMatchObject({
@@ -115,6 +116,11 @@ describe("workstation bootstrap route", () => {
     expect(matchSalaryPolicy({ ...subject, jobFamily: "product" })?.jobFamily).toBe("product");
     expect(matchSalaryPolicy({ ...subject, jobLevel: 19 })).toBeNull();
     expect(matchSalaryPolicy({ ...subject, effectiveOn: "2026-07-31" })).toBeNull();
+  });
+
+  it("uses the Asia/Shanghai business day at the UTC midnight boundary", () => {
+    expect(shanghaiBusinessDate(new Date("2026-08-25T15:59:59.999Z"))).toBe("2026-08-25");
+    expect(shanghaiBusinessDate(new Date("2026-08-25T16:00:00.000Z"))).toBe("2026-08-26");
   });
 
   it("rejects an unauthenticated browser", async () => {

@@ -1,6 +1,6 @@
 begin;
 
-select plan(11);
+select plan(19);
 
 insert into public.tenants (name, slug, status)
 values
@@ -181,6 +181,33 @@ left join public.departments department
  and department.organization_id = organization.id
  and department.code = seed.department_code;
 
+select set_config(
+  'test.salary_privacy_b_tenant_id',
+  (select id::text from public.tenants where slug = 'salary-privacy-b'),
+  true
+);
+select set_config(
+  'test.salary_privacy_b_organization_id',
+  (
+    select organization.id::text
+    from public.organizations organization
+    join public.tenants tenant on tenant.id = organization.tenant_id
+    where tenant.slug = 'salary-privacy-b'
+      and organization.slug = 'salary-privacy-org'
+  ),
+  true
+);
+select set_config(
+  'test.salary_privacy_b_department_id',
+  (
+    select department.id::text
+    from public.departments department
+    join public.tenants tenant on tenant.id = department.tenant_id
+    where tenant.slug = 'salary-privacy-b' and department.code = 'ENG'
+  ),
+  true
+);
+
 select has_function(
   'public', 'current_salary_grade_policy', array[]::name[],
   'self salary policy RPC accepts no employee or tenant target'
@@ -195,6 +222,11 @@ select is(
    from pg_proc where oid = 'public.current_salary_grade_policy()'::regprocedure),
   'search_path=""',
   'self salary policy RPC has an empty search path'
+);
+select is(
+  timezone('Asia/Shanghai', '2026-08-25T16:00:00Z'::timestamptz)::date,
+  date '2026-08-26',
+  'self RPC uses the same Asia/Shanghai day as the manager bootstrap after UTC 16:00'
 );
 
 select set_config('request.jwt.claim.sub', '93000000-0000-4000-8000-000000000001', true);
@@ -219,7 +251,49 @@ select is(
   'engineering',
   'self RPC matches the profile position category instead of the job title'
 );
+select throws_ok(
+  $$
+    insert into public.salary_grade_policies (
+      tenant_id, organization_id, job_family, salary_grade_code, job_level,
+      base_salary, salary_band_min, salary_band_max, performance_weight,
+      status, effective_from
+    )
+    select tenant.id, organization.id, 'engineering', 'P8', 20,
+      80000, 75000, 85000, 0.2, 'active', date '2000-01-01'
+    from public.tenants tenant
+    join public.organizations organization
+      on organization.tenant_id = tenant.id
+    where tenant.slug = 'salary-privacy-a'
+      and organization.slug = 'salary-privacy-org'
+  $$,
+  '42501',
+  'new row violates row-level security policy for table "salary_grade_policies"',
+  'role code without salary.manage cannot insert a salary policy'
+);
+select is(
+  (
+    with attempted as (
+      update public.salary_grade_policies
+      set base_salary = 61000
+      where base_salary = 60000
+      returning id
+    )
+    select count(*) from attempted
+  ),
+  0::bigint,
+  'role code without salary.manage cannot update a salary policy'
+);
 reset role;
+select is(
+  (
+    select base_salary
+    from public.salary_grade_policies policy
+    join public.tenants tenant on tenant.id = policy.tenant_id
+    where tenant.slug = 'salary-privacy-a' and policy.base_salary = 60000
+  ),
+  60000::numeric,
+  'denied employee writes leave the department policy unchanged'
+);
 
 select set_config('request.jwt.claim.sub', '93000000-0000-4000-8000-000000000002', true);
 set local role authenticated;
@@ -234,6 +308,73 @@ select is(
    where tenant.slug = 'salary-privacy-b'),
   0::bigint,
   'salary manager cannot read another tenant salary policy rows'
+);
+select is(
+  (
+    with updated as (
+      update public.salary_grade_policies
+      set base_salary = 61000
+      where base_salary = 60000
+      returning base_salary
+    )
+    select base_salary from updated
+  ),
+  61000::numeric,
+  'enabled salary manager can update a policy in its own tenant and organization'
+);
+select is(
+  (
+    with inserted as (
+      insert into public.salary_grade_policies (
+        tenant_id, organization_id, job_family, salary_grade_code, job_level,
+        base_salary, salary_band_min, salary_band_max, performance_weight,
+        status, effective_from
+      )
+      select tenant.id, organization.id, 'engineering', 'P7', 20,
+        70000, 65000, 75000, 0.2, 'active', date '2000-01-01'
+      from public.tenants tenant
+      join public.organizations organization
+        on organization.tenant_id = tenant.id
+      where tenant.slug = 'salary-privacy-a'
+        and organization.slug = 'salary-privacy-org'
+      returning id
+    )
+    select count(*) from inserted
+  ),
+  1::bigint,
+  'enabled salary manager can insert a policy only for its own tenant and organization'
+);
+select throws_ok(
+  $$
+    insert into public.salary_grade_policies (
+      tenant_id, organization_id, department_id, job_family, salary_grade_code,
+      job_level, base_salary, salary_band_min, salary_band_max, performance_weight,
+      status, effective_from
+    ) values (
+      current_setting('test.salary_privacy_b_tenant_id')::bigint,
+      current_setting('test.salary_privacy_b_organization_id')::bigint,
+      current_setting('test.salary_privacy_b_department_id')::bigint,
+      'engineering', 'P8', 20, 80000, 75000, 85000, 0.2, 'active', date '2000-01-01'
+    )
+  $$,
+  '42501',
+  'new row violates row-level security policy for table "salary_grade_policies"',
+  'salary manager cannot insert a policy into another tenant'
+);
+reset role;
+
+update public.roles role
+set is_enabled = false
+from public.tenants tenant
+where tenant.id = role.tenant_id
+  and tenant.slug = 'salary-privacy-a'
+  and role.code = 'salary_manager';
+select set_config('request.jwt.claim.sub', '93000000-0000-4000-8000-000000000002', true);
+set local role authenticated;
+select is(
+  (select count(*) from public.salary_grade_policies),
+  0::bigint,
+  'disabled salary.manage role loses direct salary policy access through the helper'
 );
 reset role;
 
