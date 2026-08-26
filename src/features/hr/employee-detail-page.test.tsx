@@ -106,6 +106,8 @@ describe("EmployeeDetailPage", () => {
     render(<EmployeeDetailPage employee={publicEmployee} />);
 
     expect(screen.queryByText("该员工尚未关联企业工作站账号，员工档案仍可独立维护。")).not.toBeInTheDocument();
+    expect(screen.queryByText("未开通账号")).not.toBeInTheDocument();
+    expect(screen.queryByText("账号已开通")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "账号与权限" })).not.toBeInTheDocument();
   });
 });

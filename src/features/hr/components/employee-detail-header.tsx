@@ -59,9 +59,7 @@ export function EmployeeDetailHeader({ employee }: { employee: EmployeeDirectory
                   <ShieldCheck aria-hidden="true" className="size-3" />
                   账号已开通
                 </Badge>
-              ) : (
-                <Badge variant="neutral" className="rounded-lg">未开通账号</Badge>
-              )}
+              ) : null}
             </div>
             <p className="mt-1.5 text-base text-muted-foreground">{profile.jobTitle}</p>
 

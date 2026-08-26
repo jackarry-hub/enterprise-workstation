@@ -141,6 +141,7 @@ function directoryFromRows(rows: EmployeeDirectoryRpcRow[]): EmployeeDirectoryRe
 }
 
 export async function loadEmployeeDirectory(
+  organizationPublicId: string,
   clientFactory: EmployeeDirectoryClientFactory = getSupabaseServerClient,
   options: { allowMockFallback?: boolean } = {},
 ): Promise<EmployeeDirectoryResult> {
@@ -150,7 +151,9 @@ export async function loadEmployeeDirectory(
 
   try {
     const client = await clientFactory() as unknown as RpcClient;
-    const response = await client.rpc("current_employee_directory");
+    const response = await client.rpc("current_employee_directory", {
+      p_organization_public_id: organizationPublicId,
+    });
     if (response.error) throw response.error;
     return directoryFromRows(toDirectoryRows(response.data));
   } catch {
@@ -160,12 +163,14 @@ export async function loadEmployeeDirectory(
 
 export async function loadEmployeePrivateProfile(
   employeePublicId: string,
+  organizationPublicId: string,
   clientFactory: EmployeeDirectoryClientFactory = getSupabaseServerClient,
 ): Promise<EmployeePrivateProfileResult> {
   try {
     const client = await clientFactory() as unknown as RpcClient;
     const response = await client.rpc("current_employee_private_profile", {
       p_employee_public_id: employeePublicId,
+      p_organization_public_id: organizationPublicId,
     });
     if (response.error) throw response.error;
     return { source: "supabase", data: toPrivateProfile(response.data) };

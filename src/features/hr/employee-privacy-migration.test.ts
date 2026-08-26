@@ -16,7 +16,7 @@ describe("employee private profile migration contract", () => {
     const migration = readFileSync(migrationPath, "utf8");
 
     const directoryFunction = migration.match(
-      /create or replace function public\.current_employee_directory\(\)[\s\S]*?\$\$;/i,
+      /create or replace function public\.current_employee_directory\(\s*p_organization_public_id uuid\s*\)[\s\S]*?\$\$;/i,
     )?.[0].toLowerCase() ?? "";
     const privateFunction = migration.match(
       /create or replace function public\.current_employee_private_profile\([\s\S]*?\$\$;/i,
@@ -51,6 +51,7 @@ describe("employee private profile migration contract", () => {
     expect(directoryFunction).toContain("security definer");
     expect(directoryFunction).toContain("set search_path = ''");
     expect(directoryFunction).toContain("current_tenant_id()");
+    expect(directoryFunction).toContain("organization.public_id = p_organization_public_id");
     expect(directoryFunction).toContain("member.status = 'active'");
     expect(directoryFunction).toContain("left join public.organization_members target_member");
     expect(directoryFunction).toContain("profile.organization_member_id is null");
@@ -64,6 +65,7 @@ describe("employee private profile migration contract", () => {
     expect(privateFunction).toContain("security definer");
     expect(privateFunction).toContain("set search_path = ''");
     expect(privateFunction).toContain("profile.public_id = p_employee_public_id");
+    expect(privateFunction).toContain("organization.public_id = p_organization_public_id");
     expect(privateFunction).toContain("private.tenant_id = profile.tenant_id");
     expect(privateFunction).toContain("private.organization_id = profile.organization_id");
     expect(privateFunction).toContain("target_member.user_id = (select auth.uid())");
@@ -87,8 +89,10 @@ describe("employee private profile migration contract", () => {
     expect(payrollFactsFunction).not.toContain("private_email");
     expect(payrollFactsFunction).not.toContain("phone");
     expect(payrollFactsFunction).not.toContain("sensitive_hr_notes");
-    expect(migration).toContain("grant execute on function public.current_employee_directory() to authenticated");
-    expect(migration).toContain("grant execute on function public.current_employee_private_profile(uuid) to authenticated");
+    expect(migration).toContain("grant execute on function public.current_employee_directory(uuid) to authenticated");
+    expect(migration).toContain("grant execute on function public.current_employee_private_profile(uuid, uuid) to authenticated");
+    expect(migration).not.toContain("grant execute on function public.current_employee_directory() to authenticated");
+    expect(migration).not.toContain("grant execute on function public.current_employee_private_profile(uuid) to authenticated");
     expect(migration).toContain("revoke all on function public.current_payroll_employee_facts(bigint) from public, anon, authenticated, service_role");
     expect(migration).toContain("grant execute on function public.current_payroll_employee_facts(bigint) to authenticated");
     expect(migration).toContain("revoke all on table public.employee_private_profiles from public, anon, authenticated, service_role");
@@ -96,8 +100,8 @@ describe("employee private profile migration contract", () => {
     for (const functionName of [
       "touch_employee_private_profiles_updated_at()",
       "sync_employee_profile_private_legacy_fields()",
-      "current_employee_directory()",
-      "current_employee_private_profile(uuid)",
+      "current_employee_directory(uuid)",
+      "current_employee_private_profile(uuid, uuid)",
       "current_payroll_employee_facts(bigint)",
     ]) {
       expect(migration).toContain(`revoke all on function public.${functionName} from public, anon, authenticated, service_role`);

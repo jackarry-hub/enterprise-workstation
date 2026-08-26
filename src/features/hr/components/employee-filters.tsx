@@ -20,7 +20,6 @@ const statusOptions: Array<{ value: EmploymentStatus | "all"; label: string }> =
   { value: "active", label: "在职" },
   { value: "probation", label: "试用期" },
   { value: "on_leave", label: "休假中" },
-  { value: "departed", label: "已离职" },
 ];
 
 type EmployeeFiltersProps = {
@@ -50,7 +49,7 @@ export function EmployeeFilters({
           onChange={(event) => onFiltersChange({ ...filters, query: event.target.value })}
           aria-label="搜索员工"
           placeholder="搜索姓名、工号或岗位"
-          className="h-10 rounded-xl border-input/80 bg-background/75 pl-9 shadow-none"
+          className="h-11 rounded-xl border-input/80 bg-background/75 pl-9 shadow-none"
         />
       </div>
 
@@ -59,7 +58,7 @@ export function EmployeeFilters({
           value={filters.departmentId}
           onValueChange={(value) => onFiltersChange({ ...filters, departmentId: value })}
         >
-          <SelectTrigger aria-label="筛选部门" className="h-10 w-full bg-background/75 sm:w-40">
+          <SelectTrigger aria-label="筛选部门" className="h-11 w-full bg-background/75 sm:w-40">
             <SelectValue placeholder="全部部门" />
           </SelectTrigger>
           <SelectContent>
@@ -79,7 +78,7 @@ export function EmployeeFilters({
             status: value as EmployeeDirectoryFilters["status"],
           })}
         >
-          <SelectTrigger aria-label="筛选员工状态" className="h-10 w-full bg-background/75 sm:w-34">
+          <SelectTrigger aria-label="筛选员工状态" className="h-11 w-full bg-background/75 sm:w-34">
             <SelectValue placeholder="全部状态" />
           </SelectTrigger>
           <SelectContent>
@@ -98,7 +97,7 @@ export function EmployeeFilters({
         size="sm"
         onClick={onReset}
         disabled={!hasFilters}
-        className="h-10 justify-center rounded-xl px-3 text-muted-foreground"
+        className="h-11 justify-center rounded-xl px-3 text-muted-foreground"
       >
         <RotateCcw data-icon="inline-start" aria-hidden="true" />
         重置筛选

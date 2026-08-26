@@ -108,9 +108,16 @@ describe("sensitive workspace routes", () => {
     expect(dependencies.loadApprovalDetail).not.toHaveBeenCalled();
     expect(dependencies.loadSalary).not.toHaveBeenCalled();
     expect(dependencies.loadSalaryDetail).not.toHaveBeenCalled();
-    expect(dependencies.loadEmployeeDirectory).toHaveBeenCalledTimes(2);
+    expect(dependencies.loadEmployeeDirectory).toHaveBeenCalledWith(
+      unboundExecutiveWorkspaceSession.organization.id,
+      undefined,
+      { allowMockFallback: false },
+    );
     expect(dependencies.getEmployeeDetail).toHaveBeenCalledWith("person-sentinel", peopleResult);
-    expect(dependencies.loadEmployeePrivateProfile).toHaveBeenCalledWith("person-sentinel");
+    expect(dependencies.loadEmployeePrivateProfile).toHaveBeenCalledWith(
+      "person-sentinel",
+      unboundExecutiveWorkspaceSession.organization.id,
+    );
     expect(payload).toContain("员工夹具哨兵");
     expect(payload).not.toContain("私密邮箱哨兵");
     expect(payload).not.toContain("987654321");
@@ -150,12 +157,19 @@ describe("sensitive workspace routes", () => {
       params: Promise.resolve({ id: "person-sentinel" }),
     });
 
-    expect(dependencies.loadEmployeeDirectory).toHaveBeenCalledTimes(2);
+    expect(dependencies.loadEmployeeDirectory).toHaveBeenCalledWith(
+      executiveWorkspaceSession.organization.id,
+      undefined,
+      { allowMockFallback: false },
+    );
     expect(dependencies.getEmployeeDetail).toHaveBeenCalledWith(
       "person-sentinel",
       peopleResult,
     );
-    expect(dependencies.loadEmployeePrivateProfile).toHaveBeenCalledWith("person-sentinel");
+    expect(dependencies.loadEmployeePrivateProfile).toHaveBeenCalledWith(
+      "person-sentinel",
+      executiveWorkspaceSession.organization.id,
+    );
     expect(serialized([list, detail])).toContain("员工夹具哨兵");
   });
 });

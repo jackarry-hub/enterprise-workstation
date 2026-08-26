@@ -161,6 +161,10 @@ describe("PeoplePage", () => {
       "placeholder",
       "搜索姓名、工号或岗位",
     );
+    expect(screen.getByRole("searchbox", { name: "搜索员工" })).toHaveClass("h-11");
+    expect(screen.getByRole("combobox", { name: "筛选部门" })).toHaveClass("h-11");
+    expect(screen.getByRole("combobox", { name: "筛选员工状态" })).toHaveClass("h-11");
+    expect(screen.queryByRole("option", { name: "已离职" })).not.toBeInTheDocument();
   });
 
   it("uses a server-loaded employee selector instead of editable role command ids", async () => {

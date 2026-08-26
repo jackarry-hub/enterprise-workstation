@@ -134,9 +134,13 @@ after insert or update of work_email, phone, hire_date, departure_date
 on public.employee_profiles
 for each row execute function public.sync_employee_profile_private_legacy_fields();
 
--- Public directory data stays deliberately narrow.  This no-argument function
--- derives both tenant and organization membership from the verified identity.
-create or replace function public.current_employee_directory()
+-- Public directory data stays deliberately narrow. The caller's selected
+-- organization public ID is verified against an active membership, rather than
+-- inferred from every organization sharing the authenticated identity.
+drop function if exists public.current_employee_directory();
+create or replace function public.current_employee_directory(
+  p_organization_public_id uuid
+)
 returns table (
   employee_public_id uuid,
   employee_no text,
@@ -174,6 +178,10 @@ as $$
     profile.employment_type,
     profile.employment_status
   from public.organization_members member
+  join public.organizations organization
+    on organization.id = member.organization_id
+   and organization.tenant_id = member.tenant_id
+   and organization.public_id = p_organization_public_id
   join public.employee_profiles profile
     on profile.tenant_id = member.tenant_id
    and profile.organization_id = member.organization_id
@@ -215,8 +223,10 @@ as $$
   order by profile.employee_no;
 $$;
 
+drop function if exists public.current_employee_private_profile(uuid);
 create or replace function public.current_employee_private_profile(
-  p_employee_public_id uuid
+  p_employee_public_id uuid,
+  p_organization_public_id uuid
 )
 returns table (
   employee_public_id uuid,
@@ -239,6 +249,10 @@ as $$
     private.departure_date,
     private.sensitive_hr_notes
   from public.employee_profiles profile
+  join public.organizations organization
+    on organization.id = profile.organization_id
+   and organization.tenant_id = profile.tenant_id
+   and organization.public_id = p_organization_public_id
   join public.employee_private_profiles private
     on private.tenant_id = profile.tenant_id
    and private.organization_id = profile.organization_id
@@ -304,11 +318,11 @@ $$;
 
 revoke all on function public.touch_employee_private_profiles_updated_at() from public, anon, authenticated, service_role;
 revoke all on function public.sync_employee_profile_private_legacy_fields() from public, anon, authenticated, service_role;
-revoke all on function public.current_employee_directory() from public, anon, authenticated, service_role;
-revoke all on function public.current_employee_private_profile(uuid) from public, anon, authenticated, service_role;
+revoke all on function public.current_employee_directory(uuid) from public, anon, authenticated, service_role;
+revoke all on function public.current_employee_private_profile(uuid, uuid) from public, anon, authenticated, service_role;
 revoke all on function public.current_payroll_employee_facts(bigint) from public, anon, authenticated, service_role;
-grant execute on function public.current_employee_directory() to authenticated;
-grant execute on function public.current_employee_private_profile(uuid) to authenticated;
+grant execute on function public.current_employee_directory(uuid) to authenticated;
+grant execute on function public.current_employee_private_profile(uuid, uuid) to authenticated;
 grant execute on function public.current_payroll_employee_facts(bigint) to authenticated;
 
 -- Remove the legacy PII/classification columns from ordinary authenticated SQL

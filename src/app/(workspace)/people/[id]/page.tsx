@@ -18,11 +18,11 @@ export default async function EmployeeDetailRoute({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requireWorkspaceSession();
+  const session = await requireWorkspaceSession();
   const { id } = await params;
   const [directory, privateProfile] = await Promise.all([
-    loadEmployeeDirectory(),
-    loadEmployeePrivateProfile(id),
+    loadEmployeeDirectory(session.organization.id, undefined, { allowMockFallback: false }),
+    loadEmployeePrivateProfile(id, session.organization.id),
   ]);
   const employee = getEmployeeDetail(id, directory);
 

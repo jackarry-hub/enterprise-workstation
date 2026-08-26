@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 

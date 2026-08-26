@@ -1,6 +1,6 @@
 begin;
 
-select plan(51);
+select plan(55);
 
 insert into public.tenants (name, slug, status)
 values
@@ -114,6 +114,31 @@ join (values
 ) as seed(user_id, employee_no, display_name, email, phone, employment_status, departure_date, deleted_at)
   on seed.user_id = member.user_id;
 
+-- The same auth identity is active in two organizations in tenant A. The
+-- organization-bound RPCs must still expose only the caller's requested
+-- active organization.
+insert into public.organization_members (tenant_id, organization_id, user_id, status)
+select tenant.id, organization.id, '94000000-0000-4000-8000-000000000001'::uuid, 'active'
+from public.tenants tenant
+join public.organizations organization
+  on organization.tenant_id = tenant.id
+ and organization.slug = 'employee-privacy-other'
+where tenant.slug = 'employee-privacy-a';
+
+insert into public.employee_profiles (
+  tenant_id, organization_id, organization_member_id, employee_no, display_name,
+  work_email, phone, job_title, employment_status, hire_date,
+  salary_grade_code, job_level, skills
+)
+select
+  member.tenant_id, member.organization_id, member.id, 'PVT-A-EMP-SECOND',
+  'Tenant A employee second organization', 'a.employee.second.private@example.test',
+  '13800000010', 'Privacy tester', 'active', date '2024-01-15', 'P6', 6, '{}'::text[]
+from public.organization_members member
+join public.organizations organization on organization.id = member.organization_id
+where member.user_id = '94000000-0000-4000-8000-000000000001'::uuid
+  and organization.slug = 'employee-privacy-other';
+
 insert into public.employee_profiles (
   tenant_id, organization_id, employee_no, display_name, work_email, phone,
   job_title, employment_status, hire_date, salary_grade_code, job_level, skills
@@ -188,6 +213,21 @@ select is(
 -- fixture view. Authenticated RLS must not be allowed to turn a denied scope
 -- assertion into a NULL argument and a false-positive zero-row result.
 select set_config(
+  'test.employee_privacy.primary_org_public_id',
+  (select public_id::text from public.organizations where slug = 'employee-privacy-primary' and tenant_id = (select id from public.tenants where slug = 'employee-privacy-a')),
+  true
+);
+select set_config(
+  'test.employee_privacy.other_org_public_id',
+  (select public_id::text from public.organizations where slug = 'employee-privacy-other' and tenant_id = (select id from public.tenants where slug = 'employee-privacy-a')),
+  true
+);
+select set_config(
+  'test.employee_privacy.same_user_other_org_employee_public_id',
+  (select public_id::text from public.employee_profiles where employee_no = 'PVT-A-EMP-SECOND'),
+  true
+);
+select set_config(
   'test.employee_privacy.other_org_employee_public_id',
   (select public_id::text from public.employee_profiles where employee_no = 'PVT-A-OTHER'),
   true
@@ -234,19 +274,27 @@ select ok(
 );
 
 select has_table('public', 'employee_private_profiles', 'private employee table exists');
-select has_function('public', 'current_employee_directory', array[]::name[], 'directory RPC has no caller-controlled scope');
-select has_function('public', 'current_employee_private_profile', array['uuid']::name[], 'private RPC accepts exactly one public employee target');
+select has_function('public', 'current_employee_directory', array['uuid']::name[], 'directory RPC requires the verified session organization public ID');
+select has_function('public', 'current_employee_private_profile', array['uuid', 'uuid']::name[], 'private RPC requires target and verified session organization public IDs');
+select ok(
+  not has_function('public', 'current_employee_directory', array[]::name[]),
+  'legacy directory RPC without organization scope is absent'
+);
+select ok(
+  not has_function('public', 'current_employee_private_profile', array['uuid']::name[]),
+  'legacy private RPC without organization scope is absent'
+);
 select has_function('public', 'current_payroll_employee_facts', array['bigint']::name[], 'payroll facts RPC accepts exactly one member target');
 select ok(
-  has_function_privilege('authenticated', 'public.current_employee_directory()', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.current_employee_directory()', 'EXECUTE')
-  and not has_function_privilege('service_role', 'public.current_employee_directory()', 'EXECUTE'),
+  has_function_privilege('authenticated', 'public.current_employee_directory(uuid)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.current_employee_directory(uuid)', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.current_employee_directory(uuid)', 'EXECUTE'),
   'only authenticated callers can execute the directory RPC'
 );
 select ok(
-  has_function_privilege('authenticated', 'public.current_employee_private_profile(uuid)', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.current_employee_private_profile(uuid)', 'EXECUTE')
-  and not has_function_privilege('service_role', 'public.current_employee_private_profile(uuid)', 'EXECUTE'),
+  has_function_privilege('authenticated', 'public.current_employee_private_profile(uuid, uuid)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.current_employee_private_profile(uuid, uuid)', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.current_employee_private_profile(uuid, uuid)', 'EXECUTE'),
   'only authenticated callers can execute the private RPC'
 );
 select ok(
@@ -277,12 +325,12 @@ select ok(
   'no API role can bypass private protections through trigger functions'
 );
 select is(
-  (select array_to_string(proconfig, ',') from pg_proc where oid = 'public.current_employee_directory()'::regprocedure),
+  (select array_to_string(proconfig, ',') from pg_proc where oid = 'public.current_employee_directory(uuid)'::regprocedure),
   'search_path=""',
   'directory RPC has an empty search path'
 );
 select is(
-  (select array_to_string(proconfig, ',') from pg_proc where oid = 'public.current_employee_private_profile(uuid)'::regprocedure),
+  (select array_to_string(proconfig, ',') from pg_proc where oid = 'public.current_employee_private_profile(uuid, uuid)'::regprocedure),
   'search_path=""',
   'private RPC has an empty search path'
 );
@@ -303,11 +351,11 @@ select lives_ok(
   $$ select public_id, display_name, department_id, job_title, employment_status from public.employee_profiles $$,
   'ordinary employee retains the public legacy projection during migration'
 );
-select is((select count(*) from public.current_employee_directory()), 5::bigint, 'directory is current-organization only and includes an active unbound profile while excluding departed, suspended, other-organization, and other-tenant rows');
+select is((select count(*) from public.current_employee_directory(current_setting('test.employee_privacy.primary_org_public_id', true)::uuid)), 5::bigint, 'directory is current-organization only and includes an active unbound profile while excluding departed, suspended, other-organization, and other-tenant rows');
 select ok(
   exists (
     select 1
-    from public.current_employee_directory() directory
+    from public.current_employee_directory(current_setting('test.employee_privacy.primary_org_public_id', true)::uuid) directory
     where directory.employee_no = 'PVT-A-UNBOUND'
       and directory.employment_status = 'active'
   ),
@@ -316,7 +364,7 @@ select ok(
 select ok(
   not exists (
     select 1
-    from public.current_employee_directory() directory
+    from public.current_employee_directory(current_setting('test.employee_privacy.primary_org_public_id', true)::uuid) directory
     where directory.employee_no = 'PVT-A-EMP'
       and (directory.manager_employee_public_id is not null or directory.manager_display_name is not null)
   ),
@@ -325,7 +373,7 @@ select ok(
 select ok(
   not exists (
     select 1
-    from public.current_employee_directory() directory
+    from public.current_employee_directory(current_setting('test.employee_privacy.primary_org_public_id', true)::uuid) directory
     where directory.employee_no = 'PVT-A-HR'
       and (directory.manager_employee_public_id is not null or directory.manager_display_name is not null)
   ),
@@ -334,7 +382,7 @@ select ok(
 select ok(
   exists (
     select 1
-    from public.current_employee_directory() directory
+    from public.current_employee_directory(current_setting('test.employee_privacy.primary_org_public_id', true)::uuid) directory
     where directory.employee_no = 'PVT-A-ADMIN'
       and directory.manager_display_name = 'Tenant A unbound manager'
       and directory.manager_employee_public_id = (
@@ -346,23 +394,36 @@ select ok(
 select ok(
   not exists (
     select 1
-    from public.current_employee_directory() directory
+    from public.current_employee_directory(current_setting('test.employee_privacy.primary_org_public_id', true)::uuid) directory
     where to_jsonb(directory) ?| array['phone', 'private_email', 'hire_date', 'departure_date', 'sensitive_hr_notes', 'salary_grade_code', 'job_level']
   ),
   'public directory rows contain no private PII or salary classification keys'
 );
+select ok(
+  not exists (
+    select 1
+    from public.current_employee_directory(current_setting('test.employee_privacy.primary_org_public_id', true)::uuid) directory
+    where directory.employee_no = 'PVT-A-EMP-SECOND'
+  ),
+  'same user in a second organization receives only the verified primary organization directory'
+);
 select is(
-  (select count(*) from public.current_employee_private_profile((select public_id from public.employee_profiles where employee_no = 'PVT-A-EMP'))),
+  (select count(*) from public.current_employee_private_profile(current_setting('test.employee_privacy.same_user_other_org_employee_public_id', true)::uuid, current_setting('test.employee_privacy.primary_org_public_id', true)::uuid)),
+  0::bigint,
+  'same user cannot fetch their own second-organization private profile through the primary organization scope'
+);
+select is(
+  (select count(*) from public.current_employee_private_profile((select public_id from public.employee_profiles where employee_no = 'PVT-A-EMP'), current_setting('test.employee_privacy.primary_org_public_id', true)::uuid)),
   1::bigint,
   'ordinary employee can read exactly their own private profile'
 );
 select is(
-  (select phone from public.current_employee_private_profile((select public_id from public.employee_profiles where employee_no = 'PVT-A-EMP'))),
+  (select phone from public.current_employee_private_profile((select public_id from public.employee_profiles where employee_no = 'PVT-A-EMP'), current_setting('test.employee_privacy.primary_org_public_id', true)::uuid)),
   '13800000001',
   'self private profile returns the migrated phone'
 );
 select is(
-  (select count(*) from public.current_employee_private_profile((select public_id from public.employee_profiles where employee_no = 'PVT-A-HR'))),
+  (select count(*) from public.current_employee_private_profile((select public_id from public.employee_profiles where employee_no = 'PVT-A-HR'), current_setting('test.employee_privacy.primary_org_public_id', true)::uuid)),
   0::bigint,
   'ordinary employee cannot read another employee private profile'
 );
@@ -372,12 +433,12 @@ select is(
   'ordinary employee cannot read payroll employee facts'
 );
 select is(
-  (select count(*) from public.current_employee_private_profile(current_setting('test.employee_privacy.other_org_employee_public_id', true)::uuid)),
+  (select count(*) from public.current_employee_private_profile(current_setting('test.employee_privacy.other_org_employee_public_id', true)::uuid, current_setting('test.employee_privacy.primary_org_public_id', true)::uuid)),
   0::bigint,
   'ordinary employee cannot read a same-tenant other-organization private profile'
 );
 select is(
-  (select count(*) from public.current_employee_private_profile(current_setting('test.employee_privacy.other_tenant_employee_public_id', true)::uuid)),
+  (select count(*) from public.current_employee_private_profile(current_setting('test.employee_privacy.other_tenant_employee_public_id', true)::uuid, current_setting('test.employee_privacy.primary_org_public_id', true)::uuid)),
   0::bigint,
   'ordinary employee cannot read another-tenant private profile'
 );
@@ -386,12 +447,12 @@ reset role;
 select set_config('request.jwt.claim.sub', '94000000-0000-4000-8000-000000000002', true);
 set local role authenticated;
 select is(
-  (select count(*) from public.current_employee_private_profile((select public_id from public.employee_profiles where employee_no = 'PVT-A-EMP'))),
+  (select count(*) from public.current_employee_private_profile((select public_id from public.employee_profiles where employee_no = 'PVT-A-EMP'), current_setting('test.employee_privacy.primary_org_public_id', true)::uuid)),
   1::bigint,
   'same-organization HR can read an employee private profile'
 );
 select is(
-  (select sensitive_hr_notes from public.current_employee_private_profile((select public_id from public.employee_profiles where employee_no = 'PVT-A-EMP'))),
+  (select sensitive_hr_notes from public.current_employee_private_profile((select public_id from public.employee_profiles where employee_no = 'PVT-A-EMP'), current_setting('test.employee_privacy.primary_org_public_id', true)::uuid)),
   'confidential employee note',
   'HR receives sensitive notes only through the private RPC'
 );
@@ -411,7 +472,7 @@ select is(
   'salary manager can calculate a final payroll for a departed target employee'
 );
 select is(
-  (select count(*) from public.current_employee_private_profile(current_setting('test.employee_privacy.other_org_employee_public_id', true)::uuid)),
+  (select count(*) from public.current_employee_private_profile(current_setting('test.employee_privacy.other_org_employee_public_id', true)::uuid, current_setting('test.employee_privacy.primary_org_public_id', true)::uuid)),
   0::bigint,
   'HR cannot read a same-tenant other-organization private profile'
 );
@@ -421,7 +482,7 @@ select is(
   'salary manager cannot read same-tenant other-organization payroll facts'
 );
 select is(
-  (select count(*) from public.current_employee_private_profile(current_setting('test.employee_privacy.other_tenant_employee_public_id', true)::uuid)),
+  (select count(*) from public.current_employee_private_profile(current_setting('test.employee_privacy.other_tenant_employee_public_id', true)::uuid, current_setting('test.employee_privacy.primary_org_public_id', true)::uuid)),
   0::bigint,
   'HR cannot read another-tenant private profile'
 );
@@ -435,7 +496,7 @@ reset role;
 select set_config('request.jwt.claim.sub', '94000000-0000-4000-8000-000000000003', true);
 set local role authenticated;
 select is(
-  (select count(*) from public.current_employee_private_profile((select public_id from public.employee_profiles where employee_no = 'PVT-A-EMP'))),
+  (select count(*) from public.current_employee_private_profile((select public_id from public.employee_profiles where employee_no = 'PVT-A-EMP'), current_setting('test.employee_privacy.primary_org_public_id', true)::uuid)),
   1::bigint,
   'same-organization admin can read the private profile'
 );
@@ -444,7 +505,7 @@ reset role;
 select set_config('request.jwt.claim.sub', '94000000-0000-4000-8000-000000000004', true);
 set local role authenticated;
 select is(
-  (select count(*) from public.current_employee_private_profile((select public_id from public.employee_profiles where employee_no = 'PVT-A-EMP'))),
+  (select count(*) from public.current_employee_private_profile((select public_id from public.employee_profiles where employee_no = 'PVT-A-EMP'), current_setting('test.employee_privacy.primary_org_public_id', true)::uuid)),
   1::bigint,
   'same-organization owner can read the private profile'
 );
@@ -452,9 +513,9 @@ reset role;
 
 select set_config('request.jwt.claim.sub', '94000000-0000-4000-8000-000000000007', true);
 set local role authenticated;
-select is((select count(*) from public.current_employee_directory()), 0::bigint, 'suspended member cannot access the directory RPC');
+select is((select count(*) from public.current_employee_directory(current_setting('test.employee_privacy.primary_org_public_id', true)::uuid)), 0::bigint, 'suspended member cannot access the directory RPC');
 select is(
-  (select count(*) from public.current_employee_private_profile(current_setting('test.employee_privacy.suspended_employee_public_id', true)::uuid)),
+  (select count(*) from public.current_employee_private_profile(current_setting('test.employee_privacy.suspended_employee_public_id', true)::uuid, current_setting('test.employee_privacy.primary_org_public_id', true)::uuid)),
   0::bigint,
   'suspended member cannot access their private profile'
 );
@@ -462,9 +523,9 @@ reset role;
 
 select set_config('request.jwt.claim.sub', '94000000-0000-4000-8000-000000000008', true);
 set local role authenticated;
-select is((select count(*) from public.current_employee_directory()), 0::bigint, 'departed member cannot access the directory RPC');
+select is((select count(*) from public.current_employee_directory(current_setting('test.employee_privacy.primary_org_public_id', true)::uuid)), 0::bigint, 'departed member cannot access the directory RPC');
 select is(
-  (select count(*) from public.current_employee_private_profile(current_setting('test.employee_privacy.departed_employee_public_id', true)::uuid)),
+  (select count(*) from public.current_employee_private_profile(current_setting('test.employee_privacy.departed_employee_public_id', true)::uuid, current_setting('test.employee_privacy.primary_org_public_id', true)::uuid)),
   0::bigint,
   'departed member cannot access their private profile'
 );
@@ -511,7 +572,7 @@ where employee_no = 'PVT-A-EMP';
 select set_config('request.jwt.claim.sub', '94000000-0000-4000-8000-000000000002', true);
 set local role authenticated;
 select is(
-  (select count(*) from public.current_employee_private_profile(current_setting('test.employee_privacy.soft_deleted_employee_public_id', true)::uuid)),
+  (select count(*) from public.current_employee_private_profile(current_setting('test.employee_privacy.soft_deleted_employee_public_id', true)::uuid, current_setting('test.employee_privacy.primary_org_public_id', true)::uuid)),
   0::bigint,
   'soft-deleted employee private profile is unavailable even to HR'
 );

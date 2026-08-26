@@ -8,6 +8,8 @@ import {
 import * as employeeData from "@/features/hr/employee-data";
 import { employeeDirectoryMockResult } from "@/features/hr/employee-mock-data";
 
+const organizationPublicId = "62000000-0000-4000-8000-000000000001";
+
 describe("employee directory data", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -73,6 +75,7 @@ describe("employee directory data", () => {
 
   it("uses the complete mock directory only when fallback is allowed", async () => {
     const result = await loadEmployeeDirectory(
+      organizationPublicId,
       async () => {
         throw new Error("Supabase configuration missing");
       },
@@ -85,6 +88,7 @@ describe("employee directory data", () => {
 
   it("does not disguise a configured Supabase failure as mock data", async () => {
     const result = await loadEmployeeDirectory(
+      organizationPublicId,
       async () => {
         throw new Error("permission denied");
       },
@@ -99,7 +103,7 @@ describe("employee directory data", () => {
   it("does not use mock employees by default in production", async () => {
     vi.stubEnv("NODE_ENV", "production");
 
-    const result = await loadEmployeeDirectory(async () => {
+    const result = await loadEmployeeDirectory(organizationPublicId, async () => {
       throw new Error("Supabase configuration missing");
     });
 
@@ -112,6 +116,7 @@ describe("employee directory data", () => {
     vi.stubEnv("NODE_ENV", "production");
 
     const result = await loadEmployeeDirectory(
+      organizationPublicId,
       async () => {
         throw new Error("Supabase configuration missing");
       },
@@ -152,11 +157,14 @@ describe("employee directory data", () => {
     });
 
     const result = await loadEmployeeDirectory(
+      organizationPublicId,
       async () => ({ rpc } as never),
       { allowMockFallback: false },
     );
 
-    expect(rpc).toHaveBeenCalledWith("current_employee_directory");
+    expect(rpc).toHaveBeenCalledWith("current_employee_directory", {
+      p_organization_public_id: organizationPublicId,
+    });
     expect(result.source).toBe("supabase");
     expect(result.data.loadError).toBeUndefined();
     expect(result.data.employees[0]?.profile).toMatchObject({
@@ -191,11 +199,13 @@ describe("employee directory data", () => {
     });
     const result = await privateLoader(
       "61000000-0000-4000-8000-000000000001",
+      organizationPublicId,
       async () => ({ rpc } as never),
     ) as { source: string; data?: { phone?: string; privateEmail?: string; hireDate?: string } };
 
     expect(rpc).toHaveBeenCalledWith("current_employee_private_profile", {
       p_employee_public_id: "61000000-0000-4000-8000-000000000001",
+      p_organization_public_id: organizationPublicId,
     });
     expect(result).toMatchObject({
       source: "supabase",

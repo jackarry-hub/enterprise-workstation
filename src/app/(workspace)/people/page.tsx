@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 export default async function PeopleRoute() {
   const session = await requireWorkspaceSession();
   const [result, roleTargets] = await Promise.all([
-    loadEmployeeDirectory(),
+    loadEmployeeDirectory(session.organization.id, undefined, { allowMockFallback: false }),
     session.permissionCodes.includes("role.manage")
       ? loadRoleCommandTargets(session)
       : Promise.resolve([]),

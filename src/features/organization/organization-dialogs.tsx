@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { Building2, RefreshCw, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -24,19 +24,24 @@ function idempotencyKey() {
 }
 
 async function postOrganizationCommand(command: OrganizationCommand) {
-  const response = await fetch(
-    command.type === "assign_member_role"
-      ? "/api/workstation/organization/roles"
-      : "/api/workstation/organization",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Idempotency-Key": command.idempotencyKey,
+  let response: Response;
+  try {
+    response = await fetch(
+      command.type === "assign_member_role"
+        ? "/api/workstation/organization/roles"
+        : "/api/workstation/organization",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": command.idempotencyKey,
+        },
+        body: JSON.stringify(command),
       },
-      body: JSON.stringify(command),
-    },
-  );
+    );
+  } catch {
+    return { ok: false as const, error: "transport_failure" };
+  }
   if (response.ok) return { ok: true as const };
 
   try {
@@ -47,38 +52,65 @@ async function postOrganizationCommand(command: OrganizationCommand) {
   }
 }
 
-function commandErrorMessage(code: string) {
+export function organizationCommandErrorMessage(code: string) {
+  if (code === "unauthorized") return "登录状态已失效，请重新登录后再试。";
+  if (code === "forbidden") return "当前账号没有执行此操作的权限。";
+  if (code === "invalid_request") return "提交内容不符合要求，请检查后重试。";
+  if (code === "not_found") return "目标员工或组织记录不存在，无法继续操作。";
   if (code === "stale_version" || code === "conflict" || code === "scope_conflict") {
     return "目录已更新，请刷新后重试。";
   }
-  if (code === "forbidden") return "当前账号没有执行此操作的权限。";
-  return "未能提交变更，请刷新后重试。";
+  if (code === "duplicate_request") return "该变更正在处理中，请勿重复提交。";
+  if (code === "directory_role_owned") return "该角色由目录同步管理，不能在此处修改。";
+  if (code === "transport_failure") return "网络连接未完成，请检查连接后重试。";
+  return "未能提交变更，请稍后重试。";
 }
 
-function CreateDepartmentDialog() {
+function stableIdempotencyKey(
+  keys: Map<string, string>,
+  logicalPayload: Record<string, unknown>,
+) {
+  const payloadKey = JSON.stringify(logicalPayload);
+  const existing = keys.get(payloadKey);
+  if (existing) return existing;
+  const next = idempotencyKey();
+  keys.set(payloadKey, next);
+  return next;
+}
+
+function CreateDepartmentDialog({ onAuthoritativeRefresh }: { onAuthoritativeRefresh: () => void }) {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<CommandState>("idle");
   const [error, setError] = useState<string | null>(null);
+  const isSubmitting = useRef(false);
+  const idempotencyKeys = useRef(new Map<string, string>());
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    setState("submitting");
-    const outcome = await postOrganizationCommand({
-      type: "create_department",
+    if (isSubmitting.current) return;
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const logicalPayload = {
+      type: "create_department" as const,
       code: String(data.get("code") ?? "").trim().toUpperCase(),
       name: String(data.get("name") ?? "").trim(),
       description: String(data.get("description") ?? "").trim(),
       sortOrder: Number(data.get("sortOrder") ?? 0),
-      version: 0,
+      version: 0 as const,
       reason: String(data.get("reason") ?? "").trim(),
-      idempotencyKey: idempotencyKey(),
+    };
+    isSubmitting.current = true;
+    setState("submitting");
+    const outcome = await postOrganizationCommand({
+      ...logicalPayload,
+      idempotencyKey: stableIdempotencyKey(idempotencyKeys.current, logicalPayload),
     });
+    isSubmitting.current = false;
     setState(outcome.ok ? "success" : "error");
-    setError(outcome.ok ? null : commandErrorMessage(outcome.error));
+    setError(outcome.ok ? null : organizationCommandErrorMessage(outcome.error));
     if (outcome.ok) {
-      event.currentTarget.reset();
-      window.location.reload();
+      form.reset();
+      onAuthoritativeRefresh();
     }
   }
 
@@ -94,11 +126,11 @@ function CreateDepartmentDialog() {
           <DialogDescription>部门基础信息会由服务器验证、写入审计并在下次目录读取时展示。</DialogDescription>
         </DialogHeader>
         <form className="grid gap-4" onSubmit={submit}>
-          <label className="grid gap-1.5 text-sm font-medium">部门名称<Input name="name" required maxLength={120} /></label>
-          <label className="grid gap-1.5 text-sm font-medium">部门编码<Input name="code" required maxLength={80} pattern="[A-Z0-9_-]+" /></label>
-          <label className="grid gap-1.5 text-sm font-medium">排序<Input name="sortOrder" type="number" min="0" defaultValue="0" required /></label>
-          <label className="grid gap-1.5 text-sm font-medium">说明<Textarea name="description" maxLength={1000} /></label>
-          <label className="grid gap-1.5 text-sm font-medium">业务理由<Textarea name="reason" required maxLength={500} /></label>
+          <label className="grid gap-1.5 text-sm font-medium">部门名称<Input className="h-11" name="name" required maxLength={120} /></label>
+          <label className="grid gap-1.5 text-sm font-medium">部门编码<Input className="h-11" name="code" required maxLength={80} pattern="[A-Z0-9_-]+" /></label>
+          <label className="grid gap-1.5 text-sm font-medium">排序<Input className="h-11" name="sortOrder" type="number" min="0" defaultValue="0" required /></label>
+          <label className="grid gap-1.5 text-sm font-medium">说明<Textarea className="min-h-11" name="description" maxLength={1000} /></label>
+          <label className="grid gap-1.5 text-sm font-medium">业务理由<Textarea className="min-h-11" name="reason" required maxLength={500} /></label>
           {state === "error" ? <p role="status" className="text-sm text-destructive">{error}</p> : null}
           {state === "success" ? <p role="status" className="text-sm text-success">部门变更已提交，刷新目录以查看最新结果。</p> : null}
           <DialogFooter><Button type="submit" className="h-11" disabled={state === "submitting"}>{state === "submitting" ? "提交中…" : "提交部门"}</Button></DialogFooter>
@@ -108,34 +140,52 @@ function CreateDepartmentDialog() {
   );
 }
 
-function AssignRoleDialog({ roleTargets }: { roleTargets: readonly RoleCommandTarget[] }) {
+function AssignRoleDialog({
+  roleTargets,
+  onAuthoritativeRefresh,
+}: {
+  roleTargets: readonly RoleCommandTarget[];
+  onAuthoritativeRefresh: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<CommandState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [targetMemberId, setTargetMemberId] = useState(String(roleTargets[0]?.memberId ?? ""));
   const [roleCode, setRoleCode] = useState<"admin" | "department_head" | "employee" | "finance" | "hr">("employee");
+  const isSubmitting = useRef(false);
+  const idempotencyKeys = useRef(new Map<string, string>());
   const selectedTarget = roleTargets.find((target) => String(target.memberId) === targetMemberId);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmitting.current) return;
     if (!selectedTarget) {
       setState("error");
       setError("请选择目录中的员工后再提交。");
       return;
     }
-    const data = new FormData(event.currentTarget);
-    setState("submitting");
-    const outcome = await postOrganizationCommand({
-      type: "assign_member_role",
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const logicalPayload = {
+      type: "assign_member_role" as const,
       memberId: selectedTarget.memberId,
       roleCode,
       version: selectedTarget.roleVersion,
       reason: String(data.get("reason") ?? "").trim(),
-      idempotencyKey: idempotencyKey(),
+    };
+    isSubmitting.current = true;
+    setState("submitting");
+    const outcome = await postOrganizationCommand({
+      ...logicalPayload,
+      idempotencyKey: stableIdempotencyKey(idempotencyKeys.current, logicalPayload),
     });
+    isSubmitting.current = false;
     setState(outcome.ok ? "success" : "error");
-    setError(outcome.ok ? null : commandErrorMessage(outcome.error));
-    if (outcome.ok) window.location.reload();
+    setError(outcome.ok ? null : organizationCommandErrorMessage(outcome.error));
+    if (outcome.ok) {
+      form.reset();
+      onAuthoritativeRefresh();
+    }
   }
 
   return (
@@ -152,16 +202,16 @@ function AssignRoleDialog({ roleTargets }: { roleTargets: readonly RoleCommandTa
         {roleTargets.length === 0 ? <p role="status" className="text-sm text-muted-foreground">暂无可分配角色的员工。</p> : (
           <form className="grid gap-4" onSubmit={submit}>
             <label className="grid gap-1.5 text-sm font-medium">选择员工
-              <select aria-label="选择员工" value={targetMemberId} onChange={(event) => setTargetMemberId(event.target.value)} className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm">
+              <select aria-label="选择员工" value={targetMemberId} onChange={(event) => setTargetMemberId(event.target.value)} className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm">
                 {roleTargets.map((target) => <option key={target.memberId} value={target.memberId}>{target.displayName} · {target.employeeNo} · {target.jobTitle}</option>)}
               </select>
             </label>
             <label className="grid gap-1.5 text-sm font-medium">角色
-              <select aria-label="选择角色" value={roleCode} onChange={(event) => setRoleCode(event.target.value as typeof roleCode)} className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm">
+              <select aria-label="选择角色" value={roleCode} onChange={(event) => setRoleCode(event.target.value as typeof roleCode)} className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm">
                 <option value="admin">管理员</option><option value="department_head">部门负责人</option><option value="employee">普通员工</option><option value="finance">财务</option><option value="hr">人事</option>
               </select>
             </label>
-            <label className="grid gap-1.5 text-sm font-medium">业务理由<Textarea name="reason" required maxLength={500} /></label>
+            <label className="grid gap-1.5 text-sm font-medium">业务理由<Textarea className="min-h-11" name="reason" required maxLength={500} /></label>
             {state === "error" ? <p role="status" className="text-sm text-destructive">{error}</p> : null}
             {state === "success" ? <p role="status" className="text-sm text-success">角色变更已提交，已刷新服务器数据。</p> : null}
             <DialogFooter><Button type="submit" className="h-11" disabled={state === "submitting"}>{state === "submitting" ? "提交中…" : "提交角色变更"}</Button></DialogFooter>
@@ -172,7 +222,7 @@ function AssignRoleDialog({ roleTargets }: { roleTargets: readonly RoleCommandTa
   );
 }
 
-function DirectorySyncButton() {
+function DirectorySyncButton({ onAuthoritativeRefresh }: { onAuthoritativeRefresh: () => void }) {
   const [state, setState] = useState<CommandState>("idle");
 
   async function sync() {
@@ -180,7 +230,7 @@ function DirectorySyncButton() {
     try {
       const response = await fetch("/api/workstation/directory-sync", { method: "POST" });
       setState(response.ok ? "success" : "error");
-      if (response.ok) window.location.reload();
+      if (response.ok) onAuthoritativeRefresh();
     } catch {
       setState("error");
     }
@@ -202,18 +252,20 @@ export function OrganizationDialogs({
   canManageOrganization,
   canManageRoles,
   roleTargets,
+  onAuthoritativeRefresh = () => window.location.reload(),
 }: {
   canManageOrganization: boolean;
   canManageRoles: boolean;
   roleTargets: readonly RoleCommandTarget[];
+  onAuthoritativeRefresh?: () => void;
 }) {
   if (!canManageOrganization && !canManageRoles) return null;
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {canManageOrganization ? <DirectorySyncButton /> : null}
-      {canManageOrganization ? <CreateDepartmentDialog /> : null}
-      {canManageRoles ? <AssignRoleDialog roleTargets={roleTargets} /> : null}
+      {canManageOrganization ? <DirectorySyncButton onAuthoritativeRefresh={onAuthoritativeRefresh} /> : null}
+      {canManageOrganization ? <CreateDepartmentDialog onAuthoritativeRefresh={onAuthoritativeRefresh} /> : null}
+      {canManageRoles ? <AssignRoleDialog roleTargets={roleTargets} onAuthoritativeRefresh={onAuthoritativeRefresh} /> : null}
     </div>
   );
 }
