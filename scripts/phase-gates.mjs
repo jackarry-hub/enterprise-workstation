@@ -8,7 +8,22 @@ import {
   runDbCommand,
 } from "./db-command-runner.mjs";
 
-const SAFE_PHASE_GATES = new Set(["coverage", "security", "rls"]);
+const SAFE_PHASE_GATES = Object.freeze(new Set(["coverage", "security", "rls"]));
+const SAFE_PHASE_GATE_CATEGORIES = Object.freeze(new Set([
+  "phase_gate_failed",
+  "phase_gate_command_failed",
+  "database_cli_failed",
+  "database_verifier_unavailable",
+  "database_gate_blocked",
+]));
+
+export function normalizeGate(gate) {
+  return SAFE_PHASE_GATES.has(gate) ? gate : "unknown";
+}
+
+function normalizeGateCategory(category) {
+  return SAFE_PHASE_GATE_CATEGORIES.has(category) ? category : "phase_gate_failed";
+}
 
 function optionValue(argv, flag) {
   const index = argv.indexOf(flag);
@@ -26,16 +41,14 @@ function buildNpmProcess(args, runtime = {
 
 function blocked(category = "phase_gate_failed", evidence = undefined) {
   const error = new Error("phase_gate_blocked");
-  error.category = category;
+  error.category = normalizeGateCategory(category);
   error.evidence = normalizeDatabaseEvidence(evidence);
   throw error;
 }
 
 export function formatPhaseGateBlocked(gate, error) {
-  const safeGate = SAFE_PHASE_GATES.has(gate) ? gate : "unknown";
-  const category = typeof error?.category === "string" && /^[a-z_]+$/.test(error.category)
-    ? error.category
-    : "phase_gate_failed";
+  const safeGate = normalizeGate(gate);
+  const category = normalizeGateCategory(error?.category);
   const evidence = normalizeDatabaseEvidence(error?.evidence);
   const fields = [
     `BLOCKED phase_gate=${safeGate}`,
@@ -57,7 +70,8 @@ export async function runPhaseGate({
   runDbCommandImpl = runDbCommand,
   runtime,
 }) {
-  if (gate === "rls") {
+  const normalizedGate = normalizeGate(gate);
+  if (normalizedGate === "rls") {
     const result = await runDbCommandImpl({
       command: "db:test",
       environment,
@@ -68,12 +82,12 @@ export async function runPhaseGate({
     if (result.outcome !== "PASSED" || result.status !== 0) {
       blocked(result.failureCategory ?? "database_gate_blocked", result.evidence);
     }
-    return { gate, outcome: "PASSED", status: 0 };
+    return { gate: normalizedGate, outcome: "PASSED", status: 0 };
   }
 
-  const args = gate === "coverage"
+  const args = normalizedGate === "coverage"
     ? ["exec", "--", "vitest", "run", "src", "--coverage", "--maxWorkers=4"]
-    : gate === "security"
+    : normalizedGate === "security"
       ? ["audit", "--omit=dev", "--audit-level=high"]
       : null;
   if (!args) blocked();
@@ -85,11 +99,11 @@ export async function runPhaseGate({
     stdio: "inherit",
   });
   if (result?.status !== 0) blocked("phase_gate_command_failed");
-  return { gate, outcome: "PASSED", status: 0 };
+  return { gate: normalizedGate, outcome: "PASSED", status: 0 };
 }
 
 export async function runPhaseGateCli(argv = process.argv, environment = process.env) {
-  const gate = argv[2];
+  const gate = normalizeGate(argv[2]);
   try {
     const result = await runPhaseGate({
       gate,
@@ -101,7 +115,12 @@ export async function runPhaseGateCli(argv = process.argv, environment = process
   } catch (error) {
     console.error(formatPhaseGateBlocked(gate, error));
     process.exitCode = 1;
-    return { gate, outcome: "BLOCKED", status: 1 };
+    return {
+      gate,
+      category: normalizeGateCategory(error?.category),
+      outcome: "BLOCKED",
+      status: 1,
+    };
   }
 }
 

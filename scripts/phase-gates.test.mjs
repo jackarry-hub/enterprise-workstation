@@ -4,7 +4,7 @@ import test from "node:test";
 import * as phaseGates from "./phase-gates.mjs";
 import { runDbCommand } from "./db-command-runner.mjs";
 
-const { runPhaseGate } = phaseGates;
+const { runPhaseGate, runPhaseGateCli } = phaseGates;
 
 test("marks a blocked RLS database dependency as BLOCKED and exits non-zero", async () => {
   await assert.rejects(
@@ -63,6 +63,48 @@ test("formats an unknown phase gate as unknown without echoing its caller-contro
 
   assert.equal(output, "BLOCKED phase_gate=unknown category=database_cli_failed error=cli_failed");
   assert.equal(output.includes("unknown-secret"), false);
+});
+
+test("normalizes unapproved runner categories before they reach a blocked RLS error or formatter", async () => {
+  await assert.rejects(
+    () => runPhaseGate({
+      gate: "rls",
+      environment: "Local",
+      databaseUrl: "postgresql://postgres:password@127.0.0.1:54322/postgres",
+      runDbCommandImpl: async () => ({
+        outcome: "BLOCKED",
+        status: 1,
+        failureCategory: "internal_secret",
+        evidence: { errorSummary: "cli_failed" },
+      }),
+    }),
+    (error) => {
+      assert.equal(error.category, "phase_gate_failed");
+      assert.equal(phaseGates.formatPhaseGateBlocked("rls", error), "BLOCKED phase_gate=rls category=phase_gate_failed error=cli_failed");
+      return true;
+    },
+  );
+});
+
+test("normalizes an unapproved CLI gate and category in both its returned result and output", async () => {
+  const originalError = console.error;
+  const lines = [];
+  const originalExitCode = process.exitCode;
+  console.error = (line) => lines.push(line);
+  try {
+    const result = await runPhaseGateCli(["node", "phase-gates.mjs", "internal_secret"]);
+    assert.deepEqual(result, {
+      gate: "unknown",
+      category: "phase_gate_failed",
+      outcome: "BLOCKED",
+      status: 1,
+    });
+  } finally {
+    console.error = originalError;
+    process.exitCode = originalExitCode;
+  }
+
+  assert.deepEqual(lines, ["BLOCKED phase_gate=unknown category=phase_gate_failed"]);
 });
 
 test("passes a security gate only when its real command reports success", async () => {

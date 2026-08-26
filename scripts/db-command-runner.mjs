@@ -83,7 +83,8 @@ function isSafeSqlState(value) {
 }
 
 function safeSqlState(source) {
-  const matcher = /\b(?:sql\s*state|sqlstate|code)\b\s*(?:=|:)?\s*["']?([A-Z0-9]{5})\b/gi;
+  // Generic "code" fields often contain caller-controlled credentials or tokens.
+  const matcher = /\bsql\s*state\b\s*(?:=|:)?\s*["']?([A-Z0-9]{5})\b/gi;
   for (const match of String(source ?? "").matchAll(matcher)) {
     const candidate = match[1].toUpperCase();
     if (isSafeSqlState(candidate)) return candidate;

@@ -298,7 +298,7 @@ test("never carries arbitrary libpq, Supabase, network, or credential text into 
   }
 });
 
-test("does not treat an unmarked five-character token as a SQLSTATE", async () => {
+test("does not treat generic code or token fields as a SQLSTATE", async () => {
   const result = await runDbCommand({
     command: "db:test",
     environment: "Local",
@@ -306,7 +306,7 @@ test("does not treat an unmarked five-character token as a SQLSTATE", async () =
     spawnProcess: () => ({
       status: 1,
       stdout: "1..1\nnot ok 1 - routine_name\n",
-      stderr: "ERROR arbitrary secret A9B2C without an SQLSTATE marker",
+      stderr: "ERROR: access code=A9B2C token=code=Z9Y8X secret=unknown-secret",
     }),
   });
 
@@ -317,7 +317,12 @@ test("does not treat an unmarked five-character token as a SQLSTATE", async () =
     migration: undefined,
     testCount: 1,
   });
-  assert.equal(JSON.stringify(result).includes("A9B2C"), false);
+  const serialized = JSON.stringify(result);
+  const output = formatDbCommandResult("db:test", result);
+  for (const unsafeText of ["A9B2C", "Z9Y8X", "unknown-secret"]) {
+    assert.equal(serialized.includes(unsafeText), false, `result must not contain ${unsafeText}`);
+    assert.equal(output.includes(unsafeText), false, `CLI output must not contain ${unsafeText}`);
+  }
 });
 
 test("reports an unavailable local CLI as BLOCKED instead of a successful database gate", async () => {
