@@ -85,6 +85,7 @@ git commit -m "test: add fail-closed database command guard"
 **Interfaces:**
 - Produces view/RPC `current_employee_directory()` with name, avatar, department, title, status.
 - Produces RPC `current_employee_private_profile(employee_public_id uuid)` for self/HR/admin fields.
+- Browser-authenticated roles receive no direct `INSERT`/`UPDATE` privilege on `employee_profiles`; Feishu-owned directory facts use controlled synchronization/RPCs, while self-managed work-profile content persists only in `employee_work_profiles`.
 
 - [ ] **Step 1: Write failing public/private projection tests**
 
@@ -102,7 +103,7 @@ Expected: current directory projection includes private fields and broad RLS per
 
 - [ ] **Step 3: Add the private table/projection and repositories**
 
-Move phone, private email, hire/departure dates and sensitive HR notes into the private profile or protected RPC result. Preserve foreign keys to the public employee row.
+Move phone, private email, hire/departure dates and sensitive HR notes into the private profile or protected RPC result. Preserve foreign keys to the public employee row. Revoke browser-authenticated writes to every public employee-directory column so identity, lifecycle, department, position, manager and job facts cannot bypass the Feishu/offboarding transaction.
 
 - [ ] **Step 4: Verify GREEN**
 
@@ -120,6 +121,8 @@ git commit -m "security: isolate employee private profiles"
 ### Task 3: Make Feishu directory synchronization fail closed and observable
 
 **Files:**
+- Create: `supabase/migrations/202608260048_directory_sync_observability.sql`
+- Create: `supabase/tests/directory_sync_observability.sql`
 - Modify: `src/features/feishu/directory-sync.test.ts`
 - Modify: `src/features/feishu/directory-sync.ts`
 - Modify: `src/app/api/workstation/directory-sync/handler.test.ts`
@@ -128,33 +131,44 @@ git commit -m "security: isolate employee private profiles"
 
 **Interfaces:**
 - Produces `DirectorySyncResult { runId, status, departmentCount, employeeCount, issueCount }`.
-- Pagination limit exhaustion throws `directory_pagination_limit` and leaves prior complete snapshot active.
+- Produces service-only tenant-scoped RPCs `apply_feishu_directory_sync_observed(...)` and `record_feishu_directory_sync_failure(...)`; neither browser-authenticated roles nor direct table writes may manufacture run evidence.
+- Pagination uses one bounded budget across the entire synchronization, rejects missing or repeated page tokens, throws stable `directory_pagination_limit`, and leaves the prior complete snapshot active.
+- Every success and failure returns or records one immutable public run ID. Failed API responses include the same non-secret request ID in the body and `x-request-id` header; raw provider/database details are never returned or persisted.
 
 - [ ] **Step 1: Write failing pagination and snapshot-preservation tests**
 
 ```ts
 await expect(syncDirectory({ fetchPage: endlessPager, maxPages: 1000 })).rejects.toMatchObject({ code: "directory_pagination_limit" });
 expect(markSnapshotComplete).not.toHaveBeenCalled();
+expect(recordFailure).toHaveBeenCalledWith(expect.objectContaining({ code: "directory_pagination_limit", requestId: expect.any(String) }));
+expect(response.headers.get("x-request-id")).toBe((await response.json()).requestId);
 ```
+
+Add pgTAP cases proving failed runs and sanitized issues are persisted through the service-only command, authenticated execution/direct inserts are denied, and the prior successful connection timestamp plus directory entity links remain unchanged.
 
 - [ ] **Step 2: Verify RED**
 
 Run: `npx vitest run src/features/feishu/directory-sync.test.ts src/app/api/workstation/directory-sync/handler.test.ts`
-Expected: the endless pager is currently accepted as a complete snapshot.
+Run: `npm run db:test`
+Expected: the endless pager is currently accepted as a complete snapshot and there is no durable service-only failure command.
 
 - [ ] **Step 3: Implement failure state, request ID, and issue counts**
 
-Persist run `failed`, append a synchronization issue, preserve the previous complete snapshot, and return a stable API error.
+Use migration `202608260048` because `011` through `047` are already reserved by Plans 02-10. Wrap the existing successful apply RPC under `apply_feishu_directory_sync_observed(...)` so the same transaction/advisory lock returns the exact public run ID and issue count. Add `record_feishu_directory_sync_failure(...)` as a separate SECURITY DEFINER transaction that derives tenant/organization/actor/provider, takes the tenant directory lock, creates a `failed`/`snapshot_complete=false` run, appends one allowlisted issue plus audit event, and never mutates entity links or the last successful snapshot marker. Explicitly revoke both RPCs from PUBLIC/anon/authenticated and grant only service_role.
+
+Implement typed synchronization errors, one global page budget, repeated-token detection and request ID propagation. The handler records a sanitized failure after snapshot-fetch or apply failure, but if failure recording itself fails it still returns the stable API error and logs only the request ID/error class. Never apply a partial snapshot and never expose Feishu/database messages.
 
 - [ ] **Step 4: Verify GREEN**
 
 Run: `npx vitest run src/features/feishu/directory-sync.test.ts src/app/api/workstation/directory-sync/handler.test.ts`
-Expected: limit exhaustion fails closed and normal pagination still completes.
+Run: `npm run db:test`
+Run: `npx playwright test tests/e2e/directory-sync.spec.ts`
+Expected: limit exhaustion fails closed with one durable failed run/issue, the previous complete snapshot remains active, and normal pagination returns the exact completed run ID and counts.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/features/feishu/directory-sync.test.ts src/features/feishu/directory-sync.ts src/app/api/workstation/directory-sync/handler.test.ts src/app/api/workstation/directory-sync/handler.ts tests/e2e/directory-sync.spec.ts
+git add supabase/migrations/202608260048_directory_sync_observability.sql supabase/tests/directory_sync_observability.sql src/features/feishu/directory-sync.test.ts src/features/feishu/directory-sync.ts src/app/api/workstation/directory-sync/handler.test.ts src/app/api/workstation/directory-sync/handler.ts tests/e2e/directory-sync.spec.ts
 git commit -m "fix: make directory synchronization fail closed"
 ```
 
