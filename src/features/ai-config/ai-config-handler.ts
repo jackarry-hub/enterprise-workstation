@@ -1,22 +1,30 @@
 import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
-import type { AiConfigStore } from "@/features/ai-config/ai-config-store";
+import type {
+  AiConfigStore,
+  AiConfigUpdateCommand,
+} from "@/features/ai-config/ai-config-store";
 import { sanitizeAiConfig } from "@/features/ai-config/ai-config-store";
 import {
-  AI_BASE_URL,
   AI_PROVIDER,
   isAllowedAiModel,
-  type AiConfigRecord,
+  type PublicAiConfig,
 } from "@/features/ai-config/ai-config-types";
 import { encryptApiKey } from "@/features/ai-config/ai-secret-crypto";
 
-type AiConfigHandlerDeps = {
+type AiConfigGetDeps = {
   session: WorkspaceSession | null;
-  store: Pick<AiConfigStore, "get" | "upsert">;
-  encryptionKey: Uint8Array;
-  now?: () => Date;
+  store: Pick<AiConfigStore, "get">;
 };
 
-export async function handleGetAiConfig(deps: AiConfigHandlerDeps) {
+type AiConfigPutDeps = {
+  session: WorkspaceSession | null;
+  store: {
+    update(command: AiConfigUpdateCommand): Promise<Omit<PublicAiConfig, "canManage">>;
+  };
+  encryptionKey: Uint8Array;
+};
+
+export async function handleGetAiConfig(deps: AiConfigGetDeps) {
   if (!deps.session) return json({ error: "unauthorized" }, 401);
   const record = await deps.store.get(deps.session.tenantId);
   return json(sanitizeAiConfig(record, canManage(deps.session)));
@@ -24,7 +32,7 @@ export async function handleGetAiConfig(deps: AiConfigHandlerDeps) {
 
 export async function handlePutAiConfig(
   request: Request,
-  deps: AiConfigHandlerDeps,
+  deps: AiConfigPutDeps,
 ) {
   const session = deps.session;
   if (!session) return json({ error: "unauthorized" }, 401);
@@ -39,33 +47,31 @@ export async function handlePutAiConfig(
     return json({ error: "invalid_api_key" }, 400);
   }
 
-  const current = await deps.store.get(session.tenantId);
-  const now = (deps.now ?? (() => new Date()))().toISOString();
-  const next: AiConfigRecord = {
-    tenant_id: session.tenantId,
+  const next: AiConfigUpdateCommand = {
     provider: AI_PROVIDER,
-    model_name: body.model,
-    api_base_url: AI_BASE_URL,
-    encrypted_api_key: current?.encrypted_api_key ?? null,
-    api_key_iv: current?.api_key_iv ?? null,
-    key_hint: current?.key_hint ?? null,
-    updated_at: now,
-    updated_by: session.authUserId,
+    model: body.model,
+    encryptedKey: null,
+    keyHint: null,
+    requestId: crypto.randomUUID(),
   };
 
   if (typeof apiKey === "string") {
     const encrypted = await encryptApiKey(apiKey.trim(), deps.encryptionKey);
-    next.encrypted_api_key = encrypted.ciphertext;
-    next.api_key_iv = encrypted.iv;
-    next.key_hint = encrypted.hint;
+    next.encryptedKey = JSON.stringify({
+      v: 1,
+      ciphertext: encrypted.ciphertext,
+      iv: encrypted.iv,
+    });
+    next.keyHint = encrypted.hint;
   }
 
-  const saved = await deps.store.upsert(next);
-  return json(sanitizeAiConfig(saved, true));
+  const saved = await deps.store.update(next);
+  return json({ ...saved, canManage: true });
 }
 
 function canManage(session: WorkspaceSession) {
-  return session.member.status === "active";
+  return session.member.status === "active"
+    && session.permissionCodes.includes("ai.config.manage");
 }
 
 function isValidApiKey(value: unknown): value is string {

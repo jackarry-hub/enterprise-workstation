@@ -1,6 +1,6 @@
 begin;
 
-select plan(15);
+select plan(31);
 
 select is(
   (
@@ -457,6 +457,175 @@ select ok(
 select ok(
   not ((public.current_workspace_access() -> 'permissionCodes') ? 'agent.orchestrate'),
   'current workspace access excludes commercial permissions held only by a disabled role'
+);
+
+select has_function(
+  'public', 'update_current_ai_provider_config',
+  array['text', 'text', 'text', 'text', 'uuid']::name[],
+  'the current-user AI configuration command has no tenant parameter'
+);
+select ok(has_function_privilege(
+  'authenticated',
+  'public.update_current_ai_provider_config(text,text,text,text,uuid)',
+  'EXECUTE'
+), 'authenticated users can invoke the tenant-derived AI configuration command');
+select ok(not has_function_privilege(
+  'anon',
+  'public.update_current_ai_provider_config(text,text,text,text,uuid)',
+  'EXECUTE'
+), 'anonymous users cannot invoke the AI configuration command');
+
+create temporary table ai_config_employee_before as
+select count(*) as config_count
+from public.ai_provider_configs config
+join public.tenants tenant on tenant.public_id = config.tenant_id
+where tenant.slug = 'quantxy';
+create temporary table ai_config_employee_audit_before as
+select count(*) as audit_count
+from public.audit_logs audit
+join public.tenants tenant on tenant.id = audit.tenant_id
+where tenant.slug = 'quantxy'
+  and audit.action = 'ai.config.updated';
+
+select set_config('request.jwt.claim.sub', '11000000-0000-4000-8000-000000000003', true);
+set local role authenticated;
+select throws_ok(
+  $$
+    select public.update_current_ai_provider_config(
+      'deepseek', 'deepseek-chat',
+      '{"v":1,"ciphertext":"c2VjcmV0LWNpcGhlcnRleHQtMTIzNDU2Nzg5MA==","iv":"MTIzNDU2Nzg5MDEy"}',
+      '7890', '40000000-0000-4000-8000-000000000001'::uuid
+    )
+  $$,
+  '42501',
+  'AI configuration management permission required',
+  'ordinary employee cannot change shared AI configuration'
+);
+reset role;
+select is(
+  (
+    select count(*) from public.ai_provider_configs config
+    join public.tenants tenant on tenant.public_id = config.tenant_id
+    where tenant.slug = 'quantxy'
+  ),
+  (select config_count from ai_config_employee_before),
+  'employee denial leaves AI configuration unchanged'
+);
+select is(
+  (
+    select count(*) from public.audit_logs audit
+    join public.tenants tenant on tenant.id = audit.tenant_id
+    where tenant.slug = 'quantxy'
+      and audit.action = 'ai.config.updated'
+  ),
+  (select audit_count from ai_config_employee_audit_before),
+  'employee denial leaves AI configuration audit history unchanged'
+);
+
+select set_config('request.jwt.claim.sub', '11000000-0000-4000-8000-000000000012', true);
+set local role authenticated;
+select lives_ok(
+  $$
+    select public.update_current_ai_provider_config(
+      'deepseek', 'deepseek-chat',
+      '{"v":1,"ciphertext":"c2VjcmV0LWNpcGhlcnRleHQtMTIzNDU2Nzg5MA==","iv":"MTIzNDU2Nzg5MDEy"}',
+      '7890', '40000000-0000-4000-8000-000000000002'::uuid
+    )
+  $$,
+  'authorized admin changes the current tenant AI configuration'
+);
+reset role;
+select is(
+  (
+    select config.model_name
+    from public.ai_provider_configs config
+    join public.tenants tenant on tenant.public_id = config.tenant_id
+    where tenant.slug = 'quantxy' and config.provider = 'deepseek'
+  ),
+  'deepseek-chat',
+  'admin command stores the requested supported model in its own tenant'
+);
+select is(
+  (
+    select config.updated_by
+    from public.ai_provider_configs config
+    join public.tenants tenant on tenant.public_id = config.tenant_id
+    where tenant.slug = 'quantxy' and config.provider = 'deepseek'
+  ),
+  '11000000-0000-4000-8000-000000000012'::uuid,
+  'admin command derives the configuration actor from auth.uid'
+);
+select ok(exists (
+  select 1
+  from public.audit_logs audit
+  join public.tenants tenant on tenant.id = audit.tenant_id
+  where tenant.slug = 'quantxy'
+    and audit.action = 'ai.config.updated'
+    and audit.actor_auth_user_id = '11000000-0000-4000-8000-000000000012'::uuid
+    and audit.request_id = '40000000-0000-4000-8000-000000000002'::uuid
+), 'admin command appends an audit event with the current tenant and actor');
+select ok(not exists (
+  select 1
+  from public.audit_logs audit
+  where audit.request_id = '40000000-0000-4000-8000-000000000002'::uuid
+    and (
+      audit.metadata ?| array['encrypted_key', 'ciphertext', 'iv', 'key_hint', 'keyHint']
+      or position('c2VjcmV0LWNpcGhlcnRleHQtMTIzNDU2Nzg5MA==' in audit.metadata::text) > 0
+      or position('MTIzNDU2Nzg5MDEy' in audit.metadata::text) > 0
+      or position('7890' in audit.metadata::text) > 0
+    )
+), 'AI configuration audit metadata excludes ciphertext IV and key hint');
+
+select set_config('request.jwt.claim.sub', '11000000-0000-4000-8000-000000000012', true);
+set local role authenticated;
+select throws_ok(
+  $$
+    select public.update_current_ai_provider_config(
+      'deepseek', 'deepseek-reasoner', null, null,
+      '40000000-0000-4000-8000-000000000002'::uuid
+    )
+  $$,
+  '23505',
+  'request_id has already been used',
+  'a duplicate request id is rejected instead of appending another update'
+);
+select throws_ok(
+  $$
+    select public.update_current_ai_provider_config(
+      'deepseek', 'deepseek-reasoner', 'not-a-versioned-envelope', '7890',
+      '40000000-0000-4000-8000-000000000003'::uuid
+    )
+  $$,
+  '22023',
+  'encrypted_key must be a version 1 ciphertext envelope',
+  'an invalid encrypted key envelope is rejected before configuration or audit writes'
+);
+reset role;
+select is(
+  (
+    select count(*) from public.audit_logs audit
+    where audit.request_id = '40000000-0000-4000-8000-000000000002'::uuid
+  ),
+  1::bigint,
+  'a duplicate request id leaves exactly one audit event'
+);
+select is(
+  (
+    select count(*) from public.audit_logs audit
+    where audit.request_id = '40000000-0000-4000-8000-000000000003'::uuid
+  ),
+  0::bigint,
+  'an invalid envelope leaves no audit event'
+);
+select is(
+  (
+    select count(*)
+    from public.ai_provider_configs config
+    join public.tenants tenant on tenant.public_id = config.tenant_id
+    where tenant.slug = 'commercial-baseline-target'
+  ),
+  0::bigint,
+  'current-user command cannot target another tenant configuration'
 );
 
 select set_config('request.jwt.claim.sub', '', true);

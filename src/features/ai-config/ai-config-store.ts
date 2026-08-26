@@ -3,11 +3,29 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   AI_BASE_URL,
   AI_PROVIDER,
+  type AiModel,
   type AiConfigRecord,
   type PublicAiConfig,
 } from "@/features/ai-config/ai-config-types";
 
 const COLUMNS = "tenant_id,provider,model_name,api_base_url,encrypted_api_key,api_key_iv,key_hint,updated_at,updated_by" as const;
+
+export type AiConfigUpdateCommand = {
+  provider: typeof AI_PROVIDER;
+  model: AiModel;
+  encryptedKey: string | null;
+  keyHint: string | null;
+  requestId: string;
+};
+
+type AiConfigUpdateRow = {
+  provider: typeof AI_PROVIDER;
+  api_base_url: typeof AI_BASE_URL;
+  model_name: AiModel;
+  key_configured: boolean;
+  key_hint: string | null;
+  updated_at: string;
+};
 
 export function sanitizeAiConfig(
   record: AiConfigRecord | null,
@@ -37,14 +55,27 @@ export function createAiConfigStore(client: SupabaseClient) {
       return data as AiConfigRecord | null;
     },
 
-    async upsert(record: AiConfigRecord): Promise<AiConfigRecord> {
-      const { data, error } = await client
-        .from("ai_provider_configs")
-        .upsert(record, { onConflict: "tenant_id,provider" })
-        .select(COLUMNS)
-        .single();
+    async update(command: AiConfigUpdateCommand): Promise<Omit<PublicAiConfig, "canManage">> {
+      const { data, error } = await client.rpc(
+        "update_current_ai_provider_config",
+        {
+          provider: command.provider,
+          model: command.model,
+          encrypted_key: command.encryptedKey,
+          key_hint: command.keyHint,
+          request_id: command.requestId,
+        },
+      );
       if (error || !data) throw new Error("保存模型配置失败");
-      return data as AiConfigRecord;
+      const row = data as AiConfigUpdateRow;
+      return {
+        provider: row.provider,
+        apiBaseUrl: row.api_base_url,
+        model: row.model_name,
+        keyConfigured: row.key_configured,
+        keyHint: row.key_hint,
+        updatedAt: row.updated_at,
+      };
     },
   };
 }

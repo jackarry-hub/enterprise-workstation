@@ -78,32 +78,50 @@ describe("createAiConfigStore", () => {
     ]);
   });
 
-  it("upserts one tenant provider record and returns the saved row", async () => {
-    let saved: unknown;
-    let conflict = "";
-    const query = {
-      upsert(value: unknown, options: { onConflict: string }) {
-        saved = value;
-        conflict = options.onConflict;
-        return this;
-      },
-      select() {
-        return this;
-      },
-      async single() {
-        return { data: record, error: null };
-      },
-    };
+  it("sends AI configuration mutations through the tenant-derived audited RPC", async () => {
+    let rpcName = "";
+    let rpcArgs: unknown;
     const client = {
-      from() {
-        return query;
+      rpc(name: string, args: unknown) {
+        rpcName = name;
+        rpcArgs = args;
+        return Promise.resolve({
+          data: {
+            provider: "deepseek",
+            api_base_url: "https://api.deepseek.com",
+            model_name: "deepseek-chat",
+            key_configured: true,
+            key_hint: "7xyz",
+            updated_at: "2026-08-17T13:00:00.000Z",
+          },
+          error: null,
+        });
       },
     } as unknown as SupabaseClient;
 
-    const result = await createAiConfigStore(client).upsert(record);
+    const result = await createAiConfigStore(client).update({
+      provider: "deepseek",
+      model: "deepseek-chat",
+      encryptedKey: '{"v":1,"ciphertext":"ciphertext","iv":"1234567890123456"}',
+      keyHint: "7xyz",
+      requestId: "20000000-0000-4000-8000-000000000001",
+    });
 
-    expect(saved).toEqual(record);
-    expect(conflict).toBe("tenant_id,provider");
-    expect(result).toEqual(record);
+    expect(rpcName).toBe("update_current_ai_provider_config");
+    expect(rpcArgs).toEqual({
+      provider: "deepseek",
+      model: "deepseek-chat",
+      encrypted_key: '{"v":1,"ciphertext":"ciphertext","iv":"1234567890123456"}',
+      key_hint: "7xyz",
+      request_id: "20000000-0000-4000-8000-000000000001",
+    });
+    expect(result).toEqual({
+      provider: "deepseek",
+      apiBaseUrl: "https://api.deepseek.com",
+      model: "deepseek-chat",
+      keyConfigured: true,
+      keyHint: "7xyz",
+      updatedAt: "2026-08-17T13:00:00.000Z",
+    });
   });
 });

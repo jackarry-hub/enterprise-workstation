@@ -1,5 +1,3 @@
-import { createClient } from "@supabase/supabase-js";
-
 import {
   handleGetAiConfig,
   handlePutAiConfig,
@@ -7,27 +5,28 @@ import {
 import { getAiConfigEnv } from "@/features/ai-config/ai-config-env";
 import { createAiConfigStore } from "@/features/ai-config/ai-config-store";
 import { getWorkspaceApiSession } from "@/features/ai-config/workspace-api-session";
-import { getSupabaseEnv } from "@/lib/supabase/env";
+import {
+  getSupabaseServerClient,
+  getSupabaseServiceRoleClient,
+} from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-async function dependencies(request: Request) {
-  const session = await getWorkspaceApiSession(request);
-  const { encryptionKey, supabaseServiceRoleKey } = getAiConfigEnv();
-  const { url } = getSupabaseEnv();
-  const admin = createClient(url, supabaseServiceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  return {
-    session,
-    encryptionKey,
-    store: createAiConfigStore(admin),
-  };
+async function authenticatedRequestContext() {
+  const client = await getSupabaseServerClient();
+  const session = await getWorkspaceApiSession(undefined, client);
+  return { client, session };
 }
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
-    return handleGetAiConfig(await dependencies(request));
+    const { session } = await authenticatedRequestContext();
+    // The configuration table remains server-only; this read is immediately
+    // sanitized by the handler and is never used for a command.
+    return handleGetAiConfig({
+      session,
+      store: createAiConfigStore(getSupabaseServiceRoleClient()),
+    });
   } catch {
     return serverError();
   }
@@ -35,7 +34,13 @@ export async function GET(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    return handlePutAiConfig(request, await dependencies(request));
+    const { client, session } = await authenticatedRequestContext();
+    const { encryptionKey } = getAiConfigEnv();
+    return handlePutAiConfig(request, {
+      session,
+      encryptionKey,
+      store: createAiConfigStore(client),
+    });
   } catch {
     return serverError();
   }

@@ -4,12 +4,23 @@ import {
   handleGetAiConfig,
   handlePutAiConfig,
 } from "@/features/ai-config/ai-config-handler";
-import type { AiConfigRecord } from "@/features/ai-config/ai-config-types";
+import type { AiConfigUpdateCommand } from "@/features/ai-config/ai-config-store";
+import type {
+  AiConfigRecord,
+  PublicAiConfig,
+} from "@/features/ai-config/ai-config-types";
 import { executiveWorkspaceSession } from "@/test/workspace-session-test-utils";
 
 const encryptionKey = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
+const aiAdminSession = {
+  ...executiveWorkspaceSession,
+  permissionCodes: [
+    ...executiveWorkspaceSession.permissionCodes,
+    "ai.config.manage" as const,
+  ],
+};
 const existing: AiConfigRecord = {
-  tenant_id: executiveWorkspaceSession.tenantId,
+  tenant_id: aiAdminSession.tenantId,
   provider: "deepseek",
   model_name: "deepseek-v4-flash",
   api_base_url: "https://api.deepseek.com",
@@ -17,10 +28,10 @@ const existing: AiConfigRecord = {
   api_key_iv: "stored-iv",
   key_hint: "8bcf",
   updated_at: "2026-08-17T12:00:00.000Z",
-  updated_by: executiveWorkspaceSession.authUserId,
+  updated_by: aiAdminSession.authUserId,
 };
 const employeeWorkspaceSession = {
-  ...executiveWorkspaceSession,
+  ...aiAdminSession,
   roleCodes: ["employee" as const],
   permissionCodes: ["task.execute" as const],
   primaryRole: "employee" as const,
@@ -35,21 +46,31 @@ const employeeWorkspaceSession = {
 };
 
 function deps(record: AiConfigRecord | null = existing) {
-  let saved: AiConfigRecord | null = null;
+  const saved: AiConfigRecord | null = null;
+  let command: Record<string, unknown> | null = null;
   return {
     value: {
-      session: executiveWorkspaceSession,
+      session: aiAdminSession,
       encryptionKey,
-      now: () => new Date("2026-08-17T13:00:00.000Z"),
       store: {
         get: async () => record,
-        upsert: async (next: AiConfigRecord) => {
-          saved = next;
-          return next;
+        update: async (
+          next: AiConfigUpdateCommand,
+        ): Promise<Omit<PublicAiConfig, "canManage">> => {
+          command = next;
+          return {
+            provider: "deepseek" as const,
+            apiBaseUrl: "https://api.deepseek.com" as const,
+            model: next.model,
+            keyConfigured: Boolean(record?.encrypted_api_key || next.encryptedKey),
+            keyHint: next.keyHint ?? record?.key_hint ?? null,
+            updatedAt: "2026-08-17T13:00:00.000Z",
+          };
         },
       },
     },
     saved: () => saved,
+    command: () => command,
   };
 }
 
@@ -84,17 +105,17 @@ describe("AI configuration handlers", () => {
     expect(JSON.stringify(body)).not.toContain("stored-iv");
   });
 
-  it("marks the model configuration as manageable for an active internal employee", async () => {
+  it("does not mark an active employee without ai.config.manage as able to manage configuration", async () => {
     const response = await handleGetAiConfig({
       ...deps().value,
       session: employeeWorkspaceSession,
     });
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ canManage: true });
+    expect(await response.json()).toMatchObject({ canManage: false });
   });
 
-  it("allows an active internal employee to update the shared model configuration", async () => {
+  it("rejects an active employee without ai.config.manage before any configuration write", async () => {
     const fixture = deps();
     const response = await handlePutAiConfig(
       new Request("https://workspace.test/api/ai/config", {
@@ -107,11 +128,9 @@ describe("AI configuration handlers", () => {
       },
     );
 
-    expect(response.status).toBe(200);
-    expect(fixture.saved()).toMatchObject({
-      model_name: "deepseek-chat",
-      updated_by: employeeWorkspaceSession.authUserId,
-    });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "forbidden" });
+    expect(fixture.saved()).toBeNull();
   });
 
   it("still rejects configuration updates without an internal workspace session", async () => {
@@ -128,7 +147,7 @@ describe("AI configuration handlers", () => {
     expect(fixture.saved()).toBeNull();
   });
 
-  it("updates only the model while preserving the encrypted key", async () => {
+  it("sends a model-only command that lets the RPC preserve the existing encrypted key", async () => {
     const fixture = deps();
     const response = await handlePutAiConfig(
       new Request("https://workspace.test/api/ai/config", {
@@ -139,12 +158,16 @@ describe("AI configuration handlers", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(fixture.saved()).toMatchObject({
-      model_name: "deepseek-chat",
-      encrypted_api_key: "stored-ciphertext",
-      api_key_iv: "stored-iv",
-      key_hint: "8bcf",
+    expect(fixture.command()).toMatchObject({
+      provider: "deepseek",
+      model: "deepseek-chat",
+      encryptedKey: null,
+      keyHint: null,
     });
+    expect(fixture.command()?.requestId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(fixture.saved()).toBeNull();
   });
 
   it("encrypts a submitted key and never returns it", async () => {
@@ -161,11 +184,16 @@ describe("AI configuration handlers", () => {
       fixture.value,
     );
     const body = await response.json();
-    const saved = fixture.saved();
+    const command = fixture.command();
 
     expect(response.status).toBe(200);
-    expect(saved?.encrypted_api_key).not.toBe(submitted);
-    expect(saved?.key_hint).toBe("7xyz");
+    expect(command?.encryptedKey).not.toBe(submitted);
+    expect(command?.keyHint).toBe("7xyz");
+    expect(JSON.parse(command?.encryptedKey as string)).toMatchObject({
+      v: 1,
+      ciphertext: expect.any(String),
+      iv: expect.any(String),
+    });
     expect(JSON.stringify(body)).not.toContain(submitted);
     expect(body).toMatchObject({
       model: "deepseek-reasoner",
