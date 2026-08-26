@@ -53,59 +53,102 @@ function commandTimeout(command, environment = process.env) {
   return DEFAULT_CLI_TIMEOUTS.get(command) ?? 300_000;
 }
 
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const SAFE_FAILURE_SUMMARIES = new Set([
+  "connection_refused",
+  "auth_failed",
+  "timeout",
+  "test_failed",
+  "migration_failed",
+  "cli_failed",
+]);
+const SAFE_STATIC_SUMMARIES = new Set(["database_verifier_unavailable"]);
+const SAFE_MIGRATION_IDENTIFIER = /^\d{12}_[a-z0-9][a-z0-9_-]*\.sql$/;
+const MAX_TEST_COUNT = 1_000_000;
+
+function safePositiveInteger(value) {
+  return Number.isSafeInteger(value) && value > 0 && value <= MAX_TEST_COUNT
+    ? value
+    : undefined;
 }
 
-function databaseSensitiveValues(databaseUrl) {
-  const values = new Set([databaseUrl]);
-  try {
-    const url = new URL(databaseUrl);
-    values.add(url.href);
-    values.add(url.username);
-    values.add(url.password);
-    values.add(url.hostname);
-    values.add(decodeURIComponent(url.username));
-    values.add(decodeURIComponent(url.password));
-  } catch {
-    // The guard controls malformed URLs; diagnostics still must not echo the raw input.
+function isSafeSqlState(value) {
+  return typeof value === "string"
+    && /\d/.test(value)
+    && (
+      /^[0-9]{2}[A-Z0-9]{3}$/.test(value)
+      || /^[A-Z][0-9][A-Z0-9]{3}$/.test(value)
+      || /^[A-Z]{2}[0-9][A-Z0-9]{2}$/.test(value)
+      || /^[0-9][A-Z][A-Z0-9]{3}$/.test(value)
+    );
+}
+
+function safeSqlState(source) {
+  const matcher = /\b(?:sql\s*state|sqlstate|code)\b\s*(?:=|:)?\s*["']?([A-Z0-9]{5})\b/gi;
+  for (const match of String(source ?? "").matchAll(matcher)) {
+    const candidate = match[1].toUpperCase();
+    if (isSafeSqlState(candidate)) return candidate;
   }
-  return [...values].filter((value) => typeof value === "string" && value.length > 0)
-    .sort((left, right) => right.length - left.length);
+  return undefined;
 }
 
-function redactCliText(value, databaseUrl) {
-  let redacted = String(value ?? "");
-  redacted = redacted.replace(/\bpostgres(?:ql)?:\/\/[^\s'"`]+/gi, "[database-url]");
-  for (const sensitiveValue of databaseSensitiveValues(databaseUrl)) {
-    redacted = redacted.replace(new RegExp(escapeRegExp(sensitiveValue), "gi"), "[redacted]");
-  }
-  return redacted
-    .replace(/\b(?:password|pwd|token|secret|api[_-]?key|apikey|authorization|host)\b\s*(?:=|:)\s*[^\s,;]+/gi, (match) => {
-      const separator = match.includes(":") && !match.includes("=") ? ":" : "=";
-      return `${match.split(/[=:]/, 1)[0]}${separator}[redacted]`;
-    })
-    .replace(/\bBearer\s+[A-Za-z0-9._~+\/=:-]+/gi, "Bearer [redacted]")
-    .replace(/\b(?:sb_secret|sk|pk)_[A-Za-z0-9_-]+\b/gi, "[redacted]");
+function safeMigrationIdentifier(value) {
+  return typeof value === "string" && SAFE_MIGRATION_IDENTIFIER.test(value)
+    ? value
+    : undefined;
 }
 
-function bounded(value, limit = 480) {
-  return value.length > limit ? `${value.slice(0, limit - 3)}...` : value;
+function safeErrorSummary(value) {
+  if (typeof value !== "string") return undefined;
+  if (SAFE_STATIC_SUMMARIES.has(value)) return value;
+  const match = value.match(/^(connection_refused|auth_failed|timeout|test_failed|migration_failed|cli_failed)(?::([A-Z0-9]{5}))?$/);
+  if (!match || !SAFE_FAILURE_SUMMARIES.has(match[1])) return undefined;
+  return match[2] && isSafeSqlState(match[2]) ? `${match[1]}:${match[2]}` : match[1];
 }
 
-function summarizeCliResult(result, databaseUrl, fallback = undefined) {
-  const redacted = redactCliText(`${result?.stdout ?? ""}\n${result?.stderr ?? ""}`, databaseUrl);
-  const lines = redacted.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const plan = redacted.match(/(?:^|\n)\s*1\.\.(\d+)\b/m);
-  const failed = redacted.match(/(?:^|\n)\s*not ok\s+\d+\s*-\s*([^\r\n]+)/im);
-  const migration = redacted.match(/\b(?:Applying\s+migration\s+|migration\s+)([A-Za-z0-9_.-]+(?:\.sql)?)/i);
-  const errorLine = lines.find((line) => /\b(?:error|fatal|failed)\b/i.test(line));
+export function normalizeDatabaseEvidence(evidence = {}) {
+  const testCount = safePositiveInteger(evidence.testCount);
+  const failedTestNumber = safePositiveInteger(evidence.failedTestNumber);
   return {
-    errorSummary: bounded(errorLine ?? fallback ?? "database_cli_failed"),
-    failedTest: failed ? bounded(failed[1]) : undefined,
-    migration: migration ? bounded(migration[1]) : undefined,
+    errorSummary: safeErrorSummary(evidence.errorSummary),
+    failedTest: failedTestNumber ? `test_${failedTestNumber}` : undefined,
+    failedTestNumber,
+    migration: safeMigrationIdentifier(evidence.migration),
+    testCount,
+  };
+}
+
+function classifyFailure(source, evidence) {
+  const text = String(source ?? "");
+  const summary = /\b(?:timed out|timeout|etimedout)\b/i.test(text)
+    ? "timeout"
+    : /\b(?:password authentication failed|authentication failed|28P01)\b/i.test(text)
+      ? "auth_failed"
+      : /\b(?:connection refused|econnrefused)\b/i.test(text)
+        ? "connection_refused"
+        : !evidence.failedTestNumber && evidence.migration && /\b(?:error|fatal|failed)\b/i.test(text)
+          ? "migration_failed"
+          : evidence.failedTestNumber
+            ? "test_failed"
+            : "cli_failed";
+  const sqlState = safeSqlState(text);
+  return sqlState ? `${summary}:${sqlState}` : summary;
+}
+
+function summarizeCliResult(result) {
+  const source = `${result?.stdout ?? ""}\n${result?.stderr ?? ""}\n${result?.error?.code ?? ""}\n${result?.error?.message ?? ""}`;
+  const plan = source.match(/(?:^|\n)\s*1\.\.(\d+)\b/m);
+  const failed = source.match(/(?:^|\n)\s*not ok\s+(\d+)(?:\s*-\s*([^\r\n]+))?/im);
+  const migration = source.match(/(?:^|\n)\s*(?:Applying\s+migration\s+|migration\s+)([^\s\r\n]+)/im);
+  const evidence = {
+    failedTest: failed?.[2]?.trim(),
+    failedTestNumber: failed ? Number(failed[1]) : undefined,
+    migration: migration?.[1],
     testCount: plan ? Number(plan[1]) : undefined,
   };
+  return normalizeDatabaseEvidence({
+    ...evidence,
+    errorSummary: classifyFailure(source, evidence),
+  });
 }
 
 function blockedResult(fingerprint, failureCategory, evidence) {
@@ -114,19 +157,21 @@ function blockedResult(fingerprint, failureCategory, evidence) {
     failureCategory,
     outcome: "BLOCKED",
     status: 1,
-    evidence,
+    evidence: normalizeDatabaseEvidence(evidence),
   };
 }
 
 export function formatDbCommandResult(command, result) {
   const base = `${result.outcome} database_command=${command} environment=${result.fingerprint.environment} target=${result.fingerprint.target}`;
   if (result.outcome === "PASSED") return base;
+  const evidence = normalizeDatabaseEvidence(result.evidence);
   const fields = [
     `category=${result.failureCategory}`,
-    result.evidence?.testCount === undefined ? undefined : `tests=${result.evidence.testCount}`,
-    result.evidence?.failedTest ? `failed_test=${result.evidence.failedTest}` : undefined,
-    result.evidence?.migration ? `migration=${result.evidence.migration}` : undefined,
-    result.evidence?.errorSummary ? `error=${result.evidence.errorSummary}` : undefined,
+    evidence.testCount === undefined ? undefined : `tests=${evidence.testCount}`,
+    evidence.failedTestNumber === undefined ? undefined : `failed_test_number=${evidence.failedTestNumber}`,
+    evidence.failedTest ? `failed_test=${evidence.failedTest}` : undefined,
+    evidence.migration ? `migration=${evidence.migration}` : undefined,
+    evidence.errorSummary ? `error=${evidence.errorSummary}` : undefined,
   ].filter(Boolean);
   return `${base} ${fields.join(" ")}`;
 }
@@ -143,6 +188,7 @@ export async function runDbCommand({
     return blockedResult(fingerprint, "database_verifier_unavailable", {
       errorSummary: "database_verifier_unavailable",
       failedTest: undefined,
+      failedTestNumber: undefined,
       migration: undefined,
       testCount: undefined,
     });
@@ -166,7 +212,7 @@ export async function runDbCommand({
       failureCategory: undefined,
       outcome: "PASSED",
       status: 0,
-      evidence: summarizeCliResult(result, databaseUrl, "database_cli_succeeded"),
+      evidence: normalizeDatabaseEvidence(),
     };
   }
   const failureCategory = result?.error
@@ -175,7 +221,7 @@ export async function runDbCommand({
   return blockedResult(
     fingerprint,
     failureCategory,
-    summarizeCliResult(result, databaseUrl, failureCategory),
+    summarizeCliResult(result),
   );
 }
 

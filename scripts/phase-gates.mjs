@@ -2,7 +2,13 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { LOCAL_DATABASE_URL, runDbCommand } from "./db-command-runner.mjs";
+import {
+  LOCAL_DATABASE_URL,
+  normalizeDatabaseEvidence,
+  runDbCommand,
+} from "./db-command-runner.mjs";
+
+const SAFE_PHASE_GATES = new Set(["coverage", "security", "rls"]);
 
 function optionValue(argv, flag) {
   const index = argv.indexOf(flag);
@@ -18,10 +24,29 @@ function buildNpmProcess(args, runtime = {
   return { executable: runtime.execPath, args: [npmExecPath, ...args] };
 }
 
-function blocked(category = "phase_gate_failed") {
+function blocked(category = "phase_gate_failed", evidence = undefined) {
   const error = new Error("phase_gate_blocked");
   error.category = category;
+  error.evidence = normalizeDatabaseEvidence(evidence);
   throw error;
+}
+
+export function formatPhaseGateBlocked(gate, error) {
+  const safeGate = SAFE_PHASE_GATES.has(gate) ? gate : "unknown";
+  const category = typeof error?.category === "string" && /^[a-z_]+$/.test(error.category)
+    ? error.category
+    : "phase_gate_failed";
+  const evidence = normalizeDatabaseEvidence(error?.evidence);
+  const fields = [
+    `BLOCKED phase_gate=${safeGate}`,
+    `category=${category}`,
+    evidence.testCount === undefined ? undefined : `tests=${evidence.testCount}`,
+    evidence.failedTestNumber === undefined ? undefined : `failed_test_number=${evidence.failedTestNumber}`,
+    evidence.failedTest ? `failed_test=${evidence.failedTest}` : undefined,
+    evidence.migration ? `migration=${evidence.migration}` : undefined,
+    evidence.errorSummary ? `error=${evidence.errorSummary}` : undefined,
+  ].filter(Boolean);
+  return fields.join(" ");
 }
 
 export async function runPhaseGate({
@@ -41,7 +66,7 @@ export async function runPhaseGate({
       runtime,
     });
     if (result.outcome !== "PASSED" || result.status !== 0) {
-      blocked(result.failureCategory ?? "database_gate_blocked");
+      blocked(result.failureCategory ?? "database_gate_blocked", result.evidence);
     }
     return { gate, outcome: "PASSED", status: 0 };
   }
@@ -74,7 +99,7 @@ export async function runPhaseGateCli(argv = process.argv, environment = process
     console.log(`PASSED phase_gate=${result.gate}`);
     return result;
   } catch (error) {
-    console.error(`BLOCKED phase_gate=${gate ?? "unknown"} category=${error?.category ?? "phase_gate_failed"}`);
+    console.error(formatPhaseGateBlocked(gate, error));
     process.exitCode = 1;
     return { gate, outcome: "BLOCKED", status: 1 };
   }

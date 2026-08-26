@@ -219,6 +219,7 @@ test("blocks seed and rollback aliases until their independent verifier contract
     assert.deepEqual(result.evidence, {
       errorSummary: "database_verifier_unavailable",
       failedTest: undefined,
+      failedTestNumber: undefined,
       migration: undefined,
       testCount: undefined,
     });
@@ -226,7 +227,7 @@ test("blocks seed and rollback aliases until their independent verifier contract
   assert.equal(spawnCount, 0);
 });
 
-test("returns bounded redacted pgTAP and migration failure evidence without returning raw CLI streams", async () => {
+test("returns allowlisted pgTAP and migration failure evidence without returning raw CLI streams", async () => {
   const captured = [];
   const result = await runDbCommand({
     command: "db:test",
@@ -236,8 +237,8 @@ test("returns bounded redacted pgTAP and migration failure evidence without retu
       captured.push({ executable, args, options });
       return {
         status: 1,
-        stdout: "1..3\nApplying migration 202608260010_guard.sql\nok 1 - configured agent\nnot ok 2 - tenant ledger policy\n",
-        stderr: "ERROR: 42501 password=local-password host=127.0.0.1 token=super-secret-token",
+        stdout: "1..3\nApplying migration 202608260010_guard.sql\nok 1 - configured agent\nnot ok 2 - agent_policy_rls\n",
+        stderr: "ERROR: SQLSTATE 42501 password=local-password host=127.0.0.1 token=super-secret-token",
       };
     },
   });
@@ -245,14 +246,78 @@ test("returns bounded redacted pgTAP and migration failure evidence without retu
   assert.equal(result.outcome, "BLOCKED");
   assert.equal(result.failureCategory, "database_cli_failed");
   assert.equal(result.evidence.testCount, 3);
-  assert.equal(result.evidence.failedTest, "tenant ledger policy");
+  assert.equal(result.evidence.failedTest, "test_2");
+  assert.equal(result.evidence.failedTestNumber, 2);
   assert.equal(result.evidence.migration, "202608260010_guard.sql");
-  assert.match(result.evidence.errorSummary, /42501/);
+  assert.equal(result.evidence.errorSummary, "test_failed:42501");
   assert.doesNotMatch(JSON.stringify(result), /local-password|127\.0\.0\.1|super-secret-token|postgresql:/);
   assert.deepEqual(captured[0].options.stdio, ["ignore", "pipe", "pipe"]);
   const output = formatDbCommandResult("db:test", result);
-  assert.match(output, /tests=3.*failed_test=tenant ledger policy.*migration=202608260010_guard\.sql.*42501/);
+  assert.match(output, /tests=3.*failed_test_number=2.*failed_test=test_2.*migration=202608260010_guard\.sql.*error=test_failed:42501/);
   assert.doesNotMatch(output, /local-password|127\.0\.0\.1|super-secret-token|postgresql:/);
+});
+
+test("never carries arbitrary libpq, Supabase, network, or credential text into database result evidence", async () => {
+  const result = await runDbCommand({
+    command: "db:test",
+    environment: "Local",
+    databaseUrl: localDatabaseUrl,
+    spawnProcess: () => ({
+      status: 1,
+      stdout: "1..4\nApplying migration ../../secrets.sql\nnot ok 4 - https://db.prod.example/credentials?token=unknown-secret\n",
+      stderr: [
+        "psql: error: connection to server at \"203.0.113.9\", port 5432 failed: Connection refused",
+        "connection to server at \"2001:db8::1\", port 5432 failed: password authentication failed for user \"intruder\" (SQLSTATE 28P01)",
+        "Supabase CLI host='db.prod.example' token=unknown-secret untrusted_secret=opaque-value raw-token=A9B2C",
+      ].join("\n"),
+    }),
+  });
+
+  assert.deepEqual(result.evidence, {
+    errorSummary: "auth_failed:28P01",
+    failedTest: "test_4",
+    failedTestNumber: 4,
+    migration: undefined,
+    testCount: 4,
+  });
+  const serialized = JSON.stringify(result);
+  const cliOutput = formatDbCommandResult("db:test", result);
+  for (const unsafeText of [
+    "203.0.113.9",
+    "2001:db8::1",
+    "db.prod.example",
+    "intruder",
+    "unknown-secret",
+    "opaque-value",
+    "A9B2C",
+    "https://",
+    "secrets.sql",
+  ]) {
+    assert.equal(serialized.includes(unsafeText), false, `result must not contain ${unsafeText}`);
+    assert.equal(cliOutput.includes(unsafeText), false, `CLI output must not contain ${unsafeText}`);
+  }
+});
+
+test("does not treat an unmarked five-character token as a SQLSTATE", async () => {
+  const result = await runDbCommand({
+    command: "db:test",
+    environment: "Local",
+    databaseUrl: localDatabaseUrl,
+    spawnProcess: () => ({
+      status: 1,
+      stdout: "1..1\nnot ok 1 - routine_name\n",
+      stderr: "ERROR arbitrary secret A9B2C without an SQLSTATE marker",
+    }),
+  });
+
+  assert.deepEqual(result.evidence, {
+    errorSummary: "test_failed",
+    failedTest: "test_1",
+    failedTestNumber: 1,
+    migration: undefined,
+    testCount: 1,
+  });
+  assert.equal(JSON.stringify(result).includes("A9B2C"), false);
 });
 
 test("reports an unavailable local CLI as BLOCKED instead of a successful database gate", async () => {
@@ -318,5 +383,9 @@ test("declares only the safe named database aliases and preserves existing phase
   }
   for (const command of ["phase2:check", "phase2:dry-run", "phase2:push", "phase2:db-test"]) {
     assert.match(packageJson.scripts[command], /scripts\/phase2\/supabase-command\.mjs/);
+  }
+  for (const command of ["test:unit", "test:watch"]) {
+    assert.match(packageJson.scripts[command], /--exclude "scripts\/\*\*\/\*.test\.mjs"/);
+    assert.doesNotMatch(packageJson.scripts[command], /scripts\/(?:phase1|phase2)\/\*\*\/\*.test\.mjs/);
   }
 });
