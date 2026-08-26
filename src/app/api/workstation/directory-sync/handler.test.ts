@@ -13,6 +13,21 @@ const unusedResult = {
 };
 
 describe("workstation directory sync route", () => {
+  it("starts the durable full worker for the production path", async () => {
+    const response = await createDirectorySyncHandler({
+      loadSession: async () => ({
+        tenantId: "10000000-0000-4000-8000-000000000001",
+        authUserId: "10000000-0000-4000-8000-000000000002",
+        roleCodes: ["owner"],
+        permissionCodes: ["organization.manage"],
+      }),
+      runFullSync: async () => ({ runId: "run-full", cursor: "0", status: "completed", retryAfter: null }),
+    })();
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ runId: "run-full", cursor: "0", status: "completed", retryAfter: null });
+  });
+
   it("requires a Feishu workspace session", async () => {
     const response = await createDirectorySyncHandler({
       loadSession: async () => null,

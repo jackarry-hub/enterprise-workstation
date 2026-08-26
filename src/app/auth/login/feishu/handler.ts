@@ -2,10 +2,15 @@ import { NextResponse } from "next/server";
 
 import { getAuthRedirectOrigin } from "@/features/auth/auth-env";
 import { getOAuthStartUrl } from "@/features/auth/oauth-start";
+import { FEISHU_OAUTH_NONCE_COOKIE } from "@/features/auth/feishu-oauth-attempt";
 import { getSafeReturnPath, isPublicAuthPath } from "@/features/auth/workspace-access";
 
 export type OAuthStartDependencies = {
-  getLoginUrl: (returnPath: string | null) => Promise<string | null>;
+  getLoginUrl: (returnPath: string | null) => Promise<{
+    url: string;
+    nonce: string;
+    maxAge: number;
+  } | null>;
 };
 
 export const defaultOAuthStartDependencies: OAuthStartDependencies = {
@@ -21,16 +26,29 @@ export function createOAuthStartHandler(dependencies: OAuthStartDependencies) {
       ? safeNext
       : null;
     try {
-      const oauthUrl = await dependencies.getLoginUrl(returnPath);
-      if (oauthUrl) return NextResponse.redirect(oauthUrl);
+      const oauth = await dependencies.getLoginUrl(returnPath);
+      if (oauth) {
+        const response = NextResponse.redirect(oauth.url);
+        response.headers.set("cache-control", "no-store");
+        response.cookies.set(FEISHU_OAUTH_NONCE_COOKIE, oauth.nonce, {
+          httpOnly: true,
+          secure: true,
+          sameSite: "lax",
+          path: "/auth/callback",
+          maxAge: oauth.maxAge,
+        });
+        return response;
+      }
     } catch {
       // Keep the employee-facing failure stable and free of provider details.
     }
-    return NextResponse.redirect(
+    const response = NextResponse.redirect(
       new URL(
         "/access-pending?reason=auth_error",
         getAuthRedirectOrigin(requestUrl),
       ),
     );
+    response.headers.set("cache-control", "no-store");
+    return response;
   };
 }

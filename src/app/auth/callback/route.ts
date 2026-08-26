@@ -6,6 +6,11 @@ import {
 } from "@/features/auth/workspace-access";
 import { getAuthRedirectOrigin } from "@/features/auth/auth-env";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  consumeFeishuOAuthAttemptResult,
+  FEISHU_OAUTH_NONCE_COOKIE,
+  readFeishuOAuthNonceCookie,
+} from "@/features/auth/feishu-oauth-attempt";
 
 export type IdentityClaimResult =
   | "unauthenticated"
@@ -27,6 +32,10 @@ type PublicAccessReason =
   | "configuration_error";
 
 export type AuthCallbackDependencies = {
+  consumeAttempt: (
+    attemptId: string,
+    nonce: string,
+  ) => Promise<boolean | { valid: boolean; returnPath: string | null }>;
   exchangeCode: (code: string) => Promise<string | null>;
   claimIdentity: () => Promise<unknown>;
   loadSession: (authUserId: string) => Promise<{ landingPath: string } | null>;
@@ -59,7 +68,14 @@ function callbackRedirect(
   url: URL,
   pathname: string,
 ) {
-  return Response.redirect(new URL(pathname, getAuthRedirectOrigin(url)));
+  return new Response(null, {
+    status: 302,
+    headers: {
+      location: new URL(pathname, getAuthRedirectOrigin(url)).href,
+      "cache-control": "no-store",
+      "set-cookie": `${FEISHU_OAUTH_NONCE_COOKIE}=; Path=/auth/callback; Max-Age=0; HttpOnly; Secure; SameSite=Lax`,
+    },
+  });
 }
 
 async function rejectCallback(
@@ -91,12 +107,20 @@ async function handleAuthCallback(
   dependencies: AuthCallbackDependencies,
 ) {
   const url = new URL(request.url);
+  const attempts = url.searchParams.getAll("attempt");
+  const nonce = readFeishuOAuthNonceCookie(request);
   const codes = url.searchParams.getAll("code");
-  if (codes.length !== 1 || !codes[0].trim()) {
+  if (attempts.length !== 1 || !attempts[0].trim() || !nonce || codes.length !== 1 || !codes[0].trim()) {
     return rejectCallback(url, "auth_error", dependencies.signOut);
   }
 
   try {
+    const attempt = await dependencies.consumeAttempt(attempts[0], nonce);
+    const attemptValid = typeof attempt === "boolean" ? attempt : attempt.valid;
+    const attemptReturnPath = typeof attempt === "boolean" ? null : attempt.returnPath;
+    const allowCallbackQueryReturnPath = typeof attempt === "boolean";
+    if (!attemptValid) return rejectCallback(url, "auth_error", dependencies.signOut);
+
     const authUserId = await dependencies.exchangeCode(codes[0]);
     if (!authUserId) {
       return rejectCallback(url, "auth_error", dependencies.signOut);
@@ -115,7 +139,9 @@ async function handleAuthCallback(
 
     return callbackRedirect(
       url,
-      safeNextPath(url) ?? FORMAL_WORKSTATION_PATH,
+      attemptReturnPath
+        ?? (allowCallbackQueryReturnPath ? safeNextPath(url) : null)
+        ?? FORMAL_WORKSTATION_PATH,
     );
   } catch {
     return rejectCallback(url, "auth_error", dependencies.signOut);
@@ -135,6 +161,7 @@ async function handleGet(request: Request) {
   }
 
   return handleAuthCallback(request, {
+    consumeAttempt: consumeFeishuOAuthAttemptResult,
     exchangeCode: async (code) => {
       const { data, error } = await supabase.auth.exchangeCodeForSession(code);
       const authUserId = data.user?.id;

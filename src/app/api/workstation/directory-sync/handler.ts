@@ -12,6 +12,9 @@ import {
 import { getWorkspaceSession } from "@/features/auth/workspace-session";
 import type { WorkspacePermissionCode } from "@/features/auth/workspace-session-types";
 import { getSupabaseEnv } from "@/lib/supabase/env";
+import {
+  type DirectorySyncControlResult,
+} from "@/features/feishu/directory-sync-worker";
 
 type DirectorySession = {
   tenantId?: string;
@@ -40,8 +43,9 @@ type SafeFailureLog = {
 
 export type DirectorySyncDependencies = {
   loadSession: () => Promise<DirectorySession | null>;
-  loadSnapshot: () => Promise<FeishuDirectorySnapshot>;
-  applySnapshot: (
+  runFullSync?: () => Promise<DirectorySyncControlResult>;
+  loadSnapshot?: () => Promise<FeishuDirectorySnapshot>;
+  applySnapshot?: (
     session: DirectorySession,
     snapshot: FeishuDirectorySnapshot,
     requestId: string,
@@ -113,6 +117,21 @@ export function createDirectorySyncHandler(dependencies: DirectorySyncDependenci
       return Response.json({ error: "forbidden" }, { status: 403 });
     }
 
+    if (dependencies.runFullSync) {
+      try {
+        const result = await dependencies.runFullSync();
+        return Response.json(result, {
+          status: result.status === "retry" ? 202 : 200,
+          headers: { "cache-control": "no-store" },
+        });
+      } catch {
+        return Response.json({ error: { code: "directory_unexpected" } }, {
+          status: 502,
+          headers: { "cache-control": "no-store" },
+        });
+      }
+    }
+
     const requestId = dependencies.createRequestId?.() ?? randomUUID();
     const recordFailure = async (code: DirectorySyncFailureCode) => {
       try {
@@ -137,14 +156,14 @@ export function createDirectorySyncHandler(dependencies: DirectorySyncDependenci
 
     let snapshot: FeishuDirectorySnapshot;
     try {
-      snapshot = await dependencies.loadSnapshot();
+      snapshot = await dependencies.loadSnapshot!();
     } catch (error) {
       const code = knownSnapshotFailure(error);
       return settleFailure(code);
     }
 
     try {
-      const result = await dependencies.applySnapshot(session, snapshot, requestId);
+      const result = await dependencies.applySnapshot!(session, snapshot, requestId);
       if (!validResult(result)) throw new Error("directory_sync_result_invalid");
       return Response.json(result, { headers: responseHeaders(requestId) });
     } catch {

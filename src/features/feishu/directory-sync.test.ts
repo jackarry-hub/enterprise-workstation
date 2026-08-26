@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { loadFeishuDirectorySnapshot } from "@/features/feishu/directory-sync";
+import { loadFeishuDirectorySnapshot, revokeDepartedMemberAccess } from "@/features/feishu/directory-sync";
 
 const directoryEnv = { appId: "cli_test", appSecret: "app-secret" };
 const activeStatus = {
@@ -42,6 +42,17 @@ function directoryUsersFetch(
 }
 
 describe("Feishu directory snapshot", () => {
+  it("delegates immediate offboarding to one transactional repository command", async () => {
+    const calls: Array<{ memberPublicId: string; eventId: string }> = [];
+    const result = await revokeDepartedMemberAccess(
+      "71000000-0000-4000-8000-000000000001",
+      "evt-departed-1",
+      async (input) => { calls.push(input); return true; },
+    );
+    expect(result).toBe(true);
+    expect(calls).toEqual([{ memberPublicId: "71000000-0000-4000-8000-000000000001", eventId: "evt-departed-1" }]);
+  });
+
   it("loads departments and employees with an app token without exposing the token", async () => {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);

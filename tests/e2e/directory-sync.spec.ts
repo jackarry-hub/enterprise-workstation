@@ -43,3 +43,27 @@ test("configuration failure is request-correlated and never publishes a complete
     request_id: requestId,
   });
 });
+
+test("unsigned Feishu contact events are rejected before durable ingestion", async ({ request }) => {
+  test.skip(
+    !process.env.FEISHU_VERIFICATION_TOKEN?.trim() || !process.env.FEISHU_ENCRYPT_KEY?.trim()
+      || !process.env.FEISHU_APP_ID?.trim() || !process.env.FEISHU_TENANT_KEY?.trim(),
+    "Local signed-webhook verification requires isolated non-production Feishu settings.",
+  );
+  const response = await request.post("/api/workstation/feishu/webhook", {
+    data: {
+      schema: "2.0",
+      header: {
+        event_id: "synthetic-unsigned-event",
+        event_type: "contact.user.updated_v3",
+        create_time: String(Date.now()),
+        token: process.env.FEISHU_VERIFICATION_TOKEN,
+        app_id: process.env.FEISHU_APP_ID,
+        tenant_key: process.env.FEISHU_TENANT_KEY,
+      },
+      event: { object: { open_id: "ou_synthetic" } },
+    },
+  });
+  expect(response.status()).toBe(401);
+  expect(await response.json()).toEqual({ error: "webhook_unauthorized" });
+});

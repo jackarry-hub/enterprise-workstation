@@ -46,6 +46,36 @@ export type DirectorySyncLoadOptions = {
   maxPages?: number;
 };
 
+export type DepartedMemberRevocationRepository = (input: {
+  memberPublicId: string;
+  eventId: string;
+}) => Promise<boolean>;
+
+const defaultDepartedMemberRevocation: DepartedMemberRevocationRepository = async (input) => {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!key) throw new DirectorySyncError("directory_configuration_invalid");
+  const client = createClient(getSupabaseEnv().url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { data, error } = await client.rpc("revoke_departed_member_access", {
+    p_member_public_id: input.memberPublicId,
+    p_event_id: input.eventId,
+  });
+  if (error || typeof data !== "boolean") throw new DirectorySyncError("directory_provider_unavailable");
+  return data;
+};
+
+export function revokeDepartedMemberAccess(
+  memberPublicId: string,
+  eventId: string,
+  repository: DepartedMemberRevocationRepository = defaultDepartedMemberRevocation,
+) {
+  if (!/^[0-9a-f-]{36}$/i.test(memberPublicId) || !eventId.trim() || eventId.length > 200) {
+    throw new DirectorySyncError("directory_payload_invalid");
+  }
+  return repository({ memberPublicId, eventId });
+}
+
 type JsonRecord = Record<string, unknown>;
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -258,3 +288,8 @@ export async function loadFeishuDirectorySnapshot(
     throw new DirectorySyncError("directory_provider_unavailable");
   }
 }
+import "server-only";
+
+import { createClient } from "@supabase/supabase-js";
+
+import { getSupabaseEnv } from "@/lib/supabase/env";
