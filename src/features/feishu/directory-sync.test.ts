@@ -3,6 +3,43 @@ import { describe, expect, it, vi } from "vitest";
 import { loadFeishuDirectorySnapshot } from "@/features/feishu/directory-sync";
 
 const directoryEnv = { appId: "cli_test", appSecret: "app-secret" };
+const activeStatus = {
+  is_activated: true,
+  is_exited: false,
+  is_frozen: false,
+  is_resigned: false,
+  is_unjoin: false,
+};
+
+function directoryUsersFetch(
+  rootUsers: Array<Record<string, unknown>>,
+  departmentUsers?: Array<Record<string, unknown>>,
+) {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/auth/v3/tenant_access_token/internal")) {
+      return Response.json({ code: 0, tenant_access_token: "tenant-secret" });
+    }
+    if (url.includes("/departments/0/children")) {
+      return Response.json({
+        code: 0,
+        data: {
+          has_more: false,
+          items: departmentUsers
+            ? [{ open_department_id: "od-product", name: "产品部" }]
+            : [],
+        },
+      });
+    }
+    return Response.json({
+      code: 0,
+      data: {
+        has_more: false,
+        items: url.includes("department_id=0") ? rootUsers : departmentUsers ?? [],
+      },
+    });
+  });
+}
 
 describe("Feishu directory snapshot", () => {
   it("loads departments and employees with an app token without exposing the token", async () => {
@@ -36,7 +73,7 @@ describe("Feishu directory snapshot", () => {
             user_id: "owner",
             name: "负责人",
             job_title: "CEO",
-            status: { is_activated: true },
+            status: activeStatus,
           }] },
         });
       }
@@ -47,7 +84,7 @@ describe("Feishu directory snapshot", () => {
           user_id: "employee",
           name: "产品同事",
           job_title: "产品经理",
-          status: { is_activated: true },
+          status: activeStatus,
         }] },
       });
     });
@@ -90,7 +127,7 @@ describe("Feishu directory snapshot", () => {
         open_id: "ou-owner",
         user_id: "owner",
         name: "负责人",
-        status: { is_activated: true },
+        status: activeStatus,
       }] } });
     });
 
@@ -119,7 +156,10 @@ describe("Feishu directory pagination fails closed", () => {
       }
       return Response.json({
         code: 0,
-        data: { has_more: false, items: [{ open_id: "ou-user", name: "员工" }] },
+        data: {
+          has_more: false,
+          items: [{ open_id: "ou-user", name: "员工", status: activeStatus }],
+        },
       });
     });
 
@@ -197,5 +237,58 @@ describe("Feishu directory pagination fails closed", () => {
 
     await expect(loadFeishuDirectorySnapshot(directoryEnv, fetchImpl))
       .rejects.toMatchObject({ code: "directory_payload_invalid" });
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["non-object", "active"],
+    ["empty", {}],
+    ["non-boolean flag", { ...activeStatus, is_activated: "true" }],
+  ])("rejects a %s employee lifecycle status", async (_label, status) => {
+    const employee = {
+      open_id: "ou-user",
+      name: "员工",
+      ...(status === undefined ? {} : { status }),
+    };
+
+    await expect(loadFeishuDirectorySnapshot(
+      directoryEnv,
+      directoryUsersFetch([employee]),
+    )).rejects.toMatchObject({ code: "directory_payload_invalid" });
+  });
+
+  it.each(["is_frozen", "is_resigned", "is_exited"] as const)(
+    "maps an explicitly true %s lifecycle flag to inactive",
+    async (flag) => {
+      const snapshot = await loadFeishuDirectorySnapshot(
+        directoryEnv,
+        directoryUsersFetch([{
+          open_id: `ou-${flag}`,
+          name: "离职或冻结员工",
+          status: { ...activeStatus, [flag]: true },
+        }]),
+      );
+
+      expect(snapshot.employees).toEqual([
+        expect.objectContaining({ openId: `ou-${flag}`, isActive: false }),
+      ]);
+    },
+  );
+
+  it("rejects conflicting lifecycle states for the same employee across departments", async () => {
+    const activeEmployee = {
+      open_id: "ou-conflict",
+      name: "状态冲突员工",
+      status: activeStatus,
+    };
+    const frozenEmployee = {
+      ...activeEmployee,
+      status: { ...activeStatus, is_frozen: true },
+    };
+
+    await expect(loadFeishuDirectorySnapshot(
+      directoryEnv,
+      directoryUsersFetch([activeEmployee], [frozenEmployee]),
+    )).rejects.toMatchObject({ code: "directory_payload_invalid" });
   });
 });

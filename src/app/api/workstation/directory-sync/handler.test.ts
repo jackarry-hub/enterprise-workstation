@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createDirectorySyncHandler } from "@/app/api/workstation/directory-sync/handler";
+import { loadFeishuDirectorySnapshot } from "@/features/feishu/directory-sync";
 
 const snapshot = { departments: [], positions: [], employees: [], complete: true as const };
 const unusedResult = {
@@ -226,5 +227,66 @@ describe("workstation directory sync route", () => {
       "30000000-0000-4000-8000-000000000006",
     );
     await expect(response.json()).resolves.toEqual(committed);
+  });
+
+  it("records a malformed lifecycle payload without applying or leaking provider data", async () => {
+    const session = {
+      tenantId: "10000000-0000-4000-8000-000000000001",
+      authUserId: "10000000-0000-4000-8000-000000000002",
+      roleCodes: ["owner"],
+      permissionCodes: ["organization.manage"] as const,
+    };
+    const applySnapshot = vi.fn(async () => unusedResult);
+    const recordFailure = vi.fn(async () => ({
+      runId: "31000000-0000-4000-8000-000000000007",
+      status: "failed" as const,
+      departmentCount: 0,
+      employeeCount: 0,
+      issueCount: 1,
+    }));
+    const response = await createDirectorySyncHandler({
+      loadSession: async () => session,
+      loadSnapshot: () => loadFeishuDirectorySnapshot(
+        { appId: "cli_test", appSecret: "provider-secret" },
+        async (input) => {
+          const url = String(input);
+          if (url.endsWith("/auth/v3/tenant_access_token/internal")) {
+            return Response.json({ code: 0, tenant_access_token: "tenant-secret" });
+          }
+          if (url.includes("/departments/0/children")) {
+            return Response.json({ code: 0, data: { has_more: false, items: [] } });
+          }
+          return Response.json({
+            code: 0,
+            data: {
+              has_more: false,
+              items: [{ open_id: "ou-user", name: "员工", status: "raw-invalid-status" }],
+            },
+          });
+        },
+      ),
+      applySnapshot,
+      recordFailure,
+      createRequestId: () => "30000000-0000-4000-8000-000000000007",
+    })();
+    const body = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(response.headers.get("x-request-id")).toBe("30000000-0000-4000-8000-000000000007");
+    expect(applySnapshot).not.toHaveBeenCalled();
+    expect(recordFailure).toHaveBeenCalledWith(
+      session,
+      "directory_payload_invalid",
+      "30000000-0000-4000-8000-000000000007",
+    );
+    expect(body).toEqual({
+      error: {
+        code: "directory_payload_invalid",
+        requestId: "30000000-0000-4000-8000-000000000007",
+        runId: "31000000-0000-4000-8000-000000000007",
+      },
+    });
+    expect(JSON.stringify(body)).not.toContain("raw-invalid-status");
+    expect(JSON.stringify(body)).not.toContain("provider-secret");
   });
 });

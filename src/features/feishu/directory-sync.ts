@@ -141,12 +141,22 @@ async function pagedItems(
 }
 
 function isActiveUser(row: JsonRecord) {
-  const status = object(row.status) ?? {};
-  return status.is_activated !== false
-    && status.is_exited !== true
-    && status.is_frozen !== true
-    && status.is_resigned !== true
-    && status.is_unjoin !== true;
+  const status = object(row.status);
+  const lifecycleFields = [
+    "is_activated",
+    "is_exited",
+    "is_frozen",
+    "is_resigned",
+    "is_unjoin",
+  ] as const;
+  if (!status || lifecycleFields.some((field) => typeof status[field] !== "boolean")) {
+    throw new DirectorySyncError("directory_payload_invalid");
+  }
+  return status.is_activated === true
+    && status.is_exited === false
+    && status.is_frozen === false
+    && status.is_resigned === false
+    && status.is_unjoin === false;
 }
 
 function jobTitleExternalId(jobTitle: string | null) {
@@ -211,6 +221,10 @@ export async function loadFeishuDirectorySnapshot(
           throw new DirectorySyncError("directory_payload_invalid");
         }
         const existing = users.get(openId);
+        const isActive = isActiveUser(row);
+        if (existing && existing.isActive !== isActive) {
+          throw new DirectorySyncError("directory_payload_invalid");
+        }
         const jobTitle = text(row.job_title) ?? existing?.jobTitle ?? "";
         users.set(openId, {
           openId,
@@ -221,7 +235,7 @@ export async function loadFeishuDirectorySnapshot(
             existing?.primaryDepartmentExternalId ?? departmentExternalId,
           jobTitleExternalId: jobTitleExternalId(jobTitle),
           jobTitle,
-          isActive: isActiveUser(row),
+          isActive,
         });
       });
     }
