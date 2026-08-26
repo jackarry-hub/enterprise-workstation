@@ -6,12 +6,14 @@ import {
   type FeishuDirectorySnapshot,
 } from "@/features/feishu/directory-sync";
 import { getWorkspaceSession } from "@/features/auth/workspace-session";
+import type { WorkspacePermissionCode } from "@/features/auth/workspace-session-types";
 import { getSupabaseEnv } from "@/lib/supabase/env";
 
 type DirectorySession = {
   tenantId?: string;
   authUserId?: string;
   roleCodes: readonly string[];
+  permissionCodes: readonly WorkspacePermissionCode[];
 };
 
 export type DirectorySyncDependencies = {
@@ -27,7 +29,7 @@ export function createDirectorySyncHandler(dependencies: DirectorySyncDependenci
   return async function syncDirectory() {
     const session = await dependencies.loadSession();
     if (!session) return Response.json({ error: "unauthorized" }, { status: 401 });
-    if (!session.roleCodes.some((role) => role === "owner" || role === "admin")) {
+    if (!session.permissionCodes.includes("organization.manage")) {
       return Response.json({ error: "forbidden" }, { status: 403 });
     }
     try {

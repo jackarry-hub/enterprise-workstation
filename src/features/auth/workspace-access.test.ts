@@ -40,6 +40,7 @@ const base = {
   providerCode: "feishu",
   authProvider: "custom:feishu",
   providerSubject: "subject-employee-001",
+  customRoleCodes: [],
   permissionCodes: ["task.manage"],
 };
 
@@ -277,14 +278,16 @@ describe("parseWorkspaceAccess", () => {
     ).toBe("https://cdn.example.test/avatar.png");
   });
 
-  it("keeps a bounded custom membership role without letting it become the primary role", () => {
+  it("keeps a bounded custom membership separate from canonical navigation roles", () => {
     const session = parseWorkspaceAccess({
       ...base,
-      roleCodes: ["employee", "project_observer"],
+      roleCodes: ["employee"],
+      customRoleCodes: ["project_observer"],
     });
 
     expect(session).toMatchObject({
-      roleCodes: ["employee", "project_observer"],
+      roleCodes: ["employee"],
+      customRoleCodes: ["project_observer"],
       primaryRole: "employee",
       landingPath: "/execution",
     });
@@ -292,12 +295,19 @@ describe("parseWorkspaceAccess", () => {
 
   it.each([
     ["admin-only", ["admin"]],
-    ["unknown-only", ["superuser"]],
+    ["unknown-only", []],
+    ["custom membership in canonical roles", ["employee", "project_observer"]],
     ["duplicate", ["employee", "employee"]],
     ["wrong item type", ["employee", 7]],
     ["not an array", "employee"],
-  ])("rejects %s role codes", (_label, roleCodes) => {
-    expect(parseWorkspaceAccess({ ...base, roleCodes })).toBeNull();
+  ])("rejects %s canonical role codes", (_label, roleCodes) => {
+    expect(
+      parseWorkspaceAccess({
+        ...base,
+        roleCodes,
+        customRoleCodes: roleCodes.length === 0 ? ["superuser"] : [],
+      }),
+    ).toBeNull();
   });
 
   it.each([
@@ -310,7 +320,18 @@ describe("parseWorkspaceAccess", () => {
     expect(
       parseWorkspaceAccess({
         ...base,
-        roleCodes: ["employee", roleCode],
+        roleCodes: ["employee"],
+        customRoleCodes: [roleCode],
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects a canonical role code masquerading as a custom membership", () => {
+    expect(
+      parseWorkspaceAccess({
+        ...base,
+        roleCodes: ["employee"],
+        customRoleCodes: ["admin"],
       }),
     ).toBeNull();
   });

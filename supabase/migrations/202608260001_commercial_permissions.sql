@@ -158,6 +158,48 @@ where public.is_commercial_baseline_system_role(
   role.is_system, role.is_enabled, role.organization_id, role.code
 );
 
+create or replace function public.is_canonical_workspace_role_code(p_code text)
+returns boolean
+language sql
+immutable
+set search_path = ''
+as $$
+  select p_code = any (array[
+    'owner', 'admin', 'department_head', 'employee', 'finance', 'hr'
+  ]::text[]);
+$$;
+
+update public.roles role
+set is_enabled = false
+where role.is_enabled
+  and public.is_canonical_workspace_role_code(role.code)
+  and (not role.is_system or role.organization_id is not null);
+
+create or replace function public.enforce_canonical_workspace_role_shape()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if public.is_canonical_workspace_role_code(new.code)
+     and (not new.is_system or new.organization_id is not null) then
+    raise exception 'Canonical workspace role codes require a global system role'
+      using errcode = '23514';
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.is_canonical_workspace_role_code(text)
+  from public, anon, authenticated;
+revoke all on function public.enforce_canonical_workspace_role_shape()
+  from public, anon, authenticated;
+
+drop trigger if exists roles_canonical_workspace_role_shape on public.roles;
+create trigger roles_canonical_workspace_role_shape
+before insert or update of code, is_system, organization_id on public.roles
+for each row execute function public.enforce_canonical_workspace_role_shape();
+
 create or replace function public.enforce_member_role_organization_compatibility()
 returns trigger
 language plpgsql
@@ -240,7 +282,20 @@ as $$
       where assignment.tenant_id = member.tenant_id
         and assignment.member_id = member.id
         and r.is_enabled
+        and r.is_system
+        and r.organization_id is null
+        and public.is_canonical_workspace_role_code(r.code)
+    ), '{}'::text[]),
+    'customRoleCodes', coalesce((
+      select array_agg(distinct r.code)
+      from public.member_roles assignment
+      join public.roles r
+        on r.tenant_id = assignment.tenant_id and r.id = assignment.role_id
+      where assignment.tenant_id = member.tenant_id
+        and assignment.member_id = member.id
+        and r.is_enabled
         and (r.organization_id is null or r.organization_id = member.organization_id)
+        and not public.is_canonical_workspace_role_code(r.code)
     ), '{}'::text[]),
     'permissionCodes', coalesce((
       select array_agg(distinct permission.code)

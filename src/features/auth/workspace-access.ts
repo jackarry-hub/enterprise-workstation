@@ -4,7 +4,6 @@ import type {
   WorkspaceActor,
   WorkspacePermissionCode,
   WorkspaceRole,
-  WorkspaceRoleCode,
   WorkspaceSession,
 } from "@/features/auth/workspace-session-types";
 
@@ -128,26 +127,22 @@ function enumArray<T extends string>(
   return parsed;
 }
 
-function workspaceRoleCodeArray(value: unknown): WorkspaceRoleCode[] | null {
+function customRoleCodeArray(value: unknown): CustomWorkspaceRoleCode[] | null {
   if (!Array.isArray(value)) return null;
 
-  const parsed: WorkspaceRoleCode[] = [];
+  const parsed: CustomWorkspaceRoleCode[] = [];
   const seen = new Set<string>();
   for (const item of value) {
     if (
       !nonEmptyText(item)
       || seen.has(item)
-      || (!databaseRoles.has(item as DatabaseRoleCode)
-        && !CUSTOM_WORKSPACE_ROLE_CODE_PATTERN.test(item))
+      || databaseRoles.has(item as DatabaseRoleCode)
+      || !CUSTOM_WORKSPACE_ROLE_CODE_PATTERN.test(item)
     ) {
       return null;
     }
     seen.add(item);
-    parsed.push(
-      databaseRoles.has(item as DatabaseRoleCode)
-        ? item as DatabaseRoleCode
-        : item as CustomWorkspaceRoleCode,
-    );
+    parsed.push(item as CustomWorkspaceRoleCode);
   }
   return parsed;
 }
@@ -219,12 +214,13 @@ export function parseWorkspaceAccess(value: unknown): WorkspaceSession | null {
     return null;
   }
 
-  const roleCodes = workspaceRoleCodeArray(raw.roleCodes);
+  const roleCodes = enumArray(raw.roleCodes, databaseRoles);
+  const customRoleCodes = customRoleCodeArray(raw.customRoleCodes);
   const permissionCodes = enumArray(raw.permissionCodes, workspacePermissions);
   const skills = skillArray(raw.skills);
   const salaryGradeCode = optionalSalaryGradeCode(raw.salaryGradeCode);
   const jobLevel = optionalJobLevel(raw.jobLevel);
-  if (!roleCodes || !permissionCodes || !skills || salaryGradeCode === null || jobLevel === null) return null;
+  if (!roleCodes || !customRoleCodes || !permissionCodes || !skills || salaryGradeCode === null || jobLevel === null) return null;
 
   const databaseRole = rolePriority.find((role) => roleCodes.includes(role));
   if (!databaseRole) return null;
@@ -268,6 +264,7 @@ export function parseWorkspaceAccess(value: unknown): WorkspaceSession | null {
       skills,
     },
     roleCodes,
+    customRoleCodes,
     permissionCodes,
     primaryRole,
     landingPath,

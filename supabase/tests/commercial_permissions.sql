@@ -1,6 +1,6 @@
 begin;
 
-select plan(37);
+select plan(41);
 
 select is(
   (
@@ -206,46 +206,21 @@ select is(
   're-enabling an owner restores the complete commercial baseline'
 );
 
-update public.roles role
-set organization_id = (
-  select organization.id
-  from public.organizations organization
-  join public.tenants tenant on tenant.id = organization.tenant_id
-  where tenant.slug = 'commercial-baseline-test'
-    and organization.slug = 'commercial-baseline-org'
-)
-where role.tenant_id = (
-  select id from public.tenants where slug = 'commercial-baseline-test'
-)
-  and role.code = 'owner';
-
-select is(
-  (
-    select count(*)
-    from public.role_permissions assignment
-    join public.roles role on role.id = assignment.role_id
-    join public.permissions permission on permission.id = assignment.permission_id
-    where assignment.tenant_id = role.tenant_id
-      and role.tenant_id = (
-        select id from public.tenants where slug = 'commercial-baseline-test'
-      )
+select throws_ok(
+  $$
+    update public.roles role
+    set organization_id = organization.id
+    from public.organizations organization
+    join public.tenants tenant on tenant.id = organization.tenant_id
+    where tenant.slug = 'commercial-baseline-test'
+      and organization.slug = 'commercial-baseline-org'
+      and role.tenant_id = tenant.id
       and role.code = 'owner'
-      and permission.code = any (array[
-        'ai.config.manage', 'role.manage', 'customer.manage', 'approval.submit',
-        'approval.act', 'expense.manage', 'knowledge.manage', 'agent.manage',
-        'agent.orchestrate', 'analytics.read', 'settings.manage'
-      ]::text[])
-  ),
-  0::bigint,
-  'making an owner organization-scoped revokes every commercial permission'
+  $$,
+  '23514',
+  'Canonical workspace role codes require a global system role',
+  'a canonical owner cannot be made organization-scoped'
 );
-
-update public.roles role
-set organization_id = null
-where role.tenant_id = (
-  select id from public.tenants where slug = 'commercial-baseline-test'
-)
-  and role.code = 'owner';
 
 update public.roles role
 set code = 'commercial_test_role'
@@ -478,6 +453,40 @@ join public.roles role
 join public.permissions permission on permission.code = 'approval.submit'
 where tenant.slug = 'commercial-baseline-test';
 
+select throws_ok(
+  $$
+    insert into public.roles (
+      tenant_id, organization_id, code, name, description, is_system, is_enabled
+    )
+    select tenant.id, organization.id, 'admin', 'Scoped custom admin collision',
+      'Must not impersonate the canonical administrator role', false, true
+    from public.tenants tenant
+    join public.organizations organization on organization.tenant_id = tenant.id
+    where tenant.slug = 'commercial-baseline-test'
+      and organization.slug = 'commercial-baseline-org'
+  $$,
+  '23514',
+  'Canonical workspace role codes require a global system role',
+  'a scoped custom admin collision is rejected'
+);
+
+select throws_ok(
+  $$
+    insert into public.roles (
+      tenant_id, organization_id, code, name, description, is_system, is_enabled
+    )
+    select tenant.id, organization.id, 'employee', 'Scoped custom employee collision',
+      'Must not impersonate the canonical employee role', false, true
+    from public.tenants tenant
+    join public.organizations organization on organization.tenant_id = tenant.id
+    where tenant.slug = 'commercial-baseline-test'
+      and organization.slug = 'commercial-baseline-org'
+  $$,
+  '23514',
+  'Canonical workspace role codes require a global system role',
+  'a scoped custom employee collision is rejected'
+);
+
 select lives_ok(
   $$
     insert into public.member_roles (tenant_id, member_id, role_id)
@@ -512,6 +521,32 @@ select throws_ok(
   'cross-organization scoped role assignment is rejected'
 );
 
+alter table public.roles disable trigger roles_canonical_workspace_role_shape;
+insert into public.roles (
+  tenant_id, organization_id, code, name, description, is_system, is_enabled
+)
+select tenant.id, organization.id, 'admin', 'Historical scoped admin collision',
+  'A legacy collision is excluded from canonical workspace identity', false, true
+from public.tenants tenant
+join public.organizations organization on organization.tenant_id = tenant.id
+where tenant.slug = 'commercial-baseline-test'
+  and organization.slug = 'commercial-baseline-org';
+alter table public.roles enable trigger roles_canonical_workspace_role_shape;
+
+insert into public.member_roles (tenant_id, member_id, role_id)
+select tenant.id, member.id, role.id
+from public.tenants tenant
+join public.employee_profiles profile
+  on profile.tenant_id = tenant.id and profile.employee_no = 'COM-EMPLOYEE'
+join public.organization_members member
+  on member.tenant_id = profile.tenant_id and member.id = profile.organization_member_id
+join public.roles role
+  on role.tenant_id = tenant.id
+ and role.organization_id = member.organization_id
+ and role.code = 'admin'
+ and not role.is_system
+where tenant.slug = 'commercial-baseline-test';
+
 select set_config(
   'request.jwt.claim.sub', '22000000-0000-4000-8000-000000000001', true
 );
@@ -525,12 +560,20 @@ select ok(
   'current workspace access includes an assigned global role'
 );
 select ok(
-  (public.current_workspace_access() -> 'roleCodes') ? 'same_org_reviewer',
-  'current workspace access includes an assigned same-organization role'
+  (public.current_workspace_access() -> 'customRoleCodes') ? 'same_org_reviewer',
+  'current workspace access includes an assigned same-organization custom role'
 );
 select ok(
   (public.current_workspace_access() -> 'permissionCodes') ? 'approval.submit',
   'current workspace access includes permissions from an assigned same-organization role'
+);
+select ok(
+  not ((public.current_workspace_access() -> 'roleCodes') ? 'admin'),
+  'a historical scoped admin collision cannot contribute canonical workspace identity'
+);
+select ok(
+  not ((public.current_workspace_access() -> 'customRoleCodes') ? 'admin'),
+  'a historical scoped admin collision cannot masquerade as a custom membership'
 );
 select ok(
   not ((public.current_workspace_access() -> 'permissionCodes') ? 'agent.orchestrate'),

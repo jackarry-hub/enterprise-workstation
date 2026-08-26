@@ -87,6 +87,7 @@ export function createDemoWorkspaceSession(
       skills: ["strategy"],
     },
     roleCodes: ["owner", "admin"],
+    customRoleCodes: [],
     permissionCodes: ["dashboard.read", "organization.manage"],
     primaryRole: "executive",
     landingPath: "/dashboard",

@@ -29,6 +29,7 @@ export const executiveWorkspaceSession: WorkspaceSession = {
     skills: ["strategy", "leadership"],
   },
   roleCodes: ["owner"],
+  customRoleCodes: [],
   permissionCodes: ["dashboard.read", "organization.manage"],
   primaryRole: "executive",
   landingPath: "/dashboard",

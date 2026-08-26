@@ -12,8 +12,6 @@ export type CustomWorkspaceRoleCode = string & {
   readonly [customWorkspaceRoleCodeBrand]: true;
 };
 
-export type WorkspaceRoleCode = DatabaseRoleCode | CustomWorkspaceRoleCode;
-
 export type WorkspaceRole =
   | "executive"
   | "department_head"
@@ -91,7 +89,8 @@ export type WorkspaceSession = {
     jobLevel?: number;
     skills: string[];
   };
-  roleCodes: WorkspaceRoleCode[];
+  roleCodes: DatabaseRoleCode[];
+  customRoleCodes: CustomWorkspaceRoleCode[];
   permissionCodes: WorkspacePermissionCode[];
   primaryRole: WorkspaceRole;
   landingPath: string;

@@ -14,16 +14,16 @@ describe("workstation directory sync route", () => {
     expect(response.status).toBe(401);
   });
 
-  it("allows only owners or administrators", async () => {
+  it("denies a fake admin role without the directory-management permission", async () => {
     const response = await createDirectorySyncHandler({
-      loadSession: async () => ({ roleCodes: ["employee"] }),
+      loadSession: async () => ({ roleCodes: ["admin"], permissionCodes: [] }),
       loadSnapshot: async () => snapshot,
       applySnapshot: async () => ({}),
     })();
     expect(response.status).toBe(403);
   });
 
-  it("syncs the Feishu snapshot using the authenticated owner identity", async () => {
+  it("syncs the Feishu snapshot with explicit directory-management permission", async () => {
     const applySnapshot = vi.fn(async () => ({
       status: "completed",
       employeeCount: 2,
@@ -34,7 +34,8 @@ describe("workstation directory sync route", () => {
     const session = {
       tenantId: "10000000-0000-4000-8000-000000000001",
       authUserId: "10000000-0000-4000-8000-000000000002",
-      roleCodes: ["owner"],
+      roleCodes: ["employee"],
+      permissionCodes: ["organization.manage"] as const,
     };
     const response = await createDirectorySyncHandler({
       loadSession: async () => session,

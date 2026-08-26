@@ -41,6 +41,7 @@ const executiveSession: WorkspaceSession = {
     skills: ["strategy", "leadership"],
   },
   roleCodes: ["owner"],
+  customRoleCodes: [],
   permissionCodes: [
     "dashboard.read",
     "organization.manage",

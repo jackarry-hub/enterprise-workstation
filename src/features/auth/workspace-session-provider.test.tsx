@@ -33,6 +33,7 @@ const session: WorkspaceSession = {
     skills: ["product", "需求分析"],
   },
   roleCodes: ["employee"],
+  customRoleCodes: [],
   permissionCodes: ["task.manage"],
   primaryRole: "employee",
   landingPath: "/execution",

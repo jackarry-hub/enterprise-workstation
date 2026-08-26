@@ -35,6 +35,7 @@ const accessBase = {
   providerCode: "feishu",
   authProvider: "custom:feishu",
   providerSubject: "subject-employee-001",
+  customRoleCodes: [],
   permissionCodes: ["task.manage"],
 };
 
