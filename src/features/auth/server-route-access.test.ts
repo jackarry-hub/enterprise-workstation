@@ -43,10 +43,10 @@ describe("server route access", () => {
   });
 
   it("allows a capability route and its nested pages", () => {
-    const employeeSession = sessionWithPermissions(["task.execute"]);
+    const employeeSession = sessionWithPermissions([]);
 
-    expect(() => assertServerRouteAccess(employeeSession, "/tasks")).toThrow("route_forbidden");
-    expect(() => assertServerRouteAccess(employeeSession, "/tasks/task-1")).toThrow("route_forbidden");
+    expect(() => assertServerRouteAccess(employeeSession, "/people")).not.toThrow();
+    expect(() => assertServerRouteAccess(employeeSession, "/people/employee-1")).not.toThrow();
   });
 
   it("uses access-pending instead of a denied landing path and preserves a ready landing", () => {

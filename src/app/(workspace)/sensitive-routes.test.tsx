@@ -13,6 +13,7 @@ const dependencies = vi.hoisted(() => ({
   loadSalaryDetail: vi.fn(),
   loadEmployeeDirectory: vi.fn(),
   getEmployeeDetail: vi.fn(),
+  loadEmployeePrivateProfile: vi.fn(),
 }));
 
 vi.mock("@/features/auth/workspace-session", () => ({
@@ -32,6 +33,7 @@ vi.mock("@/features/salary/salary-data", () => ({
 vi.mock("@/features/hr/employee-data", () => ({
   loadEmployeeDirectory: dependencies.loadEmployeeDirectory,
   getEmployeeDetail: dependencies.getEmployeeDetail,
+  loadEmployeePrivateProfile: dependencies.loadEmployeePrivateProfile,
 }));
 
 import ApprovalDetailRoute from "@/app/(workspace)/approvals/[id]/page";
@@ -69,6 +71,7 @@ const peopleResult = {
 const employeeDetail = {
   profile: { id: "person-sentinel", displayName: "员工详情夹具哨兵" },
 };
+const employeePrivateProfile = { source: "supabase", data: undefined };
 
 function serialized(value: unknown) {
   return JSON.stringify(value);
@@ -83,9 +86,10 @@ describe("sensitive workspace routes", () => {
     dependencies.loadSalaryDetail.mockResolvedValue(salaryDetail);
     dependencies.loadEmployeeDirectory.mockResolvedValue(peopleResult);
     dependencies.getEmployeeDetail.mockReturnValue(employeeDetail);
+    dependencies.loadEmployeePrivateProfile.mockResolvedValue(employeePrivateProfile);
   });
 
-  it("does not call or serialize fixture loaders for an unbound real session", async () => {
+  it("loads only the safe people directory and capability-scoped private profile for an active real session", async () => {
     dependencies.requireWorkspaceSession.mockResolvedValue(
       unboundExecutiveWorkspaceSession,
     );
@@ -104,9 +108,11 @@ describe("sensitive workspace routes", () => {
     expect(dependencies.loadApprovalDetail).not.toHaveBeenCalled();
     expect(dependencies.loadSalary).not.toHaveBeenCalled();
     expect(dependencies.loadSalaryDetail).not.toHaveBeenCalled();
-    expect(dependencies.loadEmployeeDirectory).not.toHaveBeenCalled();
-    expect(dependencies.getEmployeeDetail).not.toHaveBeenCalled();
-    expect(payload).not.toContain("夹具哨兵");
+    expect(dependencies.loadEmployeeDirectory).toHaveBeenCalledTimes(2);
+    expect(dependencies.getEmployeeDetail).toHaveBeenCalledWith("person-sentinel", peopleResult);
+    expect(dependencies.loadEmployeePrivateProfile).toHaveBeenCalledWith("person-sentinel");
+    expect(payload).toContain("员工夹具哨兵");
+    expect(payload).not.toContain("私密邮箱哨兵");
     expect(payload).not.toContain("987654321");
   });
 
@@ -136,7 +142,7 @@ describe("sensitive workspace routes", () => {
     expect(serialized([list, detail])).toContain("987654321");
   });
 
-  it("loads employee fixtures only for the exact explicit binding", async () => {
+  it("loads the employee directory and target-authorized private profile for the explicit session", async () => {
     dependencies.requireWorkspaceSession.mockResolvedValue(executiveWorkspaceSession);
 
     const list = await PeopleRoute();
@@ -149,6 +155,7 @@ describe("sensitive workspace routes", () => {
       "person-sentinel",
       peopleResult,
     );
+    expect(dependencies.loadEmployeePrivateProfile).toHaveBeenCalledWith("person-sentinel");
     expect(serialized([list, detail])).toContain("员工夹具哨兵");
   });
 });

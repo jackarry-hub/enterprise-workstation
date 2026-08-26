@@ -49,7 +49,7 @@ export function EmployeeFilters({
           value={filters.query}
           onChange={(event) => onFiltersChange({ ...filters, query: event.target.value })}
           aria-label="搜索员工"
-          placeholder="搜索姓名、工号、邮箱或岗位"
+          placeholder="搜索姓名、工号或岗位"
           className="h-10 rounded-xl border-input/80 bg-background/75 pl-9 shadow-none"
         />
       </div>

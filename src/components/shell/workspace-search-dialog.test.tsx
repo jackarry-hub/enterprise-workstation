@@ -4,10 +4,16 @@ import { buildWorkspaceSearchItems } from "@/components/shell/workspace-search-d
 import { executiveWorkspaceSession } from "@/test/workspace-session-test-utils";
 
 describe("workspace search readiness", () => {
-  it("does not expose fixture business records while their modules are not commercial-ready", () => {
+  it("exposes only the commercially ready people module and no fixture business records", () => {
     const items = buildWorkspaceSearchItems(executiveWorkspaceSession);
 
     expect(items.filter(({ kind }) => kind !== "模块")).toEqual([]);
-    expect(items).toEqual([]);
+    expect(items).toEqual([{
+      id: "module-/people",
+      label: "组织人事",
+      meta: "企业工作站模块",
+      href: "/people",
+      kind: "模块",
+    }]);
   });
 });

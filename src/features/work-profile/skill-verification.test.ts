@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createSkillVerificationHandler } from "@/app/api/workstation/skills/[skillId]/verify/route";
+import { createSkillVerificationHandler } from "@/features/work-profile/skill-verification-handler";
 
 const skillId = "30000000-0000-4000-8000-000000000001";
 const requestId = "40000000-0000-4000-8000-000000000001";

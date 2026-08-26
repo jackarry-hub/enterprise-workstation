@@ -312,16 +312,15 @@ describe("workspace middleware", () => {
     },
   );
 
-  it("returns a role mismatch to the trusted session landing path", async () => {
+  it("allows an active employee into the safe public people directory", async () => {
     refreshedSession({ data: accessRow("employee") });
 
     const response = await middleware(
       new NextRequest("https://brain.example/people"),
     );
 
-    expect(response.headers.get("location")).toBe(
-      "https://brain.example/access-pending?reason=no_access",
-    );
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("x-middleware-request-x-quantxy-workspace-path")).toBe("/people");
   });
 
   it("uses no-access status instead of redirecting back to a denied landing page", async () => {

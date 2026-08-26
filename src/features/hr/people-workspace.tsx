@@ -8,11 +8,12 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { RealDataNotice } from "@/components/ui/real-data-boundary";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
-import { useOperations } from "@/features/operations/use-operations";
 import { EmployeeFilters } from "@/features/hr/components/employee-filters";
 import { EmployeeList } from "@/features/hr/components/employee-list";
 import { EmployeeStats } from "@/features/hr/components/employee-stats";
 import { filterEmployees } from "@/features/hr/employee-selectors";
+import { OrganizationDialogs } from "@/features/organization/organization-dialogs";
+import type { RoleCommandTarget } from "@/features/organization/organization-command-data";
 import type {
   EmployeeDirectoryFilters,
   EmployeeDirectoryResult,
@@ -24,30 +25,21 @@ const defaultFilters: EmployeeDirectoryFilters = {
   status: "all",
 };
 
-export function PeopleWorkspace({ result }: { result: EmployeeDirectoryResult }) {
+export function PeopleWorkspace({
+  result,
+  roleTargets,
+}: {
+  result: EmployeeDirectoryResult;
+  roleTargets: readonly RoleCommandTarget[];
+}) {
   const session = useWorkspaceSession();
-  const { actor } = session;
-  const { isFixtureBound } = useOperations(session);
   const [filters, setFilters] = useState(defaultFilters);
-  const scopedEmployees = useMemo(() => {
-    if (!isFixtureBound) return [];
-    if (actor.role !== "department_head") return result.data.employees;
-    const manager = result.data.employees.find(({ profile }) => profile.displayName === actor.name);
-    if (!manager) return [];
-    return result.data.employees.filter(({ profile }) => profile.id === manager.profile.id || profile.managerEmployeeId === manager.profile.id);
-  }, [actor.name, actor.role, isFixtureBound, result.data.employees]);
   const employees = useMemo(
-    () => filterEmployees(scopedEmployees, filters),
-    [filters, scopedEmployees],
+    () => filterEmployees(result.data.employees, filters),
+    [filters, result.data.employees],
   );
-  const scopedDepartmentIds = new Set(scopedEmployees.flatMap(({ profile }) => profile.departmentId ? [profile.departmentId] : []));
-  const departments = result.data.departments.filter(({ id }) => actor.role !== "department_head" || scopedDepartmentIds.has(id));
-  const stats = !isFixtureBound ? { total: 0, active: 0, probation: 0, departments: 0 } : actor.role === "department_head" ? {
-    total: scopedEmployees.length,
-    active: scopedEmployees.filter(({ profile }) => profile.employmentStatus === "active").length,
-    probation: scopedEmployees.filter(({ profile }) => profile.employmentStatus === "probation").length,
-    departments: scopedDepartmentIds.size,
-  } : result.data.stats;
+  const canManageOrganization = session.permissionCodes.includes("organization.manage");
+  const canManageRoles = session.permissionCodes.includes("role.manage");
 
   return (
     <main className="mx-auto flex w-full max-w-420 flex-col gap-4 px-3 pt-5 pb-10 sm:px-4 lg:px-5 lg:pt-9 lg:pb-6">
@@ -59,20 +51,27 @@ export function PeopleWorkspace({ result }: { result: EmployeeDirectoryResult })
         <div className="relative max-w-3xl">
           <PageHeader
             title="组织人事"
-            description={actor.role === "department_head" ? "仅显示本人和直属团队成员，便于安排工作与关注人员状态。" : "统一查看企业员工档案与组织归属，让人员信息清晰、协作关系可追溯。"}
+            description="统一查看企业员工档案与组织归属，让人员信息清晰、协作关系可追溯。"
             actions={(
-              <Badge variant="info" className="h-8 gap-1.5 rounded-xl px-3">
-                <UsersRound aria-hidden="true" className="size-3.5" />
-                员工目录
-              </Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="info" className="h-8 gap-1.5 rounded-xl px-3">
+                  <UsersRound aria-hidden="true" className="size-3.5" />
+                  员工目录
+                </Badge>
+                <OrganizationDialogs
+                  canManageOrganization={canManageOrganization}
+                  canManageRoles={canManageRoles}
+                  roleTargets={roleTargets}
+                />
+              </div>
             )}
           />
         </div>
       </section>
 
-      <EmployeeStats stats={stats} />
+      <EmployeeStats stats={result.data.stats} />
 
-      {!isFixtureBound ? <RealDataNotice message="当前账号没有可显示的真实员工数据。" /> : null}
+      {result.data.loadError ? <RealDataNotice message={result.data.loadError} /> : null}
 
       <GlassCard className="min-w-0 overflow-hidden p-3 sm:p-4">
         <div className="flex flex-col gap-1 px-1 pb-3 sm:flex-row sm:items-end sm:justify-between">
@@ -86,18 +85,12 @@ export function PeopleWorkspace({ result }: { result: EmployeeDirectoryResult })
           </div>
         </div>
 
-        <EmployeeFilters
-          departments={departments}
+          <EmployeeFilters
+          departments={result.data.departments}
           filters={filters}
           onFiltersChange={setFilters}
           onReset={() => setFilters(defaultFilters)}
         />
-
-        {result.data.loadError ? (
-          <p role="status" className="mt-3 rounded-xl bg-warning/10 px-3 py-2 text-sm text-warning">
-            {result.data.loadError}
-          </p>
-        ) : null}
 
         <section aria-label="员工目录" className="mt-3 border-t border-border/60 pt-1">
           <EmployeeList employees={employees} />

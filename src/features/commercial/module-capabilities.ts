@@ -40,7 +40,7 @@ export const commercialModuleRegistry: Readonly<Record<CommercialModule, Commerc
   projects: { routes: ["/projects"], requiredPermissions: ["project.read", "project.create", "project.manage"], commercialReady: false },
   activities: { routes: ["/activities"], requiredPermissions: ["project.manage", "task.manage"], commercialReady: false },
   tasks: { routes: ["/tasks"], requiredPermissions: ["task.manage"], commercialReady: false },
-  people: { routes: ["/people"], requiredPermissions: ["hr.manage", "organization.manage", "department.manage"], commercialReady: false },
+  people: { routes: ["/people"], requiredPermissions: [], commercialReady: true },
   payroll: { routes: ["/payroll"], requiredPermissions: ["salary.self", "salary.manage"], commercialReady: false },
   approvals: { routes: ["/approvals"], requiredPermissions: ["approval.self", "approval.manage", "approval.submit", "approval.act"], commercialReady: false },
   customers: { routes: ["/customers"], requiredPermissions: ["customer.manage"], commercialReady: false },

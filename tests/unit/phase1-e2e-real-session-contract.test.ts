@@ -11,10 +11,19 @@ describe("Phase 1 real-session E2E contract", () => {
   it.each([
     ["approvals.spec.ts", "当前账号没有可显示的真实审批数据。"],
     ["payroll.spec.ts", "当前账号没有可显示的真实薪资数据。"],
-    ["people.spec.ts", "当前账号没有可显示的真实员工数据。"],
     ["interaction-audit.spec.ts", "当前账号没有可显示的真实活动数据。"],
   ])("expects a truthful fail-closed state in %s", (file, message) => {
     expect(e2e(file)).toContain(message);
+  });
+
+  it("expects people.spec.ts to exercise the real safe directory without fixture or PII fallbacks", () => {
+    const source = e2e("people.spec.ts");
+
+    expect(source).toContain("ordinary employee reads the server directory");
+    expect(source).toContain("ordinary employee sees only a safe peer detail on mobile");
+    expect(source).toContain("getByText(executive.email)).toHaveCount(0)");
+    expect(source).not.toContain("当前账号没有可显示的真实员工数据。");
+    expect(source).not.toContain("page.route(");
   });
 
   it("does not restore local fixture workflows in the project closure suite", () => {
