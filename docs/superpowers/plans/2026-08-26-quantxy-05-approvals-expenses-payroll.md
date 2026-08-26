@@ -277,7 +277,7 @@ git commit -m "feat: complete real payroll administration"
 - Modify: `src/features/salary/payroll-workspace.tsx`
 - Create: `src/app/api/cron/approval-exceptions/route.ts`
 - Create: `src/app/api/cron/approval-exceptions/route.test.ts`
-- Modify: `vercel.json`
+- Create: `vercel.json`
 - Create: `tests/e2e/commercial-finance-controls.spec.ts`
 
 **Interfaces:**
@@ -294,12 +294,18 @@ expect((await publishUnlockedBatch()).status).toBe(422);
 expect(employeeExport).toContain("CONFIDENTIAL");
 expect(await expireAndReassignDepartedApprover()).toMatchObject({ status: "pending", auditAction: "approval.approver_reassigned" });
 expect(await financeReviewAsEmployee()).toMatchObject({ status: 403 });
+expect([401, 403]).toContain((await invokeApprovalExceptionCron({ authorization: null })).status);
+expect(await invokeApprovalExceptionCron({ scheduleId: "2026-08-26T10:00Z" })).toMatchObject({ tenantIterations: 2, retried: true });
+expect(await invokeApprovalExceptionCron({ scheduleId: "2026-08-26T10:00Z" })).toMatchObject({ idempotent: true, claimed: 0 });
+expect(await concurrentApprovalExceptionClaims()).toMatchObject({ singleClaim: true });
 ```
 
 - [ ] **Step 2: Verify RED**
 
 Run: `npx vitest run src/features/approvals src/features/expenses src/features/salary/payroll-batch-handler.test.ts`
+Run: `npx vitest run src/app/api/cron/approval-exceptions/route.test.ts`
 Run: `npm run db:test`
+Run: `npx playwright test tests/e2e/commercial-finance-controls.spec.ts --project=chrome`
 Expected: template snapshots/edge transitions and formally controlled payroll batches are incomplete.
 
 - [ ] **Step 3: Implement only the bounded formal workflow**

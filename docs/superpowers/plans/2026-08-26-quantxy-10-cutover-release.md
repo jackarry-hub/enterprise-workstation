@@ -51,7 +51,7 @@
 
 **Interfaces:**
 - `/` and role home routes resolve to Next workspaces only.
-- Source-boundary/parity tests scan the formal Next.js dependency graph for forbidden mock/fixture/local business repositories and assert no formal navigation, metadata, README/manual/generator/help or dead link points to leave/attendance.
+- Source-boundary/parity tests scan the formal Next.js dependency graph for forbidden mock/fixture/local business repositories and assert no formal navigation, metadata, README/manual/generator/help or dead link points to leave/attendance. `scripts/scan-formal-public-surface.mjs` is the only public-surface scanner: it scans formal imports and built public output for `leave|attendance|请假|考勤`, and allows matches only in historical `docs/commercial-database-sop.md`, schema, migrations, audit and phase-record records.
 - Fused route/assets remain preserved as an explicitly quarantined migration exception: they cannot appear in formal navigation or the formal Next.js dependency graph, and this task must not delete or mutate them.
 
 - [ ] **Step 1: Write the failing production-source boundary test**
@@ -66,6 +66,8 @@ expect(formalRoutes).not.toContain("/attendance");
 - [ ] **Step 2: Verify RED**
 
 Run: `npx vitest run tests/unit/commercial-source-boundary.test.ts`
+Run: `npx vitest run tests/unit/excluded-scope-public-surface.test.ts`
+Run: `node --test scripts/scan-formal-public-surface.test.mjs`
 Expected: forbidden production imports, excluded public references and dead links are reported; fused assets remain present.
 
 - [ ] **Step 3: Remove excluded public routes and references without touching historical data**
@@ -76,10 +78,9 @@ Delete the leave/attendance App Routes and public E2E route coverage; remove all
 
 Run: `npx vitest run tests/unit/commercial-source-boundary.test.ts`
 Run: `npx vitest run tests/unit/excluded-scope-public-surface.test.ts`
-Run: `node --test scripts/scan-formal-public-surface.test.mjs`
-Run: `node scripts/scan-formal-public-surface.mjs --formal-imports --built-public-output --terms "leave|attendance|请假|考勤" --allowlist "supabase/migrations,supabase/tests,docs/audit"`
 Run: `npm run build`
-Run: `rg -n -i "leave|attendance" .next README.md docs src/features/help src/features/settings src/features/salary`
+Run: `node --test scripts/scan-formal-public-surface.test.mjs`
+Run: `node scripts/scan-formal-public-surface.mjs --formal-imports --built-public-output --terms "leave|attendance|请假|考勤" --allowlist "docs/commercial-database-sop.md,supabase/schema/**,supabase/migrations/**,docs/audit/**,docs/phase-records/**"`
 Expected: only supported public routes build, excluded-scope source/link checks are empty, and fused assets are still present.
 
 - [ ] **Step 5: Commit**
@@ -141,47 +142,39 @@ git commit -m "test: require clean database security verification"
 
 **Files:**
 - Create: `.github/workflows/commercial-ci.yml`
-- Create: `scripts/verify-commercial-local.mjs`
-- Create: `scripts/verify-commercial-staging.mjs`
-- Create: `scripts/verify-commercial-evidence.mjs`
-- Create: `scripts/verify-commercial.test.mjs`
-- Create: `scripts/validate-delivery-artifacts.mjs`
-- Create: `scripts/validate-delivery-artifacts.test.mjs`
+- Create: `scripts/verify-commercial-preflight.mjs`
+- Create: `scripts/verify-commercial-preflight.test.mjs`
 - Modify: `package.json`
 
 **Interfaces:**
-- Produces preliminary `verify:commercial:preflight`: `npm ci`, migration dry-run, typecheck, lint, build, unit/coverage, DB/RLS, integration, desktop/emulated-mobile E2E, a11y and scans; no load/artifact/final evidence claim. Task7 exclusively creates full `verify:commercial:local` GREEN with load/artifact validators.
-- Produces authorized `verify:commercial:staging`: isolated Staging smoke, OAuth/webhook, Storage, security, backup restore, canary and real-device evidence only; it returns `BLOCKED` without approved Staging configuration.
-- Produces final `verify:commercial`, which validates hash/version-linked local and Staging evidence plus RPO/RTO, artifact manifest and canary; missing or unsigned evidence hard-fails with `commercial_evidence_blocked`.
-- Task7 owns the load runner, thresholds, manifest/OpenAPI/template/checksum validators and their tests; Task3 local verification is preliminary until Task7 artifacts validate.
+- Produces preliminary `verify:commercial:preflight` only: `npm ci`, migration dry-run, typecheck, lint, build, unit/coverage, DB/RLS, integration, desktop/emulated-mobile E2E, a11y and scans. It makes no load, delivery-artifact, candidate, Staging or final-evidence claim.
+- Task3 changes `package.json` only to expose `verify:commercial:preflight`. Task7 exclusively owns the full-local/final verifier aliases, all verifier/evidence/artifact-validator files, load runner and thresholds.
 
 - [ ] **Step 1: Write failing command-order and failure-propagation tests**
 
 ```js
-assert.deepEqual(localCommercialSteps, ["npm-ci", "db-migrate-dry-run", "typecheck", "lint", "build", "unit", "coverage", "db-test-pgtap-rls", "integration", "desktop-e2e", "emulated-mobile-e2e", "a11y", "dependency-scan", "secret-scan", "load-harness"]);
-assert.deepEqual(stagingCommercialSteps, ["staging-smoke", "oauth-webhook", "storage", "security", "backup-restore", "canary", "real-device"]);
-await assert.rejects(() => verifyCommercial({ stagingEvidence: null }), /commercial_evidence_blocked/);
+assert.deepEqual(preflightSteps, ["npm-ci", "db-migrate-dry-run", "typecheck", "lint", "build", "unit", "coverage", "db-test-pgtap-rls", "integration", "desktop-e2e", "emulated-mobile-e2e", "a11y", "dependency-scan", "secret-scan"]);
 ```
 
 - [ ] **Step 2: Verify RED**
 
-Run: `node --test scripts/verify-commercial.test.mjs`
-Expected: commercial verification script/workflow is absent.
+Run: `node --test scripts/verify-commercial-preflight.test.mjs`
+Expected: the ordered preflight runner/workflow is absent.
 
 - [ ] **Step 3: Implement the workflow and ordered local runner**
 
-CI pins Node version from the repository policy, caches npm only, starts local Supabase, never receives production secrets, uploads Playwright traces on failure, and cancels later steps after the first failure. Implement the exact local list above, store commit/migration/config hashes in an evidence manifest, and keep Staging invocation separate behind explicit authorization. The final verifier accepts only signed/hashed Staging restore, canary, RPO/RTO, real-device and artifact evidence matching the candidate commit.
+CI pins Node version from the repository policy, caches npm only, starts local Supabase, never receives production secrets, uploads Playwright traces on failure, and cancels later steps after the first failure. Implement only the exact preflight list above and its package alias. Task7 later adds candidate manifests, load/artifact validation, authorized Staging and the final verifier.
 
 - [ ] **Step 4: Verify GREEN and validate workflow syntax**
 
-Run: `node --test scripts/verify-commercial.test.mjs`
+Run: `node --test scripts/verify-commercial-preflight.test.mjs`
 Run: `npm run verify:commercial:preflight`
 Expected: preflight passes only preliminary checks; Task7 owns full local GREEN.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add .github/workflows/commercial-ci.yml scripts/verify-commercial-local.mjs scripts/verify-commercial-staging.mjs scripts/verify-commercial-evidence.mjs scripts/verify-commercial.test.mjs package.json
+git add .github/workflows/commercial-ci.yml scripts/verify-commercial-preflight.mjs scripts/verify-commercial-preflight.test.mjs package.json
 git commit -m "ci: add QuantXY commercial release gate"
 ```
 
@@ -197,6 +190,8 @@ git commit -m "ci: add QuantXY commercial release gate"
 - Create: `src/features/security/csrf-origin.ts`
 - Create: `src/features/security/csrf-origin.test.ts`
 - Create: `docs/operations/waf-evidence.md`
+- Create: `scripts/validate-waf-evidence.mjs`
+- Create: `scripts/validate-waf-evidence.test.mjs`
 - Modify: `src/app/auth/login/feishu/handler.ts`
 - Modify: `src/app/auth/login/feishu/route.test.ts`
 - Create: `src/app/api/health/ready/route.ts`
@@ -208,7 +203,8 @@ git commit -m "ci: add QuantXY commercial release gate"
 **Interfaces:**
 - Produces `/api/health/ready` that checks database reachability, required migration marker, and auth configuration without exposing secret values.
 - Adds CSP, HSTS, frame, content-type, referrer and permissions headers.
-- Produces distributed persistent tenant/user/IP limiter, login throttle/lockout, CSRF/origin validation and WAF/middleware policy.
+- Produces a tenant-safe PostgreSQL migration/RPC plus pgTAP-backed distributed persistent tenant/user/IP limiter, login throttle/lockout, CSRF/origin validation and WAF/middleware policy.
+- `docs/operations/waf-evidence.md` defines the Staging-owner WAF evidence contract. `scripts/validate-waf-evidence.mjs` and its Node test require `provider`, `rules`, `environment`, `candidate`, `operator`, `timestamps`, `results`, `configHash` (config hash) and `signature`; `node --test scripts/validate-waf-evidence.test.mjs` rejects missing, unsigned or candidate/config-hash-mismatched evidence with `BLOCKED`. Only an explicitly authorized Staging owner may supply this evidence.
 
 - [ ] **Step 1: Write failing readiness and header tests**
 
@@ -219,34 +215,39 @@ expect(headers["content-security-policy"]).toBeDefined();
 expect(await limitAcrossRestart({ tenantId, userId, ip })).toMatchObject({ allowed: false });
 expect(await rejectCrossOriginMutation()).toMatchObject({ status: 403 });
 expect(await throttleLoginAbuse(ip)).toMatchObject({ status: 429 });
+expect(await validateWafEvidence({ provider, rules, environment: "staging", candidate, operator, timestamps, results, configHash, signature })).toMatchObject({ status: "valid" });
 ```
 
 - [ ] **Step 2: Verify RED**
 
 Run: `npx vitest run src/app/api/health/ready/route.test.ts src/features/security/distributed-rate-limit.test.ts src/features/security/csrf-origin.test.ts`
 Run: `npx vitest run src/app/auth/login/feishu/route.test.ts`
-Run: `npm run test:security`
-Run: `npm run db:test`
-Run: `npm run build`
-Expected: readiness route is absent and security-header assertion fails.
-
-- [ ] **Step 3: Implement readiness, headers, and runtime restrictions**
-
-Compose uses `read_only`, tmpfs for required writable paths, `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`, PID/CPU/memory limits, and the new readiness endpoint. Keep non-root runtime. Key limiter state by tenant/user/IP in durable shared storage, apply login lockout and CSRF/origin checks before mutations, and verify multi-instance/restart persistence.
-
-- [ ] **Step 4: Verify GREEN and inspect the built container**
-
-Run: `npx vitest run src/app/api/health/ready/route.test.ts src/features/security/distributed-rate-limit.test.ts src/features/security/csrf-origin.test.ts src/app/auth/login/feishu/route.test.ts`
+Run: `node --test scripts/validate-waf-evidence.test.mjs`
 Run: `npm run test:security`
 Run: `npm run db:test`
 Run: `npm run build`
 Run: `docker compose config`
-Expected: tests/build/config exit 0 and readiness fails when DB/migration checks are unhealthy.
+Expected: readiness route is absent and security-header assertion fails.
+
+- [ ] **Step 3: Implement readiness, headers, and runtime restrictions**
+
+Compose uses `read_only`, tmpfs for required writable paths, `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`, PID/CPU/memory limits, and the new readiness endpoint. Keep non-root runtime. Use the Task4 PostgreSQL migration/RPC as the durable shared limiter backend; test tenant/user/IP isolation, atomic windows, expiry cleanup, multi-instance/restart persistence and lockout recovery. Apply login lockout and CSRF/origin checks before mutations. The authorized Staging owner records the exact WAF provider/rules/config hash and signed test results through the WAF validator; absent, unsigned or mismatched evidence remains `BLOCKED`.
+
+- [ ] **Step 4: Verify GREEN and inspect the built container**
+
+Run: `npx vitest run src/app/api/health/ready/route.test.ts src/features/security/distributed-rate-limit.test.ts src/features/security/csrf-origin.test.ts`
+Run: `npx vitest run src/app/auth/login/feishu/route.test.ts`
+Run: `node --test scripts/validate-waf-evidence.test.mjs`
+Run: `npm run test:security`
+Run: `npm run db:test`
+Run: `npm run build`
+Run: `docker compose config`
+Expected: the exact RED commands now pass; tests cover tenant/user/IP isolation, atomic windows, expiry cleanup, multi-instance/restart persistence, login-abuse lockout recovery and CSRF/origin rejection. Readiness fails when DB/migration checks are unhealthy, and WAF evidence is `BLOCKED` unless the Staging-owner record has every signed, hash-matched field.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add next.config.ts src/middleware.ts supabase/migrations/202608260042_distributed_rate_limits.sql supabase/tests/distributed_rate_limits.sql src/features/security src/app/auth/login/feishu src/app/api/health/ready/route.ts src/app/api/health/ready/route.test.ts Dockerfile compose.yaml docs/operations/container-security.md docs/operations/waf-evidence.md
+git add next.config.ts src/middleware.ts supabase/migrations/202608260042_distributed_rate_limits.sql supabase/tests/distributed_rate_limits.sql src/features/security src/app/auth/login/feishu src/app/api/health/ready/route.ts src/app/api/health/ready/route.test.ts Dockerfile compose.yaml docs/operations/container-security.md docs/operations/waf-evidence.md scripts/validate-waf-evidence.mjs scripts/validate-waf-evidence.test.mjs
 git commit -m "security: harden runtime and readiness"
 ```
 
@@ -285,9 +286,9 @@ Use local Supabase only, never intercept business APIs, isolate rows by test-run
 
 - [ ] **Step 4: Run the final local commercial gate**
 
-Run: `npm run verify:commercial:local`
+Run: `npm run verify:commercial:preflight`
 Run: `node scripts/collect-commercial-evidence.mjs`
-Expected: zero failed local tests, zero forbidden source paths, migration hashes present, desktop/emulated-mobile journey artifacts recorded; final commercial verification remains blocked until authorized Staging evidence is present.
+Expected: preliminary checks pass with zero failed tests, zero forbidden source paths, migration hashes and desktop/emulated-mobile journey artifacts recorded; Task7 owns the full local gate and final commercial verification remains blocked until authorized Staging evidence is present.
 
 - [ ] **Step 5: Commit the harness and checklists, not generated evidence**
 
@@ -322,8 +323,8 @@ Document environment fingerprint checks, database target verification, backup-be
 - [ ] **Step 4: Verify documentation and repository status**
 
 Run: `git diff --check`
-Run: `npm run verify:commercial:local`
-Expected: documentation has no whitespace errors and the local gate remains green; Staging verification remains an explicit authorized gate.
+Run: `npm run verify:commercial:preflight`
+Expected: documentation has no whitespace errors and the preliminary gate remains green; Staging verification remains an explicit authorized gate.
 
 - [ ] **Step 5: Commit**
 
@@ -336,13 +337,18 @@ git commit -m "docs: add staging and recovery validation runbooks"
 
 **Files:**
 - Modify: `package.json`
-- Modify: `scripts/verify-commercial-local.mjs`
-- Modify: `scripts/verify-commercial-evidence.mjs`
-- Modify: `scripts/verify-commercial.test.mjs`
+- Create: `scripts/verify-commercial-local.mjs`
+- Create: `scripts/verify-commercial-staging.mjs`
+- Create: `scripts/verify-commercial-evidence.mjs`
+- Create: `scripts/verify-commercial-evidence.test.mjs`
+- Create: `scripts/verify-commercial.test.mjs`
+- Create: `scripts/validate-delivery-artifacts.mjs`
+- Create: `scripts/validate-delivery-artifacts.test.mjs`
 - Create: `tests/load/commercial-thresholds.yml`
 - Create: `tests/load/run-commercial-load.mjs`
 - Create: `tests/load/run-commercial-load.test.mjs`
 - Create: `docs/operations/commercial-delivery-manifest.md`
+- Create: `docs/operations/external-release-manifest.schema.json`
 - Create: `docs/operations/architecture.md`
 - Create: `docs/operations/database-er.md`
 - Create: `docs/operations/data-dictionary.md`
@@ -367,27 +373,33 @@ git commit -m "docs: add staging and recovery validation runbooks"
 - Create: `docs/operations/commercial-acceptance-checklist.md`
 
 **Interfaces:**
-- Owns `load:commercial`, `validate:delivery-artifacts` and the Task3 verifier integrations; consumes Plan02's shared DB guard. No command may reset/drop/truncate/seed an Internal or Customer Production target.
-- Produces the individually version-linked and hash-listed delivery artifacts named above. The manifest maps every artifact to candidate commit, migration hash, author/date, checksum and its validation command; `secret-locations.md` records only location/purpose, never secret values.
+- Owns every full-local/final package alias and verifier/evidence/artifact-validator file, including `load:commercial`, `validate:delivery-artifacts`, `verify:commercial:local`, `verify:commercial:staging` and `verify:commercial`; it consumes Plan02's shared DB guard. No command may reset/drop/truncate/seed an Internal or Customer Production target.
+- Produces the individually version-linked and hash-listed delivery artifacts named above. The tracked delivery index and external append-only manifest schema are completed and frozen before the Task8 deletion candidate; the manifest maps every artifact to candidate commit, migration hash, author/date, checksum and its validation command; `secret-locations.md` records only location/purpose, never secret values.
 
 - [ ] **Step 1: Write failing environment guard, load and manifest tests**
 
 ```js
 await assert.rejects(() => runDbCommand({ environment: "internal", command: "db:reset:test" }), /environment_mutation_forbidden/);
-expect(loadResult).toMatchObject({ activeUsers: 50, concurrentWrites: 20, concurrentAiJobs: 10, nonAiP95Ms: expect.any(Number) });
-expect(manifest.requiredEvidence).toContain("backup_restore");
+expect(loadResult).toMatchObject({ seededStaff: 100, activeUsers: 50, concurrentWrites: 20, queuedAiAgentJobs: 10, nonAiP95Ms: expect.any(Number), errorRate: expect.any(Number), mobileInteractiveMs: expect.any(Number) });
+expect(loadResult.nonAiP95Ms).toBeLessThanOrEqual(800);
+expect(loadResult.errorRate).toBeLessThan(0.005);
+expect(loadResult.mobileInteractiveMs).toBeLessThanOrEqual(3000);
+expect(await validateOpenApi("docs/operations/openapi.yaml")).toBe(true);
+expect(await validateImportTemplates(["docs/operations/import-templates/customers.csv", "docs/operations/import-templates/employees.xlsx"])).toEqual([]);
+expect(await validateRequiredDocumentSections(manifest)).toEqual([]);
+expect(await validateChecksumsAndCandidate(manifest)).toEqual({ valid: true });
 ```
 
 - [ ] **Step 2: Verify RED**
 
 Run: `node --test scripts/verify-commercial.test.mjs scripts/validate-delivery-artifacts.test.mjs tests/load/run-commercial-load.test.mjs`
-Expected: `load:commercial` asserts 50 active users, 20 concurrent writes, 10 AI queued jobs, non-AI P95 <=800ms, error <0.5% and mobile interactive <=3s; every OpenAPI/template/artifact checksum and candidate version is valid.
+Expected: `load:commercial` asserts 100 seeded staff, 50 active users, 20 concurrent writes, 10 queued AI/Agent jobs, non-AI P95 <=800ms, error <0.5% and mobile interactive <=3s; every OpenAPI/CSV/XLSX/template/document section/artifact checksum and candidate version is valid.
 Run: `npm run verify:commercial:local`
 Expected: full evidence aggregation, artifact-hash validation and commercial thresholds are not yet fully enforced.
 
 - [ ] **Step 3: Implement guarded verification and operational preparation**
 
-Consume the Plan02 guard; require reviewed forward migration, backup, dry run, resumable/observable batch backfill, integrity count and repair/rollback record. Wire CSRF/XSS/CSP/security headers, login/rate-limit tests, dependency/secret scans, unit/coverage/build/RLS/integration/desktop/mobile/a11y E2E, and load thresholds (100 staff, 50 active, 20 concurrent writes, 10 queued AI/Agent, non-AI P95 <=800ms, error rate <0.5%, mobile P95 interactive <=3s). Fill every individual artifact, validate required sections and checksum/version linkage in the manifest. Require automatic backup/restore evidence for RPO <=24h and RTO <=4h, monitoring/alerts, Staging smoke, canary, runbooks, 7-day observation, handoff/training and import templates.
+Consume the Plan02 guard; require reviewed forward migration, backup, dry run, resumable/observable batch backfill, integrity count and repair/rollback record. Wire CSRF/XSS/CSP/security headers, login/rate-limit tests, dependency/secret scans, unit/coverage/build/RLS/integration/desktop/mobile/a11y E2E, and load thresholds (100 staff, 50 active, 20 concurrent writes, 10 queued AI/Agent, non-AI P95 <=800ms, error rate <0.5%, mobile P95 interactive <=3s). Fill every individual artifact, validate OpenAPI, CSV/XLSX templates, required document sections and checksum/candidate linkage in the manifest. Freeze the tracked delivery index and create the external append-only manifest schema before Task8. Require automatic backup/restore evidence for RPO <=24h and RTO <=4h, monitoring/alerts, Staging smoke, canary, runbooks, 7-day observation, handoff/training and import templates.
 
 - [ ] **Step 4: Verify GREEN in permitted environments**
 
@@ -399,7 +411,7 @@ Expected: Local/CI verification proves local commands and artifact completeness;
 - [ ] **Step 5: Commit**
 
 ```bash
-git add package.json scripts/verify-commercial-local.mjs scripts/verify-commercial-evidence.mjs scripts/verify-commercial.test.mjs scripts/validate-delivery-artifacts.mjs scripts/validate-delivery-artifacts.test.mjs tests/load docs/operations
+git add package.json scripts/verify-commercial-local.mjs scripts/verify-commercial-staging.mjs scripts/verify-commercial-evidence.mjs scripts/verify-commercial-evidence.test.mjs scripts/verify-commercial.test.mjs scripts/validate-delivery-artifacts.mjs scripts/validate-delivery-artifacts.test.mjs tests/load docs/operations
 git commit -m "docs: add commercial operations and acceptance package"
 ```
 
@@ -412,14 +424,9 @@ git commit -m "docs: add commercial operations and acceptance package"
 - Delete: `quantxy-ai-workbench-fused.html`
 - Delete: `public/workstation-server-adapter.js`
 - Modify: `tests/unit/commercial-source-boundary.test.ts`
-- Modify: `scripts/verify-commercial-evidence.mjs`
-- Modify: `scripts/verify-commercial-evidence.test.mjs`
-- Modify: `scripts/verify-commercial.test.mjs`
-- Create: `docs/operations/external-release-manifest.schema.json`
-- Modify: `docs/operations/commercial-delivery-manifest.md`
 
 **Interfaces:**
-- Produces a non-self-referential prospective patch digest in the external append-only manifest defined by `external-release-manifest.schema.json`; the tracked delivery index is frozen before the candidate (or excluded from canonical digest). Fused presence/reachability always makes final `verify:commercial` BLOCKED.
+- Consumes the Task7-frozen tracked delivery index and external append-only manifest schema. The authorization binds a non-self-referential prospective deletion patch/tree digest; the tracked index is frozen before the candidate and is never changed in this task. Fused presence/reachability always makes final `verify:commercial` BLOCKED.
 
 - [ ] **Step 1: Write failing retirement-authorization tests**
 
@@ -430,10 +437,13 @@ expect(await assertFusedRetirementEvidence({ prospectiveTreeHash, stagingTreeHas
 expect(await verifyCommercial({ fusedPresent: true })).toMatchObject({ status: "BLOCKED" });
 ```
 
+Run: `node --test scripts/verify-commercial-evidence.test.mjs scripts/verify-commercial.test.mjs`
+Run: `npx vitest run tests/unit/commercial-source-boundary.test.ts`
+Expected: `fusedPresent => BLOCKED` and authorization/evidence mismatch cases fail before any deletion.
+
 - [ ] **Step 2: Verify BLOCKED before deletion**
 
 Run: `npm run verify:commercial`
-Run: `node --test scripts/verify-commercial-evidence.test.mjs scripts/verify-commercial.test.mjs tests/unit/commercial-source-boundary.test.ts`
 Expected: `commercial_evidence_blocked` until prospective digest authorization, parity/data validation, rollback and pre-retirement evidence are present.
 
 - [ ] **Step 3: Delete fused assets only after evidence and explicit authorization**
@@ -441,13 +451,16 @@ Expected: `commercial_evidence_blocked` until prospective digest authorization, 
 Record authorization against prospective digest, apply deletion and create the immutable candidate now:
 
 ```bash
-git add -A src/app/quantxy-ai-workbench-fused.html quantxy-ai-workbench-fused.html public/workstation-server-adapter.js tests/unit/commercial-source-boundary.test.ts scripts/verify-commercial-evidence.mjs scripts/verify-commercial-evidence.test.mjs scripts/verify-commercial.test.mjs
+git add -A -- src/app/quantxy-ai-workbench-fused.html quantxy-ai-workbench-fused.html public/workstation-server-adapter.js
+git add tests/unit/commercial-source-boundary.test.ts
 git commit -m "refactor: retire authorized fused workstation"
 ```
 
 Retain historical DB/migrations and update source-boundary verifier to require no fused reachability.
 
 - [ ] **Step 4: Collect final-commit external evidence, then verify**
+
+Only after the immutable deletion-candidate commit exists, submit its exact commit/tree digest to the authorized Staging process and collect fresh external final-commit Staging/canary evidence through the Task7 schema.
 
 Run: `npm run verify:commercial:local`
 Run: `npm run verify:commercial:staging`
