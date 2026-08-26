@@ -1,6 +1,6 @@
 begin;
 
-select plan(55);
+select plan(57);
 
 insert into public.tenants (name, slug, status)
 values
@@ -189,7 +189,13 @@ select member.tenant_id, member.organization_id, member.id, provider.id,
   member.user_id::text, provider.provider_tenant_key, member.user_id, 'active'
 from public.organization_members member
 join public.identity_providers provider
-  on provider.tenant_id = member.tenant_id and provider.provider_code = 'employeeprivacy';
+  on provider.tenant_id = member.tenant_id and provider.provider_code = 'employeeprivacy'
+join public.organizations organization
+  on organization.id = member.organization_id
+where not (
+  member.user_id = '94000000-0000-4000-8000-000000000001'::uuid
+  and organization.slug = 'employee-privacy-other'
+);
 
 update public.employee_profiles profile
 set work_email = 'a.employee.private.updated@example.test'
@@ -411,6 +417,16 @@ select is(
   (select count(*) from public.current_employee_private_profile(current_setting('test.employee_privacy.same_user_other_org_employee_public_id', true)::uuid, current_setting('test.employee_privacy.primary_org_public_id', true)::uuid)),
   0::bigint,
   'same user cannot fetch their own second-organization private profile through the primary organization scope'
+);
+select is(
+  (select count(*) from public.current_employee_directory(current_setting('test.employee_privacy.other_org_public_id', true)::uuid)),
+  0::bigint,
+  'same user cannot select their second organization directly without an active external identity'
+);
+select is(
+  (select count(*) from public.current_employee_private_profile(current_setting('test.employee_privacy.same_user_other_org_employee_public_id', true)::uuid, current_setting('test.employee_privacy.other_org_public_id', true)::uuid)),
+  0::bigint,
+  'same user cannot fetch second-organization private data by directly passing its organization UUID'
 );
 select is(
   (select count(*) from public.current_employee_private_profile((select public_id from public.employee_profiles where employee_no = 'PVT-A-EMP'), current_setting('test.employee_privacy.primary_org_public_id', true)::uuid)),

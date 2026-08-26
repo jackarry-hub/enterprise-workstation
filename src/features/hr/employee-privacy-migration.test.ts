@@ -9,8 +9,60 @@ const migrationPath = path.join(
   "migrations",
   "202608260010_employee_private_profiles.sql",
 );
+const sessionScopeMigrationPath = path.join(
+  process.cwd(),
+  "supabase",
+  "migrations",
+  "202608270001_employee_rpc_session_scope.sql",
+);
 
 describe("employee private profile migration contract", () => {
+  it("installs the final RPC signatures through a later active-identity migration", () => {
+    expect(existsSync(sessionScopeMigrationPath)).toBe(true);
+    if (!existsSync(sessionScopeMigrationPath)) {
+      return;
+    }
+
+    const migration = readFileSync(sessionScopeMigrationPath, "utf8").toLowerCase();
+
+    for (const signature of [
+      "public.current_employee_directory()",
+      "public.current_employee_directory(uuid)",
+      "public.current_employee_private_profile(uuid)",
+      "public.current_employee_private_profile(uuid, uuid)",
+    ]) {
+      expect(migration).toContain(`drop function if exists ${signature}`);
+      expect(migration).toContain(
+        `revoke all on function ${signature} from public, anon, authenticated, service_role`,
+      );
+    }
+
+    expect(migration).toContain(
+      "create or replace function public.current_employee_directory(\n  p_organization_public_id uuid\n)",
+    );
+    expect(migration).toContain(
+      "create or replace function public.current_employee_private_profile(\n  p_employee_public_id uuid,\n  p_organization_public_id uuid\n)",
+    );
+    expect(migration).toContain("from public.external_identities identity");
+    expect(migration).toContain("identity.auth_user_id = (select auth.uid())");
+    expect(migration).toContain("identity.status = 'active'");
+    expect(migration).toContain("member.id = identity.organization_member_id");
+    expect(migration).toContain("organization.public_id = p_organization_public_id");
+    expect(migration).toContain("target_member.id = viewer.organization_member_id");
+    expect(migration).toContain(
+      "grant execute on function public.current_employee_directory(uuid) to authenticated",
+    );
+    expect(migration).toContain(
+      "grant execute on function public.current_employee_private_profile(uuid, uuid) to authenticated",
+    );
+    expect(migration).not.toContain(
+      "grant execute on function public.current_employee_directory() to authenticated",
+    );
+    expect(migration).not.toContain(
+      "grant execute on function public.current_employee_private_profile(uuid) to authenticated",
+    );
+  });
+
   it("creates the private authority and least-privilege RPC boundary", () => {
     expect(existsSync(migrationPath)).toBe(true);
     const migration = readFileSync(migrationPath, "utf8");
