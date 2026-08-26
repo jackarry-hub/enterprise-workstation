@@ -18,7 +18,7 @@ describe("formal workstation html route", () => {
     expect(response.headers.get("content-type")).toContain("text/html");
     expect(html.length).toBeGreaterThan(100_000);
     expect(html).toContain("量子星河 QuantXY · AI 企业工作台");
-    expect(html).toContain("workstation-server-adapter.js");
+    expect(html).toContain("workstation-server-adapter.js?v=server-embed-c4-drafts-domains");
     expect(html).not.toContain("/_next/static/chunks/app/not-found");
     expect(html).not.toContain("/_next/static/chunks/app/login");
   });

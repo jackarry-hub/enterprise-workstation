@@ -150,7 +150,7 @@ async function openFormalWorkbench(url, bootstrap, adapterOverrides = {}, fetchO
   return dom;
 }
 
-async function openFormalWorkbenchWithStorage(url, bootstrap, seedStorage = {}, adapterOverrides = {}, fetchOverride) {
+async function openFormalWorkbenchWithStorage(url, bootstrap, seedStorage = {}, adapterOverrides = {}, fetchOverride, setupWindow) {
   const html = await readRealModeHtml();
   const tasks = bootstrap.tasks || [];
   const projects = bootstrap.projects || [];
@@ -205,6 +205,7 @@ async function openFormalWorkbenchWithStorage(url, bootstrap, seedStorage = {}, 
       for (const [key, value] of Object.entries(seedStorage)) {
         window.localStorage.setItem(key, value);
       }
+      if (setupWindow) setupWindow(window);
       window.QUANTXY_WORKSTATION_RUNTIME = { authMode: "feishu", dataMode: "server" };
       window.QUANTXY_WORKSTATION_SERVER_ADAPTER = adapter;
       window.fetch = async (requestUrl, init) => String(requestUrl) === "/api/ai/config"
@@ -3554,78 +3555,100 @@ test("formal assistant does not pretend chat history is interactive before conve
   }
 });
 
-test("formal route and unfinished form draft survive a refresh", async () => {
-  const bootstrap = formalBootstrap({ permissions: ["project.read", "project.manage"] });
+test("formal second session ignores a prior account's persisted form and chat data", async () => {
+  const firstBootstrap = formalBootstrap({
+    memberId: "11111111-1111-4111-8111-111111111190",
+    permissions: ["project.read", "project.manage"],
+  });
   const first = await openFormalWorkbenchWithStorage(
     "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
-    bootstrap,
+    firstBootstrap,
   );
-  let storage = {};
   try {
     first.window.Q.S.page = "new-project";
     first.window.Q.render();
     const name = first.window.document.querySelector('[data-f="n"]');
-    name.value = "刷新后仍保留的项目";
+    name.value = "员工甲未提交项目";
     name.dispatchEvent(new first.window.Event("input", { bubbles: true }));
-    const desc = first.window.document.querySelector('[data-f="desc"]');
-    desc.value = "刷新后继续填写";
-    desc.dispatchEvent(new first.window.Event("input", { bubbles: true }));
-    storage = {
-      "qxy.workstation.ui.v1": first.window.localStorage.getItem("qxy.workstation.ui.v1"),
-    };
-    assert.ok(storage["qxy.workstation.ui.v1"], "route and draft should be saved to localStorage");
+    assert.equal(first.window.localStorage.getItem("qxy.workstation.ui.v1"), null);
   } finally {
     first.window.close();
   }
 
+  const secondBootstrap = formalBootstrap({
+    memberId: "22222222-2222-4222-8222-222222222290",
+    permissions: ["assistant.use"],
+  });
+  const legacyDraft = JSON.stringify({
+    page: "new-project",
+    form: { project: { n: "员工甲未提交项目", desc: "跨账号敏感草稿" } },
+    chatDraft: "员工甲私人聊天草稿",
+    savedAt: Date.now(),
+  });
   const second = await openFormalWorkbenchWithStorage(
     "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
-    bootstrap,
-    storage,
+    secondBootstrap,
+    { "qxy.workstation.ui.v1": legacyDraft },
   );
   try {
-    assert.equal(second.window.Q.S.page, "new-project");
-    assert.equal(second.window.document.querySelector('[data-f="n"]').value, "刷新后仍保留的项目");
-    assert.equal(second.window.document.querySelector('[data-f="desc"]').value, "刷新后继续填写");
+    assert.equal(second.window.Q.S.page, "me");
+    assert.doesNotMatch(second.window.document.querySelector("#view").textContent, /员工甲未提交项目|跨账号敏感草稿|私人聊天草稿/);
+    assert.equal(second.window.localStorage.getItem("qxy.workstation.ui.v1"), null);
   } finally {
     second.window.close();
   }
 });
 
-test("formal assistant draft survives a refresh", async () => {
+test("formal logout clears legacy and scoped local drafts without persisting a new chat draft", async () => {
   const bootstrap = formalBootstrap({ permissions: ["assistant.use"] });
-  const first = await openFormalWorkbenchWithStorage(
+  const dom = await openFormalWorkbenchWithStorage(
     "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
     bootstrap,
+    {
+      "qxy.workstation.ui.v1": JSON.stringify({ page: "assistant", chatDraft: "legacy secret" }),
+      "qxy.workstation.ui.v1.member-legacy": JSON.stringify({ chatDraft: "scoped secret" }),
+    },
+    { logout: async () => undefined },
   );
-  let storage = {};
   try {
-    first.window.Q.S.page = "assistant";
-    first.window.Q.render();
-    const chatInput = first.window.document.querySelector("#chatIn");
-    chatInput.value = "请帮我把本周任务整理成执行计划";
-    chatInput.dispatchEvent(new first.window.Event("input", { bubbles: true }));
-    storage = {
-      "qxy.workstation.ui.v1": first.window.localStorage.getItem("qxy.workstation.ui.v1"),
-    };
-    assert.ok(storage["qxy.workstation.ui.v1"], "assistant draft should be saved to localStorage");
-  } finally {
-    first.window.close();
-  }
+    dom.window.Q.S.page = "assistant";
+    dom.window.Q.render();
+    const chatInput = dom.window.document.querySelector("#chatIn");
+    chatInput.value = "当前员工聊天草稿";
+    chatInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    assert.equal(dom.window.localStorage.getItem("qxy.workstation.ui.v1"), null);
+    assert.equal(dom.window.localStorage.getItem("qxy.workstation.ui.v1.member-legacy"), null);
 
-  const second = await openFormalWorkbenchWithStorage(
+    dom.window.localStorage.setItem("qxy.workstation.ui.v1", "logout legacy draft");
+    dom.window.localStorage.setItem("qxy.workstation.ui.v1.member-current", "logout scoped draft");
+    dom.window.document.querySelector('[data-act="logout"]').click();
+    assert.equal(dom.window.localStorage.getItem("qxy.workstation.ui.v1"), null);
+    assert.equal(dom.window.localStorage.getItem("qxy.workstation.ui.v1.member-current"), null);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal CEO ignores a tampered hidden insight route during state restore", async () => {
+  const bootstrap = formalBootstrap({
+    primaryRole: "ceo",
+    permissions: ["dashboard.read", "project.manage", "salary.manage", "agent.manage"],
+  });
+  const dom = await openFormalWorkbenchWithStorage(
     "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
     bootstrap,
-    storage,
+    { "qxy.workstation.ui.v1": JSON.stringify({ page: "insight", savedAt: Date.now() }) },
+    {},
+    undefined,
+    (window) => {
+      window.Storage.prototype.removeItem = function () {};
+    },
   );
   try {
-    assert.equal(second.window.Q.S.page, "assistant");
-    assert.equal(
-      second.window.document.querySelector("#chatIn").value,
-      "请帮我把本周任务整理成执行计划",
-    );
+    assert.equal(dom.window.Q.S.page, "me");
+    assert.doesNotMatch(dom.window.document.querySelector("#view").textContent, /数据洞察/);
   } finally {
-    second.window.close();
+    dom.window.close();
   }
 });
 
@@ -3875,7 +3898,7 @@ test("formal workbench renders each unavailable server module instead of an empt
   }
 });
 
-test("formal route dependency guard blocks direct detail pages and restored payroll admin", async () => {
+test("formal route dependency guard blocks direct detail pages and ignores legacy restored payroll admin", async () => {
   const requestId = "a1111111-1111-4111-8111-111111111120";
   const bootstrap = formalBootstrap({
     permissions: ["task.manage", "salary.manage", "project.manage", "agent.manage"],
@@ -3923,10 +3946,10 @@ test("formal route dependency guard blocks direct detail pages and restored payr
     },
   );
   try {
-    assert.equal(restored.window.Q.S.page, "pay-admin");
+    assert.equal(restored.window.Q.S.page, "me");
     const text = restored.window.document.querySelector("#view").textContent;
-    assert.match(text, /薪资数据暂时不可用/);
-    assert.match(text, new RegExp(requestId));
+    assert.doesNotMatch(text, /工资核算（部门\+职级定薪）/);
+    assert.equal(restored.window.localStorage.getItem("qxy.workstation.ui.v1"), null);
   } finally {
     restored.window.close();
   }
@@ -3962,6 +3985,24 @@ test("formal route dependency guard keeps successful empty detail states distinc
   }
 });
 
+test("formal new document form stays available when a successful projects query is empty", async () => {
+  const bootstrap = formalBootstrap({ permissions: ["project.read"] });
+  bootstrap.projects = [];
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    dom.window.Q.S.page = "new-file";
+    dom.window.Q.render();
+    const text = dom.window.document.querySelector("#view").textContent;
+    assert.match(text, /上传文档/);
+    assert.doesNotMatch(text, /项目数据暂时不可用|暂时不可用/);
+  } finally {
+    dom.window.close();
+  }
+});
+
 test("formal dependency registry blocks every direct backing-module edge independently", async () => {
   const requestId = "a1111111-1111-4111-8111-111111111132";
   const bootstrap = formalBootstrap({
@@ -3988,16 +4029,16 @@ test("formal dependency registry blocks every direct backing-module edge indepen
       ["search", "projects", "项目数据"], ["search", "tasks", "任务数据"], ["search", "knowledge", "知识库数据"], ["search", "agents", "Agent 数据"], ["search", "directory", "组织目录"],
       ["new-member", "directory", "组织目录"], ["new-project", "projects", "项目数据"], ["new-project", "directory", "组织目录"],
       ["new-task", "projects", "项目数据"], ["new-task", "tasks", "任务数据"], ["new-task", "directory", "组织目录"],
-      ["new-agent", "agents", "Agent 数据"], ["new-agent", "directory", "组织目录"], ["new-file", "knowledge", "知识库数据"],
+      ["new-agent", "agents", "Agent 数据"], ["new-agent", "directory", "组织目录"], ["new-file", "knowledge", "知识库数据"], ["new-file", "projects", "项目数据"],
       ["activities", "projects", "项目数据"], ["activities", "tasks", "任务数据"],
       ["new-customer", "projects", "项目数据"], ["new-customer", "directory", "组织目录"],
       ["new-activity", "projects", "项目数据"], ["new-activity", "directory", "组织目录"],
     ];
-    for (const [page, module, label] of cases) {
+    for (const [page, moduleName, label] of cases) {
       dom.window.Q.S.moduleErrors = {
-        [module]: { code: "workstation_module_unavailable", requestId },
+        [moduleName]: { code: "workstation_module_unavailable", requestId },
       };
-      assert.equal(Object.keys(dom.window.Q.S.moduleErrors).length, 1, `${page}/${module} must not be masked`);
+      assert.equal(Object.keys(dom.window.Q.S.moduleErrors).length, 1, `${page}/${moduleName} must not be masked`);
       if (page === "search") {
         dom.window.Q.S.page = "me";
         dom.window.Q.render();
@@ -4010,53 +4051,53 @@ test("formal dependency registry blocks every direct backing-module edge indepen
       }
       assert.equal(dom.window.Q.S.page, page, `${page} direct route should remain selected`);
       const text = dom.window.document.querySelector("#view").textContent;
-      assert.match(text, new RegExp(`${label}暂时不可用`), `${page}/${module}`);
-      assert.match(text, new RegExp(requestId), `${page}/${module}`);
+      assert.match(text, new RegExp(`${label}暂时不可用`), `${page}/${moduleName}`);
+      assert.match(text, new RegExp(requestId), `${page}/${moduleName}`);
     }
   } finally {
     dom.window.close();
   }
 });
 
-test("formal restored payroll admin checks each dependency independently", async () => {
+test("formal ignores each legacy payroll-admin restore without rendering its failed module", async () => {
   const requestId = "a1111111-1111-4111-8111-111111111133";
-  for (const [module, label] of [["salary", "薪资数据"], ["projects", "项目数据"], ["tasks", "任务数据"], ["directory", "组织目录"]]) {
+  for (const moduleName of ["salary", "projects", "tasks", "directory"]) {
     const bootstrap = formalBootstrap({ permissions: ["salary.manage", "project.manage", "task.manage"] });
-    bootstrap.moduleErrors = { [module]: { code: "workstation_module_unavailable", requestId } };
+    bootstrap.moduleErrors = { [moduleName]: { code: "workstation_module_unavailable", requestId } };
     const dom = await openFormalWorkbenchWithStorage(
       "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
       bootstrap,
       { "qxy.workstation.ui.v1": JSON.stringify({ page: "pay-admin", savedAt: Date.now() }) },
     );
     try {
-      assert.equal(dom.window.Q.S.page, "pay-admin");
+      assert.equal(dom.window.Q.S.page, "me");
       const text = dom.window.document.querySelector("#view").textContent;
-      assert.match(text, new RegExp(`${label}暂时不可用`));
-      assert.match(text, new RegExp(requestId));
+      assert.doesNotMatch(text, /工资核算（部门\+职级定薪）/);
+      assert.equal(dom.window.localStorage.getItem("qxy.workstation.ui.v1"), null);
     } finally {
       dom.window.close();
     }
   }
 });
 
-test("formal restored project and execution detail routes check every backing module independently", async () => {
+test("formal ignores each legacy project or execution detail restore", async () => {
   const requestId = "a1111111-1111-4111-8111-111111111134";
-  for (const [page, module, label] of [
+  for (const [page, moduleName] of [
     ["project", "projects", "项目数据"], ["project", "tasks", "任务数据"], ["project", "directory", "组织目录"],
     ["execution", "tasks", "任务数据"], ["execution", "projects", "项目数据"], ["execution", "directory", "组织目录"],
   ]) {
     const bootstrap = formalBootstrap({ permissions: ["task.manage", "project.manage"] });
-    bootstrap.moduleErrors = { [module]: { code: "workstation_module_unavailable", requestId } };
+    bootstrap.moduleErrors = { [moduleName]: { code: "workstation_module_unavailable", requestId } };
     const dom = await openFormalWorkbenchWithStorage(
       "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
       bootstrap,
       { "qxy.workstation.ui.v1": JSON.stringify({ page, savedAt: Date.now() }) },
     );
     try {
-      assert.equal(dom.window.Q.S.page, page);
+      assert.equal(dom.window.Q.S.page, "me");
       const text = dom.window.document.querySelector("#view").textContent;
-      assert.match(text, new RegExp(`${label}暂时不可用`));
-      assert.match(text, new RegExp(requestId));
+      assert.doesNotMatch(text, /项目不存在|任务不存在或当前身份无权查看/);
+      assert.equal(dom.window.localStorage.getItem("qxy.workstation.ui.v1"), null);
     } finally {
       dom.window.close();
     }

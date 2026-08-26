@@ -16,6 +16,41 @@
     workstation_bootstrap_failed: true,
     workstation_unavailable: true,
   };
+  var domainErrorCodes = {
+    activation_example_mismatch: true,
+    agent_context_unavailable: true,
+    confirmed_payroll_immutable: true,
+    directory_actor_invalid: true,
+    directory_sync_failed: true,
+    employee_hire_date_missing: true,
+    employee_not_found: true,
+    employee_profile_not_found: true,
+    forbidden: true,
+    invalid_base_range: true,
+    invalid_business_date: true,
+    invalid_money: true,
+    invalid_month: true,
+    invalid_rate: true,
+    invalid_request: true,
+    invalid_task: true,
+    missing_history: true,
+    missing_opening_cumulative: true,
+    notification_retry_failed: true,
+    opening_cumulative_mismatch: true,
+    organization_not_found: true,
+    payroll_policy_missing: true,
+    payroll_policy_unavailable: true,
+    payroll_policy_update_failed: true,
+    payroll_update_failed: true,
+    profile_save_failed: true,
+    project_create_failed: true,
+    project_create_forbidden: true,
+    project_member_invalid: true,
+    task_create_failed: true,
+    task_create_forbidden: true,
+    task_not_found: true,
+    task_update_failed: true,
+  };
   var requestIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
   function clone(value) {
@@ -87,19 +122,32 @@
     return error;
   }
 
-  function handleJson(status, ok, body) {
+  function domainFailure(body) {
+    var value = body && typeof body === "object" ? body : {};
+    var valueCode = typeof value.error === "string" ? value.error
+      : typeof value.code === "string" ? value.code : "";
+    var code = domainErrorCodes[valueCode] ? valueCode : "workstation_unavailable";
+    var error = new Error(code);
+    error.code = code;
+    return error;
+  }
+
+  function handleJson(url, status, ok, body) {
     if (status === 401) {
       window.QUANTXY_WORKSTATION_AUTH_REQUIRED = true;
       window.setTimeout(redirectToLogin, 0);
       throw new Error("unauthorized");
     }
-    if (!ok) throw bootstrapFailure(body);
+    if (!ok) {
+      if (url === "/api/workstation/bootstrap") throw bootstrapFailure(body);
+      throw domainFailure(body);
+    }
     return body;
   }
 
-  function readJson(response) {
+  function readJson(url, response) {
     return response.json().catch(function () { return {}; }).then(function (body) {
-      return handleJson(response.status, response.ok, body);
+      return handleJson(url, response.status, response.ok, body);
     });
   }
 
@@ -122,6 +170,7 @@
         }
         try {
           resolve(handleJson(
+            url,
             xhr.status,
             xhr.status >= 200 && xhr.status < 300,
             body,
@@ -142,7 +191,9 @@
     options.credentials = "same-origin";
     options.cache = "no-store";
     if (typeof window.fetch === "function") {
-      return window.fetch(url, options).then(readJson);
+      return window.fetch(url, options).then(function (response) {
+        return readJson(url, response);
+      });
     }
     if (typeof window.XMLHttpRequest === "function") {
       return requestWithXhr(url, options);

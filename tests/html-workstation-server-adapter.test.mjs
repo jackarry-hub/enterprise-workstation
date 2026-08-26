@@ -74,6 +74,74 @@ test("preserves fatal bootstrap code and request ID without forwarding database 
   dom.window.close();
 });
 
+test("preserves allowlisted domain errors for mutations without accepting raw endpoint detail", async () => {
+  const source = await readFile(
+    path.join(process.cwd(), "public", "workstation-server-adapter.js"),
+    "utf8",
+  );
+  const bootstrap = {
+    session: {
+      authenticated: true,
+      authMode: "feishu",
+      dataMode: "server",
+      memberId: "m7",
+      permissions: ["salary.manage"],
+    },
+    members: [{ id: "m7", n: "薪资管理员" }],
+    projects: [], tasks: [], payroll: { m7: [] },
+    features: { identitySwitch: false, demoReset: false },
+  };
+  const dom = new JSDOM("<!doctype html><script></script>", {
+    url: "https://work.quantumgalaxy.top/quantxy-ai-workbench-fused.html?formal=1",
+    runScripts: "outside-only",
+  });
+  dom.window.fetch = async (url) => {
+    if (String(url) === "/api/workstation/bootstrap") return response(true, bootstrap);
+    if (String(url) === "/api/workstation/payroll/preview") {
+      return response(false, {
+        error: "missing_opening_cumulative",
+        message: "relation payroll_rows exposes internal diagnostic",
+        details: "raw database detail",
+      }, 409);
+    }
+    if (String(url) === "/api/workstation/payroll") {
+      return response(false, {
+        error: "confirmed_payroll_immutable",
+        message: "raw database message",
+      }, 409);
+    }
+    if (String(url) === "/api/workstation/work-profile") {
+      return response(false, {
+        error: "forbidden",
+        message: "permission diagnostic must not escape",
+      }, 403);
+    }
+    return response(false, {
+      error: "relation employee_profiles does not exist",
+      message: "raw database message",
+      details: "raw database detail",
+    }, 500);
+  };
+
+  dom.window.eval(source);
+  await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.ready();
+
+  for (const [invoke, expectedCode] of [
+    [() => dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.previewPayroll({}), "missing_opening_cumulative"],
+    [() => dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.savePayroll({}), "confirmed_payroll_immutable"],
+    [() => dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.saveWorkProfile({}), "forbidden"],
+    [() => dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.savePayrollPolicy({}), "workstation_unavailable"],
+  ]) {
+    await assert.rejects(invoke(), (error) => {
+      assert.equal(error.message, expectedCode);
+      assert.equal(error.code, expectedCode);
+      assert.doesNotMatch(String(error.message), /relation|database|diagnostic|detail/i);
+      return true;
+    });
+  }
+  dom.window.close();
+});
+
 test("loads the formal bootstrap through XHR when fetch is unavailable", async () => {
   const source = await readFile(
     path.join(process.cwd(), "public", "workstation-server-adapter.js"),

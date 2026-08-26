@@ -426,7 +426,7 @@ tr:last-child td{border-bottom:0}
   </div>
 </div>
 <div class="toast" id="toast"></div>
-<script src="/workstation-server-adapter.js?v=server-embed-c3-fatal-guard"></script>
+<script src="/workstation-server-adapter.js?v=server-embed-c4-drafts-domains"></script>
 <script>
 /* =========================================================
    量子星河 QuantXY · AI 企业工作台
@@ -482,36 +482,21 @@ function load(){
   return null;
 }
 function persistUiState(){
+  return false;
+}
+function clearFormalDrafts(){
   if(isDemoRuntime()) return false;
-  try{ if(new URLSearchParams(window.location.search).get('formal')!=='1') return false; }catch(e){ return false; }
   try{
-    localStorage.setItem(QXY_UI_STATE_KEY,JSON.stringify({
-      page:S.page, form:S.form, tab:S.tab, f:S.f, sel:S.sel, sch:S.sch,
-      curProj:S.curProj, curAgent:S.curAgent, curCustomer:S.curCustomer, curActivity:S.curActivity,
-      mobileTaskFocus:S.mobileTaskFocus, payrollDetailsOpen:S.payrollDetailsOpen,
-      chatDraft:S.chatDraft||'', savedAt:Date.now()
-    }));
+    for(var i=localStorage.length-1;i>=0;i--){
+      var key=localStorage.key(i);
+      if(key===QXY_UI_STATE_KEY||key&&key.indexOf(QXY_UI_STATE_KEY+'.')===0) localStorage.removeItem(key);
+    }
     return true;
   }catch(e){ return false; }
 }
 function restoreUiState(){
-  if(isDemoRuntime()) return false;
-  try{ if(new URLSearchParams(window.location.search).get('formal')!=='1') return false; }catch(e){ return false; }
-  var stored=readStoredJson(QXY_UI_STATE_KEY);
-  if(!stored||typeof stored!=='object') return false;
-  var params=new URLSearchParams(window.location.search);
-  var hasTaskDeepLink=params.getAll('task').length>0;
-  if(!hasTaskDeepLink&&stored.page&&formalPageAllowed(stored.page)) S.page=stored.page;
-  if(stored.form&&typeof stored.form==='object') S.form=Object.assign(blankForm(),stored.form);
-  if(stored.tab&&typeof stored.tab==='object') S.tab=Object.assign(defaultRuntimeTabs(),stored.tab);
-  if(stored.f&&typeof stored.f==='object') S.f=Object.assign(defaultRuntimeFilters(),stored.f);
-  if(!hasTaskDeepLink&&stored.sel&&typeof stored.sel==='object') S.sel=Object.assign({task:null,wbs:null},stored.sel);
-  if(stored.sch&&typeof stored.sch==='object') S.sch=Object.assign(defaultRuntimeSchedule(),stored.sch);
-  S.curProj=stored.curProj||null; S.curAgent=stored.curAgent||null;
-  S.curCustomer=stored.curCustomer||null; S.curActivity=stored.curActivity||null;
-  S.mobileTaskFocus=!!stored.mobileTaskFocus; S.payrollDetailsOpen=!!stored.payrollDetailsOpen;
-  S.chatDraft=typeof stored.chatDraft==='string'?stored.chatDraft:'';
-  return true;
+  clearFormalDrafts();
+  return false;
 }
 function defaultReviewer(task){
   var project=PB[task.p], candidate=project&&project.own;
@@ -757,6 +742,7 @@ function submitLogin(){
 }
 function logoutDemo(){
   if(!isDemoRuntime()){
+    clearFormalDrafts();
     S.menu=false;
     if(typeof WORKSTATION_GATEWAY.logout==='function'){
       Promise.resolve(WORKSTATION_GATEWAY.logout()).catch(function(){ window.location.assign('/login'); });
@@ -1658,10 +1644,17 @@ var NAV=[
 var MOBILE_CORE={me:1,task:1,fin:1};
 var MOBILE_CORE_ORDER=['me','task','fin'];
 var MOBILE_LABEL={me:'工作台',task:'我的任务',fin:'薪酬'};
+var FORMAL_RESTORABLE_PAGES={
+  me:1,task:1,execution:1,fin:1,profile:1,assistant:1,flow:1,
+  proj:1,project:1,kb:1,'new-file':1,dash:1,sched:1,org:1,
+  'new-project':1,'new-task':1,'new-member':1,'new-agent':1,
+  agent:1,'pay-admin':1,set:1
+};
 function isMobileShell(){ return !!(window.matchMedia&&window.matchMedia('(max-width:820px)').matches); }
 function hasLevelAccess(level){ return isDemoRuntime()||isWorkstationCEO()||currentMemberLevel()>=level; }
 function formalPageAllowed(page){
   if(isDemoRuntime()) return true;
+  if(!FORMAL_RESTORABLE_PAGES[page]) return false;
   if(isWorkstationCEO()) return true;
   if(page==='me'||page==='task'||page==='execution'||page==='fin'||page==='profile'||page==='assistant'||page==='flow') return true;
   if(page==='proj'||page==='project'||page==='kb'||page==='new-file') return hasWorkstationPermission('project.read')||hasLevelAccess(3);
@@ -3586,7 +3579,7 @@ var PAGE_MODULE_DEPENDENCIES={
   kb:['knowledge','directory'], flow:['agents','directory'], agent:['agents','directory'], search:['projects','tasks','knowledge','agents','directory'],
   'new-member':['directory'], 'new-project':['projects','directory'],
   'new-task':['projects','tasks','directory'], 'new-agent':['agents','directory'],
-  'new-file':['knowledge'], 'new-customer':['projects','directory'], 'new-activity':['projects','directory']
+  'new-file':['knowledge','projects'], 'new-customer':['projects','directory'], 'new-activity':['projects','directory']
 };
 function moduleDependencyUnavailable(modules){
   for(var i=0;i<(modules||[]).length;i++){
