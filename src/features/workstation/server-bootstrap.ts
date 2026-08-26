@@ -167,7 +167,10 @@ type BootstrapRows = {
   agents?: readonly WorkstationAgentRow[];
   agentInvocations?: readonly WorkstationAgentInvocationRow[];
   knowledge?: readonly WorkstationKnowledgeRow[];
-  moduleErrors?: { agents?: { requestId: string } };
+  moduleErrors?: Partial<Record<
+    "agents" | "directory" | "knowledge" | "projects" | "salary" | "tasks",
+    { code: "workstation_module_unavailable"; requestId: string }
+  >>;
 };
 
 const projectStatuses: Record<string, string> = {
@@ -350,16 +353,15 @@ export function buildServerBootstrap(
     },
     members: rows.members.map((member) => {
       const evidence = workEvidence(member, rows.tasks);
+      const mayReadSalaryClassification = canManageSalary || member.id === session.memberId;
       const bootstrapMember = {
         id: memberId(member.id),
         n: member.displayName,
         r: member.jobTitle,
-        grade: member.salaryGradeCode ?? "",
         sk: uniqueSkillNames(member).join(" · "),
         dept: member.departmentName,
         rate: 0,
         cap: Math.max(0.05, Math.round(100 - evidence.workloadPercent) / 100),
-        lv: member.jobLevel ?? (member.id === session.memberId ? 3 : 2),
         workProfile: {
           summary: member.workProfile?.summary ?? "",
           preferredTaskTypes: [...(member.workProfile?.preferredTaskTypes ?? [])],
@@ -371,9 +373,12 @@ export function buildServerBootstrap(
           updatedAt: member.workProfile?.updatedAt ?? "",
         },
       };
-      if (canManageSalary || member.id === session.memberId) {
+      if (mayReadSalaryClassification) {
         return {
           ...bootstrapMember,
+          ...(member.salaryGradeCode && member.jobLevel !== null && member.jobLevel !== undefined
+            ? { grade: member.salaryGradeCode, lv: member.jobLevel }
+            : {}),
           salaryBand: member.salaryPolicy
           ? {
             source: "server" as const,

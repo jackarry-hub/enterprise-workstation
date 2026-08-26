@@ -157,8 +157,6 @@ describe("workstation bootstrap route", () => {
         job_title: "产品经理",
         department_id: 21,
         position_template_id: 51,
-        salary_grade_code: "P6",
-        job_level: 6,
         skills: ["prd"],
         department: { name: "产品中心" },
       }, {
@@ -168,8 +166,6 @@ describe("workstation bootstrap route", () => {
         job_title: "算法工程师",
         department_id: 22,
         position_template_id: 52,
-        salary_grade_code: "P6",
-        job_level: 6,
         skills: ["typescript"],
         department: { name: "研发中心" },
       }],
@@ -319,6 +315,14 @@ describe("workstation bootstrap route", () => {
       }],
       error: null,
     });
+    const currentSalaryClassification = query({
+      data: [{
+        organization_member_id: 7,
+        salary_grade_code: "P6",
+        job_level: 6,
+      }],
+      error: null,
+    });
     const employeeSkills = query({
       data: [{
         employee_profile_id: 42,
@@ -392,6 +396,7 @@ describe("workstation bootstrap route", () => {
       workProfiles,
       departments,
       selfSalaryPolicy,
+      currentSalaryClassification,
       employeeSkills,
       agents,
       agentPermissions,
@@ -413,6 +418,9 @@ describe("workstation bootstrap route", () => {
         throw new Error(`unexpected table ${table}`);
       }),
       rpc: vi.fn((name: string) => {
+        if (name === "current_employee_salary_classification") {
+          return builders.currentSalaryClassification;
+        }
         if (name === "current_salary_grade_policy") return builders.selfSalaryPolicy;
         throw new Error(`unexpected rpc ${name}`);
       }),
@@ -446,7 +454,14 @@ describe("workstation bootstrap route", () => {
     expect(client.from).toHaveBeenCalledWith("task_notifications");
     expect(client.from).toHaveBeenCalledWith("departments");
     expect(serviceClient.from).toHaveBeenCalledWith("employee_work_profiles");
+    expect(client.rpc).toHaveBeenCalledWith("current_employee_salary_classification");
     expect(client.rpc).toHaveBeenCalledWith("current_salary_grade_policy");
+    expect(members.select).toHaveBeenCalledWith(
+      expect.not.stringContaining("salary_grade_code"),
+    );
+    expect(members.select).toHaveBeenCalledWith(
+      expect.not.stringContaining("job_level"),
+    );
     expect(client.from).toHaveBeenCalledWith("employee_skills");
     expect(serviceClient.from).toHaveBeenCalledWith("agent_definitions");
     expect(client.from).toHaveBeenCalledWith("agent_permissions");
@@ -519,8 +534,10 @@ describe("workstation bootstrap route", () => {
       }),
     });
     const colleague = bootstrap.members.find((member) => member.id === "m8");
+    expect(colleague && "grade" in colleague).toBe(false);
+    expect(colleague && "lv" in colleague).toBe(false);
     expect(colleague?.salaryBand).toBeUndefined();
-    expect(JSON.stringify(bootstrap.members)).not.toContain("39000");
+    expect(JSON.stringify(colleague)).not.toMatch(/P6|39000|33000|48000/);
     expect(bootstrap).toMatchObject({
       agents: [
         expect.objectContaining({
@@ -552,6 +569,77 @@ describe("workstation bootstrap route", () => {
     expect(JSON.stringify(bootstrap)).not.toMatch(
       /task_id|9001|9002|open_id|tenant_access_token|app_secret|raw provider response/i,
     );
+  });
+
+  it("uses the manager-only classification RPC before exposing managed member classifications", async () => {
+    const members = query({
+      data: [
+        {
+          id: 42,
+          tenant_id: 2,
+          organization_id: 3,
+          organization_member_id: 7,
+          display_name: "薪酬经理",
+          job_title: "薪酬经理",
+          department_id: 21,
+          position_template_id: 51,
+          skills: [],
+          department: { name: "产品中心" },
+        },
+        {
+          id: 43,
+          tenant_id: 2,
+          organization_id: 3,
+          organization_member_id: 8,
+          display_name: "普通同事",
+          job_title: "工程师",
+          department_id: 22,
+          position_template_id: 52,
+          skills: [],
+          department: { name: "研发中心" },
+        },
+      ],
+      error: null,
+    });
+    const classifications = query({
+      data: [
+        { organization_member_id: 7, salary_grade_code: "M4", job_level: 12 },
+        { organization_member_id: 8, salary_grade_code: "P4", job_level: 4 },
+      ],
+      error: null,
+    });
+    const empty = query({ data: [], error: null });
+    const client = {
+      from: vi.fn((table: string) => table === "employee_profiles" ? members : empty),
+      rpc: vi.fn((name: string) => {
+        if (name === "managed_employee_salary_classifications") return classifications;
+        throw new Error(`unexpected rpc ${name}`);
+      }),
+    };
+    const serviceClient = { from: vi.fn(() => empty) };
+    vi.mocked(getSupabaseServerClient).mockResolvedValue(client as never);
+    vi.mocked(getSupabaseServiceRoleClient).mockReturnValue(serviceClient as never);
+
+    const bootstrap = await defaultWorkstationBootstrapDependencies.loadBootstrap({
+      member: { id: 7 },
+      profile: {
+        displayName: "薪酬经理",
+        departmentName: "产品中心",
+        jobTitle: "薪酬经理",
+        avatarUrl: null,
+      },
+      permissionCodes: ["salary.manage"],
+      roleCodes: ["finance"],
+    } as never) as { members: Array<Record<string, unknown>> };
+
+    expect(client.rpc).toHaveBeenCalledWith("managed_employee_salary_classifications");
+    expect(members.select).toHaveBeenCalledWith(
+      expect.not.stringContaining("salary_grade_code"),
+    );
+    expect(bootstrap.members).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "m7", grade: "M4", lv: 12 }),
+      expect.objectContaining({ id: "m8", grade: "P4", lv: 4 }),
+    ]));
   });
 
   it("falls back to legacy salary columns when payroll calculation migration is not applied", async () => {
@@ -707,7 +795,7 @@ describe("workstation bootstrap route", () => {
       payroll: Record<string, unknown[]>;
       agents: unknown[];
       kb: unknown[];
-      moduleErrors: { agents?: { requestId: string } };
+      moduleErrors: Record<string, { code: string; requestId: string }>;
     };
 
     expect(bootstrap.session.authenticated).toBe(true);
@@ -717,7 +805,18 @@ describe("workstation bootstrap route", () => {
     expect(bootstrap.payroll.m7).toEqual([]);
     expect(bootstrap.agents).toEqual([]);
     expect(bootstrap.kb).toEqual([]);
-    expect(bootstrap.moduleErrors.agents?.requestId).toMatch(
+    expect(bootstrap.moduleErrors).toEqual({
+      agents: expect.objectContaining({ code: "workstation_module_unavailable" }),
+      directory: expect.objectContaining({ code: "workstation_module_unavailable" }),
+      knowledge: expect.objectContaining({ code: "workstation_module_unavailable" }),
+      projects: expect.objectContaining({ code: "workstation_module_unavailable" }),
+      salary: expect.objectContaining({ code: "workstation_module_unavailable" }),
+      tasks: expect.objectContaining({ code: "workstation_module_unavailable" }),
+    });
+    const requestIds = Object.values(bootstrap.moduleErrors).map((error) => error.requestId);
+    expect(requestIds).toHaveLength(6);
+    expect(new Set(requestIds).size).toBe(1);
+    expect(requestIds[0]).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     );
     expect(warn).toHaveBeenCalledWith(

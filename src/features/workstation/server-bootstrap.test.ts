@@ -107,7 +107,7 @@ describe("formal workstation bootstrap", () => {
     expect(bootstrap.features).toEqual({ identitySwitch: false, demoReset: false });
   });
 
-  it("uses database compensation grade fields for formal workstation members", () => {
+  it("keeps compensation classifications to the employee when salary management is absent", () => {
     const bootstrap = buildServerBootstrap(
       {
         memberId: 7,
@@ -181,13 +181,40 @@ describe("formal workstation bootstrap", () => {
       }),
       expect.objectContaining({
         id: "m8",
-        grade: "P4",
-        lv: 4,
       }),
     ]);
     const colleague = bootstrap.members.find((member) => member.id === "m8");
+    expect(colleague && "grade" in colleague).toBe(false);
+    expect(colleague && "lv" in colleague).toBe(false);
     expect(colleague && "salaryBand" in colleague).toBe(false);
-    expect(JSON.stringify(bootstrap.members)).not.toContain("39000");
+    expect(JSON.stringify(bootstrap.members)).not.toMatch(/P4|39000|33000|48000/);
+  });
+
+  it("includes compensation classifications for a salary manager's scoped member records", () => {
+    const bootstrap = buildServerBootstrap(
+      {
+        memberId: 7,
+        displayName: "张云帆",
+        departmentName: "产品中心",
+        jobTitle: "薪酬经理",
+        avatarUrl: null,
+        permissionCodes: ["salary.manage"],
+      },
+      {
+        members: [
+          { id: 7, displayName: "张云帆", departmentName: "产品中心", jobTitle: "薪酬经理", salaryGradeCode: "M4", jobLevel: 12, skills: [] },
+          { id: 8, displayName: "李明", departmentName: "研发中心", jobTitle: "工程师", salaryGradeCode: "P4", jobLevel: 4, skills: [] },
+        ],
+        projects: [],
+        tasks: [],
+        salary: [],
+      },
+    );
+
+    expect(bootstrap.members).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "m7", grade: "M4", lv: 12 }),
+      expect.objectContaining({ id: "m8", grade: "P4", lv: 4 }),
+    ]));
   });
 
   it("maps enterprise agent center definitions and recent invocations for the fused workstation", () => {

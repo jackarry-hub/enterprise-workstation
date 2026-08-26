@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { loadSalary, loadSalaryDetail } from "@/features/salary/salary-data";
 
@@ -92,25 +92,30 @@ describe("salary data", () => {
           {
             id: 11,
             public_id: "employee-profile-1",
+            organization_member_id: 101,
             employee_no: "QXY-1001",
             display_name: "董佳瑶",
             avatar_url: null,
             job_title: "产品经理",
             department_id: 21,
-            salary_grade_code: "P6",
-            job_level: 6,
           },
           {
             id: 12,
             public_id: "employee-profile-2",
+            organization_member_id: 102,
             employee_no: "QXY-1002",
             display_name: "王芳",
             avatar_url: null,
             job_title: "前端工程师",
             department_id: 22,
-            salary_grade_code: "P5",
-            job_level: 5,
           },
+        ],
+        error: null,
+      },
+      salary_classifications: {
+        data: [
+          { organization_member_id: 101, salary_grade_code: "P6", job_level: 6 },
+          { organization_member_id: 102, salary_grade_code: "P5", job_level: 5 },
         ],
         error: null,
       },
@@ -124,9 +129,10 @@ describe("salary data", () => {
     };
     const factory = (async () => ({
       from: (table: string) => createQuery(responses[table]),
+      rpc: () => createQuery(responses.salary_classifications),
     })) as never;
 
-    const result = await loadSalary(factory, { allowMockFallback: false });
+    const result = await loadSalary(factory, { allowMockFallback: false, canManageSalary: true });
 
     expect(result.source).toBe("supabase");
     expect(result.data.records).toHaveLength(3);
@@ -197,14 +203,17 @@ describe("salary data", () => {
         data: [{
           id: 11,
           public_id: "employee-detail-profile",
+          organization_member_id: 101,
           employee_no: "QXY-2001",
           display_name: "李记伟",
           avatar_url: null,
           job_title: "项目经理",
           department_id: 21,
-          salary_grade_code: "M4",
-          job_level: 4,
         }],
+        error: null,
+      },
+      salary_classifications: {
+        data: [{ organization_member_id: 101, salary_grade_code: "M4", job_level: 4 }],
         error: null,
       },
       departments: {
@@ -214,6 +223,7 @@ describe("salary data", () => {
     };
     const factory = (async () => ({
       from: (table: string) => createQuery(responses[table]),
+      rpc: () => createQuery(responses.salary_classifications),
     })) as never;
 
     const detail = await loadSalaryDetail("salary-detail-id", factory, { allowMockFallback: false });
@@ -259,6 +269,7 @@ describe("salary data", () => {
           {
             id: 11,
             public_id: "viewer-profile",
+            organization_member_id: 101,
             employee_no: "QXY-2001",
             display_name: "当前员工",
             avatar_url: null,
@@ -268,6 +279,7 @@ describe("salary data", () => {
           {
             id: 12,
             public_id: "other-profile",
+            organization_member_id: 102,
             employee_no: "QXY-2002",
             display_name: "其他员工",
             avatar_url: null,
@@ -277,6 +289,10 @@ describe("salary data", () => {
         ],
         error: null,
       },
+      salary_classifications: {
+        data: [{ organization_member_id: 101, salary_grade_code: "P3", job_level: 3 }],
+        error: null,
+      },
       departments: {
         data: [{ id: 21, public_id: "dept-engineering", name: "工程技术部" }],
         error: null,
@@ -284,6 +300,7 @@ describe("salary data", () => {
     };
     const factory = (async () => ({
       from: (table: string) => createQuery(responses[table]),
+      rpc: () => createQuery(responses.salary_classifications),
     })) as never;
 
     const result = await loadSalary(factory, {
@@ -298,6 +315,87 @@ describe("salary data", () => {
       totalSalary: 12600,
       employeeCount: 1,
       averageSalary: 12600,
+    });
+  });
+});
+
+describe("salary data classification privacy", () => {
+  it("loads an employee classification from the self-only RPC instead of the directory table", async () => {
+    const query = (result: { data: unknown[]; error: unknown }) => ({
+      select: vi.fn().mockReturnThis(),
+      is: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      then: <TResult1 = typeof result, TResult2 = never>(
+        onfulfilled?: ((value: typeof result) => TResult1 | PromiseLike<TResult1>) | null,
+        onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+      ) => Promise.resolve(result).then(onfulfilled, onrejected),
+    });
+    const salary = query({
+      data: [{
+        public_id: "salary-1",
+        organization_id: 3,
+        employee_profile_id: 42,
+        payroll_month: "2026-08-01",
+        base_salary: 42000,
+        bonus: 0,
+        deductions: 0,
+        net_salary: 42000,
+        status: "paid",
+        paid_at: null,
+      }],
+      error: null,
+    });
+    const profiles = query({
+      data: [{
+        id: 42,
+        public_id: "profile-42",
+        organization_member_id: 7,
+        employee_no: "A-007",
+        display_name: "当前员工",
+        avatar_url: null,
+        job_title: "产品经理",
+        department_id: 21,
+      }],
+      error: null,
+    });
+    const departments = query({
+      data: [{ id: 21, public_id: "department-21", name: "产品中心" }],
+      error: null,
+    });
+    const classification = query({
+      data: [{ organization_member_id: 7, salary_grade_code: "P6", job_level: 6 }],
+      error: null,
+    });
+    const client = {
+      from: vi.fn((table: string) => {
+        if (table === "salary") return salary;
+        if (table === "employee_profiles") return profiles;
+        if (table === "departments") return departments;
+        throw new Error(`unexpected table ${table}`);
+      }),
+      rpc: vi.fn((name: string) => {
+        if (name === "current_employee_salary_classification") return classification;
+        throw new Error(`unexpected rpc ${name}`);
+      }),
+    };
+
+    const result = await loadSalary(
+      async () => client as never,
+      { allowMockFallback: false, viewerEmployeeProfileId: "profile-42" },
+    );
+
+    expect(client.rpc).toHaveBeenCalledWith("current_employee_salary_classification");
+    expect(profiles.select).toHaveBeenCalledWith(
+      expect.not.stringContaining("salary_grade_code"),
+    );
+    expect(profiles.select).toHaveBeenCalledWith(
+      expect.not.stringContaining("job_level"),
+    );
+    expect(result.data.records[0]?.employee).toMatchObject({
+      displayName: "当前员工",
+      salaryGradeCode: "P6",
+      jobLevel: 6,
     });
   });
 });

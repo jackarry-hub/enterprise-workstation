@@ -3772,7 +3772,7 @@ test("formal Agent Center preserves a real empty server result without seeding d
 test("formal Agent Center renders a module error with its server request ID", async () => {
   const bootstrap = formalBootstrap({ permissions: ["agent.manage"] });
   bootstrap.agents = [];
-  bootstrap.moduleErrors = { agents: { requestId: "a1111111-1111-4111-8111-111111111111" } };
+  bootstrap.moduleErrors = { agents: { code: "workstation_module_unavailable", requestId: "a1111111-1111-4111-8111-111111111111" } };
   const dom = await openFormalWorkbench(
     "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
     bootstrap,
@@ -3784,6 +3784,48 @@ test("formal Agent Center renders a module error with its server request ID", as
     assert.match(text, /Agent 数据暂时不可用/);
     assert.match(text, /a1111111-1111-4111-8111-111111111111/);
     assert.equal(dom.window.Q.S.agents.length, 0);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("formal workbench renders each unavailable server module instead of an empty module", async () => {
+  const requestId = "a1111111-1111-4111-8111-111111111112";
+  const bootstrap = formalBootstrap({
+    permissions: ["task.manage", "salary.manage", "organization.manage", "agent.manage"],
+  });
+  bootstrap.projects = [];
+  bootstrap.tasks = [];
+  bootstrap.payroll = { [bootstrap.session.memberId]: [] };
+  bootstrap.kb = [];
+  bootstrap.agents = [];
+  bootstrap.moduleErrors = {
+    projects: { code: "workstation_module_unavailable", requestId },
+    tasks: { code: "workstation_module_unavailable", requestId },
+    salary: { code: "workstation_module_unavailable", requestId },
+    knowledge: { code: "workstation_module_unavailable", requestId },
+    directory: { code: "workstation_module_unavailable", requestId },
+    agents: { code: "workstation_module_unavailable", requestId },
+  };
+  const dom = await openFormalWorkbench(
+    "http://127.0.0.1:3012/quantxy-ai-workbench-fused.html?formal=1",
+    bootstrap,
+  );
+  try {
+    for (const [page, label] of [
+      ["proj", "项目数据暂时不可用"],
+      ["task", "任务数据暂时不可用"],
+      ["fin", "薪资数据暂时不可用"],
+      ["kb", "知识库数据暂时不可用"],
+      ["org", "组织目录暂时不可用"],
+      ["flow", "Agent 数据暂时不可用"],
+    ]) {
+      dom.window.Q.S.page = page;
+      dom.window.Q.render();
+      const text = dom.window.document.querySelector("#view").textContent;
+      assert.match(text, new RegExp(label));
+      assert.match(text, new RegExp(requestId));
+    }
   } finally {
     dom.window.close();
   }

@@ -89,6 +89,13 @@ type BootstrapQueryResult = {
   moduleError?: boolean;
 };
 
+type BootstrapModule = "agents" | "directory" | "knowledge" | "projects" | "salary" | "tasks";
+
+type SalaryClassification = {
+  salaryGradeCode: string | null;
+  jobLevel: number | null;
+};
+
 type SalaryQueryBuilder = {
   eq: (column: string, value: unknown) => SalaryQueryBuilder;
   is: (column: string, value: unknown) => SalaryQueryBuilder;
@@ -259,6 +266,25 @@ function normalizeSalaryGradePolicies(
   });
 }
 
+function optionalQueryFailed(result: unknown) {
+  return typeof result === "object" && result !== null
+    && "moduleError" in result
+    && (result as { moduleError?: unknown }).moduleError === true;
+}
+
+function salaryClassificationsByMember(
+  rows: readonly Record<string, unknown>[],
+) {
+  return new Map(rows.flatMap((row) => {
+    const memberId = positiveIntegerOrNull(row.organization_member_id);
+    if (memberId === null) return [];
+    return [[memberId, {
+      salaryGradeCode: stringOrNull(row.salary_grade_code),
+      jobLevel: numberOrNull(row.job_level),
+    } satisfies SalaryClassification] as const];
+  }));
+}
+
 function salaryPolicyForMember(
   member: Record<string, unknown>,
   policies: readonly SalaryPolicy[],
@@ -321,7 +347,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
     const client = await getSupabaseServerClient();
     const canManageSalary = session.permissionCodes.includes("salary.manage");
     const membersResult = await client.from("employee_profiles")
-      .select("id, tenant_id, organization_id, organization_member_id, display_name, job_title, department_id, position_template_id, salary_grade_code, job_level, skills, department:departments!employee_profiles_department_id_fkey(name)")
+      .select("id, tenant_id, organization_id, organization_member_id, display_name, job_title, department_id, position_template_id, skills, department:departments!employee_profiles_department_id_fkey(name)")
       .is("deleted_at", null)
       .in("employment_status", ["probation", "active", "on_leave"])
       .order("display_name");
@@ -342,6 +368,16 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
     );
     const agentTenantId = currentMember ? positiveIntegerOrNull(currentMember.tenant_id) : null;
     const agentOrganizationId = currentMember ? positiveIntegerOrNull(currentMember.organization_id) : null;
+    const salaryClassificationsQuery = optionalBootstrapQuery(
+      canManageSalary
+        ? "managed_employee_salary_classifications"
+        : "current_employee_salary_classification",
+      client.rpc(
+        canManageSalary
+          ? "managed_employee_salary_classifications"
+          : "current_employee_salary_classification",
+      ),
+    );
     const agentDefinitionsQuery = agentTenantId !== null && agentOrganizationId !== null
       ? optionalBootstrapQuery("agent_definitions", serviceClient.from("agent_definitions")
         .select("id, public_id, name, icon, description, model_code, prompt_version, system_prompt, tool_scope, capabilities, visibility_scope, min_job_level, status, department_id")
@@ -354,6 +390,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       projectsResult,
       tasksResult,
       salaryResult,
+      salaryClassificationsResult,
       notificationsResult,
       departmentsResult,
       salaryGradePoliciesResult,
@@ -378,6 +415,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
         client as unknown as SalaryClient,
         employeeProfileId,
       )),
+      salaryClassificationsQuery,
       optionalBootstrapQuery("task_notifications", client.from("task_notifications")
         .select("task_id, status, last_error_code")),
       optionalBootstrapQuery("departments", client.from("departments")
@@ -439,6 +477,9 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
     );
     const salaryGradePolicies = normalizeSalaryGradePolicies(
       salaryGradePoliciesResult.data ?? [],
+    );
+    const classificationsByMember = salaryClassificationsByMember(
+      salaryClassificationsResult.data ?? [],
     );
     const positionJobFamilyById = new Map(
       (positionTemplatesResult.data ?? []).flatMap((row) => {
@@ -572,11 +613,36 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       invocationsByAgent.set(row.agent_id, current);
     }
 
-    const agentModuleFailed = Boolean(
-      agentsResult.moduleError || agentPermissionsResult.moduleError || agentInvocationsResult.moduleError,
-    );
+    const currentClassification = classificationsByMember.get(session.member.id) ?? null;
     const currentDepartmentId = currentMember ? numberOrNull(currentMember.department_id) : null;
-    const currentJobLevel = currentMember ? numberOrNull(currentMember.job_level) : null;
+    const currentJobLevel = currentClassification?.jobLevel ?? null;
+    const failedModules = new Set<BootstrapModule>();
+    if (optionalQueryFailed(projectsResult)) failedModules.add("projects");
+    if (optionalQueryFailed(tasksResult) || optionalQueryFailed(notificationsResult)) failedModules.add("tasks");
+    if (
+      optionalQueryFailed(salaryResult)
+      || optionalQueryFailed(salaryClassificationsResult)
+      || optionalQueryFailed(salaryGradePoliciesResult)
+      || optionalQueryFailed(positionTemplatesResult)
+      || optionalQueryFailed(selfSalaryPolicyResult)
+    ) failedModules.add("salary");
+    if (optionalQueryFailed(departmentsResult) || optionalQueryFailed(workProfilesResult) || optionalQueryFailed(employeeSkillsResult)) {
+      failedModules.add("directory");
+    }
+    if (
+      optionalQueryFailed(agentsResult)
+      || optionalQueryFailed(agentPermissionsResult)
+      || optionalQueryFailed(agentInvocationsResult)
+      || optionalQueryFailed(salaryClassificationsResult)
+    ) failedModules.add("agents");
+    if (optionalQueryFailed(knowledgeResult)) failedModules.add("knowledge");
+    const requestId = failedModules.size ? randomUUID() : null;
+    const moduleErrors = requestId
+      ? Object.fromEntries([...failedModules].map((module) => [module, {
+        code: "workstation_module_unavailable",
+        requestId,
+      }]))
+      : {};
 
     return buildServerBootstrap(
       {
@@ -588,27 +654,40 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
         permissionCodes: session.permissionCodes,
       },
       {
-        members: (membersResult.data ?? []).map((row) => ({
-          id: row.organization_member_id,
-          profileId: row.id,
-          departmentId: numberOrNull(row.department_id),
-          displayName: row.display_name,
-          departmentName: relationName(row.department),
-          jobTitle: row.job_title,
-          salaryGradeCode: row.salary_grade_code,
-          jobLevel: row.job_level == null ? null : Number(row.job_level),
-          skills: row.skills ?? [],
-          verifiedSkills: verifiedSkillsByEmployee.get(row.id) ?? [],
-          workProfile: workProfileByEmployee.get(row.id) ?? null,
-          salaryPolicy: canManageSalary
-            ? salaryPolicyForMember(
-              row,
-              salaryGradePolicies,
-              positionJobFamilyById,
-              effectiveOn,
-            )
-            : row.organization_member_id === session.member.id
-              ? selfSalaryPolicy && {
+        members: (membersResult.data ?? []).map((row) => {
+          const memberId = numberOrNull(row.organization_member_id);
+          const mayReadSalaryClassification = canManageSalary || memberId === session.member.id;
+          const classification = memberId === null
+            ? null
+            : classificationsByMember.get(memberId) ?? null;
+          const salaryMember = {
+            ...row,
+            salary_grade_code: classification?.salaryGradeCode ?? null,
+            job_level: classification?.jobLevel ?? null,
+          };
+          return {
+            id: row.organization_member_id,
+            profileId: row.id,
+            departmentId: numberOrNull(row.department_id),
+            displayName: row.display_name,
+            departmentName: relationName(row.department),
+            jobTitle: row.job_title,
+            ...(mayReadSalaryClassification ? {
+              salaryGradeCode: classification?.salaryGradeCode ?? null,
+              jobLevel: classification?.jobLevel ?? null,
+            } : {}),
+            skills: row.skills ?? [],
+            verifiedSkills: verifiedSkillsByEmployee.get(row.id) ?? [],
+            workProfile: workProfileByEmployee.get(row.id) ?? null,
+            salaryPolicy: canManageSalary
+              ? salaryPolicyForMember(
+                salaryMember,
+                salaryGradePolicies,
+                positionJobFamilyById,
+                effectiveOn,
+              )
+              : memberId === session.member.id
+                ? selfSalaryPolicy && {
                 publicId: selfSalaryPolicy.publicId,
                 baseSalary: selfSalaryPolicy.baseSalary,
                 salaryBandMin: selfSalaryPolicy.salaryBandMin,
@@ -617,9 +696,10 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
                 effectiveFrom: selfSalaryPolicy.effectiveFrom,
                 effectiveTo: selfSalaryPolicy.effectiveTo,
                 matchedDepartment: selfSalaryPolicy.departmentId !== null,
-               }
-               : null,
-        })),
+                }
+                : null,
+          };
+        }),
         projects: (projectsResult.data ?? []).map((row) => ({
           id: row.id,
           publicId: row.public_id,
@@ -770,7 +850,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
           version: Number(row.version),
           publishedAt: row.published_at,
         })),
-        ...(agentModuleFailed ? { moduleErrors: { agents: { requestId: randomUUID() } } } : {}),
+        moduleErrors,
       },
     );
   },

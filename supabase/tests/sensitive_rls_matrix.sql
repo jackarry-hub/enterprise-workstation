@@ -1,6 +1,6 @@
 begin;
 
-select plan(106);
+select plan(123);
 
 insert into public.tenants (name, slug, status)
 values
@@ -212,16 +212,46 @@ select has_function(
   'public', 'current_salary_grade_policy', array[]::name[],
   'self salary policy RPC accepts no employee or tenant target'
 );
+select has_function(
+  'public', 'current_employee_salary_classification', array[]::name[],
+  'self salary classification RPC accepts no employee or tenant target'
+);
+select has_function(
+  'public', 'managed_employee_salary_classifications', array[]::name[],
+  'salary management classification RPC accepts no employee or tenant target'
+);
 select ok(
   has_function_privilege('authenticated', 'public.current_salary_grade_policy()', 'EXECUTE')
   and not has_function_privilege('anon', 'public.current_salary_grade_policy()', 'EXECUTE'),
   'only authenticated callers receive the minimal self-policy RPC grant'
+);
+select ok(
+  has_function_privilege('authenticated', 'public.current_employee_salary_classification()', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.current_employee_salary_classification()', 'EXECUTE'),
+  'only authenticated callers receive the self classification RPC grant'
+);
+select ok(
+  has_function_privilege('authenticated', 'public.managed_employee_salary_classifications()', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.managed_employee_salary_classifications()', 'EXECUTE'),
+  'only authenticated callers receive the managed classification RPC grant'
 );
 select is(
   (select array_to_string(proconfig, ',')
    from pg_proc where oid = 'public.current_salary_grade_policy()'::regprocedure),
   'search_path=""',
   'self salary policy RPC has an empty search path'
+);
+select is(
+  (select array_to_string(proconfig, ',')
+   from pg_proc where oid = 'public.current_employee_salary_classification()'::regprocedure),
+  'search_path=""',
+  'self classification RPC has an empty search path'
+);
+select is(
+  (select array_to_string(proconfig, ',')
+   from pg_proc where oid = 'public.managed_employee_salary_classifications()'::regprocedure),
+  'search_path=""',
+  'managed classification RPC has an empty search path'
 );
 select is(
   timezone('Asia/Shanghai', '2026-08-25T16:00:00Z'::timestamptz)::date,
@@ -231,6 +261,37 @@ select is(
 
 select set_config('request.jwt.claim.sub', '93000000-0000-4000-8000-000000000001', true);
 set local role authenticated;
+select throws_ok(
+  $$ select salary_grade_code, job_level from public.employee_profiles $$,
+  '42501',
+  'ordinary employee cannot directly select salary classification columns'
+);
+select ok(
+  (select count(id) from public.employee_profiles) > 0,
+  'ordinary employee can still read public employee directory projection rows'
+);
+select lives_ok(
+  $$ select id, display_name, department_id, job_title from public.employee_profiles $$,
+  'ordinary employee can select the public employee directory projection'
+);
+select is(
+  (select count(*) from public.current_employee_salary_classification()),
+  1::bigint,
+  'ordinary employee self classification RPC returns exactly one own row'
+);
+select is(
+  (
+    select salary_grade_code || ':' || job_level::text
+    from public.current_employee_salary_classification()
+  ),
+  'P6:20',
+  'ordinary employee self classification RPC returns only the caller classification'
+);
+select is(
+  (select count(*) from public.managed_employee_salary_classifications()),
+  0::bigint,
+  'ordinary employee receives zero rows from the salary management classification RPC'
+);
 select is(
   (select count(*) from public.salary_grade_policies),
   0::bigint,
@@ -297,6 +358,33 @@ select is(
 
 select set_config('request.jwt.claim.sub', '93000000-0000-4000-8000-000000000002', true);
 set local role authenticated;
+select throws_ok(
+  $$ select salary_grade_code, job_level from public.employee_profiles $$,
+  '42501',
+  'salary manager also cannot bypass the classification RPC with a direct table select'
+);
+select is(
+  (select count(*) from public.managed_employee_salary_classifications()),
+  2::bigint,
+  'salary manager classification RPC returns its two in-organization members'
+);
+select is(
+  (
+    select count(*)
+    from public.managed_employee_salary_classifications() classification
+    join public.employee_profiles profile
+      on profile.organization_member_id = classification.organization_member_id
+    join public.tenants tenant on tenant.id = profile.tenant_id
+    where tenant.slug = 'salary-privacy-b'
+  ),
+  0::bigint,
+  'salary manager classification RPC excludes the other tenant'
+);
+select is(
+  (select count(*) from public.current_employee_salary_classification()),
+  1::bigint,
+  'salary manager self classification RPC remains scoped to only the caller'
+);
 select is(
   (select count(*) from public.salary_grade_policies),
   5::bigint,

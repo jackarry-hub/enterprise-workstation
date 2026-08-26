@@ -28,6 +28,7 @@ type SalaryRow = {
 type EmployeeProfileRow = {
   id: number;
   public_id: string;
+  organization_member_id: number | null;
   employee_no: string;
   display_name: string;
   avatar_url: string | null;
@@ -35,6 +36,12 @@ type EmployeeProfileRow = {
   department_id: number | null;
   salary_grade_code?: string | null;
   job_level?: number | null;
+};
+
+type SalaryClassificationRow = {
+  organization_member_id: number;
+  salary_grade_code: string;
+  job_level: number;
 };
 
 type DepartmentRow = {
@@ -202,13 +209,36 @@ export async function loadSalary(
     const employeeProfileIds = [...new Set(salaryRows.map((row) => row.employee_profile_id))];
     const profileResponse = await client
       .from("employee_profiles")
-      .select("id, public_id, employee_no, display_name, avatar_url, job_title, department_id, salary_grade_code, job_level")
+      .select("id, public_id, organization_member_id, employee_no, display_name, avatar_url, job_title, department_id")
       .in("id", employeeProfileIds)
       .is("deleted_at", null);
 
     if (profileResponse.error) throw profileResponse.error;
 
-    const allProfileRows = (profileResponse.data ?? []) as EmployeeProfileRow[];
+    const classificationResponse = await client.rpc(
+      options.canManageSalary === true
+        ? "managed_employee_salary_classifications"
+        : "current_employee_salary_classification",
+    );
+    if (classificationResponse.error) throw classificationResponse.error;
+    const classificationsByMember = new Map(
+      ((classificationResponse.data ?? []) as SalaryClassificationRow[]).map((classification) => [
+        classification.organization_member_id,
+        classification,
+      ]),
+    );
+    const allProfileRows = ((profileResponse.data ?? []) as EmployeeProfileRow[]).map((profile) => {
+      const classification = profile.organization_member_id === null
+        ? null
+        : classificationsByMember.get(profile.organization_member_id) ?? null;
+      return classification
+        ? {
+          ...profile,
+          salary_grade_code: classification.salary_grade_code,
+          job_level: classification.job_level,
+        }
+        : profile;
+    });
     const visibleProfileIds = new Set(
       allProfileRows
         .filter((profile) =>

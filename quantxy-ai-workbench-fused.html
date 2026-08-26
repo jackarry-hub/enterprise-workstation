@@ -2107,6 +2107,8 @@ function viewSched(){
 
 /* ---------------- 页面：项目中心 ---------------- */
 function viewProj(){
+  var unavailable=moduleUnavailable('projects','项目数据');
+  if(unavailable) return unavailable;
   var cats=['全部','AI研发','产品开发','市场活动','内部管理','数据治理'];
   var q=(S.f.projQ||'').trim();
   var list=PROJECTS.filter(function(p){
@@ -2187,6 +2189,8 @@ function viewProj(){
 /* ---------------- 页面：任务中心 ---------------- */
 var COLS=[['待处理','#f59e0b'],['进行中','#2563eb'],['待验收','#7c3aed'],['已完成','#10b981']];
 function viewFormalTasks(){
+  var unavailable=moduleUnavailable('tasks','任务数据');
+  if(unavailable) return unavailable;
   var canManage=hasWorkstationPermission('task.manage');
   var base=canManage?S.tasks:S.tasks.filter(function(t){ return t.own===S.me; });
   var q=(S.f.taskQ||'').trim(), status=S.f.taskSt||'all';
@@ -2680,6 +2684,8 @@ function viewInsight(){
 
 /* ---------------- 页面：财务中心 ---------------- */
 function viewFin(){
+  var unavailable=moduleUnavailable('salary','薪资数据');
+  if(unavailable) return unavailable;
   function payrollManagerEntry(){
     if(!hasWorkstationPermission('salary.manage')) return '';
     return '<div class="card fade" style="margin-bottom:16px;border-color:#bfdbfe;background:linear-gradient(120deg,#eff6ff,#fff)"><div class="bd" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
@@ -2759,6 +2765,8 @@ function viewFin(){
 
 /* ---------------- 页面：知识中心 ---------------- */
 function viewKb(){
+  var unavailable=moduleUnavailable('knowledge','知识库数据');
+  if(unavailable) return unavailable;
   var cats=[['公司制度',140,'#2563eb'],['业务流程',186,'#10b981'],['SOP模板',232,'#f59e0b'],['产品资料',98,'#7c3aed'],['培训资料',75,'#38bdf8']];
   var recommendations=[
     ['为什么需要建立知识库？','知识库能够集中沉淀企业知识资产，提升复用效率，降低沟通成本，并帮助新员工快速上手。','数字化转型白皮书 2025'],
@@ -3027,9 +3035,16 @@ function hydrateServerBootstrap(bootstrap){
   S.activities=Array.isArray(bootstrap.activities)?cloneGatewayValue(bootstrap.activities):[];
   S.decisions=Array.isArray(bootstrap.decisions)?cloneGatewayValue(bootstrap.decisions):[];
   S.agents=Array.isArray(bootstrap.agents)?cloneGatewayValue(bootstrap.agents):[];
-  var agentModuleError=bootstrap.moduleErrors&&bootstrap.moduleErrors.agents;
-  S.agentModuleError=agentModuleError&&typeof agentModuleError==='object'&&typeof agentModuleError.requestId==='string'
-    ?agentModuleError.requestId:'';
+  S.moduleErrors={};
+  if(bootstrap.moduleErrors&&typeof bootstrap.moduleErrors==='object'){
+    Object.keys(bootstrap.moduleErrors).forEach(function(module){
+      var error=bootstrap.moduleErrors[module];
+      if(error&&typeof error==='object'&&error.code==='workstation_module_unavailable'&&typeof error.requestId==='string'){
+        S.moduleErrors[module]={code:error.code,requestId:error.requestId};
+      }
+    });
+  }
+  S.agentModuleError=S.moduleErrors.agents?S.moduleErrors.agents.requestId:'';
   S.runs=Array.isArray(bootstrap.runs)?cloneGatewayValue(bootstrap.runs):[];
   S.reqs=Array.isArray(bootstrap.reqs)?cloneGatewayValue(bootstrap.reqs):[];
   S.payroll=bootstrap.payroll&&typeof bootstrap.payroll==='object'?cloneGatewayValue(bootstrap.payroll):{};
@@ -3554,13 +3569,18 @@ function seedAgents(){ return [
 function agentIcon(a,size){
   return '<span style="width:'+(size||38)+'px;height:'+(size||38)+'px;border-radius:11px;background:var(--brand-s);display:grid;place-items:center;flex:0 0 auto">'+ic(a.ic,(size||38)*0.47,'#2563eb')+'</span>';
 }
+function moduleUnavailable(module,label){
+  var error=S.moduleErrors&&S.moduleErrors[module];
+  if(!error||typeof error.requestId!=='string') return '';
+  var agent=module==='agents';
+  return '<div class="card fade"'+(agent?' data-agent-module-error':' data-workstation-module-error data-module="'+attr(module)+'"')+' style="max-width:680px"><div class="bd" style="padding:28px;line-height:1.75">'+
+    '<b style="font-size:16px">'+esc(label)+'暂时不可用</b><p class="hint" style="margin:8px 0 0">服务端未能读取该模块。请稍后重试；若问题持续，请联系管理员并提供请求 ID。</p>'+
+    '<p style="margin:12px 0 0;font-family:ui-monospace,monospace;font-size:12px;color:var(--mut)">请求 ID：'+esc(error.requestId)+'</p></div></div>';
+}
 function viewAgents(){
   var tab=S.f.agentTab||'dir', me=MB[S.me];
-  if(S.agentModuleError){
-    return '<div class="card fade" data-agent-module-error style="max-width:680px"><div class="bd" style="padding:28px;line-height:1.75">'+
-      '<b style="font-size:16px">Agent 数据暂时不可用</b><p class="hint" style="margin:8px 0 0">服务端未能读取 Agent 模块。请稍后重试；若问题持续，请联系管理员并提供请求 ID。</p>'+
-      '<p style="margin:12px 0 0;font-family:ui-monospace,monospace;font-size:12px;color:var(--mut)">请求 ID：'+esc(S.agentModuleError)+'</p></div></div>';
-  }
+  var unavailable=moduleUnavailable('agents','Agent 数据');
+  if(unavailable) return unavailable;
   var okN=S.agents.filter(function(a){ return canUse(a).ok; }).length;
   var byDept={}; S.agents.forEach(function(a){ byDept[a.dept]=(byDept[a.dept]||0)+1; });
   var pend=S.reqs.filter(function(r){ return r.st==='待审批'; });
@@ -3830,6 +3850,8 @@ function viewNewAgent(){
 
 /* ---------------- 组织与权限（成员增删改 + 部门标签管理） ---------------- */
 function viewFormalOrg(){
+  var unavailable=moduleUnavailable('directory','组织目录');
+  if(unavailable) return unavailable;
   if(!hasWorkstationPermission('organization.manage')) return '<div class="card fade"><div class="empty">当前账号没有组织管理权限</div></div>';
   var q=(S.f.orgQ||'').trim(), df=S.f.orgDept||'all';
   var load={}; S.tasks.forEach(function(t){ if(t.st!=='已完成') load[t.own]=(load[t.own]||0)+1; });
