@@ -22,6 +22,14 @@ function functionBlock(name: string) {
   return end < 0 ? migration.slice(start) : migration.slice(start, end + 3);
 }
 
+function lastFunctionBlock(name: string) {
+  const migration = sql();
+  const start = migration.lastIndexOf(`create or replace function public.${name}(`);
+  if (start < 0) return "";
+  const end = migration.indexOf("$$;", start);
+  return end < 0 ? migration.slice(start) : migration.slice(start, end + 3);
+}
+
 describe("manager and supervisor forward migration", () => {
   it("is the sole forward migration and strengthens the existing manager relation", () => {
     const migration = sql();
@@ -103,16 +111,25 @@ describe("manager and supervisor forward migration", () => {
     expect(migration).toContain("select public.repair_legacy_manager_relationships();");
   });
 
-  it("serializes lifecycle changes before row locks and reconciles them after each full statement", () => {
+  it("prelocks exact Task 7 organization trees and fails closed for uncoordinated lifecycle writers", () => {
     const migration = sql();
-    const lock = functionBlock("lock_employee_manager_organizations_for_update");
+    const offboarding = lastFunctionBlock("revoke_departed_member_access");
+    const legacyDirectory = lastFunctionBlock("apply_feishu_directory_sync");
+    const observedDirectory = lastFunctionBlock("apply_feishu_directory_sync_observed");
+    const exactDirectory = lastFunctionBlock("apply_feishu_directory_sync_exact");
+    const fencedDirectory = lastFunctionBlock("apply_feishu_directory_sync_fenced");
+    const lockGuard = functionBlock("require_employee_manager_tree_lock");
     const reconcile = functionBlock("reconcile_employee_manager_lifecycle_changes");
     const memberCleanup = functionBlock("cleanup_employee_managers_for_member_status");
     const invariant = functionBlock("enforce_employee_manager_invariants");
     const command = functionBlock("assign_current_member_manager");
-    const sharedTreeLock = "hashtextextended('manager-tree:' || manager_scope.tenant_id::text || ':' || manager_scope.organization_id::text, 0)";
-    const serializesBeforeRows = (block: string) => block.includes("order by tenant.id, organization.id")
-      && block.includes(sharedTreeLock);
+    const exactLockBeforeDelegate = (block: string, delegate: string) => {
+      const lock = block.indexOf("pg_advisory_xact_lock(");
+      const call = block.indexOf(delegate);
+      return block.includes("'manager-tree:' || v_tenant_id::text || ':' || v_organization_id::text")
+        && lock >= 0
+        && call > lock;
+    };
     const reconcilesFinalStatement = (block: string) => block.includes("pg_trigger_depth() > 1")
       && block.includes("from new_profiles changed")
       && block.includes("join old_profiles previous")
@@ -121,6 +138,9 @@ describe("manager and supervisor forward migration", () => {
       && block.includes("manager_employee_id = null")
       && block.includes("target.manager_employee_id = changed.id");
     const serializesMemberOffboarding = (block: string) => block.includes("'manager-tree:' || v_member.tenant_id::text || ':' || v_member.organization_id::text")
+      && block.includes("from pg_catalog.pg_locks held_lock")
+      && block.includes("raise exception 'manager_tree_lock_required'")
+      && !block.includes("pg_advisory_xact_lock(")
       && /order by target\.id\s+for update of target/.test(block);
     const enforcesManagerSide = (block: string) => block.includes("candidate.id = new.id")
       && block.includes("candidate.manager_employee_id = new.id")
@@ -129,11 +149,36 @@ describe("manager and supervisor forward migration", () => {
       && block.includes("v_manager.department_id is distinct from target.department_id")
       && block.includes("with recursive reporting_chain");
 
-    expect(serializesBeforeRows(lock)).toBe(true);
-    expect(serializesBeforeRows(lock.replace(
-      "order by tenant.id, organization.id",
-      "order by organization.id desc",
-    ))).toBe(false);
+    expect(exactLockBeforeDelegate(offboarding, "task8_legacy_revoke_departed_member_access(")).toBe(true);
+    expect(offboarding).toContain("profile.public_id = p_member_public_id");
+    expect(exactLockBeforeDelegate(legacyDirectory, "task8_legacy_apply_feishu_directory_sync(")).toBe(true);
+    expect(legacyDirectory).toContain("order by organization.id");
+    expect(legacyDirectory).toContain("provider.provider_code = 'feishu'");
+    expect(exactLockBeforeDelegate(observedDirectory, "task8_legacy_apply_feishu_directory_sync_observed(")).toBe(true);
+    expect(observedDirectory).toContain("order by organization.id");
+    expect(exactLockBeforeDelegate(exactDirectory, "task8_legacy_apply_feishu_directory_sync_exact(")).toBe(true);
+    expect(exactDirectory).toContain("run.public_id = p_run_id");
+    expect(exactDirectory).toContain("run.request_id = p_run_id");
+    expect(exactDirectory).toContain("connection.provider_type = 'feishu'");
+    expect(exactLockBeforeDelegate(fencedDirectory, "task8_legacy_apply_feishu_directory_sync_fenced(")).toBe(true);
+    expect(fencedDirectory).toContain("run.public_id = p_run_id");
+    expect(fencedDirectory).toContain("organization.public_id = p_organization_public_id");
+    expect(fencedDirectory).toContain("provider.status = 'active'");
+    for (const wrapper of [offboarding, legacyDirectory, observedDirectory, exactDirectory, fencedDirectory]) {
+      expect(wrapper).not.toContain("for update");
+    }
+    expect(migration).toContain("rename to task8_legacy_revoke_departed_member_access");
+    expect(migration).toContain("rename to task8_legacy_apply_feishu_directory_sync");
+    expect(migration).toContain("rename to task8_legacy_apply_feishu_directory_sync_exact");
+    expect(migration).toContain("rename to task8_legacy_apply_feishu_directory_sync_fenced");
+    expect(migration).toMatch(/revoke all on function public\.task8_legacy_revoke_departed_member_access\(uuid, text\)[\s\S]*from public, anon, authenticated, service_role/);
+    expect(migration).toMatch(/revoke all on function public\.task8_legacy_apply_feishu_directory_sync_fenced\(uuid, uuid, uuid, jsonb\)[\s\S]*from public, anon, authenticated, service_role/);
+    expect(lockGuard).toContain("from pg_catalog.pg_locks held_lock");
+    expect(lockGuard).toContain("held_lock.pid = pg_backend_pid()");
+    expect(lockGuard).toContain("held_lock.locktype = 'advisory'");
+    expect(lockGuard).toContain("raise exception 'manager_tree_lock_required'");
+    expect(lockGuard).toContain("candidate.manager_employee_id = old.id");
+    expect(lockGuard).not.toContain("pg_advisory_xact_lock(");
     expect(reconcilesFinalStatement(reconcile)).toBe(true);
     expect(reconcilesFinalStatement(reconcile.replace(
       "order by target.tenant_id, target.organization_id, target.id",
@@ -145,7 +190,9 @@ describe("manager and supervisor forward migration", () => {
       "order by target.id desc",
     ))).toBe(false);
     expect(command).toContain("hashtextextended('manager-tree:' || v_tenant::text || ':' || v_org::text, 0)");
-    expect(migration).toMatch(/create trigger employee_profiles_00_manager_tree_lock\s+before update of employment_status, deleted_at on public\.employee_profiles\s+for each statement/);
+    expect(migration).not.toContain("function public.lock_employee_manager_organizations_for_update(");
+    expect(migration).not.toContain("create trigger employee_profiles_00_manager_tree_lock");
+    expect(migration).toMatch(/create trigger employee_profiles_require_manager_tree_lock\s+before update of[\s\S]*manager_source[\s\S]*on public\.employee_profiles\s+for each row/);
     expect(migration).toMatch(/create trigger employee_profiles_manager_lifecycle_reconcile\s+after update on public\.employee_profiles\s+referencing old table as old_profiles new table as new_profiles\s+for each statement/);
     expect(migration).not.toContain("for each row execute function public.cleanup_employee_manager_relationships");
     expect(enforcesManagerSide(invariant)).toBe(true);
@@ -155,6 +202,15 @@ describe("manager and supervisor forward migration", () => {
     ))).toBe(false);
     expect(migration).toMatch(/create constraint trigger employee_profiles_manager_invariants[\s\S]*deferrable initially deferred/);
     expect(migration).toContain("create trigger organization_members_manager_status_cleanup");
+
+    const behavior = pgTap();
+    expect(behavior).toContain("test.organization_manager_dblink_available");
+    expect(behavior).toContain("dblink_send_query");
+    expect(behavior).toContain("dblink_cancel_query");
+    expect(behavior).toContain("set statement_timeout = ''5s''");
+    expect(behavior).toContain("set lock_timeout = ''3s''");
+    expect(behavior).toContain("offboarding and manager assignment overlap completes without deadlock");
+    expect(behavior).toContain("organization a lifecycle mutation does not block organization b manager command");
   });
 
   it("creates a distinct future-safe supervisor role and narrowly scoped permission", () => {

@@ -600,40 +600,353 @@ drop trigger if exists employee_profiles_00_manager_lifecycle_cleanup
   on public.employee_profiles;
 drop function if exists public.cleanup_employee_manager_relationships();
 
--- Lifecycle writers cannot know their row set before execution. Acquire every
--- organization tree lock in one stable order before any status/deletion row is
--- locked; manager commands and directory mapping use the same per-tree key.
-create or replace function public.lock_employee_manager_organizations_for_update()
+-- Task 7 lifecycle implementations lock profile/member rows before updating
+-- them. Keep their installed bodies intact, but put an exact-organization tree
+-- lock in front of every active entry point before those legacy row locks.
+do $manager_entrypoint_rename$
+begin
+  if to_regprocedure('public.task8_legacy_revoke_departed_member_access(uuid,text)') is null then
+    alter function public.revoke_departed_member_access(uuid, text)
+      rename to task8_legacy_revoke_departed_member_access;
+  end if;
+  if to_regprocedure('public.task8_legacy_apply_feishu_directory_sync(uuid,uuid,jsonb)') is null then
+    alter function public.apply_feishu_directory_sync(uuid, uuid, jsonb)
+      rename to task8_legacy_apply_feishu_directory_sync;
+  end if;
+  if to_regprocedure('public.task8_legacy_apply_feishu_directory_sync_observed(uuid,uuid,jsonb,uuid)') is null then
+    alter function public.apply_feishu_directory_sync_observed(uuid, uuid, jsonb, uuid)
+      rename to task8_legacy_apply_feishu_directory_sync_observed;
+  end if;
+  if to_regprocedure('public.task8_legacy_apply_feishu_directory_sync_exact(uuid,uuid,uuid,uuid,jsonb)') is null then
+    alter function public.apply_feishu_directory_sync_exact(uuid, uuid, uuid, uuid, jsonb)
+      rename to task8_legacy_apply_feishu_directory_sync_exact;
+  end if;
+  if to_regprocedure('public.task8_legacy_apply_feishu_directory_sync_fenced(uuid,uuid,uuid,jsonb)') is null then
+    alter function public.apply_feishu_directory_sync_fenced(uuid, uuid, uuid, jsonb)
+      rename to task8_legacy_apply_feishu_directory_sync_fenced;
+  end if;
+end;
+$manager_entrypoint_rename$;
+
+create or replace function public.revoke_departed_member_access(
+  p_member_public_id uuid,
+  p_event_id text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_tenant_id bigint;
+  v_organization_id bigint;
+begin
+  select profile.tenant_id, profile.organization_id
+    into v_tenant_id, v_organization_id
+    from public.employee_profiles profile
+   where profile.public_id = p_member_public_id
+     and profile.deleted_at is null
+   limit 1;
+  if found then
+    perform pg_advisory_xact_lock(hashtextextended(
+      'manager-tree:' || v_tenant_id::text || ':' || v_organization_id::text, 0
+    ));
+  end if;
+  return public.task8_legacy_revoke_departed_member_access(
+    p_member_public_id, p_event_id
+  );
+end;
+$$;
+
+create or replace function public.apply_feishu_directory_sync(
+  p_tenant_public_id uuid,
+  p_actor_auth_user_id uuid,
+  p_snapshot jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_tenant_id bigint;
+  v_organization_id bigint;
+begin
+  select tenant.id, organization.id
+    into v_tenant_id, v_organization_id
+    from public.tenants tenant
+    join public.organizations organization
+      on organization.tenant_id = tenant.id
+    join public.organization_members member
+      on member.tenant_id = tenant.id
+     and member.organization_id = organization.id
+     and member.user_id = p_actor_auth_user_id
+     and member.status = 'active'
+    join public.identity_providers provider
+      on provider.tenant_id = tenant.id
+     and provider.provider_code = 'feishu'
+     and provider.status = 'active'
+   where tenant.public_id = p_tenant_public_id
+     and tenant.status = 'active'
+   order by organization.id
+   limit 1;
+  if found then
+    perform pg_advisory_xact_lock(hashtextextended(
+      'manager-tree:' || v_tenant_id::text || ':' || v_organization_id::text, 0
+    ));
+  end if;
+  return public.task8_legacy_apply_feishu_directory_sync(
+    p_tenant_public_id, p_actor_auth_user_id, p_snapshot
+  );
+end;
+$$;
+
+create or replace function public.apply_feishu_directory_sync_observed(
+  p_tenant_public_id uuid,
+  p_actor_auth_user_id uuid,
+  p_snapshot jsonb,
+  p_request_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_tenant_id bigint;
+  v_organization_id bigint;
+begin
+  select tenant.id, organization.id
+    into v_tenant_id, v_organization_id
+    from public.tenants tenant
+    join public.organizations organization
+      on organization.tenant_id = tenant.id
+    join public.organization_members member
+      on member.tenant_id = tenant.id
+     and member.organization_id = organization.id
+     and member.user_id = p_actor_auth_user_id
+     and member.status = 'active'
+    join public.identity_providers provider
+      on provider.tenant_id = tenant.id
+     and provider.provider_code = 'feishu'
+     and provider.status = 'active'
+   where tenant.public_id = p_tenant_public_id
+     and tenant.status = 'active'
+   order by organization.id
+   limit 1;
+  if found then
+    perform pg_advisory_xact_lock(hashtextextended(
+      'manager-tree:' || v_tenant_id::text || ':' || v_organization_id::text, 0
+    ));
+  end if;
+  return public.task8_legacy_apply_feishu_directory_sync_observed(
+    p_tenant_public_id, p_actor_auth_user_id, p_snapshot, p_request_id
+  );
+end;
+$$;
+
+create or replace function public.apply_feishu_directory_sync_exact(
+  p_run_id uuid,
+  p_tenant_public_id uuid,
+  p_organization_public_id uuid,
+  p_actor_auth_user_id uuid,
+  p_snapshot jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_tenant_id bigint;
+  v_organization_id bigint;
+begin
+  select run.tenant_id, run.organization_id
+    into v_tenant_id, v_organization_id
+    from public.directory_sync_runs run
+    join public.tenants tenant
+      on tenant.id = run.tenant_id
+     and tenant.public_id = p_tenant_public_id
+     and tenant.status = 'active'
+    join public.organizations organization
+      on organization.tenant_id = run.tenant_id
+     and organization.id = run.organization_id
+     and organization.public_id = p_organization_public_id
+    join public.organization_members actor
+      on actor.tenant_id = run.tenant_id
+     and actor.organization_id = run.organization_id
+     and actor.id = run.actor_member_id
+     and actor.user_id = p_actor_auth_user_id
+     and actor.status = 'active'
+    join public.directory_connections connection
+      on connection.tenant_id = run.tenant_id
+     and connection.organization_id = run.organization_id
+     and connection.id = run.connection_id
+     and connection.provider_type = 'feishu'
+     and connection.status = 'active'
+    join public.identity_providers provider
+      on provider.tenant_id = connection.tenant_id
+     and provider.id = connection.identity_provider_id
+     and provider.provider_code = 'feishu'
+     and provider.status = 'active'
+   where run.public_id = p_run_id
+     and run.request_id = p_run_id
+   limit 1;
+  if found then
+    perform pg_advisory_xact_lock(hashtextextended(
+      'manager-tree:' || v_tenant_id::text || ':' || v_organization_id::text, 0
+    ));
+  end if;
+  return public.task8_legacy_apply_feishu_directory_sync_exact(
+    p_run_id, p_tenant_public_id, p_organization_public_id,
+    p_actor_auth_user_id, p_snapshot
+  );
+end;
+$$;
+
+create or replace function public.apply_feishu_directory_sync_fenced(
+  p_run_id uuid,
+  p_organization_public_id uuid,
+  p_actor_auth_user_id uuid,
+  p_snapshot jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_tenant_id bigint;
+  v_organization_id bigint;
+begin
+  select run.tenant_id, run.organization_id
+    into v_tenant_id, v_organization_id
+    from public.directory_sync_runs run
+    join public.tenants tenant
+      on tenant.id = run.tenant_id
+     and tenant.status = 'active'
+    join public.organizations organization
+      on organization.tenant_id = run.tenant_id
+     and organization.id = run.organization_id
+     and organization.public_id = p_organization_public_id
+    join public.organization_members actor
+      on actor.tenant_id = run.tenant_id
+     and actor.organization_id = run.organization_id
+     and actor.id = run.actor_member_id
+     and actor.user_id = p_actor_auth_user_id
+     and actor.status = 'active'
+    join public.directory_connections connection
+      on connection.tenant_id = run.tenant_id
+     and connection.organization_id = run.organization_id
+     and connection.id = run.connection_id
+     and connection.provider_type = 'feishu'
+     and connection.status = 'active'
+    join public.identity_providers provider
+      on provider.tenant_id = connection.tenant_id
+     and provider.id = connection.identity_provider_id
+     and provider.provider_code = 'feishu'
+     and provider.status = 'active'
+   where run.public_id = p_run_id
+     and run.request_id = p_run_id
+   limit 1;
+  if found then
+    perform pg_advisory_xact_lock(hashtextextended(
+      'manager-tree:' || v_tenant_id::text || ':' || v_organization_id::text, 0
+    ));
+  end if;
+  return public.task8_legacy_apply_feishu_directory_sync_fenced(
+    p_run_id, p_organization_public_id, p_actor_auth_user_id, p_snapshot
+  );
+end;
+$$;
+
+-- Unknown internal writers must never request the advisory lock after their
+-- row lock has already been taken. They may mutate a profile in a manager tree
+-- only when an authorized entry point already owns the exact transaction lock.
+create or replace function public.require_employee_manager_tree_lock()
 returns trigger
 language plpgsql
 security definer
 set search_path = ''
 as $$
 declare
-  manager_scope record;
+  v_lock_key bigint;
+  v_lock_held boolean;
+  v_participates boolean;
 begin
-  for manager_scope in
-    select tenant.id as tenant_id, organization.id as organization_id
-    from public.tenants tenant
-    join public.organizations organization on organization.tenant_id = tenant.id
-    where exists (
-      select 1 from public.employee_profiles profile
-      where profile.tenant_id = tenant.id
-        and profile.organization_id = organization.id
-    )
-    order by tenant.id, organization.id
-  loop
-    perform pg_advisory_xact_lock(hashtextextended('manager-tree:' || manager_scope.tenant_id::text || ':' || manager_scope.organization_id::text, 0));
-  end loop;
-  return null;
+  if row(new.tenant_id, new.organization_id, new.department_id,
+         new.employment_status, new.deleted_at, new.manager_employee_id,
+         new.manager_source)
+     is not distinct from
+     row(old.tenant_id, old.organization_id, old.department_id,
+         old.employment_status, old.deleted_at, old.manager_employee_id,
+         old.manager_source) then
+    return new;
+  end if;
+
+  select old.manager_employee_id is not null
+      or new.manager_employee_id is not null
+      or exists (
+        select 1
+          from public.employee_profiles candidate
+         where candidate.tenant_id = old.tenant_id
+           and candidate.organization_id = old.organization_id
+           and candidate.manager_employee_id = old.id
+      )
+    into v_participates;
+  if not v_participates then return new; end if;
+
+  v_lock_key := hashtextextended(
+    'manager-tree:' || old.tenant_id::text || ':' || old.organization_id::text, 0
+  );
+  select exists (
+    select 1
+      from pg_catalog.pg_locks held_lock
+     where held_lock.pid = pg_backend_pid()
+       and held_lock.locktype = 'advisory'
+       and held_lock.mode = 'ExclusiveLock'
+       and held_lock.granted
+       and held_lock.classid = ((v_lock_key >> 32) & 4294967295)::oid
+       and held_lock.objid = (v_lock_key & 4294967295)::oid
+       and held_lock.objsubid = 1
+  ) into v_lock_held;
+  if not v_lock_held then
+    raise exception 'manager_tree_lock_required' using errcode = '55000';
+  end if;
+
+  if new.tenant_id is distinct from old.tenant_id
+     or new.organization_id is distinct from old.organization_id then
+    v_lock_key := hashtextextended(
+      'manager-tree:' || new.tenant_id::text || ':' || new.organization_id::text, 0
+    );
+    select exists (
+      select 1
+        from pg_catalog.pg_locks held_lock
+       where held_lock.pid = pg_backend_pid()
+         and held_lock.locktype = 'advisory'
+         and held_lock.mode = 'ExclusiveLock'
+         and held_lock.granted
+         and held_lock.classid = ((v_lock_key >> 32) & 4294967295)::oid
+         and held_lock.objid = (v_lock_key & 4294967295)::oid
+         and held_lock.objsubid = 1
+    ) into v_lock_held;
+    if not v_lock_held then
+      raise exception 'manager_tree_lock_required' using errcode = '55000';
+    end if;
+  end if;
+  return new;
 end;
 $$;
 
 drop trigger if exists employee_profiles_00_manager_tree_lock
   on public.employee_profiles;
-create trigger employee_profiles_00_manager_tree_lock
-before update of employment_status, deleted_at on public.employee_profiles
-for each statement execute function public.lock_employee_manager_organizations_for_update();
+drop trigger if exists employee_profiles_require_manager_tree_lock
+  on public.employee_profiles;
+create trigger employee_profiles_require_manager_tree_lock
+before update of tenant_id, organization_id, department_id, employment_status,
+  deleted_at, manager_employee_id, manager_source
+on public.employee_profiles
+for each row execute function public.require_employee_manager_tree_lock();
 
 -- Reconcile only after the complete UPDATE statement is visible. Transition
 -- tables make manager/report bulk departures safe; the nested cleanup UPDATE
@@ -733,6 +1046,9 @@ set search_path = ''
 as $$
 declare
   v_member public.organization_members%rowtype;
+  v_lock_key bigint;
+  v_lock_held boolean;
+  v_participates boolean;
 begin
   if tg_op = 'DELETE' then
     v_member := old;
@@ -740,12 +1056,43 @@ begin
     v_member := new;
   end if;
   if tg_op = 'DELETE' or v_member.status <> 'active' then
-    perform pg_advisory_xact_lock(
-      hashtextextended(
+    select exists (
+      select 1
+        from public.employee_profiles profile
+       where profile.tenant_id = v_member.tenant_id
+         and profile.organization_id = v_member.organization_id
+         and (
+           (profile.organization_member_id = v_member.id
+             and profile.manager_employee_id is not null)
+           or profile.manager_employee_id in (
+             select manager.id
+               from public.employee_profiles manager
+              where manager.tenant_id = v_member.tenant_id
+                and manager.organization_id = v_member.organization_id
+                and manager.organization_member_id = v_member.id
+           )
+         )
+    ) into v_participates;
+    if v_participates then
+      v_lock_key := hashtextextended(
         'manager-tree:' || v_member.tenant_id::text || ':' || v_member.organization_id::text,
         0
-      )
-    );
+      );
+      select exists (
+        select 1
+          from pg_catalog.pg_locks held_lock
+         where held_lock.pid = pg_backend_pid()
+           and held_lock.locktype = 'advisory'
+           and held_lock.mode = 'ExclusiveLock'
+           and held_lock.granted
+           and held_lock.classid = ((v_lock_key >> 32) & 4294967295)::oid
+           and held_lock.objid = (v_lock_key & 4294967295)::oid
+           and held_lock.objsubid = 1
+      ) into v_lock_held;
+      if not v_lock_held then
+        raise exception 'manager_tree_lock_required' using errcode = '55000';
+      end if;
+    end if;
     perform target.id
     from public.employee_profiles target
     where target.tenant_id = v_member.tenant_id
@@ -1783,8 +2130,34 @@ revoke all on function public.classify_legacy_directory_manager_relationships()
   from public, anon, authenticated, service_role;
 revoke all on function public.repair_legacy_manager_relationships()
   from public, anon, authenticated, service_role;
-revoke all on function public.lock_employee_manager_organizations_for_update()
+revoke all on function public.require_employee_manager_tree_lock()
   from public, anon, authenticated, service_role;
+revoke all on function public.task8_legacy_revoke_departed_member_access(uuid, text)
+  from public, anon, authenticated, service_role;
+revoke all on function public.task8_legacy_apply_feishu_directory_sync(uuid, uuid, jsonb)
+  from public, anon, authenticated, service_role;
+revoke all on function public.task8_legacy_apply_feishu_directory_sync_observed(uuid, uuid, jsonb, uuid)
+  from public, anon, authenticated, service_role;
+revoke all on function public.task8_legacy_apply_feishu_directory_sync_exact(uuid, uuid, uuid, uuid, jsonb)
+  from public, anon, authenticated, service_role;
+revoke all on function public.task8_legacy_apply_feishu_directory_sync_fenced(uuid, uuid, uuid, jsonb)
+  from public, anon, authenticated, service_role;
+revoke all on function public.revoke_departed_member_access(uuid, text)
+  from public, anon, authenticated, service_role;
+grant execute on function public.revoke_departed_member_access(uuid, text)
+  to service_role;
+revoke all on function public.apply_feishu_directory_sync(uuid, uuid, jsonb)
+  from public, anon, authenticated, service_role;
+revoke all on function public.apply_feishu_directory_sync_observed(uuid, uuid, jsonb, uuid)
+  from public, anon, authenticated, service_role;
+grant execute on function public.apply_feishu_directory_sync_observed(uuid, uuid, jsonb, uuid)
+  to service_role;
+revoke all on function public.apply_feishu_directory_sync_exact(uuid, uuid, uuid, uuid, jsonb)
+  from public, anon, authenticated, service_role;
+revoke all on function public.apply_feishu_directory_sync_fenced(uuid, uuid, uuid, jsonb)
+  from public, anon, authenticated, service_role;
+grant execute on function public.apply_feishu_directory_sync_fenced(uuid, uuid, uuid, jsonb)
+  to service_role;
 revoke all on function public.reconcile_employee_manager_lifecycle_changes()
   from public, anon, authenticated, service_role;
 revoke all on function public.cleanup_employee_managers_for_member_status()

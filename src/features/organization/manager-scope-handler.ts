@@ -118,10 +118,14 @@ export function createManagerScopeHandlers(dependencies: ManagerScopeDependencie
           if (!status) throw new ManagerScopeStoreError("P0001");
           return json({ error: result.data.error }, status);
         }
-        if (!isSuccessResult(result.data)) {
+        if (!isSuccessResult(result.data, memberId)) {
           throw new ManagerScopeStoreError("P0001");
         }
-        return json(result.data);
+        return json({
+          outcome: "success",
+          employeeId: result.data.id,
+          managerVersion: result.data.version,
+        });
       } catch (error) {
         return mapStoreError(error);
       }
@@ -168,14 +172,14 @@ function isFailureResult(value: unknown): value is { outcome: "failure"; error: 
     && typeof (value as { error?: unknown }).error === "string";
 }
 
-function isSuccessResult(value: unknown): value is {
+function isSuccessResult(value: unknown, expectedEmployeeId: string): value is {
   outcome: "success";
   id: string;
   version: number;
 } {
   return Boolean(value) && typeof value === "object"
     && (value as { outcome?: unknown }).outcome === "success"
-    && isUuid((value as { id?: unknown }).id)
+    && (value as { id?: unknown }).id === expectedEmployeeId
     && Boolean(positiveInteger((value as { version?: unknown }).version));
 }
 

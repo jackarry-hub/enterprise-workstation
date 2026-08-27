@@ -1,5 +1,5 @@
 begin;
-select plan(133);
+select plan(141);
 
 insert into public.tenants (name,slug,status) values ('Organization command A','organization-command-a','active'),('Organization command B','organization-command-b','active');
 insert into public.organizations (tenant_id,name,slug)
@@ -296,6 +296,10 @@ join public.organization_members member on member.user_id=seed.user_id
 join public.departments department on department.tenant_id=member.tenant_id and department.organization_id=member.organization_id and department.code=seed.department_code;
 update public.departments set leader_member_id=(select organization_member_id from public.employee_profiles where public_id='97000000-0000-4000-8000-000000000401'::uuid)
 where code='UPGRADE_A' and organization_id=(select id from public.organizations where slug='organization-command-org-a');
+select pg_advisory_xact_lock(hashtextextended(
+  'manager-tree:' || tenant.id::text || ':' || organization.id::text, 0
+)) from public.tenants tenant join public.organizations organization on organization.tenant_id=tenant.id
+where tenant.slug='organization-command-a' and organization.slug='organization-command-org-a';
 alter table public.employee_profiles disable trigger user;
 update public.employee_profiles target set manager_employee_id=manager.id,manager_source='manual'
 from public.employee_profiles manager
@@ -350,6 +354,57 @@ select ok(exists(select 1 from public.roles role join public.role_permissions gr
 select ok(has_function('public','current_supervisor_employee_projection',array['uuid']::name[]),'protected supervisor projection exists');
 select ok(has_function_privilege('authenticated','public.current_supervisor_employee_projection(uuid)','EXECUTE') and not has_function_privilege('anon','public.current_supervisor_employee_projection(uuid)','EXECUTE'),'protected supervisor projection is authenticated-only');
 select ok(has_function('public','assign_current_member_manager',array['uuid','uuid','bigint','text','uuid','uuid']::name[]),'manager command carries exact public IDs, version, reason, request and idempotency');
+select ok(
+  has_function('public','revoke_departed_member_access',array['uuid','text']::name[])
+  and has_function('public','apply_feishu_directory_sync',array['uuid','uuid','jsonb']::name[])
+  and has_function('public','apply_feishu_directory_sync_observed',array['uuid','uuid','jsonb','uuid']::name[])
+  and has_function('public','apply_feishu_directory_sync_exact',array['uuid','uuid','uuid','uuid','jsonb']::name[])
+  and has_function('public','apply_feishu_directory_sync_fenced',array['uuid','uuid','uuid','jsonb']::name[]),
+  'Task 7 public lifecycle signatures survive the forward lock wrapper upgrade'
+);
+select is((
+  select count(*)
+  from pg_proc procedure
+  join pg_namespace namespace on namespace.oid=procedure.pronamespace
+  where namespace.nspname='public'
+    and procedure.proname in (
+      'revoke_departed_member_access','apply_feishu_directory_sync',
+      'apply_feishu_directory_sync_observed','apply_feishu_directory_sync_exact',
+      'apply_feishu_directory_sync_fenced'
+    )
+    and procedure.prosecdef
+    and array_to_string(procedure.proconfig,',')='search_path=""'
+    and procedure.proowner=(
+      select legacy.proowner from pg_proc legacy
+      join pg_namespace legacy_namespace on legacy_namespace.oid=legacy.pronamespace
+      where legacy_namespace.nspname='public'
+        and legacy.proname='task8_legacy_'||procedure.proname
+    )
+),5::bigint,'Task 7 lock wrappers preserve owner, security definer and empty search path hardening');
+select ok(
+  has_function_privilege('service_role','public.revoke_departed_member_access(uuid,text)','EXECUTE')
+  and has_function_privilege('service_role','public.apply_feishu_directory_sync_observed(uuid,uuid,jsonb,uuid)','EXECUTE')
+  and has_function_privilege('service_role','public.apply_feishu_directory_sync_fenced(uuid,uuid,uuid,jsonb)','EXECUTE')
+  and not has_function_privilege('service_role','public.apply_feishu_directory_sync(uuid,uuid,jsonb)','EXECUTE')
+  and not has_function_privilege('service_role','public.apply_feishu_directory_sync_exact(uuid,uuid,uuid,uuid,jsonb)','EXECUTE')
+  and not has_function_privilege('authenticated','public.revoke_departed_member_access(uuid,text)','EXECUTE'),
+  'Task 7 browser and service wrapper ACLs remain exact'
+);
+select is((
+  select count(*)
+  from pg_proc procedure
+  join pg_namespace namespace on namespace.oid=procedure.pronamespace
+  where namespace.nspname='public'
+    and procedure.proname like 'task8_legacy_%'
+    and not has_function_privilege('service_role',procedure.oid,'EXECUTE')
+    and not has_function_privilege('authenticated',procedure.oid,'EXECUTE')
+    and not has_function_privilege('anon',procedure.oid,'EXECUTE')
+),5::bigint,'renamed lifecycle implementations are private to their wrappers');
+select ok(
+  exists(select 1 from pg_trigger where tgrelid='public.employee_profiles'::regclass and tgname='employee_profiles_require_manager_tree_lock' and tgenabled<>'D')
+  and not has_function_privilege('service_role','public.require_employee_manager_tree_lock()','EXECUTE'),
+  'unknown internal manager-tree writers are guarded without an exposed lock bypass'
+);
 select ok(exists(select 1 from pg_constraint where conrelid='public.employee_profiles'::regclass and conname='employee_profiles_exact_manager_fkey' and pg_get_constraintdef(oid) like '%FOREIGN KEY (tenant_id, organization_id, manager_employee_id) REFERENCES employee_profiles(tenant_id, organization_id, id)%'),'manager foreign key enforces exact tenant and organization');
 select ok(not has_column_privilege('authenticated','public.employee_profiles','manager_employee_id','UPDATE') and not has_column_privilege('authenticated','public.employee_profiles','manager_source','UPDATE') and not has_column_privilege('authenticated','public.employee_profiles','manager_version','UPDATE'),'browser roles cannot directly write manager authority or version');
 select throws_ok($$ insert into public.roles (tenant_id,organization_id,code,name,description,is_system,is_enabled) select tenant.id,organization.id,'supervisor','Scoped supervisor','Must fail',false,true from public.tenants tenant join public.organizations organization on organization.tenant_id=tenant.id where organization.slug='organization-command-org-a' $$,'23514','Canonical workspace role codes require a global system role','custom scoped supervisor lookalike is rejected');
@@ -448,5 +503,496 @@ select throws_ok($$ update public.employee_profiles set manager_employee_id=(sel
 reset role;
 select throws_ok($$ update public.employee_profiles set manager_employee_id=(select id from public.employee_profiles where public_id=current_setting('test.organization.manager_target')::uuid),manager_source='manual' where public_id=current_setting('test.organization.supervisor_profile')::uuid $$,'23514','manager_cycle','manager guard rejects a transitive direct-table reporting cycle');
 select throws_ok($$ update public.employee_profiles set manager_employee_id=(select id from public.employee_profiles where public_id=current_setting('test.organization.foreign_employee_profile')::uuid),manager_source='manual' where public_id=current_setting('test.organization.department_head_profile')::uuid $$,'23514','Manager must be an active employee in the same tenant and organization','manager guard rejects cross-organization linkage before the exact manager foreign key');
+
+select set_config('test.organization_manager_dblink_available','false',true);
+select set_config('test.organization_manager_guard_closed','false',true);
+select set_config('test.organization_manager_no_deadlock','false',true);
+select set_config('test.organization_manager_cross_org_isolated','false',true);
+do $manager_lock_concurrency$
+declare
+  v_extension_schema name;
+  v_status text;
+  v_integer integer;
+  v_connection_name text;
+  v_wait_count integer;
+  v_worker_pid integer;
+  v_worker_b_pid integer;
+  v_waiting boolean;
+  v_offboard_result boolean;
+  v_manager_result jsonb;
+  v_drain text;
+begin
+  begin
+    select namespace.nspname into v_extension_schema
+      from pg_extension extension
+      join pg_namespace namespace on namespace.oid=extension.extnamespace
+     where extension.extname='dblink';
+    if not found then
+      if not exists(select 1 from pg_available_extensions where name='dblink') then
+        return;
+      end if;
+      begin
+        execute 'create extension dblink with schema extensions';
+      exception when undefined_schema then
+        execute 'create extension dblink';
+      end;
+      select namespace.nspname into strict v_extension_schema
+        from pg_extension extension
+        join pg_namespace namespace on namespace.oid=extension.extnamespace
+       where extension.extname='dblink';
+    end if;
+    execute format('select %I.dblink_connect($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_a','dbname='||current_database();
+    execute format('select %I.dblink_connect($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_b','dbname='||current_database();
+    execute format('select %I.dblink_connect($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_c','dbname='||current_database();
+  exception when others then
+    foreach v_connection_name in array array['task8_manager_a','task8_manager_b','task8_manager_c'] loop
+      begin
+        execute format('select %I.dblink_disconnect($1)',v_extension_schema)
+          into v_status using v_connection_name;
+      exception when others then null;
+      end;
+    end loop;
+    return;
+  end;
+
+  perform set_config('test.organization_manager_dblink_available','true',true);
+  begin
+    foreach v_connection_name in array array['task8_manager_a','task8_manager_b','task8_manager_c'] loop
+      execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+        into v_status using v_connection_name,'set statement_timeout = ''5s''';
+      execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+        into v_status using v_connection_name,'set lock_timeout = ''3s''';
+    end loop;
+
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_a',$seed$
+        do $remote$ declare v_scope record; begin
+          for v_scope in
+            select organization.tenant_id,organization.id
+              from public.organizations organization
+              join public.tenants tenant on tenant.id=organization.tenant_id
+             where tenant.slug='task8-manager-lock-proof'
+             order by organization.id
+          loop
+            perform pg_advisory_xact_lock(hashtextextended(
+              'manager-tree:'||v_scope.tenant_id::text||':'||v_scope.id::text,0
+            ));
+          end loop;
+        end $remote$;
+        delete from public.tenants where slug='task8-manager-lock-proof';
+        delete from auth.users where id in (
+          '97000000-0000-4000-8000-000000005101','97000000-0000-4000-8000-000000005102',
+          '97000000-0000-4000-8000-000000005103','97000000-0000-4000-8000-000000005104',
+          '97000000-0000-4000-8000-000000005201','97000000-0000-4000-8000-000000005202',
+          '97000000-0000-4000-8000-000000005203'
+        );
+        insert into public.tenants(name,slug,status)
+          values('Task 8 manager lock proof','task8-manager-lock-proof','active');
+        insert into public.organizations(public_id,tenant_id,name,slug)
+        select seed.public_id,tenant.id,seed.name,seed.slug
+          from public.tenants tenant
+          cross join (values
+            ('97000000-0000-4000-8000-000000007101'::uuid,'Lock organization A','task8-manager-lock-a'),
+            ('97000000-0000-4000-8000-000000007102'::uuid,'Lock organization B','task8-manager-lock-b')
+          ) seed(public_id,name,slug)
+         where tenant.slug='task8-manager-lock-proof';
+        insert into public.identity_providers(
+          tenant_id,provider_code,auth_provider,provider_tenant_key,display_name,status
+        ) select id,'task8managerlock','custom:task8managerlock','task8-manager-lock','Task 8 lock identity','active'
+            from public.tenants where slug='task8-manager-lock-proof';
+        insert into public.roles(tenant_id,organization_id,code,name,description,is_system,is_enabled)
+        select tenant.id,organization.id,'task8_lock_manager_'||right(organization.slug,1),
+               'Task 8 lock manager','Task 8 concurrency fixture',false,true
+          from public.tenants tenant
+          join public.organizations organization on organization.tenant_id=tenant.id
+         where tenant.slug='task8-manager-lock-proof';
+        insert into public.role_permissions(tenant_id,role_id,permission_id)
+        select role.tenant_id,role.id,permission.id
+          from public.roles role
+          join public.permissions permission on permission.code='organization.manage'
+         where role.code in ('task8_lock_manager_a','task8_lock_manager_b');
+        insert into auth.users(
+          instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
+          raw_app_meta_data,raw_user_meta_data,created_at,updated_at
+        ) select '00000000-0000-0000-0000-000000000000'::uuid,seed.id,
+                 'authenticated','authenticated',seed.email,'',now(),'{}'::jsonb,'{}'::jsonb,now(),now()
+            from (values
+              ('97000000-0000-4000-8000-000000005101'::uuid,'task8-lock-a-actor@example.test'),
+              ('97000000-0000-4000-8000-000000005102'::uuid,'task8-lock-a-target@example.test'),
+              ('97000000-0000-4000-8000-000000005103'::uuid,'task8-lock-a-manager@example.test'),
+              ('97000000-0000-4000-8000-000000005104'::uuid,'task8-lock-a-report@example.test'),
+              ('97000000-0000-4000-8000-000000005201'::uuid,'task8-lock-b-actor@example.test'),
+              ('97000000-0000-4000-8000-000000005202'::uuid,'task8-lock-b-target@example.test'),
+              ('97000000-0000-4000-8000-000000005203'::uuid,'task8-lock-b-manager@example.test')
+            ) seed(id,email);
+        insert into public.organization_members(tenant_id,organization_id,user_id,status)
+        select tenant.id,organization.id,seed.user_id,'active'
+          from public.tenants tenant
+          join public.organizations organization on organization.tenant_id=tenant.id
+          join (values
+            ('task8-manager-lock-a','97000000-0000-4000-8000-000000005101'::uuid),
+            ('task8-manager-lock-a','97000000-0000-4000-8000-000000005102'::uuid),
+            ('task8-manager-lock-a','97000000-0000-4000-8000-000000005103'::uuid),
+            ('task8-manager-lock-a','97000000-0000-4000-8000-000000005104'::uuid),
+            ('task8-manager-lock-b','97000000-0000-4000-8000-000000005201'::uuid),
+            ('task8-manager-lock-b','97000000-0000-4000-8000-000000005202'::uuid),
+            ('task8-manager-lock-b','97000000-0000-4000-8000-000000005203'::uuid)
+          ) seed(organization_slug,user_id) on seed.organization_slug=organization.slug
+         where tenant.slug='task8-manager-lock-proof';
+        insert into public.member_roles(tenant_id,member_id,role_id,assignment_source)
+        select member.tenant_id,member.id,role.id,'manual'
+          from public.organization_members member
+          join public.organizations organization on organization.id=member.organization_id
+          join public.roles role on role.tenant_id=member.tenant_id
+           and role.organization_id=member.organization_id
+           and role.code='task8_lock_manager_'||right(organization.slug,1)
+         where member.user_id in (
+           '97000000-0000-4000-8000-000000005101','97000000-0000-4000-8000-000000005201'
+         );
+        insert into public.external_identities(
+          tenant_id,organization_id,organization_member_id,identity_provider_id,
+          provider_subject,provider_tenant_key,auth_user_id,status
+        ) select member.tenant_id,member.organization_id,member.id,provider.id,
+                 member.user_id::text,provider.provider_tenant_key,member.user_id,'active'
+            from public.organization_members member
+            join public.identity_providers provider on provider.tenant_id=member.tenant_id
+             and provider.provider_code='task8managerlock'
+           where member.user_id in (
+             '97000000-0000-4000-8000-000000005101','97000000-0000-4000-8000-000000005201'
+           );
+        insert into public.departments(tenant_id,organization_id,code,name,description)
+        select tenant.id,organization.id,'LOCK','Lock department','Task 8 manager lock fixture'
+          from public.tenants tenant
+          join public.organizations organization on organization.tenant_id=tenant.id
+         where tenant.slug='task8-manager-lock-proof';
+        insert into public.employee_profiles(
+          public_id,tenant_id,organization_id,organization_member_id,employee_no,
+          display_name,department_id,job_title,employment_status,skills
+        ) select seed.public_id,member.tenant_id,member.organization_id,member.id,
+                 seed.employee_no,seed.display_name,department.id,'Lock proof','active','{}'::text[]
+            from (values
+              ('97000000-0000-4000-8000-000000006101'::uuid,'97000000-0000-4000-8000-000000005101'::uuid,'LOCK-A-ACTOR','Lock actor A'),
+              ('97000000-0000-4000-8000-000000006102'::uuid,'97000000-0000-4000-8000-000000005102'::uuid,'LOCK-A-TARGET','Lock target A'),
+              ('97000000-0000-4000-8000-000000006103'::uuid,'97000000-0000-4000-8000-000000005103'::uuid,'LOCK-A-MANAGER','Lock manager A'),
+              ('97000000-0000-4000-8000-000000006104'::uuid,'97000000-0000-4000-8000-000000005104'::uuid,'LOCK-A-REPORT','Lock report A'),
+              ('97000000-0000-4000-8000-000000006201'::uuid,'97000000-0000-4000-8000-000000005201'::uuid,'LOCK-B-ACTOR','Lock actor B'),
+              ('97000000-0000-4000-8000-000000006202'::uuid,'97000000-0000-4000-8000-000000005202'::uuid,'LOCK-B-TARGET','Lock target B'),
+              ('97000000-0000-4000-8000-000000006203'::uuid,'97000000-0000-4000-8000-000000005203'::uuid,'LOCK-B-MANAGER','Lock manager B')
+            ) seed(public_id,user_id,employee_no,display_name)
+            join public.organization_members member on member.user_id=seed.user_id
+            join public.departments department on department.tenant_id=member.tenant_id
+             and department.organization_id=member.organization_id and department.code='LOCK';
+        do $remote$
+        declare v_tenant bigint; v_organization bigint;
+        begin
+          select tenant_id,organization_id into strict v_tenant,v_organization
+            from public.employee_profiles where public_id='97000000-0000-4000-8000-000000006102';
+          perform pg_advisory_xact_lock(hashtextextended(
+            'manager-tree:'||v_tenant::text||':'||v_organization::text,0
+          ));
+          update public.employee_profiles target
+             set manager_employee_id=manager.id,manager_source='manual'
+            from public.employee_profiles manager
+           where target.public_id in (
+                   '97000000-0000-4000-8000-000000006102',
+                   '97000000-0000-4000-8000-000000006104'
+                 )
+             and manager.public_id='97000000-0000-4000-8000-000000006103';
+        end
+        $remote$;
+      $seed$;
+
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_a',$guard$
+        do $remote$
+        begin
+          begin
+            update public.employee_profiles set employment_status='on_leave'
+             where public_id='97000000-0000-4000-8000-000000006102';
+            raise exception 'manager_tree_guard_did_not_fail';
+          exception when sqlstate '55000' then
+            if sqlerrm <> 'manager_tree_lock_required' then raise; end if;
+          end;
+          begin
+            update public.organization_members member set status='suspended'
+              from public.employee_profiles profile
+             where profile.public_id='97000000-0000-4000-8000-000000006103'
+               and member.tenant_id=profile.tenant_id
+               and member.organization_id=profile.organization_id
+               and member.id=profile.organization_member_id;
+            raise exception 'member_manager_tree_guard_did_not_fail';
+          exception when sqlstate '55000' then
+            if sqlerrm <> 'manager_tree_lock_required' then raise; end if;
+          end;
+        end
+        $remote$;
+      $guard$;
+    perform set_config('test.organization_manager_guard_closed','true',true);
+
+    execute format(
+      'select pid from %I.dblink($1,$2) as remote(pid integer)',v_extension_schema
+    ) into v_worker_pid using 'task8_manager_a','select pg_backend_pid()';
+    execute format(
+      'select pid from %I.dblink($1,$2) as remote(pid integer)',v_extension_schema
+    ) into v_worker_b_pid using 'task8_manager_b','select pg_backend_pid()';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_c','begin';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_c',$lock_member$
+        do $remote$ begin
+          perform member.id from public.organization_members member
+          join public.employee_profiles profile on profile.organization_member_id=member.id
+           and profile.tenant_id=member.tenant_id and profile.organization_id=member.organization_id
+          where profile.public_id='97000000-0000-4000-8000-000000006102'
+          for update of member;
+        end $remote$;
+      $lock_member$;
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_a','begin';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_a','set local role service_role';
+    execute format('select %I.dblink_send_query($1,$2)',v_extension_schema)
+      into v_integer using 'task8_manager_a',$offboard$
+        select public.revoke_departed_member_access(
+          '97000000-0000-4000-8000-000000006102','task8-manager-lock-target'
+        )
+      $offboard$;
+    v_wait_count:=0; v_waiting:=false;
+    loop
+      select exists(select 1 from pg_catalog.pg_stat_activity activity
+        where activity.pid=v_worker_pid and activity.wait_event_type='Lock') into v_waiting;
+      exit when v_waiting or v_wait_count>=100;
+      v_wait_count:=v_wait_count+1; perform pg_sleep(0.01);
+    end loop;
+    if not v_waiting then raise exception 'offboarding_not_waiting_on_member'; end if;
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_b','begin';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_b','set local role authenticated';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_b','set local "request.jwt.claim.sub" = ''97000000-0000-4000-8000-000000005101''';
+    execute format('select %I.dblink_send_query($1,$2)',v_extension_schema)
+      into v_integer using 'task8_manager_b',$assign_a$
+        select public.assign_current_member_manager(
+          '97000000-0000-4000-8000-000000006102',
+          '97000000-0000-4000-8000-000000006103',1,'Bounded overlap proof',
+          '97000000-0000-4000-8000-000000008101',
+          '97000000-0000-4000-8000-000000008102'
+        )
+      $assign_a$;
+    v_wait_count:=0; v_waiting:=false;
+    loop
+      select exists(select 1 from pg_catalog.pg_stat_activity activity
+        where activity.pid=v_worker_b_pid and activity.wait_event_type='Lock') into v_waiting;
+      exit when v_waiting or v_wait_count>=100;
+      v_wait_count:=v_wait_count+1; perform pg_sleep(0.01);
+    end loop;
+    if not v_waiting then raise exception 'manager_assignment_not_overlapping_offboarding'; end if;
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_c','commit';
+    execute format(
+      'select result from %I.dblink_get_result($1) as remote(result boolean)',v_extension_schema
+    ) into v_offboard_result using 'task8_manager_a';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_a','commit';
+    execute format(
+      'select result from %I.dblink_get_result($1) as remote(result jsonb)',v_extension_schema
+    ) into v_manager_result using 'task8_manager_b';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_b','commit';
+    if v_offboard_result and v_manager_result->>'error'='not_found' then
+      perform set_config('test.organization_manager_no_deadlock','true',true);
+    else
+      raise exception 'offboarding_assignment_overlap_unexpected_result';
+    end if;
+
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_c','begin';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_c',$lock_report$
+        do $remote$ begin
+          perform profile.id from public.employee_profiles profile
+           where profile.public_id='97000000-0000-4000-8000-000000006104'
+           for update of profile;
+        end $remote$;
+      $lock_report$;
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_a','begin';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_a','set local role service_role';
+    execute format('select %I.dblink_send_query($1,$2)',v_extension_schema)
+      into v_integer using 'task8_manager_a',$offboard_manager$
+        select public.revoke_departed_member_access(
+          '97000000-0000-4000-8000-000000006103','task8-manager-lock-manager'
+        )
+      $offboard_manager$;
+    v_wait_count:=0; v_waiting:=false;
+    loop
+      select exists(select 1 from pg_catalog.pg_stat_activity activity
+        where activity.pid=v_worker_pid and activity.wait_event_type='Lock') into v_waiting;
+      exit when v_waiting or v_wait_count>=100;
+      v_wait_count:=v_wait_count+1; perform pg_sleep(0.01);
+    end loop;
+    if not v_waiting then raise exception 'manager_offboarding_not_waiting_on_report'; end if;
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_b','begin';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_b','set local role authenticated';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_b','set local "request.jwt.claim.sub" = ''97000000-0000-4000-8000-000000005201''';
+    execute format('select %I.dblink_send_query($1,$2)',v_extension_schema)
+      into v_integer using 'task8_manager_b',$assign_b$
+        select public.assign_current_member_manager(
+          '97000000-0000-4000-8000-000000006202',
+          '97000000-0000-4000-8000-000000006203',1,'Cross organization proof',
+          '97000000-0000-4000-8000-000000008201',
+          '97000000-0000-4000-8000-000000008202'
+        )
+      $assign_b$;
+    v_wait_count:=0;
+    loop
+      execute format('select %I.dblink_is_busy($1)',v_extension_schema)
+        into v_integer using 'task8_manager_b';
+      exit when v_integer=0 or v_wait_count>=50;
+      v_wait_count:=v_wait_count+1; perform pg_sleep(0.01);
+    end loop;
+    if v_integer=0 then
+      execute format(
+        'select result from %I.dblink_get_result($1) as remote(result jsonb)',v_extension_schema
+      ) into v_manager_result using 'task8_manager_b';
+      if v_manager_result->>'outcome'='success' then
+        perform set_config('test.organization_manager_cross_org_isolated','true',true);
+      end if;
+      execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+        into v_status using 'task8_manager_b','commit';
+    end if;
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_c','commit';
+    execute format(
+      'select result from %I.dblink_get_result($1) as remote(result boolean)',v_extension_schema
+    ) into v_offboard_result using 'task8_manager_a';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_a','commit';
+    if v_integer<>0 then
+      execute format(
+        'select result from %I.dblink_get_result($1) as remote(result jsonb)',v_extension_schema
+      ) into v_manager_result using 'task8_manager_b';
+      execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+        into v_status using 'task8_manager_b','commit';
+    end if;
+
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_a',$cleanup$
+        do $remote$ declare v_scope record; begin
+          for v_scope in
+            select organization.tenant_id,organization.id
+              from public.organizations organization
+              join public.tenants tenant on tenant.id=organization.tenant_id
+             where tenant.slug='task8-manager-lock-proof'
+             order by organization.id
+          loop
+            perform pg_advisory_xact_lock(hashtextextended(
+              'manager-tree:'||v_scope.tenant_id::text||':'||v_scope.id::text,0
+            ));
+          end loop;
+        end $remote$;
+        delete from public.tenants where slug='task8-manager-lock-proof';
+        delete from auth.users where id in (
+          '97000000-0000-4000-8000-000000005101','97000000-0000-4000-8000-000000005102',
+          '97000000-0000-4000-8000-000000005103','97000000-0000-4000-8000-000000005104',
+          '97000000-0000-4000-8000-000000005201','97000000-0000-4000-8000-000000005202',
+          '97000000-0000-4000-8000-000000005203'
+        );
+      $cleanup$;
+    foreach v_connection_name in array array['task8_manager_a','task8_manager_b','task8_manager_c'] loop
+      execute format('select %I.dblink_disconnect($1)',v_extension_schema)
+        into v_status using v_connection_name;
+    end loop;
+  exception when others then
+    foreach v_connection_name in array array['task8_manager_a','task8_manager_b','task8_manager_c'] loop
+      begin
+        execute format('select %I.dblink_cancel_query($1)',v_extension_schema)
+          into v_status using v_connection_name;
+      exception when others then null;
+      end;
+    end loop;
+    foreach v_connection_name in array array['task8_manager_a','task8_manager_b','task8_manager_c'] loop
+      v_wait_count:=0;
+      loop
+        begin
+          execute format('select %I.dblink_is_busy($1)',v_extension_schema)
+            into v_integer using v_connection_name;
+        exception when others then v_integer:=0;
+        end;
+        exit when v_integer=0 or v_wait_count>=100;
+        v_wait_count:=v_wait_count+1; perform pg_sleep(0.01);
+      end loop;
+      begin
+        execute format(
+          'select result from %I.dblink_get_result($1) as remote(result text)',v_extension_schema
+        ) into v_drain using v_connection_name;
+      exception when others then null;
+      end;
+      begin
+        execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+          into v_status using v_connection_name,'rollback';
+      exception when others then null;
+      end;
+    end loop;
+    begin
+      execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+        into v_status using 'task8_manager_a',$cleanup$
+          do $remote$ declare v_scope record; begin
+            for v_scope in
+              select organization.tenant_id,organization.id
+                from public.organizations organization
+                join public.tenants tenant on tenant.id=organization.tenant_id
+               where tenant.slug='task8-manager-lock-proof'
+               order by organization.id
+            loop
+              perform pg_advisory_xact_lock(hashtextextended(
+                'manager-tree:'||v_scope.tenant_id::text||':'||v_scope.id::text,0
+              ));
+            end loop;
+          end $remote$;
+          delete from public.tenants where slug='task8-manager-lock-proof';
+          delete from auth.users where id in (
+            '97000000-0000-4000-8000-000000005101','97000000-0000-4000-8000-000000005102',
+            '97000000-0000-4000-8000-000000005103','97000000-0000-4000-8000-000000005104',
+            '97000000-0000-4000-8000-000000005201','97000000-0000-4000-8000-000000005202',
+            '97000000-0000-4000-8000-000000005203'
+          );
+        $cleanup$;
+    exception when others then null;
+    end;
+    foreach v_connection_name in array array['task8_manager_a','task8_manager_b','task8_manager_c'] loop
+      begin
+        execute format('select %I.dblink_disconnect($1)',v_extension_schema)
+          into v_status using v_connection_name;
+      exception when others then null;
+      end;
+    end loop;
+    raise;
+  end;
+end;
+$manager_lock_concurrency$;
+select case when current_setting('test.organization_manager_dblink_available')='true'
+  then ok(current_setting('test.organization_manager_guard_closed')='true',
+    'uncoordinated manager-tree lifecycle writes fail closed without acquiring an advisory lock')
+  else ok(true,'manager-tree fail-closed behavior # SKIP dblink extension or local connection unavailable')
+end;
+select case when current_setting('test.organization_manager_dblink_available')='true'
+  then ok(current_setting('test.organization_manager_no_deadlock')='true',
+    'offboarding and manager assignment overlap completes without deadlock')
+  else ok(true,'offboarding and manager assignment overlap # SKIP dblink extension or local connection unavailable')
+end;
+select case when current_setting('test.organization_manager_dblink_available')='true'
+  then ok(current_setting('test.organization_manager_cross_org_isolated')='true',
+    'organization A lifecycle mutation does not block organization B manager command')
+  else ok(true,'organization cross-scope manager concurrency # SKIP dblink extension or local connection unavailable')
+end;
 
 select * from finish(); rollback;

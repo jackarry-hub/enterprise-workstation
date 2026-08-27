@@ -205,7 +205,11 @@ describe("manager scope handler", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ outcome: "success", id: directReportId, version: 5 });
+    expect(await response.json()).toEqual({
+      outcome: "success",
+      employeeId: directReportId,
+      managerVersion: 5,
+    });
     expect(rpc).toHaveBeenCalledWith("assign_current_member_manager", {
       p_target_employee_public_id: directReportId,
       p_manager_employee_public_id: managerId,
@@ -214,6 +218,24 @@ describe("manager scope handler", () => {
       request_id: requestId,
       idempotency_key: idempotencyKey,
     });
+  });
+
+  it("rejects a success payload for a different employee instead of echoing it", async () => {
+    const handlers = createManagerScopeHandlers({
+      session: managerSession,
+      rpc: vi.fn().mockResolvedValue({
+        data: { outcome: "success", id: otherDepartmentId, version: 5 },
+        error: null,
+      }),
+    });
+
+    const response = await handlers.POST(
+      writeRequest({ managerEmployeeId: managerId, expectedVersion: 4, reason: "组织调整" }),
+      context(directReportId),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "manager_scope_unavailable" });
   });
 
   it.each([
