@@ -121,85 +121,139 @@ set search_path = ''
 as $$
 declare
   v_repaired bigint;
+  v_repair record;
 begin
-  with recursive legacy_manager_chain (
-    tenant_id, organization_id, root_id, current_id,
-    next_id, path, cycle
-  ) as (
-    select target.tenant_id,
-      target.organization_id,
-      target.id,
-      target.id,
-      target.manager_employee_id,
-      array[target.id]::bigint[],
-      target.manager_employee_id = target.id
-    from public.employee_profiles target
-    where target.manager_source = 'manual'
-      and target.manager_employee_id is not null
+  v_repaired := 0;
+  for v_repair in
+    with recursive legacy_manager_chain (
+      tenant_id, organization_id, root_id, current_id,
+      next_id, path, cycle
+    ) as (
+      select target.tenant_id,
+        target.organization_id,
+        target.id,
+        target.id,
+        target.manager_employee_id,
+        array[target.id]::bigint[],
+        target.manager_employee_id = target.id
+      from public.employee_profiles target
+      where target.manager_employee_id is not null
 
-    union all
+      union all
 
-    select chain.tenant_id,
-      chain.organization_id,
-      chain.root_id,
-      manager.id,
-      manager.manager_employee_id,
-      chain.path || manager.id,
-      manager.id = any (chain.path)
-    from legacy_manager_chain chain
-    join public.employee_profiles manager
-      on manager.tenant_id = chain.tenant_id
-     and manager.organization_id = chain.organization_id
-     and manager.id = chain.next_id
-    where chain.next_id is not null
-      and not chain.cycle
-  ), cyclic_roots as (
-    select distinct chain.tenant_id, chain.organization_id, chain.root_id
-    from legacy_manager_chain chain
-    where chain.cycle
-  ), invalid_roots as (
-    select target.tenant_id, target.organization_id, target.id
-    from public.employee_profiles target
-    where target.manager_source = 'manual'
-      and target.manager_employee_id is not null
-      and (
-        target.deleted_at is not null
-        or target.employment_status not in ('probation', 'active', 'on_leave')
-        or not exists (
-          select 1
-          from public.employee_profiles manager
-          join public.organization_members manager_member
-            on manager_member.tenant_id = manager.tenant_id
-           and manager_member.organization_id = manager.organization_id
-           and manager_member.id = manager.organization_member_id
-           and manager_member.status = 'active'
-          where manager.tenant_id = target.tenant_id
-            and manager.organization_id = target.organization_id
-            and manager.id = target.manager_employee_id
-            and manager.deleted_at is null
-            and manager.employment_status in ('probation', 'active', 'on_leave')
-            and target.department_id is not null
-            and manager.department_id = target.department_id
-        )
-        or exists (
-          select 1
-          from cyclic_roots cyclic
-          where cyclic.tenant_id = target.tenant_id
-            and cyclic.organization_id = target.organization_id
-            and cyclic.root_id = target.id
+      select chain.tenant_id,
+        chain.organization_id,
+        chain.root_id,
+        manager.id,
+        manager.manager_employee_id,
+        chain.path || manager.id,
+        manager.id = any (chain.path)
+      from legacy_manager_chain chain
+      join public.employee_profiles manager
+        on manager.tenant_id = chain.tenant_id
+       and manager.organization_id = chain.organization_id
+       and manager.id = chain.next_id
+      where chain.next_id is not null
+        and not chain.cycle
+    ), cyclic_roots as (
+      select distinct chain.tenant_id, chain.organization_id, chain.root_id
+      from legacy_manager_chain chain
+      where chain.cycle
+    ), scored_roots as (
+      select target.tenant_id,
+        target.organization_id,
+        target.id,
+        target.public_id as target_public_id,
+        manager.public_id as manager_public_id,
+        target.manager_source as before_manager_source,
+        target.manager_version as before_manager_version,
+        case
+          when exists (
+            select 1 from cyclic_roots cyclic
+            where cyclic.tenant_id = target.tenant_id
+              and cyclic.organization_id = target.organization_id
+              and cyclic.root_id = target.id
+          ) then 'legacy_manager_cycle'
+          when target.deleted_at is not null
+            or target.employment_status not in ('probation', 'active', 'on_leave')
+            then 'legacy_target_inactive'
+          when manager.id is null
+            or manager.tenant_id is distinct from target.tenant_id
+            or manager.organization_id is distinct from target.organization_id
+            or manager.deleted_at is not null
+            or manager.employment_status not in ('probation', 'active', 'on_leave')
+            or manager_member.status is distinct from 'active'
+            then 'legacy_manager_inactive'
+          when target.manager_source = 'manual'
+            and (
+              target.department_id is null
+              or manager.department_id is distinct from target.department_id
+            ) then 'legacy_manager_department_mismatch'
+          else null
+        end as repair_reason
+      from public.employee_profiles target
+      left join public.employee_profiles manager
+        on manager.id = target.manager_employee_id
+      left join public.organization_members manager_member
+        on manager_member.tenant_id = manager.tenant_id
+       and manager_member.organization_id = manager.organization_id
+       and manager_member.id = manager.organization_member_id
+       and manager_member.status = 'active'
+      where target.manager_employee_id is not null
+    ), repair_candidates as (
+      select scored.*
+      from scored_roots scored
+      where scored.repair_reason is not null
+    ), repaired as (
+      update public.employee_profiles target
+      set manager_employee_id = null,
+          manager_source = 'unassigned',
+          manager_version = target.manager_version + 1,
+          updated_at = clock_timestamp()
+      from repair_candidates invalid
+      where target.tenant_id = invalid.tenant_id
+        and target.organization_id = invalid.organization_id
+        and target.id = invalid.id
+      returning invalid.tenant_id,
+        invalid.organization_id,
+        invalid.id,
+        invalid.target_public_id,
+        invalid.manager_public_id,
+        invalid.before_manager_source,
+        invalid.before_manager_version,
+        invalid.repair_reason
+    )
+    select repaired.* from repaired
+    order by repaired.tenant_id, repaired.organization_id, repaired.id
+  loop
+    perform public.append_audit_log(
+      v_repair.tenant_id,
+      v_repair.organization_id,
+      null,
+      null,
+      'profile.updated',
+      'employee_manager_relationship',
+      v_repair.target_public_id::text,
+      null,
+      null,
+      jsonb_build_object(
+        'repairReason', v_repair.repair_reason,
+        'before', jsonb_build_object(
+          'employeeRef', v_repair.target_public_id,
+          'managerEmployeeRef', v_repair.manager_public_id,
+          'managerSource', v_repair.before_manager_source,
+          'version', v_repair.before_manager_version
+        ),
+        'after', jsonb_build_object(
+          'employeeRef', v_repair.target_public_id,
+          'managerEmployeeRef', null,
+          'managerSource', 'unassigned',
+          'version', v_repair.before_manager_version + 1
         )
       )
-  )
-  update public.employee_profiles target
-  set manager_employee_id = null,
-      manager_source = 'unassigned',
-      manager_version = target.manager_version + 1,
-      updated_at = clock_timestamp()
-  from invalid_roots invalid
-  where target.tenant_id = invalid.tenant_id
-    and target.organization_id = invalid.organization_id
-    and target.id = invalid.id;
-  get diagnostics v_repaired = row_count;
+    );
+    v_repaired := v_repaired + 1;
+  end loop;
   return v_repaired;
 end;
 $$;
@@ -542,39 +596,134 @@ before insert or update of
 on public.employee_profiles
 for each row execute function public.guard_employee_profile_relations();
 
-create or replace function public.cleanup_employee_manager_relationships()
+drop trigger if exists employee_profiles_00_manager_lifecycle_cleanup
+  on public.employee_profiles;
+drop function if exists public.cleanup_employee_manager_relationships();
+
+-- Lifecycle writers cannot know their row set before execution. Acquire every
+-- organization tree lock in one stable order before any status/deletion row is
+-- locked; manager commands and directory mapping use the same per-tree key.
+create or replace function public.lock_employee_manager_organizations_for_update()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  manager_scope record;
+begin
+  for manager_scope in
+    select tenant.id as tenant_id, organization.id as organization_id
+    from public.tenants tenant
+    join public.organizations organization on organization.tenant_id = tenant.id
+    where exists (
+      select 1 from public.employee_profiles profile
+      where profile.tenant_id = tenant.id
+        and profile.organization_id = organization.id
+    )
+    order by tenant.id, organization.id
+  loop
+    perform pg_advisory_xact_lock(hashtextextended('manager-tree:' || manager_scope.tenant_id::text || ':' || manager_scope.organization_id::text, 0));
+  end loop;
+  return null;
+end;
+$$;
+
+drop trigger if exists employee_profiles_00_manager_tree_lock
+  on public.employee_profiles;
+create trigger employee_profiles_00_manager_tree_lock
+before update of employment_status, deleted_at on public.employee_profiles
+for each statement execute function public.lock_employee_manager_organizations_for_update();
+
+-- Reconcile only after the complete UPDATE statement is visible. Transition
+-- tables make manager/report bulk departures safe; the nested cleanup UPDATE
+-- is ignored by the depth guard and rows are always locked in stable order.
+create or replace function public.reconcile_employee_manager_lifecycle_changes()
 returns trigger
 language plpgsql
 security definer
 set search_path = ''
 as $$
 begin
-  if new.deleted_at is not null
-     or new.employment_status not in ('probation', 'active', 'on_leave') then
-    if new.manager_employee_id is not null then
-      new.manager_employee_id := null;
-      new.manager_source := 'unassigned';
-      new.manager_version := new.manager_version + 1;
-    end if;
-
-    update public.employee_profiles report
-    set manager_employee_id = null,
-        manager_source = 'unassigned',
-        manager_version = report.manager_version + 1,
-        updated_at = clock_timestamp()
-    where report.tenant_id = new.tenant_id
-      and report.organization_id = new.organization_id
-      and report.manager_employee_id = new.id;
+  if pg_trigger_depth() > 1 or not exists (
+    select 1
+    from new_profiles changed
+    join old_profiles previous
+      on previous.tenant_id = changed.tenant_id
+     and previous.organization_id = changed.organization_id
+     and previous.id = changed.id
+    where changed.employment_status is distinct from previous.employment_status
+       or changed.deleted_at is distinct from previous.deleted_at
+  ) then
+    return null;
   end if;
-  return new;
+
+  perform target.id
+  from public.employee_profiles target
+  where target.manager_employee_id is not null
+    and exists (
+      select 1
+      from new_profiles changed
+      join old_profiles previous
+        on previous.tenant_id = changed.tenant_id
+       and previous.organization_id = changed.organization_id
+       and previous.id = changed.id
+      where changed.tenant_id = target.tenant_id
+        and changed.organization_id = target.organization_id
+        and (
+          changed.employment_status is distinct from previous.employment_status
+          or changed.deleted_at is distinct from previous.deleted_at
+        )
+        and (
+          target.id = changed.id
+          or target.manager_employee_id = changed.id
+        )
+        and (
+          changed.deleted_at is not null
+          or changed.employment_status not in ('probation', 'active', 'on_leave')
+        )
+    )
+  order by target.tenant_id, target.organization_id, target.id
+  for update of target;
+
+  update public.employee_profiles target
+  set manager_employee_id = null,
+      manager_source = 'unassigned',
+      manager_version = target.manager_version + 1,
+      updated_at = clock_timestamp()
+  where target.manager_employee_id is not null
+    and exists (
+      select 1
+      from new_profiles changed
+      join old_profiles previous
+        on previous.tenant_id = changed.tenant_id
+       and previous.organization_id = changed.organization_id
+       and previous.id = changed.id
+      where changed.tenant_id = target.tenant_id
+        and changed.organization_id = target.organization_id
+        and (
+          changed.employment_status is distinct from previous.employment_status
+          or changed.deleted_at is distinct from previous.deleted_at
+        )
+        and (
+          target.id = changed.id
+          or target.manager_employee_id = changed.id
+        )
+        and (
+          changed.deleted_at is not null
+          or changed.employment_status not in ('probation', 'active', 'on_leave')
+        )
+    );
+  return null;
 end;
 $$;
 
-drop trigger if exists employee_profiles_00_manager_lifecycle_cleanup
+drop trigger if exists employee_profiles_manager_lifecycle_reconcile
   on public.employee_profiles;
-create trigger employee_profiles_00_manager_lifecycle_cleanup
-before update of employment_status, deleted_at on public.employee_profiles
-for each row execute function public.cleanup_employee_manager_relationships();
+create trigger employee_profiles_manager_lifecycle_reconcile
+after update on public.employee_profiles
+referencing old table as old_profiles new table as new_profiles
+for each statement execute function public.reconcile_employee_manager_lifecycle_changes();
 
 create or replace function public.cleanup_employee_managers_for_member_status()
 returns trigger
@@ -591,6 +740,29 @@ begin
     v_member := new;
   end if;
   if tg_op = 'DELETE' or v_member.status <> 'active' then
+    perform pg_advisory_xact_lock(
+      hashtextextended(
+        'manager-tree:' || v_member.tenant_id::text || ':' || v_member.organization_id::text,
+        0
+      )
+    );
+    perform target.id
+    from public.employee_profiles target
+    where target.tenant_id = v_member.tenant_id
+      and target.organization_id = v_member.organization_id
+      and target.manager_employee_id is not null
+      and (
+        target.organization_member_id = v_member.id
+        or target.manager_employee_id in (
+          select manager.id
+          from public.employee_profiles manager
+          where manager.tenant_id = v_member.tenant_id
+            and manager.organization_id = v_member.organization_id
+            and manager.organization_member_id = v_member.id
+        )
+      )
+    order by target.id
+    for update of target;
     update public.employee_profiles target
     set manager_employee_id = null,
         manager_source = 'unassigned',
@@ -1611,7 +1783,9 @@ revoke all on function public.classify_legacy_directory_manager_relationships()
   from public, anon, authenticated, service_role;
 revoke all on function public.repair_legacy_manager_relationships()
   from public, anon, authenticated, service_role;
-revoke all on function public.cleanup_employee_manager_relationships()
+revoke all on function public.lock_employee_manager_organizations_for_update()
+  from public, anon, authenticated, service_role;
+revoke all on function public.reconcile_employee_manager_lifecycle_changes()
   from public, anon, authenticated, service_role;
 revoke all on function public.cleanup_employee_managers_for_member_status()
   from public, anon, authenticated, service_role;

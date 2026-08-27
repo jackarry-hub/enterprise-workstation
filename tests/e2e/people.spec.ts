@@ -77,13 +77,20 @@ test("organization manager assigns a real responsive manager relationship and re
   await page.getByRole("combobox", { name: "选择员工" }).selectOption(
     (await employeeOption.getAttribute("value"))!,
   );
-  const managerOption = page.getByRole("combobox", { name: "选择主管" })
-    .locator("option")
-    .filter({ hasText: roleFixtures.department_head.displayName });
-  const managerEmployeeId = (await managerOption.getAttribute("value"))!;
-  await page.getByRole("combobox", { name: "选择主管" }).selectOption(
-    managerEmployeeId,
-  );
+  const managerSelect = page.getByRole("combobox", { name: "选择主管" });
+  const currentManagerEmployeeId = await managerSelect.inputValue();
+  const eligibleManagers = await managerSelect.locator("option").evaluateAll((options) => options.map((option) => ({
+    value: (option as HTMLOptionElement).value,
+    label: (option as HTMLOptionElement).textContent?.trim() ?? "",
+    disabled: (option as HTMLOptionElement).disabled,
+  })));
+  const changedManager = eligibleManagers.find((option) => (
+    !option.disabled && option.value.length > 0 && option.value !== currentManagerEmployeeId
+  ));
+  expect(changedManager, "fixture needs a second eligible same-department manager").toBeDefined();
+  expect(changedManager!.value).not.toBe(currentManagerEmployeeId);
+  await managerSelect.selectOption(changedManager!.value);
+  await expect(managerSelect).toHaveValue(changedManager!.value);
   await page.getByRole("textbox", { name: "主管调整理由" }).fill("E2E 验证直属汇报关系");
   await page.getByRole("button", { name: "提交主管变更" }).click();
 
@@ -96,9 +103,9 @@ test("organization manager assigns a real responsive manager relationship and re
   await page.getByRole("combobox", { name: "选择员工" }).selectOption(
     (await reloadedEmployeeOption.getAttribute("value"))!,
   );
-  await expect(page.getByRole("combobox", { name: "选择主管" })).toHaveValue(managerEmployeeId);
+  await expect(page.getByRole("combobox", { name: "选择主管" })).toHaveValue(changedManager!.value);
   await expect(page.getByRole("combobox", { name: "选择主管" }).locator("option:checked"))
-    .toContainText(roleFixtures.department_head.displayName);
+    .toContainText(changedManager!.label);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
   await context.close();
 });

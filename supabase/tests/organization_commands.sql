@@ -1,5 +1,5 @@
 begin;
-select plan(129);
+select plan(133);
 
 insert into public.tenants (name,slug,status) values ('Organization command A','organization-command-a','active'),('Organization command B','organization-command-b','active');
 insert into public.organizations (tenant_id,name,slug)
@@ -301,22 +301,28 @@ update public.employee_profiles target set manager_employee_id=manager.id,manage
 from public.employee_profiles manager
 where (target.public_id,manager.public_id) in (
   (('97000000-0000-4000-8000-000000000402'::uuid),('97000000-0000-4000-8000-000000000401'::uuid)),
-  (('97000000-0000-4000-8000-000000000403'::uuid),('97000000-0000-4000-8000-000000000404'::uuid)),
-  (('97000000-0000-4000-8000-000000000404'::uuid),('97000000-0000-4000-8000-000000000403'::uuid)),
-  (('97000000-0000-4000-8000-000000000405'::uuid),('97000000-0000-4000-8000-000000000403'::uuid)),
   (('97000000-0000-4000-8000-000000000406'::uuid),('97000000-0000-4000-8000-000000000407'::uuid)),
   (('97000000-0000-4000-8000-000000000409'::uuid),('97000000-0000-4000-8000-000000000408'::uuid)),
   (('97000000-0000-4000-8000-000000000410'::uuid),('97000000-0000-4000-8000-000000000401'::uuid))
 );
 update public.employee_profiles target set manager_employee_id=manager.id,manager_source='directory'
 from public.employee_profiles manager
-where target.public_id='97000000-0000-4000-8000-000000000411'::uuid and manager.public_id='97000000-0000-4000-8000-000000000401'::uuid;
+where (target.public_id,manager.public_id) in (
+  (('97000000-0000-4000-8000-000000000403'::uuid),('97000000-0000-4000-8000-000000000404'::uuid)),
+  (('97000000-0000-4000-8000-000000000404'::uuid),('97000000-0000-4000-8000-000000000403'::uuid)),
+  (('97000000-0000-4000-8000-000000000405'::uuid),('97000000-0000-4000-8000-000000000403'::uuid)),
+  (('97000000-0000-4000-8000-000000000411'::uuid),('97000000-0000-4000-8000-000000000401'::uuid))
+);
 alter table public.employee_profiles enable trigger user;
 select public.repair_legacy_manager_relationships();
 select ok(not exists(select 1 from public.employee_profiles where public_id in ('97000000-0000-4000-8000-000000000406'::uuid,'97000000-0000-4000-8000-000000000409'::uuid,'97000000-0000-4000-8000-000000000410'::uuid) and manager_employee_id is not null),'legacy upgrade clears direct invalid and departed manager relationships');
-select ok(not exists(select 1 from public.employee_profiles where public_id in ('97000000-0000-4000-8000-000000000403'::uuid,'97000000-0000-4000-8000-000000000404'::uuid,'97000000-0000-4000-8000-000000000405'::uuid) and manager_employee_id is not null),'legacy upgrade clears direct and transitive reporting cycles');
+select ok(not exists(select 1 from public.employee_profiles where public_id in ('97000000-0000-4000-8000-000000000403'::uuid,'97000000-0000-4000-8000-000000000404'::uuid,'97000000-0000-4000-8000-000000000405'::uuid) and manager_employee_id is not null),'legacy upgrade clears directory-classified direct and transitive reporting cycles');
 select ok(exists(select 1 from public.employee_profiles target join public.employee_profiles manager on manager.id=target.manager_employee_id where target.public_id='97000000-0000-4000-8000-000000000402'::uuid and manager.public_id='97000000-0000-4000-8000-000000000401'::uuid and target.manager_source='manual'),'legacy upgrade preserves a valid same-department manual relationship');
 select ok(exists(select 1 from public.employee_profiles target join public.employee_profiles manager on manager.id=target.manager_employee_id where target.public_id='97000000-0000-4000-8000-000000000411'::uuid and manager.public_id='97000000-0000-4000-8000-000000000401'::uuid and target.manager_source='directory'),'legacy upgrade never rewrites a directory-owned relationship');
+select is((select count(*) from public.audit_logs audit where audit.action='profile.updated' and audit.target_type='employee_manager_relationship' and audit.target_id in ('97000000-0000-4000-8000-000000000403','97000000-0000-4000-8000-000000000404','97000000-0000-4000-8000-000000000405','97000000-0000-4000-8000-000000000406','97000000-0000-4000-8000-000000000409','97000000-0000-4000-8000-000000000410')),6::bigint,'legacy manager repair emits one durable actorless audit per cleared relationship');
+select is((select count(*) from public.audit_logs audit where audit.action='profile.updated' and audit.target_type='employee_manager_relationship' and audit.target_id in ('97000000-0000-4000-8000-000000000403','97000000-0000-4000-8000-000000000404','97000000-0000-4000-8000-000000000405','97000000-0000-4000-8000-000000000406','97000000-0000-4000-8000-000000000409','97000000-0000-4000-8000-000000000410') and audit.actor_auth_user_id is null and audit.actor_member_id is null and audit.metadata->>'repairReason' in ('legacy_manager_cycle','legacy_manager_department_mismatch','legacy_manager_inactive','legacy_target_inactive') and audit.metadata->'before' ? 'employeeRef' and audit.metadata->'before' ? 'managerEmployeeRef' and audit.metadata->'after' ? 'employeeRef' and audit.metadata->'after' ? 'managerEmployeeRef' and audit.metadata->'after'->>'managerEmployeeRef' is null),6::bigint,'legacy manager repair audit has exact stable public before and after evidence');
+select is(public.repair_legacy_manager_relationships(),0::bigint,'legacy manager repair rerun reports no additional changed relationship');
+select is((select count(*) from public.audit_logs audit where audit.action='profile.updated' and audit.target_type='employee_manager_relationship' and audit.target_id in ('97000000-0000-4000-8000-000000000403','97000000-0000-4000-8000-000000000404','97000000-0000-4000-8000-000000000405','97000000-0000-4000-8000-000000000406','97000000-0000-4000-8000-000000000409','97000000-0000-4000-8000-000000000410')),6::bigint,'legacy manager repair rerun creates no duplicate audit evidence');
 set constraints employee_profiles_manager_invariants immediate;
 select throws_ok($$ update public.employee_profiles set department_id=(select id from public.departments where code='UPGRADE_B' and organization_id=(select id from public.organizations where slug='organization-command-org-a')) where public_id='97000000-0000-4000-8000-000000000402'::uuid $$,'23514',null,'target department move cannot strand a cross-department manual manager');
 select throws_ok($$ update public.employee_profiles set department_id=(select id from public.departments where code='UPGRADE_B' and organization_id=(select id from public.organizations where slug='organization-command-org-a')) where public_id='97000000-0000-4000-8000-000000000401'::uuid $$,'23514',null,'manager department move cannot strand cross-department reports');
@@ -326,10 +332,9 @@ where code='UPGRADE_B' and organization_id=(select id from public.organizations 
 select lives_ok($$ update public.employee_profiles set department_id=(select id from public.departments where code='UPGRADE_B' and organization_id=(select id from public.organizations where slug='organization-command-org-a')) where public_id in ('97000000-0000-4000-8000-000000000401'::uuid,'97000000-0000-4000-8000-000000000402'::uuid,'97000000-0000-4000-8000-000000000411'::uuid) $$,'multi-row target and manager department move is accepted against final state');
 select lives_ok($$ set constraints employee_profiles_manager_invariants immediate $$,'multi-row manager invariants validate after the full directory move');
 select ok(exists(select 1 from public.employee_profiles target join public.employee_profiles manager on manager.id=target.manager_employee_id where target.public_id='97000000-0000-4000-8000-000000000411'::uuid and manager.public_id='97000000-0000-4000-8000-000000000401'::uuid and target.manager_source='directory'),'multi-row directory move preserves the directory-owned manager mapping');
-update public.employee_profiles set employment_status='departed' where public_id='97000000-0000-4000-8000-000000000402'::uuid;
-select ok((select manager_employee_id is null and manager_source='unassigned' from public.employee_profiles where public_id='97000000-0000-4000-8000-000000000402'::uuid),'target departure clears its stale manager relationship');
-update public.employee_profiles set employment_status='departed' where public_id='97000000-0000-4000-8000-000000000401'::uuid;
-select ok((select manager_employee_id is null and manager_source='unassigned' from public.employee_profiles where public_id='97000000-0000-4000-8000-000000000411'::uuid),'manager departure clears both manual and directory-owned reports');
+set constraints employee_profiles_manager_invariants deferred;
+select lives_ok($$ update public.employee_profiles set employment_status='departed' where public_id in ('97000000-0000-4000-8000-000000000401'::uuid,'97000000-0000-4000-8000-000000000402'::uuid) $$,'bulk manager and report departure completes without triggered-row modification');
+select ok(not exists(select 1 from public.employee_profiles where public_id in ('97000000-0000-4000-8000-000000000402'::uuid,'97000000-0000-4000-8000-000000000411'::uuid) and manager_employee_id is not null),'bulk departure clears target and manager-side relationships after the full statement');
 update public.employee_profiles set employment_status='active',deleted_at=null where public_id in ('97000000-0000-4000-8000-000000000401'::uuid,'97000000-0000-4000-8000-000000000402'::uuid);
 update public.employee_profiles target set manager_employee_id=manager.id,manager_source='manual' from public.employee_profiles manager where target.public_id='97000000-0000-4000-8000-000000000402'::uuid and manager.public_id='97000000-0000-4000-8000-000000000401'::uuid;
 update public.employee_profiles set deleted_at=clock_timestamp() where public_id='97000000-0000-4000-8000-000000000401'::uuid;

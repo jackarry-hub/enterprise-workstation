@@ -57,25 +57,71 @@ describe("manager and supervisor forward migration", () => {
     expect(authorizationMutation).not.toContain("manager.organization_id = new.organization_id");
   });
 
-  it("repairs unsafe legacy manager links and enforces manager-side lifecycle changes after upgrade", () => {
+  it("repairs every unsafe legacy manager source with durable public evidence", () => {
     const migration = sql();
     const classifyDirectory = functionBlock("classify_legacy_directory_manager_relationships");
     const repair = functionBlock("repair_legacy_manager_relationships");
-    const invariant = functionBlock("enforce_employee_manager_invariants");
-    const cleanup = functionBlock("cleanup_employee_manager_relationships");
-    const repairsOnlyManualLinks = (block: string) => block.includes("target.manager_source = 'manual'")
-      && block.includes("target.employment_status not in ('probation', 'active', 'on_leave')")
+    const repairsUnsafeLinksAcrossSources = (block: string) => block.includes("with recursive legacy_manager_chain")
+      && /from public\.employee_profiles target\s+where target\.manager_employee_id is not null\s+union all/.test(block)
+      && block.includes("'legacy_manager_cycle'")
+      && block.includes("'legacy_manager_department_mismatch'")
+      && block.includes("'legacy_manager_inactive'")
+      && block.includes("'legacy_target_inactive'")
       && block.includes("manager_member.status = 'active'")
-      && block.includes("manager.department_id = target.department_id")
-      && block.includes("with recursive legacy_manager_chain")
+      && block.includes("manager.department_id is distinct from target.department_id")
       && block.includes("manager_employee_id = null")
       && block.includes("manager_version = target.manager_version + 1");
+    const appendsPublicRepairEvidence = (block: string) => block.includes("public.append_audit_log")
+      && block.includes("'profile.updated'")
+      && block.includes("'employee_manager_relationship'")
+      && block.includes("'repairreason'")
+      && block.includes("'before'")
+      && block.includes("'after'")
+      && block.includes("target_public_id::text")
+      && block.includes("manager_public_id");
     const preservesVerifiedDirectoryAuthority = (block: string) => block.includes("connection.provider_type = 'feishu'")
       && block.includes("target_link.connection_id = connection.id")
       && block.includes("manager_link.connection_id = connection.id")
       && block.includes("department_link.connection_id = connection.id")
       && block.includes("manager_profile.organization_member_id = department.leader_member_id")
       && block.includes("manager_source = 'directory'");
+    expect(preservesVerifiedDirectoryAuthority(classifyDirectory)).toBe(true);
+    expect(preservesVerifiedDirectoryAuthority(classifyDirectory.replaceAll(
+      "manager_link.connection_id = connection.id",
+      "manager_link.connection_id is not null",
+    ))).toBe(false);
+    expect(repairsUnsafeLinksAcrossSources(repair)).toBe(true);
+    expect(repairsUnsafeLinksAcrossSources(repair.replace(
+      "where target.manager_employee_id is not null",
+      "where target.manager_source = 'manual' and target.manager_employee_id is not null",
+    ))).toBe(false);
+    expect(appendsPublicRepairEvidence(repair)).toBe(true);
+    expect(appendsPublicRepairEvidence(repair.replace(
+      "target_public_id::text",
+      "target.id::text",
+    ))).toBe(false);
+    expect(migration).toContain("select public.repair_legacy_manager_relationships();");
+  });
+
+  it("serializes lifecycle changes before row locks and reconciles them after each full statement", () => {
+    const migration = sql();
+    const lock = functionBlock("lock_employee_manager_organizations_for_update");
+    const reconcile = functionBlock("reconcile_employee_manager_lifecycle_changes");
+    const memberCleanup = functionBlock("cleanup_employee_managers_for_member_status");
+    const invariant = functionBlock("enforce_employee_manager_invariants");
+    const command = functionBlock("assign_current_member_manager");
+    const sharedTreeLock = "hashtextextended('manager-tree:' || manager_scope.tenant_id::text || ':' || manager_scope.organization_id::text, 0)";
+    const serializesBeforeRows = (block: string) => block.includes("order by tenant.id, organization.id")
+      && block.includes(sharedTreeLock);
+    const reconcilesFinalStatement = (block: string) => block.includes("pg_trigger_depth() > 1")
+      && block.includes("from new_profiles changed")
+      && block.includes("join old_profiles previous")
+      && block.includes("order by target.tenant_id, target.organization_id, target.id")
+      && block.includes("for update of target")
+      && block.includes("manager_employee_id = null")
+      && block.includes("target.manager_employee_id = changed.id");
+    const serializesMemberOffboarding = (block: string) => block.includes("'manager-tree:' || v_member.tenant_id::text || ':' || v_member.organization_id::text")
+      && /order by target\.id\s+for update of target/.test(block);
     const enforcesManagerSide = (block: string) => block.includes("candidate.id = new.id")
       && block.includes("candidate.manager_employee_id = new.id")
       && block.includes("manager.employment_status in ('probation', 'active', 'on_leave')")
@@ -83,24 +129,30 @@ describe("manager and supervisor forward migration", () => {
       && block.includes("v_manager.department_id is distinct from target.department_id")
       && block.includes("with recursive reporting_chain");
 
-    expect(preservesVerifiedDirectoryAuthority(classifyDirectory)).toBe(true);
-    expect(preservesVerifiedDirectoryAuthority(classifyDirectory.replaceAll(
-      "manager_link.connection_id = connection.id",
-      "manager_link.connection_id is not null",
+    expect(serializesBeforeRows(lock)).toBe(true);
+    expect(serializesBeforeRows(lock.replace(
+      "order by tenant.id, organization.id",
+      "order by organization.id desc",
     ))).toBe(false);
-    expect(repairsOnlyManualLinks(repair)).toBe(true);
-    expect(repairsOnlyManualLinks(repair.replaceAll(
-      "target.manager_source = 'manual'",
-      "target.manager_source in ('manual', 'directory')",
+    expect(reconcilesFinalStatement(reconcile)).toBe(true);
+    expect(reconcilesFinalStatement(reconcile.replace(
+      "order by target.tenant_id, target.organization_id, target.id",
+      "order by target.id desc",
     ))).toBe(false);
+    expect(serializesMemberOffboarding(memberCleanup)).toBe(true);
+    expect(serializesMemberOffboarding(memberCleanup.replace(
+      "order by target.id",
+      "order by target.id desc",
+    ))).toBe(false);
+    expect(command).toContain("hashtextextended('manager-tree:' || v_tenant::text || ':' || v_org::text, 0)");
+    expect(migration).toMatch(/create trigger employee_profiles_00_manager_tree_lock\s+before update of employment_status, deleted_at on public\.employee_profiles\s+for each statement/);
+    expect(migration).toMatch(/create trigger employee_profiles_manager_lifecycle_reconcile\s+after update on public\.employee_profiles\s+referencing old table as old_profiles new table as new_profiles\s+for each statement/);
+    expect(migration).not.toContain("for each row execute function public.cleanup_employee_manager_relationships");
     expect(enforcesManagerSide(invariant)).toBe(true);
     expect(enforcesManagerSide(invariant.replace(
       "candidate.manager_employee_id = new.id",
       "candidate.manager_employee_id is not null",
     ))).toBe(false);
-    expect(cleanup).toContain("new.employment_status not in ('probation', 'active', 'on_leave')");
-    expect(cleanup).toContain("new.deleted_at is not null");
-    expect(cleanup).toContain("report.manager_employee_id = new.id");
     expect(migration).toMatch(/create constraint trigger employee_profiles_manager_invariants[\s\S]*deferrable initially deferred/);
     expect(migration).toContain("create trigger organization_members_manager_status_cleanup");
   });
@@ -275,11 +327,14 @@ describe("manager and supervisor forward migration", () => {
       "legacy supervisor assignment remains quarantined without canonical scope escalation",
       "suspended tenant denies the direct supervisor projection rpc",
       "legacy upgrade clears direct invalid and departed manager relationships",
-      "legacy upgrade clears direct and transitive reporting cycles",
+      "legacy upgrade clears directory-classified direct and transitive reporting cycles",
+      "legacy manager repair audit has exact stable public before and after evidence",
+      "legacy manager repair rerun creates no duplicate audit evidence",
       "multi-row directory move preserves the directory-owned manager mapping",
       "target department move cannot strand a cross-department manual manager",
       "manager department move cannot strand cross-department reports",
-      "manager departure clears both manual and directory-owned reports",
+      "bulk manager and report departure completes without triggered-row modification",
+      "bulk departure clears target and manager-side relationships after the full statement",
       "active-workspace user cannot select its second membership by target id",
       "active-workspace user cannot project its second membership by target id",
     ]) {

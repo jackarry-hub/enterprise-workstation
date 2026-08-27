@@ -159,9 +159,18 @@ describe("organization dialogs", () => {
     expect(screen.getByRole("option", { name: "主管" })).toHaveValue("supervisor");
   });
 
-  it("assigns a manager with public targets and the hidden authoritative version", async () => {
+  it("changes away from the server default and restores the new authoritative manager on a fresh render", async () => {
     const user = userEvent.setup();
-    const refresh = renderDialogs();
+    const refresh = vi.fn();
+    const rendered = renderWithWorkspaceSession(
+      <OrganizationDialogs
+        canManageOrganization
+        canManageRoles
+        roleTargets={roleTargets}
+        managerTargets={managerTargets}
+        onAuthoritativeRefresh={refresh}
+      />,
+    );
     const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       outcome: "success",
       id: managerTargets.targets[0].employeeId,
@@ -175,9 +184,19 @@ describe("organization dialogs", () => {
     expect(screen.getByRole("combobox", { name: "选择主管" })).toHaveValue(
       managerTargets.targets[0].currentManagerEmployeeId,
     );
+    expect(managerTargets.targets[1].employeeId).not.toBe(
+      managerTargets.targets[0].currentManagerEmployeeId,
+    );
     expect(screen.getByRole("combobox", { name: "选择主管" })).not.toHaveTextContent("赵经理");
     expect(screen.queryByRole("textbox", { name: "员工编号" })).not.toBeInTheDocument();
     expect(screen.queryByRole("spinbutton", { name: "主管版本" })).not.toBeInTheDocument();
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "选择主管" }),
+      managerTargets.targets[1].employeeId,
+    );
+    expect(screen.getByRole("combobox", { name: "选择主管" })).toHaveValue(
+      managerTargets.targets[1].employeeId,
+    );
     await user.type(screen.getByRole("textbox", { name: "主管调整理由" }), "明确研发汇报关系");
     await user.click(screen.getByRole("button", { name: "提交主管变更" }));
 
@@ -187,7 +206,7 @@ describe("organization dialogs", () => {
         method: "POST",
         headers: expect.objectContaining({ "Idempotency-Key": expect.any(String) }),
         body: JSON.stringify({
-          managerEmployeeId: managerTargets.targets[2].employeeId,
+          managerEmployeeId: managerTargets.targets[1].employeeId,
           expectedVersion: 4,
           reason: "明确研发汇报关系",
         }),
@@ -195,6 +214,31 @@ describe("organization dialogs", () => {
     );
     expect(await screen.findByText("直属主管已更新，正在刷新服务器数据。")).toBeVisible();
     expect(refresh).toHaveBeenCalledOnce();
+
+    rendered.unmount();
+    const reloadedManagerTargets = {
+      ...managerTargets,
+      targets: managerTargets.targets.map((target, index) => index === 0 ? {
+        ...target,
+        currentManagerEmployeeId: managerTargets.targets[1].employeeId,
+        managerVersion: 5,
+      } : target),
+    };
+    renderWithWorkspaceSession(
+      <OrganizationDialogs
+        canManageOrganization
+        canManageRoles
+        roleTargets={roleTargets}
+        managerTargets={reloadedManagerTargets}
+        onAuthoritativeRefresh={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "分配直属主管" }));
+    expect(screen.getByRole("combobox", { name: "选择主管" })).toHaveValue(
+      managerTargets.targets[1].employeeId,
+    );
+    expect(screen.getByRole("combobox", { name: "选择主管" }).querySelector("option:checked"))
+      .toHaveTextContent("李工");
   });
 
   it("shows a retryable unavailable state when manager targets could not be loaded", async () => {
