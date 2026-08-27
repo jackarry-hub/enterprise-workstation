@@ -2151,6 +2151,59 @@ begin
      and lease.organization_id = v_connection.organization_id
    for update of lease;
   v_has_lease := found;
+
+  -- The connection and lease are now stable. Revalidate the exact provider,
+  -- identity and organization.manage graph under row locks before disclosing
+  -- run metadata, locking a superseded run, or creating replacement work.
+  if p_actor_auth_user_id is not null
+     and public.active_workspace_organization_id(p_actor_auth_user_id) is distinct from v_connection.organization_id then
+    raise exception 'forbidden' using errcode = '42501';
+  end if;
+  select member.user_id, member.id
+    into v_actor, v_actor_member_id
+    from public.external_identities identity
+    join public.identity_providers provider
+      on provider.tenant_id = identity.tenant_id
+     and provider.id = identity.identity_provider_id
+    join public.organization_members member
+      on member.tenant_id = identity.tenant_id
+     and member.organization_id = identity.organization_id
+     and member.id = identity.organization_member_id
+     and member.user_id = identity.auth_user_id
+     and member.status = 'active'
+    join public.member_roles assignment
+      on assignment.tenant_id = member.tenant_id
+     and assignment.member_id = member.id
+    join public.roles role
+      on role.tenant_id = assignment.tenant_id
+     and role.id = assignment.role_id
+     and role.is_enabled
+    join public.role_permissions rp
+      on rp.tenant_id = role.tenant_id
+     and rp.role_id = role.id
+    join public.permissions permission
+      on permission.id = rp.permission_id
+   where provider.tenant_id = v_connection.tenant_id
+     and provider.id = v_connection.identity_provider_id
+     and provider.provider_code = 'feishu'
+     and provider.status = 'active'
+     and provider.provider_tenant_key = p_provider_tenant_key
+     and identity.organization_id = v_connection.organization_id
+     and identity.status = 'active'
+     and identity.provider_tenant_key = p_provider_tenant_key
+     and (p_actor_auth_user_id is null or member.user_id = p_actor_auth_user_id)
+     and (role.organization_id is null or role.organization_id = v_connection.organization_id)
+     and permission.code = 'organization.manage'
+   order by member.id
+   for share of provider, member, identity, assignment, role, rp, permission
+   limit 1;
+  if not found then
+    if p_actor_auth_user_id is not null then
+      raise exception 'forbidden' using errcode = '42501';
+    end if;
+    raise exception 'sync_actor_missing' using errcode = '42501';
+  end if;
+
   if v_has_lease and v_lease.status = 'running' and v_lease.lease_expires_at > now() then
     return jsonb_build_object(
       'acquired', false, 'runId', v_lease.run_id, 'cursor', v_lease.cursor,
@@ -2178,64 +2231,6 @@ begin
       raise exception 'sync_superseded_run_missing' using errcode = '55000';
     end if;
     v_superseded_running := v_superseded_run.status = 'running';
-  end if;
-
-  if p_actor_auth_user_id is not null then
-    if public.active_workspace_organization_id(p_actor_auth_user_id) is distinct from v_connection.organization_id then
-      raise exception 'forbidden' using errcode = '42501';
-    end if;
-    select member.user_id, member.id into v_actor, v_actor_member_id
-      from public.organization_members member
-      join public.external_identities identity
-        on identity.tenant_id = member.tenant_id
-       and identity.organization_id = member.organization_id
-       and identity.organization_member_id = member.id
-       and identity.auth_user_id = member.user_id
-       and identity.status = 'active'
-       and identity.identity_provider_id = v_connection.identity_provider_id
-       and identity.provider_tenant_key = p_provider_tenant_key
-      join public.member_roles assignment
-        on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
-      join public.roles role
-        on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
-      join public.role_permissions rp
-        on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
-      join public.permissions permission on permission.id = rp.permission_id
-     where member.tenant_id = v_connection.tenant_id
-       and member.organization_id = v_connection.organization_id
-       and member.user_id = p_actor_auth_user_id
-       and member.status = 'active'
-       and role.is_enabled
-       and (role.organization_id is null or role.organization_id = v_connection.organization_id)
-       and permission.code = 'organization.manage'
-     order by member.id
-     for share of member, identity, assignment, role, rp limit 1;
-    if not found then raise exception 'forbidden' using errcode = '42501'; end if;
-  else
-    select member.user_id, member.id into v_actor, v_actor_member_id
-      from public.organization_members member
-      join public.external_identities identity
-        on identity.tenant_id = member.tenant_id and identity.organization_member_id = member.id
-       and identity.organization_id = member.organization_id and identity.status = 'active'
-       and identity.auth_user_id = member.user_id
-       and identity.identity_provider_id = v_connection.identity_provider_id
-       and identity.provider_tenant_key = p_provider_tenant_key
-      join public.member_roles assignment
-        on assignment.tenant_id = member.tenant_id and assignment.member_id = member.id
-      join public.roles role
-        on role.tenant_id = assignment.tenant_id and role.id = assignment.role_id
-      join public.role_permissions rp
-        on rp.tenant_id = assignment.tenant_id and rp.role_id = assignment.role_id
-      join public.permissions permission on permission.id = rp.permission_id
-     where member.tenant_id = v_connection.tenant_id
-        and member.organization_id = v_connection.organization_id
-        and member.status = 'active' and member.user_id is not null
-        and role.is_enabled
-        and (role.organization_id is null or role.organization_id = v_connection.organization_id)
-        and permission.code = 'organization.manage'
-     order by member.id
-     for share of member, identity, assignment, role, rp limit 1;
-    if not found then raise exception 'sync_actor_missing' using errcode = '42501'; end if;
   end if;
 
   v_run_id := gen_random_uuid();

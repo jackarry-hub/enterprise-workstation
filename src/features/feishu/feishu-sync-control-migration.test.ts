@@ -137,13 +137,35 @@ describe("Feishu synchronization control migration", () => {
     }
     expect(claim.match(/join public\.roles role/g)?.length).toBeGreaterThanOrEqual(2);
     expect(claim.indexOf("if p_actor_auth_user_id is not null")).toBeLessThan(claim.indexOf("'reason', 'active_lease'"));
-    const lockedExactActorStart = claim.lastIndexOf("if p_actor_auth_user_id is not null");
-    const lockedExactActor = claim.slice(lockedExactActorStart, claim.indexOf("  else\n    select member.user_id", lockedExactActorStart));
-    expect(lockedExactActor).toContain("identity.identity_provider_id = v_connection.identity_provider_id");
+    const leaseLock = claim.indexOf("select * into v_lease");
+    const lockedExactActorStart = claim.indexOf("join public.identity_providers provider", leaseLock);
+    const lockedExactActor = claim.slice(lockedExactActorStart, claim.indexOf("'reason', 'active_lease'", leaseLock));
+    expect(lockedExactActor).toContain("provider.id = v_connection.identity_provider_id");
+    expect(lockedExactActor).toContain("provider.id = identity.identity_provider_id");
     expect(lockedExactActor).toContain("identity.provider_tenant_key = p_provider_tenant_key");
     expect(finalPolicies.match(/join public\.roles role/g)).toHaveLength(6);
     expect(finalPolicies.match(/role\.is_enabled/g)).toHaveLength(6);
     expect(finalPolicies.match(/role\.organization_id is null/g)).toHaveLength(6);
+  });
+
+  it("revalidates and locks the exact Feishu authorization graph before returning lease metadata", () => {
+    const sql = migration();
+    const claimStart = sql.lastIndexOf("create function public.claim_feishu_sync_work(");
+    const claim = sql.slice(claimStart, sql.indexOf("create or replace function public.heartbeat_feishu_sync_work", claimStart));
+    const leaseLock = claim.indexOf("select * into v_lease");
+    const lockedProvider = claim.indexOf("join public.identity_providers provider", leaseLock);
+    const activeLeaseReturn = claim.indexOf("'reason', 'active_lease'", leaseLock);
+    const backoffReturn = claim.indexOf("'reason', 'backoff'", leaseLock);
+
+    expect(lockedProvider).toBeGreaterThan(leaseLock);
+    expect(lockedProvider).toBeLessThan(activeLeaseReturn);
+    expect(lockedProvider).toBeLessThan(backoffReturn);
+    expect(claim.slice(lockedProvider, activeLeaseReturn)).toContain("provider.provider_code = 'feishu'");
+    expect(claim.slice(lockedProvider, activeLeaseReturn)).toContain("provider.status = 'active'");
+    expect(claim.slice(lockedProvider, activeLeaseReturn)).toContain("provider.provider_tenant_key = p_provider_tenant_key");
+    expect(claim.slice(lockedProvider, activeLeaseReturn)).toContain(
+      "for share of provider, member, identity, assignment, role, rp, permission",
+    );
   });
 
   it("routes an incremental cursor directly and selects eligible unscoped work without starvation", () => {
@@ -228,7 +250,7 @@ describe("Feishu synchronization control migration", () => {
     const claimStart = sql.lastIndexOf("create function public.claim_feishu_sync_work(");
     const claim = sql.slice(claimStart, sql.indexOf("create or replace function public.heartbeat_feishu_sync_work", claimStart));
     const candidate = claim.slice(claim.indexOf("loop"), claim.indexOf("for update of connection skip locked") + "for update of connection skip locked".length);
-    const postLock = claim.slice(claim.indexOf("for update of run"), claim.indexOf("v_run_id := gen_random_uuid()"));
+    const postLock = claim.slice(claim.indexOf("select * into v_lease"), claim.indexOf("v_run_id := gen_random_uuid()"));
 
     expect(candidate).toContain("join public.external_identities candidate_identity");
     expect(candidate).toContain("from public.organization_members candidate_member");
@@ -239,7 +261,7 @@ describe("Feishu synchronization control migration", () => {
     expect(candidate).toContain("candidate_role.is_enabled");
     expect(candidate).toContain("candidate_role.organization_id is null");
     expect(candidate).toContain("candidate_permission.code = 'organization.manage'");
-    expect(postLock).toContain("for share of member, identity, assignment, role, rp");
+    expect(postLock).toContain("for share of provider, member, identity, assignment, role, rp, permission");
     expect(claim).toContain("'reason', 'actorless'");
   });
 
@@ -266,5 +288,21 @@ describe("Feishu synchronization control migration", () => {
     expect(pgTap).toContain("for update nowait");
     expect(pgTap).toContain("old takeover actor is revoked before recovery");
     expect(pgTap).toContain("takeover audit is attributed to the new active actor");
+  });
+
+  it("keeps valid-lock fairness independent from actorless fairness and exercises post-lock authorization races", () => {
+    const pgTap = pgTapSource();
+    const validFairness = pgTap.indexOf("test.feishu_valid_locked_fairness");
+    const disableActorA = pgTap.indexOf("update public.roles set is_enabled = false", validFairness);
+
+    expect(validFairness).toBeGreaterThan(-1);
+    expect(disableActorA).toBeGreaterThan(validFairness);
+    expect(pgTap).toContain("test.feishu_actorless_locked_fairness");
+    expect(pgTap).toContain("test.feishu_revoked_metadata_sqlstate");
+    expect(pgTap).toContain("test.feishu_disabled_provider_sqlstate");
+    expect(pgTap).toContain("test.feishu_disabled_provider_new_runs");
+    expect(pgTap).toContain("post-lock role revocation denies active lease metadata");
+    expect(pgTap).toContain("post-lock provider disablement denies a new claim");
+    expect(pgTap).toContain("provider disablement race creates no run");
   });
 });
