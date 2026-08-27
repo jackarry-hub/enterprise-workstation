@@ -43,7 +43,7 @@ describe("loadProjectCollection", () => {
       }, error: null },
       tenants: { data: { status: "active" }, error: null },
       identity_providers: { data: { status: "active" }, error: null },
-      organizations: { data: { public_id: "10000000-0000-4000-8000-000000000001", status: "active" }, error: null },
+      organizations: { data: { public_id: "10000000-0000-4000-8000-000000000001" }, error: null },
       project_members: { data: [{
         id: 201, public_id: "b1000000-0000-4000-8000-000000000002",
         organization_id: 1, project_id: 11, member_id: 101, role: "owner",
@@ -138,7 +138,7 @@ describe("loadProjectCollection", () => {
       }, error: null },
       tenants: { data: { status: "active" }, error: null },
       identity_providers: { data: { status: "active" }, error: null },
-      organizations: { data: { public_id: "10000000-0000-4000-8000-000000000001", status: "active" }, error: null },
+      organizations: { data: { public_id: "10000000-0000-4000-8000-000000000001" }, error: null },
       organization_members: { data: [{
         id: 101, public_id: "b1000000-0000-4000-8000-000000000006",
         user_id: "user-101", status: "active",

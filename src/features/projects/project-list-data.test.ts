@@ -139,7 +139,7 @@ describe("loadProjectList", () => {
       },
       tenants: { data: { status: "active" }, error: null },
       identity_providers: { data: { status: "active" }, error: null },
-      organizations: { data: { public_id: "10000000-0000-4000-8000-000000000001", status: "active" }, error: null },
+      organizations: { data: { public_id: "10000000-0000-4000-8000-000000000001" }, error: null },
       project_members: {
         data: [
           { public_id: "membership-1", project_id: 11, member_id: 101, role: "owner", left_at: null },

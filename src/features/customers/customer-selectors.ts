@@ -1,14 +1,14 @@
 import type { Customer, CustomerDistributionItem, CustomerFilters } from "@/features/customers/customer-types";
 
 const labels = {
-  consulting: "官网咨询", referral: "客户推荐", event: "市场活动", outbound: "行业展会",
+  consulting: "官网咨询", referral: "客户推荐", event: "市场活动", outbound: "主动拓展", other: "其他",
   technology: "信息技术", manufacturing: "制造业", finance: "金融服务", retail: "零售消费",
 } as const;
 
 export function filterCustomers(customers: readonly Customer[], filters: CustomerFilters) {
   const query = filters.query.trim().toLocaleLowerCase("zh-CN");
   return customers.filter((customer) => {
-    const searchText = [customer.name, customer.contact.name, customer.contact.phone, customer.owner.displayName].join(" ").toLocaleLowerCase("zh-CN");
+    const searchText = [customer.name, customer.contact?.name, customer.contact?.phone, customer.owner.displayName].filter(Boolean).join(" ").toLocaleLowerCase("zh-CN");
     return (query === "" || searchText.includes(query))
       && (filters.status === "all" || customer.status === filters.status)
       && (filters.source === "all" || customer.source === filters.source)
@@ -16,13 +16,22 @@ export function filterCustomers(customers: readonly Customer[], filters: Custome
   });
 }
 
-export function buildCustomerStats(customers: readonly Customer[]) {
+function moneyToCents(value: string) {
+  const [integer = "0", fraction = ""] = value.split(".");
+  return BigInt(integer) * BigInt(100) + BigInt(fraction.padEnd(2, "0").slice(0, 2));
+}
+
+function centsToMoney(value: bigint) {
+  return `${value / BigInt(100)}.${String(value % BigInt(100)).padStart(2, "0")}`;
+}
+
+export function buildCustomerStats(customers: readonly Customer[], total = customers.length) {
   return {
-    total: customers.length,
-    addedThisMonth: customers.filter(({ createdAt }) => createdAt.startsWith("2026-08")).length,
+    total,
+    pageCount: customers.length,
     following: customers.filter(({ status }) => ["following", "proposal", "negotiating"].includes(status)).length,
     won: customers.filter(({ status }) => status === "won").length,
-    dealAmount: customers.filter(({ status }) => status === "won").reduce((sum, customer) => sum + customer.dealAmount, 0),
+    dealAmount: centsToMoney(customers.reduce((sum, customer) => sum + moneyToCents(customer.dealAmount), BigInt(0))),
   };
 }
 

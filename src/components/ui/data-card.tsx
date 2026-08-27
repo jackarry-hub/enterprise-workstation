@@ -30,8 +30,8 @@ type DataCardProps = {
   icon: LucideIcon;
   label: string;
   value: string;
-  trend: string;
-  trendLabel: string;
+  trend?: string;
+  trendLabel?: string;
   tone?: DataCardTone;
   trendTone?: "success" | "warning";
   compact?: boolean;
@@ -65,11 +65,11 @@ export function DataCard({
         <p className={cn("mt-0.5 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(1.2rem,2vw,1.875rem)] leading-tight font-semibold tracking-tight text-foreground tabular-nums", compact && "text-[clamp(1.15rem,1.8vw,1.75rem)]")}>
           {value}
         </p>
-        <div className="mt-1 flex items-center gap-1 text-xs whitespace-nowrap text-muted-foreground">
-          <span>{trendLabel}</span>
-          <span className={cn("font-semibold", trendTone === "warning" ? "text-warning" : "text-success")}>{trend}</span>
-          <ArrowUp aria-hidden="true" className={trendTone === "warning" ? "text-warning" : "text-success"} />
-        </div>
+        {trend || trendLabel ? <div className="mt-1 flex items-center gap-1 text-xs whitespace-nowrap text-muted-foreground">
+          {trendLabel ? <span>{trendLabel}</span> : null}
+          {trend ? <><span className={cn("font-semibold", trendTone === "warning" ? "text-warning" : "text-success")}>{trend}</span>
+          <ArrowUp aria-hidden="true" className={trendTone === "warning" ? "text-warning" : "text-success"} /></> : null}
+        </div> : null}
       </div>
     </GlassCard>
   );

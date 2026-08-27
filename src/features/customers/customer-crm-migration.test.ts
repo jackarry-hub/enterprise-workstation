@@ -159,3 +159,28 @@ describe("opportunity workflow migration", () => {
     expect(block).not.toContain("service_role");
   });
 });
+
+describe("customer CRM read models", () => {
+  const sql = readFileSync(
+    join(process.cwd(), "supabase/migrations/202608280004_customer_read_models.sql"),
+    "utf8",
+  ).toLowerCase();
+
+  it("preserves RLS and decimal precision for paginated list and detail reads", () => {
+    for (const view of [
+      "current_customer_opportunity_metrics",
+      "current_customer_follow_up_metrics",
+      "current_customer_opportunities",
+      "current_customer_industries",
+    ]) {
+      expect(sql).toContain(`create view public.${view}`);
+      expect(sql).toContain("security_invoker=true");
+      expect(sql).toContain(`revoke all on table public.${view}`);
+      expect(sql).toContain(`grant select on table public.${view} to authenticated`);
+    }
+    expect(sql).toContain("opportunity.amount::text as amount");
+    expect(sql).toContain(")::text as won_amount_cny");
+    expect(sql).toContain("min(follow_up.next_follow_up_at)");
+    expect(sql).toContain("filter (where opportunity.stage<>'lost')");
+  });
+});

@@ -10,7 +10,7 @@ type ExternalIdentityRow = {
 };
 
 type StatusRow = { status: string };
-type OrganizationRow = StatusRow & { public_id: string };
+type OrganizationRow = { public_id: string };
 type MemberRow = StatusRow & { public_id: string; user_id: string | null };
 type ProfileRow = { public_id: string; employment_status: string };
 
@@ -45,7 +45,7 @@ export async function loadActiveWorkspaceScope(
   const [tenantResponse, providerResponse, organizationResponse, memberResponse, profileResponse] = await Promise.all([
     client.from("tenants").select("status").eq("id", identity.tenant_id).maybeSingle(),
     client.from("identity_providers").select("status").eq("tenant_id", identity.tenant_id).eq("id", identity.identity_provider_id).maybeSingle(),
-    client.from("organizations").select("public_id, status").eq("tenant_id", identity.tenant_id).eq("id", identity.organization_id).maybeSingle(),
+    client.from("organizations").select("public_id").eq("tenant_id", identity.tenant_id).eq("id", identity.organization_id).maybeSingle(),
     client.from("organization_members").select("public_id, user_id, status")
       .eq("tenant_id", identity.tenant_id)
       .eq("organization_id", identity.organization_id)
@@ -68,7 +68,7 @@ export async function loadActiveWorkspaceScope(
   const member = memberResponse.data as MemberRow | null;
   const profile = profileResponse.data as ProfileRow | null;
   if (tenant?.status !== "active" || provider?.status !== "active"
-      || organization?.status !== "active" || member?.status !== "active"
+      || !organization || member?.status !== "active"
       || member.user_id !== authUserId || !["probation", "active", "on_leave"].includes(profile?.employment_status ?? "")
       || !organization.public_id || !member.public_id || !profile?.public_id) {
     throw new Error("active_workspace_scope_invalid");

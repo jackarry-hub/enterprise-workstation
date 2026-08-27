@@ -11,7 +11,7 @@ function createClient(providerStatus = "active") {
     external_identities: { data: { tenant_id: 7, organization_id: 11, organization_member_id: 19, identity_provider_id: 23 }, error: null },
     tenants: { data: { status: "active" }, error: null },
     identity_providers: { data: { status: providerStatus }, error: null },
-    organizations: { data: { public_id: "a1000000-0000-4000-8000-000000000001", status: "active" }, error: null },
+    organizations: { data: { public_id: "a1000000-0000-4000-8000-000000000001" }, error: null },
     organization_members: { data: { public_id: "a1000000-0000-4000-8000-000000000002", user_id: "user-1", status: "active" }, error: null },
     employee_profiles: { data: { public_id: "a1000000-0000-4000-8000-000000000003", employment_status: "active" }, error: null },
   };

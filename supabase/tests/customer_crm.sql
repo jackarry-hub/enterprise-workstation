@@ -1,11 +1,36 @@
 begin;
-select plan(91);
+select plan(101);
 
 select ok(has_table('public','customers'),'customers table exists');
 select ok(has_table('public','customer_contacts'),'customer contacts table exists');
 select ok(has_table('public','opportunities'),'opportunities table exists');
 select ok(has_table('public','customer_follow_ups'),'customer follow ups table exists');
 select ok(has_table('public','customer_project_links'),'customer project links table exists');
+select ok(has_view('public','current_customer_opportunity_metrics'),'opportunity list metrics view exists');
+select ok(has_view('public','current_customer_follow_up_metrics'),'follow-up list metrics view exists');
+select ok(has_view('public','current_customer_opportunities'),'decimal-safe opportunity detail view exists');
+select ok(has_view('public','current_customer_industries'),'customer industry filter view exists');
+select ok(
+  has_table_privilege('authenticated','public.current_customer_opportunity_metrics','SELECT')
+  and has_table_privilege('authenticated','public.current_customer_follow_up_metrics','SELECT')
+  and has_table_privilege('authenticated','public.current_customer_opportunities','SELECT')
+  and has_table_privilege('authenticated','public.current_customer_industries','SELECT')
+  and not has_table_privilege('anon','public.current_customer_opportunities','SELECT'),
+  'only authenticated sessions can read the RLS-invoker CRM projections'
+);
+select ok(
+  not exists (
+    select 1 from pg_class projection
+    where projection.oid=any(array[
+      'public.current_customer_opportunity_metrics'::regclass,
+      'public.current_customer_follow_up_metrics'::regclass,
+      'public.current_customer_opportunities'::regclass,
+      'public.current_customer_industries'::regclass
+    ]) and not (coalesce(projection.reloptions,array[]::text[])
+      @> array['security_invoker=true','security_barrier=true'])
+  ),
+  'all CRM projections preserve caller RLS and security barriers'
+);
 select ok(has_column('public','customers','tenant_id'),'customers carry tenant ownership');
 select ok(has_column('public','customers','name_normalized'),'customers persist a normalized name');
 select ok(has_column('public','customers','registration_code_normalized'),'registration code has a normalized key');
@@ -238,6 +263,13 @@ select ok(
   and (select count(*) from public.customer_project_links)=1,
   'assigned member reads the owned opportunity, follow-up and delivery link'
 );
+select ok(
+  (select count(*) from public.current_customer_opportunity_metrics)=1
+  and (select count(*) from public.current_customer_follow_up_metrics)=1
+  and (select count(*) from public.current_customer_opportunities)=1
+  and (select count(*) from public.current_customer_industries)=1,
+  'assigned member reads only owned CRM projections'
+);
 select throws_ok(
   $$ insert into public.customers(tenant_id,organization_id,owner_member_id,created_by_member_id,updated_by_member_id,name)
      values (1,1,1,1,1,'Blocked browser write') $$,
@@ -255,6 +287,13 @@ select ok(
   and (select count(*) from public.customer_project_links)=1,
   'customer manager reads the organization opportunity, follow-up and delivery link'
 );
+select ok(
+  (select count(*) from public.current_customer_opportunity_metrics)=1
+  and (select count(*) from public.current_customer_follow_up_metrics)=1
+  and (select count(*) from public.current_customer_opportunities)=1
+  and (select count(*) from public.current_customer_industries)=1,
+  'customer manager reads only organization CRM projections'
+);
 reset role;
 
 select set_config('request.jwt.claim.sub','a4000000-0000-4000-8000-000000000003',true);
@@ -266,6 +305,13 @@ select ok(
   and (select count(*) from public.customer_follow_ups)=0
   and (select count(*) from public.customer_project_links)=0,
   'unassigned employee cannot read customer workflow children'
+);
+select ok(
+  (select count(*) from public.current_customer_opportunity_metrics)=0
+  and (select count(*) from public.current_customer_follow_up_metrics)=0
+  and (select count(*) from public.current_customer_opportunities)=0
+  and (select count(*) from public.current_customer_industries)=0,
+  'unassigned employee cannot read CRM projections'
 );
 reset role;
 
@@ -279,6 +325,13 @@ select ok(
   and (select count(*) from public.customer_follow_ups)=0
   and (select count(*) from public.customer_project_links)=0,
   'cross-tenant opportunity, follow-up and delivery links are invisible'
+);
+select ok(
+  (select count(*) from public.current_customer_opportunity_metrics)=0
+  and (select count(*) from public.current_customer_follow_up_metrics)=0
+  and (select count(*) from public.current_customer_opportunities)=0
+  and (select count(*) from public.current_customer_industries)=1,
+  'second tenant member sees only its own tenant CRM projections'
 );
 reset role;
 

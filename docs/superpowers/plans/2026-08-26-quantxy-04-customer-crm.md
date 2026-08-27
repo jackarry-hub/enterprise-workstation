@@ -196,6 +196,10 @@ git commit -m "feat: add opportunity and customer delivery workflow"
 
 **Files:**
 - Delete: `src/features/customers/customer-repository.ts`
+- Delete: `src/features/customers/customer-mock-data.ts`
+- Modify: `src/app/(workspace)/customers/page.tsx`
+- Modify: `src/app/api/workstation/customers/[customerId]/route.ts`
+- Create: `src/app/api/workstation/customers/[customerId]/route.test.ts`
 - Modify: `src/features/customers/customers-workspace.tsx`
 - Modify: `src/features/customers/customers-page.tsx`
 - Modify: `src/features/customers/customers-page.test.tsx`
@@ -203,13 +207,15 @@ git commit -m "feat: add opportunity and customer delivery workflow"
 - Modify: `src/features/customers/components/customer-detail-dialog.tsx`
 - Create: `src/features/customers/customer-data.ts`
 - Create: `src/features/customers/customer-data.test.ts`
+- Create: `supabase/migrations/202608280004_customer_read_models.sql`
+- Modify: `supabase/tests/customer_crm.sql`
 - Create: `tests/e2e/customers.spec.ts`
 
 **Interfaces:**
 - Consumes Tasks 1-3 APIs.
 - Produces server list/detail loaders and responsive customer workspace.
 
-- [ ] **Step 1: Write failing no-seed and refresh tests**
+- [x] **Step 1: Write failing no-seed and refresh tests**
 
 ```tsx
 expect(screen.getByText(databaseCustomer.name)).toBeInTheDocument();
@@ -217,25 +223,39 @@ expect(screen.queryByText(seedCustomer.name)).not.toBeInTheDocument();
 expect(window.localStorage.getItem("enterprise-workstation-customers")).toBeNull();
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `npx vitest run src/features/customers/customers-page.test.tsx src/features/customers/customer-data.test.ts`
 Expected: current workspace initializes from seed/localStorage.
 
-- [ ] **Step 3: Implement server loaders and API-backed dialogs**
+RED was executed on 2026-08-28: tests exposed the existing seed/localStorage repository and absent server customer loader before implementation.
+
+- [x] **Step 3: Implement server loaders and API-backed dialogs**
 
 Desktop uses list plus detail panel; mobile uses customer cards and full-screen detail. All mutations wait for server success and reload the entity.
 
-- [ ] **Step 4: Verify GREEN and browser flow**
+The implementation removes formal seed/localStorage reads, loads a bounded server page plus on-demand detail through the authenticated Supabase session, applies name/status/source/industry filters before exact count and pagination, and preserves decimal money with BigInt cents. Mutations use timeout-bound requests, target-bound canonical success validation and retry-stable idempotency keys. The mobile surface uses customer cards and a full-height detail workflow; unavailable or RLS-hidden related data is represented explicitly instead of being fabricated.
+
+- [x] **Step 4: Verify GREEN and browser flow**
 
 Run: `npx vitest run src/features/customers`
 Run: `npx playwright test tests/e2e/customers.spec.ts --project=chrome`
 Expected: customer -> contact -> opportunity -> follow-up -> project conversion survives refresh and another authorized browser.
 
-- [ ] **Step 5: Commit**
+Task 4 local verification (2026-08-28):
+
+- Focused customer/API/project-scope Vitest — 11 files / 72 tests passed.
+- Full unit regression — 181 files / 1252 tests passed; HTML contract suite — 152/152 passed.
+- `npm run typecheck`, `npm run lint -- --quiet`, production `npm run build`, `npm run test:security`, and `git diff --check` — passed; dependency audit found 0 vulnerabilities.
+- Playwright customer workflow and mobile flow — 2 tests discovered successfully with `--list`; live execution remains an isolated database/auth browser gate.
+- `customer_crm.sql` static pgTAP plan/assertion count — 101/101, including four RLS-invoker read models and owner/manager/outsider/second-tenant projections.
+- Independent API/interaction review and independent SQL/RLS review — CLEAN with no remaining P0-P3 findings.
+- Live migration, pgTAP and persistence E2E remain mandatory external gates because this workstation has no PostgreSQL, `psql`, Supabase CLI, Docker runtime or isolated authenticated test backend.
+
+- [x] **Step 5: Commit**
 
 ```bash
-git add -A src/features/customers tests/e2e/customers.spec.ts
+git add -A -- src/features/customers 'src/app/(workspace)/customers/page.tsx' 'src/app/api/workstation/customers/[customerId]' src/components/ui/data-card.tsx src/features/projects supabase/migrations/202608280004_customer_read_models.sql supabase/tests/customer_crm.sql tests/e2e/customers.spec.ts docs/superpowers/plans/2026-08-26-quantxy-04-customer-crm.md
 git commit -m "feat: connect customer CRM to real data"
 ```
 

@@ -11,5 +11,5 @@ function DistributionCard({ title, icon: Icon, items }: { title: string; icon: t
 }
 
 export function CustomerDistributions({ source, industry, region }: { source: readonly CustomerDistributionItem[]; industry: readonly CustomerDistributionItem[]; region: readonly CustomerDistributionItem[] }) {
-  return <section className="grid gap-3 xl:grid-cols-3"><DistributionCard title="客户来源分布" icon={RadioTower} items={source} /><DistributionCard title="行业分布 TOP 5" icon={Building2} items={industry} /><DistributionCard title="地区分布" icon={MapPinned} items={region} /></section>;
+  return <section className="grid gap-3 xl:grid-cols-3"><DistributionCard title="本页客户来源" icon={RadioTower} items={source} /><DistributionCard title="本页行业 TOP 5" icon={Building2} items={industry} /><DistributionCard title="本页地区" icon={MapPinned} items={region} /></section>;
 }
