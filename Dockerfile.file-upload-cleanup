@@ -1,0 +1,7 @@
+FROM node:22-alpine
+
+WORKDIR /app
+COPY --chown=node:node scripts/file-upload-cleanup-worker.mjs ./file-upload-cleanup-worker.mjs
+
+USER node
+CMD ["node", "/app/file-upload-cleanup-worker.mjs"]

@@ -10,7 +10,9 @@ import type {
   ProjectActivity,
   ProjectDetailData,
   ProjectDetailResult,
+  FileRelation,
   ProjectMember,
+  ProjectFile,
   ProjectRisk,
   ProjectTask,
 } from "@/features/projects/types";
@@ -130,6 +132,38 @@ type RiskRow = {
   updated_at: string;
 };
 
+type FileRow = {
+  id: number;
+  public_id: string;
+  organization_id: number;
+  project_id: number;
+  task_id: number | null;
+  bucket: string;
+  object_path: string;
+  original_name: string;
+  mime_type: string;
+  size_bytes: number | string;
+  sha256: string | null;
+  access_scope: ProjectFile["accessScope"];
+  uploaded_by_member_id: number;
+  verified_at: string | null;
+  created_at: string;
+};
+
+type FileRelationRow = {
+  public_id: string;
+  organization_id: number;
+  project_id: number;
+  file_id: number;
+  relation_type: FileRelation["relationType"];
+  task_id: number | null;
+  milestone_id: number | null;
+  daily_report_id: number | null;
+  task_comment_id: number | null;
+  created_by_member_id: number;
+  created_at: string;
+};
+
 function asNumber(value: number | string | null | undefined) {
   const number = Number(value ?? 0);
   return Number.isFinite(number) ? number : 0;
@@ -221,7 +255,7 @@ export async function loadProjectDetail(
         .eq("id", projectRow.objective_id)
         .is("deleted_at", null)
         .maybeSingle();
-    const [objectiveResponse, memberResponse, milestoneResponse, taskResponse, activityResponse, riskResponse] = await Promise.all([
+    const [objectiveResponse, memberResponse, milestoneResponse, taskResponse, activityResponse, riskResponse, fileResponse, fileRelationResponse] = await Promise.all([
       objectivePromise,
       client
         .from("project_members")
@@ -253,20 +287,35 @@ export async function loadProjectDetail(
         .eq("project_id", projectRow.id)
         .is("deleted_at", null)
         .order("deadline"),
+      client
+        .from("files")
+        .select("id, public_id, organization_id, project_id, task_id, bucket, object_path, original_name, mime_type, size_bytes, sha256, access_scope, uploaded_by_member_id, verified_at, created_at")
+        .eq("project_id", projectRow.id)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false }),
+      client
+        .from("file_relations")
+        .select("public_id, organization_id, project_id, file_id, relation_type, task_id, milestone_id, daily_report_id, task_comment_id, created_by_member_id, created_at")
+        .eq("project_id", projectRow.id)
+        .order("created_at", { ascending: false }),
     ]);
 
-    const responses = [objectiveResponse, memberResponse, milestoneResponse, taskResponse, activityResponse, riskResponse];
+    const responses = [objectiveResponse, memberResponse, milestoneResponse, taskResponse, activityResponse, riskResponse, fileResponse, fileRelationResponse];
     const relatedError = responses.find(({ error }) => error)?.error;
     if (relatedError) {
       throw relatedError;
     }
 
     const memberRows = (memberResponse.data ?? []) as ProjectMemberRow[];
+    const fileRows = (fileResponse.data ?? []) as FileRow[];
+    const fileRelationRows = (fileRelationResponse.data ?? []) as FileRelationRow[];
     const memberDirectory = await loadProjectMemberDirectory(
       client,
       [
         projectRow.owner_member_id,
         ...memberRows.map(({ member_id }) => member_id),
+        ...fileRows.map(({ uploaded_by_member_id }) => uploaded_by_member_id),
+        ...fileRelationRows.map(({ created_by_member_id }) => created_by_member_id),
       ],
     );
     const members: ProjectMember[] = memberRows.map((row) => {
@@ -371,6 +420,43 @@ export async function loadProjectDetail(
       updatedAt: row.updated_at,
     }));
 
+    const filePublicIds = new Map(fileRows.map((row) => [row.id, row.public_id]));
+    const files = fileRows.map<ProjectFile>((row) => ({
+      id: row.public_id,
+      organizationId: String(row.organization_id),
+      projectId: projectPublicId,
+      taskId: row.task_id == null ? undefined : taskPublicIds.get(row.task_id),
+      bucket: row.bucket,
+      objectPath: row.object_path,
+      originalName: row.original_name,
+      mimeType: row.mime_type,
+      sizeBytes: asNumber(row.size_bytes),
+      sha256: row.sha256 ?? undefined,
+      accessScope: row.access_scope,
+      uploadedById: memberDirectory.get(row.uploaded_by_member_id)?.summary.id
+        ?? String(row.uploaded_by_member_id),
+      verifiedAt: row.verified_at ?? undefined,
+      createdAt: row.created_at,
+    }));
+    const fileRelations = fileRelationRows.flatMap<FileRelation>((row) => {
+      const fileId = filePublicIds.get(row.file_id);
+      if (!fileId) return [];
+      return [{
+        id: row.public_id,
+        organizationId: String(row.organization_id),
+        projectId: projectPublicId,
+        fileId,
+        relationType: row.relation_type,
+        taskId: row.task_id == null ? undefined : taskPublicIds.get(row.task_id),
+        milestoneId: row.milestone_id == null ? undefined : milestonePublicIds.get(row.milestone_id),
+        dailyReportId: row.daily_report_id == null ? undefined : String(row.daily_report_id),
+        taskCommentId: row.task_comment_id == null ? undefined : String(row.task_comment_id),
+        createdById: memberDirectory.get(row.created_by_member_id)?.summary.id
+          ?? String(row.created_by_member_id),
+        createdAt: row.created_at,
+      }];
+    });
+
     const detail: ProjectDetailData = {
       project: mapProject(projectRow, owner.id),
       objective: objectiveResponse.data
@@ -381,11 +467,11 @@ export async function loadProjectDetail(
       milestones,
       tasks,
       comments: [],
-      files: [],
+      files,
       dailyReports: [],
       activities,
       risks,
-      fileRelations: [],
+      fileRelations,
     };
 
     return { detail, source: "supabase" };

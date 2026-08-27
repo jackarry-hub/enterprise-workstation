@@ -199,7 +199,7 @@ Expected: rollback, duplicate replay, real concurrent same-key serialization, on
 
 Application tests, type checking, HTML adapter tests, static SQL checks, and independent review must pass locally. Clean Supabase reset plus live pgTAP remains an explicit release gate because this workstation has no local PostgreSQL/Supabase runtime.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-08-26-quantxy-03-project-task-delivery.md supabase/migrations/202608270006_task_command_v2.sql supabase/tests/task_workflow.sql supabase/tests/project_lifecycle.sql supabase/tests/project_execution.sql supabase/tests/project_execution_concurrency.sql src/features/projects/execution-command-handler.test.ts src/app/api/workstation/tasks/handler.test.ts src/app/api/workstation/tasks/handler.ts src/app/api/workstation/tasks/batch/handler.test.ts src/app/api/workstation/tasks/batch/handler.ts src/app/api/workstation/tasks/[taskId]/handler.test.ts src/app/api/workstation/tasks/[taskId]/handler.ts src/app/api/workstation/bootstrap/handler.test.ts src/app/api/workstation/bootstrap/handler.ts src/features/workstation/server-bootstrap.test.ts src/features/workstation/server-bootstrap.ts public/workstation-server-adapter.js tests/html-workstation-server-adapter.test.mjs
@@ -209,20 +209,40 @@ git commit -m "feat: make task workflows atomic and auditable"
 ### Task 4: Add verified signed file upload and relations
 
 **Files:**
-- Create: `supabase/migrations/202608260016_file_storage_commands.sql`
+- Create: `supabase/migrations/202608270007_file_storage_commands.sql` (forward-only after Task 3 migration `202608270006`)
 - Create: `supabase/tests/file_storage.sql`
 - Create: `src/features/files/file-command-handler.ts`
 - Create: `src/features/files/file-command-handler.test.ts`
+- Create: `src/features/files/file-upload-cleanup-compose.test.ts`
 - Create: `src/app/api/workstation/files/upload-url/route.ts`
 - Create: `src/app/api/workstation/files/complete/route.ts`
+- Create: `src/app/api/workstation/files/[fileId]/download-url/route.ts`
+- Create: `src/app/api/internal/file-upload-cleanup/handler.ts`
+- Create: `src/app/api/internal/file-upload-cleanup/handler.test.ts`
+- Create: `src/app/api/internal/file-upload-cleanup/route.ts`
+- Create: `scripts/file-upload-cleanup-worker.mjs`
+- Create: `Dockerfile.file-upload-cleanup`
 - Modify: `src/features/projects/components/project-files-tab.tsx`
+- Modify: `src/features/projects/data/project-detail-data.ts`
+- Modify: `src/features/projects/project-detail-data.test.ts`
+- Modify: `src/features/projects/project-detail-workspace.tsx`
+- Modify: `src/features/projects/types.ts`
 - Modify: `src/features/operations/file-storage.ts`
+- Modify: `src/features/operations/file-storage.test.ts`
+- Modify: `src/middleware.ts`
+- Modify: `src/middleware.test.ts`
+- Modify: `.env.example`
+- Modify: `compose.yaml`
 
 **Interfaces:**
-- Produces `POST /api/workstation/files/upload-url` -> `{ uploadUrl, objectPath, expiresAt }`.
+- Produces `POST /api/workstation/files/upload-url` -> `{ uploadUrl, uploadToken, objectPath, expiresAt }`, where `expiresAt` is the provider token expiry and the database retains a longer cleanup-only safety horizon.
 - Produces `POST /api/workstation/files/complete` -> verified `FileRecord`.
+- Produces authorized, audited short-lived download URLs and a protected scheduled cleanup worker.
+- Only the server-role verification boundary may call completion/failure RPCs; authenticated browsers cannot attest object metadata.
+- A durable verification-token lease fences concurrent byte downloads across application instances; transient storage/database failures release the lease or recover after lease expiry.
+- Migration `202608270007` stops on any legacy file backlog so an operator cannot silently strand historical objects; the re-verification gate is documented in `docs/commercial-database-sop.md`.
 
-- [ ] **Step 1: Write failing scope, type, size, and missing-object tests**
+- [x] **Step 1: Write failing scope, type, size, and missing-object tests**
 
 ```ts
 expect((await requestUploadUrl(crossProjectRequest)).status).toBe(404);
@@ -230,25 +250,29 @@ expect((await completeUpload({ objectPath: missingPath })).status).toBe(422);
 expect((await requestUploadUrl({ mime: "application/x-msdownload" })).status).toBe(415);
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `npx vitest run src/features/files/file-command-handler.test.ts src/features/operations/file-storage.test.ts`
 Expected: formal upload commands do not exist and project UI uses local storage behavior.
 
-- [ ] **Step 3: Implement two-phase upload verification**
+- [x] **Step 3: Implement two-phase upload verification**
 
-Create tenant-scoped object paths, short-lived signed upload URLs, server-side object metadata verification, file row/relation transaction, and cleanup for abandoned objects.
+Create tenant-scoped object paths, short-lived signed upload URLs, server-side byte download plus SHA-256 and metadata verification, file row/relation/activity transaction, audited download authorization, and durable cleanup for abandoned objects. Formal clients never fall back to browser storage.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `npx vitest run src/features/files/file-command-handler.test.ts src/features/operations/file-storage.test.ts`
 Run: `npm run db:test`
-Expected: valid file persists; forbidden project, disallowed type, oversize and missing object fail.
+Expected: valid file persists; forbidden project, disallowed type, oversize, missing object, hash mismatch, direct browser completion, and cleanup replay cases pass. Clean Supabase reset plus live pgTAP remains an external release gate when no local PostgreSQL/Supabase runtime exists.
 
-- [ ] **Step 5: Commit**
+Verified locally on 2026-08-27: focused file command/client tests 30/30; complete unit suite 161 files and 1132/1132 tests; workstation HTML suite 151/151; TypeScript, production build, security gate, and high-severity dependency audit passed; ESLint reported 0 errors and one pre-existing generated coverage warning. Independent API review returned CLEAN, and independent SQL static review returned CLEAN with a pgTAP plan/assertion count of 42/42.
+
+Not executed locally: clean Supabase reset and live pgTAP, because this workstation has no PostgreSQL, Supabase CLI, or Docker runtime. They remain mandatory external release gates; the static pgTAP count is not a database execution result.
+
+- [x] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260016_file_storage_commands.sql supabase/tests/file_storage.sql src/features/files/file-command-handler.ts src/features/files/file-command-handler.test.ts src/app/api/workstation/files/upload-url/route.ts src/app/api/workstation/files/complete/route.ts src/features/projects/components/project-files-tab.tsx src/features/operations/file-storage.ts
+git add docs/superpowers/plans/2026-08-26-quantxy-03-project-task-delivery.md supabase/migrations/202608270007_file_storage_commands.sql supabase/tests/file_storage.sql src/features/files src/app/api/workstation/files src/app/api/internal/file-upload-cleanup scripts/file-upload-cleanup-worker.mjs Dockerfile.file-upload-cleanup src/features/projects/components/project-files-tab.tsx src/features/projects/data/project-detail-data.ts src/features/projects/project-detail-data.test.ts src/features/projects/project-detail-workspace.tsx src/features/projects/types.ts src/features/operations/file-storage.ts src/features/operations/file-storage.test.ts src/middleware.ts src/middleware.test.ts .env.example compose.yaml
 git commit -m "feat: add verified business file uploads"
 ```
 

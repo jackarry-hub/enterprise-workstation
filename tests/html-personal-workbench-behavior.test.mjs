@@ -2646,6 +2646,33 @@ test("rejects legacy browser writes in real mode without mutating server state o
   }
 });
 
+test("scopes quick create actions to the current business page", async () => {
+  const dom = await openWorkbench();
+  try {
+    const agentNav = dom.window.document.querySelector('[data-act="go"][data-page="flow"]');
+    assert.ok(agentNav);
+    agentNav.click();
+    dom.window.document.querySelector('[data-act="cmenu"]').click();
+    const agentLabels = [...dom.window.document.querySelectorAll('.quick-create .menu button')]
+      .map((button) => button.textContent.trim());
+    assert.deepEqual(agentLabels, ["新建 Agent"]);
+
+    dom.window.document.querySelector('[data-act="go"][data-page="org"]').click();
+    dom.window.document.querySelector('[data-act="cmenu"]').click();
+    const organizationLabels = [...dom.window.document.querySelectorAll('.quick-create .menu button')]
+      .map((button) => button.textContent.trim());
+    assert.deepEqual(organizationLabels, ["添加成员"]);
+
+    dom.window.document.querySelector('[data-act="go"][data-page="kb"]').click();
+    dom.window.document.querySelector('[data-act="cmenu"]').click();
+    const knowledgeLabels = [...dom.window.document.querySelectorAll('.quick-create .menu button')]
+      .map((button) => button.textContent.trim());
+    assert.deepEqual(knowledgeLabels, ["上传文档"]);
+  } finally {
+    dom.window.close();
+  }
+});
+
 test("clears stale navigation filters and detail selections for clear reset and restore", async () => {
   const dom = await openWorkbench();
   try {

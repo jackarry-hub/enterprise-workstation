@@ -21,7 +21,13 @@ import { ProjectReportsTab, type DailyReportInput } from "@/features/projects/co
 import { ProjectRetrospectiveTab } from "@/features/projects/components/project-retrospective-tab";
 import { ProjectTasksTab } from "@/features/projects/components/project-tasks-tab";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
-import { storeProjectFileBlob } from "@/features/operations/file-storage";
+import {
+  downloadProjectFileBlob,
+  downloadVerifiedProjectFile,
+  storeProjectFileBlob,
+  uploadVerifiedProjectFile,
+  type VerifiedFileUploadPhase,
+} from "@/features/operations/file-storage";
 import { syncProjectTasksToOperations } from "@/features/operations/operations-data";
 import { useOperations } from "@/features/operations/use-operations";
 import { findLocalProject, PROJECTS_CHANGED_EVENT, saveLocalProject } from "@/features/projects/data/mock-project-repository";
@@ -67,6 +73,8 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
     if (result.source === "mock") {
       const persistedDetail = findLocalProject(context, result.detail.project.id);
       if (persistedDetail) setDetail(persistedDetail);
+    } else {
+      setDetail(result.detail);
     }
 
     const params = new URLSearchParams(window.location.search);
@@ -74,7 +82,7 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
     if (projectDetailTabs.some(({ value }) => value === requestedTab)) setActiveTab(requestedTab as ProjectDetailTab);
     const requestedTask = params.get("task");
     if (requestedTask) { setActiveTab("tasks"); setInitialTaskId(requestedTask); }
-  }, [context, result.detail.project.id, result.source]);
+  }, [context, result.detail, result.detail.project.id, result.source]);
 
   useEffect(() => {
     if (result.source !== "mock") return;
@@ -132,7 +140,25 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
     persistDetail({ ...detail, project: { ...detail.project, ...input, updatedAt: now }, activities: [{ id: `activity-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, userId: auditActor.id, actionType: "project_updated", content: `${auditActor.name}更新了项目基本信息。`, createdAt: now }, ...detail.activities] });
   }
 
-  async function uploadFile(file: globalThis.File) {
+  async function uploadFile(
+    file: globalThis.File,
+    idempotencyKey: string,
+    onProgress: (phase: VerifiedFileUploadPhase) => void,
+  ) {
+    if (result.source === "supabase") {
+      const projectFile = await uploadVerifiedProjectFile({
+        projectId: detail.project.id,
+        file,
+        idempotencyKey,
+        onProgress,
+      });
+      setDetail((current) => ({
+        ...current,
+        files: [projectFile, ...current.files.filter(({ id }) => id !== projectFile.id)],
+      }));
+      return;
+    }
+    onProgress("uploading");
     const now = new Date().toISOString();
     const id = `file-${Date.now()}`;
     const objectPath = await storeProjectFileBlob(context, id, file);
@@ -140,6 +166,15 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
     const relation: FileRelation = { id: `relation-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, fileId: id, relationType: "project", createdById: auditActor.memberId, createdAt: now };
     const activity: ProjectActivity = { id: `activity-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, userId: auditActor.id, actionType: "file_uploaded", content: `${auditActor.name}上传了《${file.name}》。`, createdAt: now };
     persistDetail({ ...detail, files: [projectFile, ...detail.files], fileRelations: [relation, ...detail.fileRelations], activities: [activity, ...detail.activities], project: { ...detail.project, updatedAt: now } });
+    onProgress("completed");
+  }
+
+  async function downloadFile(file: ProjectFile) {
+    if (result.source === "supabase") {
+      await downloadVerifiedProjectFile(file.id);
+      return;
+    }
+    await downloadProjectFileBlob(context, file.objectPath, file.originalName);
   }
 
   function submitDailyReport(input: DailyReportInput) {
@@ -182,7 +217,7 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
           <ProjectTasksTab actor={auditActor} detail={detail} onCreate={() => setIsTaskOpen(true)} onStatusChange={updateTaskStatus} onComment={addTaskComment} initialTaskId={initialTaskId} canManage={canManageProject} workflowManaged={workflowManaged} />
         ) : null}
         {activeTab === "gantt" ? <ProjectGanttTab detail={detail} /> : null}
-        {activeTab === "files" ? <ProjectFilesTab context={context} detail={detail} onUpload={uploadFile} /> : null}
+        {activeTab === "files" ? <ProjectFilesTab detail={detail} formal={result.source === "supabase"} onUpload={uploadFile} onDownload={downloadFile} /> : null}
         {activeTab === "reports" ? <ProjectReportsTab detail={detail} canSubmit={canViewProject} onSubmit={submitDailyReport} /> : null}
         {activeTab === "retrospective" ? <ProjectRetrospectiveTab detail={detail} canManage={canManageProject} onSave={saveRetrospective} onRiskStatusChange={updateRiskStatus} /> : null}
       </Tabs>

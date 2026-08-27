@@ -140,6 +140,36 @@ describe("loadProjectDetail", () => {
       tasks: { data: [], error: null },
       project_activities: { data: [], error: null },
       project_risks: { data: [], error: null },
+      files: { data: [{
+        id: 81,
+        public_id: "42000000-0000-4000-8000-000000000001",
+        organization_id: 1,
+        project_id: 91,
+        task_id: null,
+        bucket: "workbench-files",
+        object_path: "tenants/t/organizations/o/projects/p/uploads/u/file.pdf",
+        original_name: "验收材料.pdf",
+        mime_type: "application/pdf",
+        size_bytes: 128,
+        sha256: "a".repeat(64),
+        access_scope: "restricted",
+        uploaded_by_member_id: 902,
+        verified_at: "2026-08-27T02:00:00.000Z",
+        created_at: "2026-08-27T02:00:00.000Z",
+      }], error: null },
+      file_relations: { data: [{
+        public_id: "42100000-0000-4000-8000-000000000001",
+        organization_id: 1,
+        project_id: 91,
+        file_id: 81,
+        relation_type: "project",
+        task_id: null,
+        milestone_id: null,
+        daily_report_id: null,
+        task_comment_id: null,
+        created_by_member_id: 902,
+        created_at: "2026-08-27T02:00:00.000Z",
+      }], error: null },
     };
     const factory = (async () => ({
       from: (table: string) => createQuery(responses[table]),
@@ -161,5 +191,15 @@ describe("loadProjectDetail", () => {
       avatarUrl: "https://example.com/avatar.png",
     });
     expect(result?.detail.objective).toBeUndefined();
+    expect(result?.detail.files).toEqual([expect.objectContaining({
+      id: "42000000-0000-4000-8000-000000000001",
+      originalName: "验收材料.pdf",
+      uploadedById: "member-real-owner",
+      verifiedAt: "2026-08-27T02:00:00.000Z",
+    })]);
+    expect(result?.detail.fileRelations).toEqual([expect.objectContaining({
+      fileId: "42000000-0000-4000-8000-000000000001",
+      relationType: "project",
+    })]);
   });
 });

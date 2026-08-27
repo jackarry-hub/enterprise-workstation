@@ -155,6 +155,21 @@ V1 商用先用 Supabase Cloud Pro；如果后面确定面向中国大陆企业�
 4. 确认 `service_role` 只用于服务端和管理员脚本。
 5. Staging 验收通过后，再对 Production 执行同一版本迁移。
 
+#### `202608270007` 文件迁移前置门禁
+
+该迁移把历史浏览器直传改为“服务端签发 + 服务端逐字节哈希核验 + 短期下载授权”。执行前必须先做只读盘点：
+
+```sql
+select count(*) as legacy_file_count
+from public.files;
+```
+
+- `legacy_file_count = 0`：可以继续在 Staging 执行迁移与 `supabase/tests/file_storage.sql`。
+- `legacy_file_count > 0`：迁移会主动中止，不能绕过。先备份数据库和 `workbench-files` bucket，再逐个下载原对象，核对租户、项目、上传人、实际字节数和 MIME，计算 SHA-256，并记录 Storage object id/version/etag。完成独立的历史文件重核验迁移并在 Staging 验收后，才允许应用 `202608270007`。
+- 禁止为了通过门禁直接删除历史 `files` / `file_relations` 行，禁止把空 SHA、伪造 object id 或当前时间写成“已核验”。
+
+迁移后还必须验证：浏览器角色只可读 RLS 授权的文件元数据；签发、核验、失败确认、清理 RPC 仅 `service_role` 可执行；旧 Storage 浏览器直读写策略已移除；上传 token 有效期短于服务端 cleanup horizon。
+
 ### 阶段 3：基础数据初始化
 
 1. 初始化租户 `quantxy`。

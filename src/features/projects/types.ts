@@ -208,8 +208,10 @@ export interface ProjectFile {
   originalName: string;
   mimeType: string;
   sizeBytes: number;
+  sha256?: string;
   accessScope: FileAccessScope;
   uploadedById: string;
+  verifiedAt?: string;
   createdAt: string;
 }
 

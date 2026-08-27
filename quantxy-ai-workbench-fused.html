@@ -343,6 +343,13 @@ tr:last-child td{border-bottom:0}
   .top .bell{display:none}
   .top .me{margin-left:auto}
   .top .search,.top .quick-create{display:none}
+  .tabs,.chips{scrollbar-width:none}
+  .tabs::-webkit-scrollbar,.chips::-webkit-scrollbar{display:none}
+  .agent-directory-toolbar>.search{width:100%!important}
+  .agent-directory-toolbar>.chips{width:100%;flex:1 1 100%!important;flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px}
+  .agent-directory-toolbar>.chips .chip{flex:0 0 auto;white-space:nowrap}
+  .agent-directory-toolbar>.agent-filter-divider{display:none}
+  .agent-directory-toolbar>.btn{width:100%;justify-content:center}
   .view{padding:0 12px calc(22px + env(safe-area-inset-bottom))}
   .kpi{padding:13px}
   .kpi .v{font-size:21px}
@@ -1733,6 +1740,32 @@ function topNotifications(){
   });
   return items.slice(0,8);
 }
+var QUICK_CREATE_CATALOG={
+  'new-project':['new-project','proj','新建项目'],
+  'new-task':['new-task','task','新建任务'],
+  'new-member':['new-member','user','添加成员'],
+  'new-file':['new-file','file','上传文档'],
+  sched:['sched','ai','AI 调度目标'],
+  'new-agent':['new-agent','bot','新建 Agent'],
+  'new-customer':['new-customer','user','新建客户'],
+  'new-activity':['new-activity','cal','新建活动']
+};
+var QUICK_CREATE_BY_PAGE={
+  dash:['new-project','new-task','new-member','new-file','sched'],
+  proj:['new-project','new-task','new-file','sched'],
+  project:['new-task','new-file','sched'],
+  sched:['new-project','new-task'],
+  task:['new-task'], me:['new-task'], execution:['new-task'],
+  org:['new-member'],
+  flow:['new-agent'], agent:['new-agent','new-task','new-file'],
+  kb:['new-file'], assistant:['new-task','new-file'], search:['new-task','new-file'],
+  customers:['new-customer'], activities:['new-activity'], decisions:['new-task']
+};
+function quickCreateItemsForPage(page){
+  return (QUICK_CREATE_BY_PAGE[page]||[]).map(function(key){ return QUICK_CREATE_CATALOG[key]; }).filter(function(item){
+    return item&&formalPageAllowed(item[0]);
+  });
+}
 function renderTop(){
   var isMobile=isMobileShell();
   var m=(S.page==='me'&&S.mobileTaskFocus)?['我的任务','只看当前身份的执行事项']:(S.page==='me'&&isMobile?['工作台','今天要完成什么，一屏看清']:META[S.page]), me=MB[S.me]||{n:'当前用户',r:'已登录'};
@@ -1743,9 +1776,7 @@ function renderTop(){
   var dateEnd=fmt(today());
   var taskNotificationUnavailable=moduleDependencyUnavailable(['tasks']);
   var notices=taskNotificationUnavailable?[]:topNotifications();
-  var quickItems=isDemoRuntime()
-    ?[['new-project','proj','新建项目'],['new-task','task','新建任务'],['new-member','user','添加成员'],['new-file','file','上传文档'],['sched','ai','AI 调度目标']]
-    :(hasWorkstationPermission('task.manage')?[['new-task','task','新建任务']]:[]);
+  var quickItems=quickCreateItemsForPage(S.page);
   var identityControl=canSwitch?j([
     '<div class="me"><button data-act="menu" aria-label="切换当前身份" style="display:flex;align-items:center;gap:9px">',av(me.n,1),
       '<span style="text-align:left"><span class="nm">',esc(me.n),'</span><br><span class="rl">',esc(me.r),'</span></span>',ic('down',14),'</button>',
@@ -3655,11 +3686,11 @@ function viewAgents(){
       var q=(S.f.agentQ||'').trim();
       return !q||(a.n+a.dept+a.d).indexOf(q)>=0;
     });
-    return head+j(['<div class="bd" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--line2)">',
+    return head+j(['<div class="bd agent-directory-toolbar" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--line2)">',
       '<div class="search" style="width:230px">',ic('search',15),'<input data-q="agentQ" value="',esc(S.f.agentQ||''),'" placeholder="搜索 Agent 名称或能力"></div>',
       '<div class="chips">',[['all','全部'],['mine','我可调用'],['locked','需申请权限']].map(function(x){
         return '<button class="chip '+(vis===x[0]?'on':'')+'" data-act="set" data-k="agentVis" data-v="'+x[0]+'">'+x[1]+'</button>'; }).join(''),'</div>',
-      '<span style="width:1px;height:20px;background:var(--line)"></span>',
+      '<span class="agent-filter-divider" style="width:1px;height:20px;background:var(--line)"></span>',
       '<div class="chips" style="flex:1">',
         ['all'].concat(DEPTS.filter(function(d){ return byDept[d]; })).map(function(c){
           return '<button class="chip '+(S.f.agentDept===c?'on':'')+'" data-act="set" data-k="agentDept" data-v="'+esc(c)+'">'+(c==='all'?'全部部门':c)+(byDept[c]?' '+byDept[c]:'')+'</button>'; }).join(''),

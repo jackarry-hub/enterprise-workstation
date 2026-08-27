@@ -129,6 +129,7 @@ export function isStandaloneAuthorizedPath(pathname: string) {
     || pathname === "/api/workstation/directory-sync"
     || pathname === "/api/workstation/projects"
     || pathname.startsWith("/api/workstation/projects/")
+    || pathname.startsWith("/api/workstation/files/")
     || pathname === "/api/workstation/tasks"
     || pathname.startsWith("/api/workstation/tasks/")
     || pathname === "/api/workstation/payroll"
@@ -141,7 +142,8 @@ export function isStandaloneAuthorizedPath(pathname: string) {
     || pathname === "/api/demo-auth/logout"
     || pathname === "/api/ai/config"
     || pathname === "/api/ai/chat"
-    || pathname === "/api/internal/agent-invocation-recovery";
+    || pathname === "/api/internal/agent-invocation-recovery"
+    || pathname === "/api/internal/file-upload-cleanup";
 }
 
 function noAccessDestination(session: Parameters<typeof assertServerRouteAccess>[0], requestUrl: string) {
