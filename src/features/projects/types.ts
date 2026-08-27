@@ -93,6 +93,7 @@ export type ProjectListPriorityFilter = ProjectPriority | "all";
 
 export interface MemberSummary {
   id: string;
+  employeePublicId?: string;
   displayName: string;
   department: string;
   title: string;

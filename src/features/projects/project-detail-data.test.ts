@@ -127,6 +127,7 @@ describe("loadProjectDetail", () => {
       },
       employee_profiles: {
         data: [{
+          public_id: "employee-real-owner",
           organization_member_id: 902,
           display_name: "周岚",
           avatar_url: "https://example.com/avatar.png",
@@ -153,6 +154,7 @@ describe("loadProjectDetail", () => {
     expect(result?.source).toBe("supabase");
     expect(result?.detail.owner).toEqual({
       id: "member-real-owner",
+      employeePublicId: "employee-real-owner",
       displayName: "周岚",
       department: "技术研发部",
       title: "项目总监",

@@ -80,8 +80,9 @@ git commit -m "feat: add transactional project lifecycle"
 ### Task 2: Add milestone, risk, activity, report, comment, and dependency commands
 
 **Files:**
-- Create: `supabase/migrations/202608260014_project_execution_commands.sql`
+- Create: `supabase/migrations/202608270005_project_execution_commands.sql` (forward-only after Task 1 migration `202608270004`)
 - Create: `supabase/tests/project_execution.sql`
+- Create: `supabase/tests/project_execution_concurrency.sql`
 - Create: `src/features/projects/execution-command-handler.ts`
 - Create: `src/features/projects/execution-command-handler.test.ts`
 - Create: `src/app/api/workstation/projects/[projectId]/milestones/route.ts`
@@ -90,12 +91,22 @@ git commit -m "feat: add transactional project lifecycle"
 - Create: `src/app/api/workstation/projects/[projectId]/reports/route.ts`
 - Create: `src/app/api/workstation/tasks/[taskId]/comments/route.ts`
 - Create: `src/app/api/workstation/tasks/[taskId]/dependencies/route.ts`
+- Modify: `src/features/projects/actions/create-project-milestone.ts`
+- Create: `src/features/projects/actions/create-project-milestone.test.ts`
+- Modify: `src/features/projects/components/create-milestone-dialog.tsx`
+- Create: `src/features/projects/components/create-milestone-dialog.test.tsx`
+- Modify: `src/features/projects/components/project-milestones-tab.tsx`
+- Modify: `src/features/projects/data/project-member-data.ts`
+- Modify: `src/features/projects/project-detail-data.test.ts`
+- Modify: `src/features/projects/project-detail-workspace.tsx`
+- Modify: `src/features/projects/project-list-data.test.ts`
+- Modify: `src/features/projects/types.ts`
 
 **Interfaces:**
 - Produces audited RPC commands for each named child resource.
 - Dependency command rejects self-dependency and cycles with `task_dependency_cycle`.
 
-- [ ] **Step 1: Write failing permission and cycle tests**
+- [x] **Step 1: Write failing permission and cycle tests**
 
 ```ts
 expect((await createRisk(unrelatedEmployeeRequest)).status).toBe(403);
@@ -103,25 +114,33 @@ expect((await createDependency({ taskId: a, dependsOn: a })).status).toBe(422);
 expect((await createDependency({ taskId: a, dependsOn: cInExistingCycle })).status).toBe(422);
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `npx vitest run src/features/projects/execution-command-handler.test.ts`
 Expected: handler and routes are absent.
 
-- [ ] **Step 3: Implement project-member scoped RPCs**
+- [x] **Step 3: Implement project-member scoped RPCs**
 
 Each RPC resolves project membership from session, validates dates/status, writes the child entity and audit row, and returns the public entity representation.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4a: Verify application GREEN**
 
 Run: `npx vitest run src/features/projects/execution-command-handler.test.ts`
-Run: `npm run db:test`
-Expected: authorized commands persist; unrelated/cross-tenant commands fail; dependency cycles are rejected.
+Expected: handler, action, dialog, type, lint, security, HTML, and production-build gates pass.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4b: Verify PostgreSQL GREEN (external release gate)**
+
+Run: `npm run db:test`
+Expected: authorized commands persist; unrelated/cross-tenant commands fail; dependency cycles and concurrent opposite edges are rejected.
+
+Application tests, type checking, linting, security checks, and static SQL review must pass locally. The clean-reset pgTAP suite, including `project_execution_concurrency.sql`, remains an explicit release gate on a PostgreSQL/Supabase environment with `dblink`; it must not be recorded as passed when no local database runtime is available.
+
+Task 2 keeps the existing formal-page fixture gate in place. Task 6 owns the coordinated removal of fixture gating after Tasks 1-5 APIs are available, preventing partially real pages from exposing local-only task, report, or file mutations.
+
+- [x] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260014_project_execution_commands.sql supabase/tests/project_execution.sql src/features/projects/execution-command-handler.ts src/features/projects/execution-command-handler.test.ts src/app/api/workstation/projects/[projectId]/milestones/route.ts src/app/api/workstation/projects/[projectId]/risks/route.ts src/app/api/workstation/projects/[projectId]/activities/route.ts src/app/api/workstation/projects/[projectId]/reports/route.ts src/app/api/workstation/tasks/[taskId]/comments/route.ts src/app/api/workstation/tasks/[taskId]/dependencies/route.ts
+git add docs/superpowers/plans/2026-08-26-quantxy-03-project-task-delivery.md supabase/migrations/202608270005_project_execution_commands.sql supabase/tests/project_execution.sql supabase/tests/project_execution_concurrency.sql src/features/projects/execution-command-handler.ts src/features/projects/execution-command-handler.test.ts src/app/api/workstation/projects/[projectId]/milestones/route.ts src/app/api/workstation/projects/[projectId]/risks/route.ts src/app/api/workstation/projects/[projectId]/activities/route.ts src/app/api/workstation/projects/[projectId]/reports/route.ts src/app/api/workstation/tasks/[taskId]/comments/route.ts src/app/api/workstation/tasks/[taskId]/dependencies/route.ts src/features/projects/actions/create-project-milestone.ts src/features/projects/actions/create-project-milestone.test.ts src/features/projects/components/create-milestone-dialog.tsx src/features/projects/components/create-milestone-dialog.test.tsx src/features/projects/components/project-milestones-tab.tsx src/features/projects/data/project-member-data.ts src/features/projects/project-detail-data.test.ts src/features/projects/project-detail-workspace.tsx src/features/projects/project-list-data.test.ts src/features/projects/types.ts
 git commit -m "feat: add project execution commands"
 ```
 

@@ -113,8 +113,8 @@ describe("loadProjectList", () => {
       },
       employee_profiles: {
         data: [
-          { organization_member_id: 101, display_name: "林远", avatar_url: null, job_title: "项目总监", department: { name: "总经办" } },
-          { organization_member_id: 102, display_name: "王芳", avatar_url: null, job_title: "产品经理", department: { name: "产品研发部" } },
+          { public_id: "employee-101", organization_member_id: 101, display_name: "林远", avatar_url: null, job_title: "项目总监", department: { name: "总经办" } },
+          { public_id: "employee-102", organization_member_id: 102, display_name: "王芳", avatar_url: null, job_title: "产品经理", department: { name: "产品研发部" } },
         ],
         error: null,
       },

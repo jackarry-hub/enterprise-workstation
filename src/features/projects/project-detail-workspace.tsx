@@ -54,7 +54,13 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
     [detail.milestones],
   );
   const canViewProject = isFixtureBound && (actor.role === "executive" || detail.project.ownerId === actor.memberId || detail.members.some(({ member }) => member.id === actor.memberId));
-  const canManageProject = isFixtureBound && (actor.role === "executive" || detail.project.ownerId === actor.memberId);
+  const actorProjectRole = detail.members.find(({ member }) => member.id === actor.memberId)?.role;
+  const canManageProject = isFixtureBound && (
+    actor.role === "executive"
+    || detail.project.ownerId === actor.memberId
+    || actorProjectRole === "owner"
+    || actorProjectRole === "manager"
+  );
   const workflowManaged = operationsState.command.projectId === detail.project.id;
 
   useEffect(() => {
@@ -170,7 +176,7 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
         <ProjectDetailTabs />
         {activeTab === "overview" ? <ProjectOverviewTab detail={detail} /> : null}
         {activeTab === "milestones" ? (
-          <ProjectMilestonesTab detail={detail} milestones={detail.milestones} onCreate={() => setIsMilestoneOpen(true)} />
+          <ProjectMilestonesTab detail={detail} milestones={detail.milestones} onCreate={() => setIsMilestoneOpen(true)} canManage={canManageProject} />
         ) : null}
         {activeTab === "tasks" ? (
           <ProjectTasksTab actor={auditActor} detail={detail} onCreate={() => setIsTaskOpen(true)} onStatusChange={updateTaskStatus} onComment={addTaskComment} initialTaskId={initialTaskId} canManage={canManageProject} workflowManaged={workflowManaged} />

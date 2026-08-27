@@ -33,9 +33,10 @@ type ProjectMilestonesTabProps = {
   detail: ProjectDetailData;
   milestones: readonly Milestone[];
   onCreate: () => void;
+  canManage?: boolean;
 };
 
-export function ProjectMilestonesTab({ detail, milestones, onCreate }: ProjectMilestonesTabProps) {
+export function ProjectMilestonesTab({ detail, milestones, onCreate, canManage = true }: ProjectMilestonesTabProps) {
   const completed = milestones.filter(({ status }) => status === "completed").length;
   const inProgress = milestones.filter(({ status }) => status === "in_progress").length;
   const overall = milestones.length === 0
@@ -57,10 +58,12 @@ export function ProjectMilestonesTab({ detail, milestones, onCreate }: ProjectMi
             <h2 className="text-lg font-semibold text-foreground">里程碑计划</h2>
             <p className="mt-1 text-sm text-muted-foreground">按阶段推进项目，及时识别交付偏差</p>
           </div>
-          <Button type="button" onClick={onCreate} className="h-9 rounded-xl px-3 shadow-[0_10px_24px_rgba(47,125,246,0.18)]">
-            <Plus data-icon="inline-start" aria-hidden="true" />
-            新增里程碑
-          </Button>
+          {canManage ? (
+            <Button type="button" onClick={onCreate} className="h-9 rounded-xl px-3 shadow-[0_10px_24px_rgba(47,125,246,0.18)]">
+              <Plus data-icon="inline-start" aria-hidden="true" />
+              新增里程碑
+            </Button>
+          ) : null}
         </div>
         <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
           {stats.map(({ label, value, icon: Icon, tone }) => (
@@ -127,8 +130,10 @@ export function ProjectMilestonesTab({ detail, milestones, onCreate }: ProjectMi
             <div>
               <CalendarCheck2 aria-hidden="true" className="mx-auto size-8 text-primary" />
               <h3 className="mt-3 font-semibold text-foreground">还没有里程碑</h3>
-              <p className="mt-1 text-sm text-muted-foreground">新增第一个阶段，开始推进项目计划。</p>
-              <Button type="button" onClick={onCreate} className="mt-4 h-9 rounded-xl">新增里程碑</Button>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {canManage ? "新增第一个阶段，开始推进项目计划。" : "项目负责人尚未创建阶段计划。"}
+              </p>
+              {canManage ? <Button type="button" onClick={onCreate} className="mt-4 h-9 rounded-xl">新增里程碑</Button> : null}
             </div>
           </div>
         )}

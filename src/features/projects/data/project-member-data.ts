@@ -12,6 +12,7 @@ type OrganizationMemberRow = {
 type DepartmentRelation = { name: string } | readonly { name: string }[] | null;
 
 type EmployeeProfileRow = {
+  public_id: string;
   organization_member_id: number;
   display_name: string;
   avatar_url: string | null;
@@ -68,7 +69,7 @@ export async function loadProjectMemberDirectory(
       .in("id", uniqueMemberIds),
     client
       .from("employee_profiles")
-      .select("organization_member_id, display_name, avatar_url, job_title, department:departments!employee_profiles_department_id_fkey(name)")
+      .select("public_id, organization_member_id, display_name, avatar_url, job_title, department:departments!employee_profiles_department_id_fkey(name)")
       .in("organization_member_id", uniqueMemberIds)
       .is("deleted_at", null),
   ]);
@@ -94,6 +95,7 @@ export async function loadProjectMemberDirectory(
       summary: profile
         ? {
           id: member.public_id,
+          employeePublicId: profile.public_id,
           displayName: profile.display_name,
           department: departmentName(profile.department),
           title: profile.job_title,
