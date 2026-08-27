@@ -11,6 +11,7 @@ const managerId = "73000000-0000-4000-8000-000000000002";
 const otherDepartmentId = "73000000-0000-4000-8000-000000000003";
 const idempotencyKey = "73000000-0000-4000-8000-000000000010";
 const requestId = "73000000-0000-4000-8000-000000000011";
+const caseVariantDirectReportId = "73000000-0000-4000-8000-00000000000a";
 
 const supervisorSession = {
   ...executiveWorkspaceSession,
@@ -91,6 +92,58 @@ describe("manager scope handler", () => {
     expect(rpc).toHaveBeenCalledWith("current_supervisor_employee_projection", {
       p_employee_public_id: directReportId,
     });
+  });
+
+  it("canonicalizes equivalent uppercase UUID paths for protected reads and writes", async () => {
+    const uppercaseId = caseVariantDirectReportId.toUpperCase();
+    const scopedSession = {
+      ...supervisorSession,
+      supervisorScopeEmployeeIds: [caseVariantDirectReportId],
+    };
+    const readRpc = vi.fn().mockResolvedValue({
+      data: [{
+        employee_public_id: caseVariantDirectReportId,
+        display_name: "陈工",
+        department_name: "工程部",
+        job_title: "后端工程师",
+        manager_employee_public_id: managerId,
+        manager_version: 4,
+        manager_source: "manual",
+      }],
+      error: null,
+    });
+    const readResponse = await createManagerScopeHandlers({
+      session: scopedSession,
+      rpc: readRpc,
+    }).GET(new Request("https://workspace.test"), context(uppercaseId));
+
+    expect(readResponse.status).toBe(200);
+    expect(readRpc).toHaveBeenCalledWith("current_supervisor_employee_projection", {
+      p_employee_public_id: caseVariantDirectReportId,
+    });
+
+    const writeRpc = vi.fn().mockResolvedValue({
+      data: { outcome: "success", id: caseVariantDirectReportId, version: 5 },
+      error: null,
+    });
+    const writeResponse = await createManagerScopeHandlers({
+      session: managerSession,
+      rpc: writeRpc,
+      createRequestId: () => requestId,
+    }).POST(
+      writeRequest({ managerEmployeeId: managerId, expectedVersion: 4, reason: "组织调整" }),
+      context(uppercaseId),
+    );
+
+    expect(writeResponse.status).toBe(200);
+    expect(await writeResponse.json()).toEqual({
+      outcome: "success",
+      employeeId: caseVariantDirectReportId,
+      managerVersion: 5,
+    });
+    expect(writeRpc).toHaveBeenCalledWith("assign_current_member_manager", expect.objectContaining({
+      p_target_employee_public_id: caseVariantDirectReportId,
+    }));
   });
 
   it("returns 404 for an empty protected projection and 503 for a store failure", async () => {

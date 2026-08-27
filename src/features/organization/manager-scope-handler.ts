@@ -49,18 +49,19 @@ export function createManagerScopeHandlers(dependencies: ManagerScopeDependencie
       }
       if (!workspaceSession) return json({ error: "unauthorized" }, 401);
       const { memberId } = await context.params;
-      if (!isUuid(memberId)) return json({ error: "invalid_request" }, 400);
-      if (!canReadSupervisorScope(workspaceSession, memberId)) {
+      const normalizedMemberId = canonicalUuid(memberId);
+      if (!normalizedMemberId) return json({ error: "invalid_request" }, 400);
+      if (!canReadSupervisorScope(workspaceSession, normalizedMemberId)) {
         return json({ error: "not_found" }, 404);
       }
 
       try {
         const result = await dependencies.rpc(
           "current_supervisor_employee_projection",
-          { p_employee_public_id: memberId },
+          { p_employee_public_id: normalizedMemberId },
         );
         if (result.error) throw new ManagerScopeStoreError(result.error.code);
-        const parsed = parseProjection(result.data, memberId);
+        const parsed = parseProjection(result.data, normalizedMemberId);
         if (parsed.kind === "malformed") {
           throw new ManagerScopeStoreError("P0001");
         }
@@ -81,7 +82,8 @@ export function createManagerScopeHandlers(dependencies: ManagerScopeDependencie
       }
       if (!workspaceSession) return json({ error: "unauthorized" }, 401);
       const { memberId } = await context.params;
-      if (!isUuid(memberId)) return json({ error: "invalid_request" }, 400);
+      const normalizedMemberId = canonicalUuid(memberId);
+      if (!normalizedMemberId) return json({ error: "invalid_request" }, 400);
       if (
         workspaceSession.member.status !== "active"
         || !workspaceSession.permissionCodes.includes("organization.manage")
@@ -89,13 +91,13 @@ export function createManagerScopeHandlers(dependencies: ManagerScopeDependencie
         return json({ error: "forbidden" }, 403);
       }
 
-      const idempotencyKey = request.headers.get("Idempotency-Key");
-      if (!isUuid(idempotencyKey)) {
+      const idempotencyKey = canonicalUuid(request.headers.get("Idempotency-Key"));
+      if (!idempotencyKey) {
         return json({ error: "invalid_idempotency_key" }, 400);
       }
       const body = await readObject(request);
-      const managerEmployeeId = body && isUuid(body.managerEmployeeId)
-        ? body.managerEmployeeId
+      const managerEmployeeId = body
+        ? canonicalUuid(body.managerEmployeeId)
         : null;
       const expectedVersion = body && positiveInteger(body.expectedVersion);
       const reason = body && boundedText(body.reason, 500);
@@ -105,7 +107,7 @@ export function createManagerScopeHandlers(dependencies: ManagerScopeDependencie
 
       try {
         const result = await dependencies.rpc("assign_current_member_manager", {
-          p_target_employee_public_id: memberId,
+          p_target_employee_public_id: normalizedMemberId,
           p_manager_employee_public_id: managerEmployeeId,
           p_expected_manager_version: expectedVersion,
           p_reason: reason,
@@ -118,7 +120,7 @@ export function createManagerScopeHandlers(dependencies: ManagerScopeDependencie
           if (!status) throw new ManagerScopeStoreError("P0001");
           return json({ error: result.data.error }, status);
         }
-        if (!isSuccessResult(result.data, memberId)) {
+        if (!isSuccessResult(result.data, normalizedMemberId)) {
           throw new ManagerScopeStoreError("P0001");
         }
         return json({
@@ -220,6 +222,10 @@ async function readObject(request: Request) {
 
 function isUuid(value: unknown): value is string {
   return typeof value === "string" && UUID_PATTERN.test(value);
+}
+
+function canonicalUuid(value: unknown) {
+  return isUuid(value) ? value.toLowerCase() : null;
 }
 
 function positiveInteger(value: unknown) {

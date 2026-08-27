@@ -1,5 +1,5 @@
 begin;
-select plan(141);
+select plan(143);
 
 insert into public.tenants (name,slug,status) values ('Organization command A','organization-command-a','active'),('Organization command B','organization-command-b','active');
 insert into public.organizations (tenant_id,name,slug)
@@ -355,7 +355,8 @@ select ok(has_function('public','current_supervisor_employee_projection',array['
 select ok(has_function_privilege('authenticated','public.current_supervisor_employee_projection(uuid)','EXECUTE') and not has_function_privilege('anon','public.current_supervisor_employee_projection(uuid)','EXECUTE'),'protected supervisor projection is authenticated-only');
 select ok(has_function('public','assign_current_member_manager',array['uuid','uuid','bigint','text','uuid','uuid']::name[]),'manager command carries exact public IDs, version, reason, request and idempotency');
 select ok(
-  has_function('public','revoke_departed_member_access',array['uuid','text']::name[])
+  has_function('public','ingest_feishu_webhook_event',array['text','text','text','text','text','text','bigint','text']::name[])
+  and has_function('public','revoke_departed_member_access',array['uuid','text']::name[])
   and has_function('public','apply_feishu_directory_sync',array['uuid','uuid','jsonb']::name[])
   and has_function('public','apply_feishu_directory_sync_observed',array['uuid','uuid','jsonb','uuid']::name[])
   and has_function('public','apply_feishu_directory_sync_exact',array['uuid','uuid','uuid','uuid','jsonb']::name[])
@@ -368,7 +369,7 @@ select is((
   join pg_namespace namespace on namespace.oid=procedure.pronamespace
   where namespace.nspname='public'
     and procedure.proname in (
-      'revoke_departed_member_access','apply_feishu_directory_sync',
+      'ingest_feishu_webhook_event','revoke_departed_member_access','apply_feishu_directory_sync',
       'apply_feishu_directory_sync_observed','apply_feishu_directory_sync_exact',
       'apply_feishu_directory_sync_fenced'
     )
@@ -380,10 +381,11 @@ select is((
       where legacy_namespace.nspname='public'
         and legacy.proname='task8_legacy_'||procedure.proname
     )
-),5::bigint,'Task 7 lock wrappers preserve owner, security definer and empty search path hardening');
+),6::bigint,'Task 7 lock wrappers preserve owner, security definer and empty search path hardening');
 select ok(
-  has_function_privilege('service_role','public.revoke_departed_member_access(uuid,text)','EXECUTE')
-  and has_function_privilege('service_role','public.apply_feishu_directory_sync_observed(uuid,uuid,jsonb,uuid)','EXECUTE')
+  has_function_privilege('service_role','public.ingest_feishu_webhook_event(text,text,text,text,text,text,bigint,text)','EXECUTE')
+  and has_function_privilege('service_role','public.revoke_departed_member_access(uuid,text)','EXECUTE')
+  and not has_function_privilege('service_role','public.apply_feishu_directory_sync_observed(uuid,uuid,jsonb,uuid)','EXECUTE')
   and has_function_privilege('service_role','public.apply_feishu_directory_sync_fenced(uuid,uuid,uuid,jsonb)','EXECUTE')
   and not has_function_privilege('service_role','public.apply_feishu_directory_sync(uuid,uuid,jsonb)','EXECUTE')
   and not has_function_privilege('service_role','public.apply_feishu_directory_sync_exact(uuid,uuid,uuid,uuid,jsonb)','EXECUTE')
@@ -399,7 +401,7 @@ select is((
     and not has_function_privilege('service_role',procedure.oid,'EXECUTE')
     and not has_function_privilege('authenticated',procedure.oid,'EXECUTE')
     and not has_function_privilege('anon',procedure.oid,'EXECUTE')
-),5::bigint,'renamed lifecycle implementations are private to their wrappers');
+),6::bigint,'renamed lifecycle implementations are private to their wrappers');
 select ok(
   exists(select 1 from pg_trigger where tgrelid='public.employee_profiles'::regclass and tgname='employee_profiles_require_manager_tree_lock' and tgenabled<>'D')
   and not has_function_privilege('service_role','public.require_employee_manager_tree_lock()','EXECUTE'),
@@ -409,6 +411,13 @@ select ok(exists(select 1 from pg_constraint where conrelid='public.employee_pro
 select ok(not has_column_privilege('authenticated','public.employee_profiles','manager_employee_id','UPDATE') and not has_column_privilege('authenticated','public.employee_profiles','manager_source','UPDATE') and not has_column_privilege('authenticated','public.employee_profiles','manager_version','UPDATE'),'browser roles cannot directly write manager authority or version');
 select throws_ok($$ insert into public.roles (tenant_id,organization_id,code,name,description,is_system,is_enabled) select tenant.id,organization.id,'supervisor','Scoped supervisor','Must fail',false,true from public.tenants tenant join public.organizations organization on organization.tenant_id=tenant.id where organization.slug='organization-command-org-a' $$,'23514','Canonical workspace role codes require a global system role','custom scoped supervisor lookalike is rejected');
 select is((select count(*) from public.external_identities where organization_member_id=current_setting('test.organization.same_user_secondary_member')::bigint),0::bigint,'second organization membership has no alternate external identity');
+select throws_ok(format(
+  'select public.apply_feishu_directory_sync_observed(%L::uuid,%L::uuid,%L::jsonb,%L::uuid)',
+  (select public_id from public.tenants where slug='organization-command-a'),
+  '97000000-0000-4000-8000-000000000002',
+  '{"departments":[],"positions":[],"employees":[],"complete":true}',
+  '97000000-0000-4000-8000-000000000193'
+),'55000','legacy_directory_sync_disabled','membership-derived legacy directory path is disabled in favor of immutable fenced work');
 select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000002',true); set local role authenticated;
 select is((public.current_workspace_access()->>'organizationId')::uuid,(select public_id from public.organizations where slug='organization-command-org-a'),'active external identity remains the only selected workspace for a multi-membership user');
 select is((select public.assign_current_member_manager(current_setting('test.organization.same_user_secondary_profile')::uuid,current_setting('test.organization.same_user_secondary_profile')::uuid,1,'Attempt alternate membership selection','97000000-0000-4000-8000-000000000191'::uuid,'97000000-0000-4000-8000-000000000192'::uuid)->>'error'),'not_found','active-workspace user cannot select its second membership by target id');
@@ -508,6 +517,7 @@ select set_config('test.organization_manager_dblink_available','false',true);
 select set_config('test.organization_manager_guard_closed','false',true);
 select set_config('test.organization_manager_no_deadlock','false',true);
 select set_config('test.organization_manager_cross_org_isolated','false',true);
+select set_config('test.organization_manager_webhook_sync_ordered','false',true);
 do $manager_lock_concurrency$
 declare
   v_extension_schema name;
@@ -520,6 +530,8 @@ declare
   v_waiting boolean;
   v_offboard_result boolean;
   v_manager_result jsonb;
+  v_webhook_result jsonb;
+  v_fenced_result jsonb;
   v_drain text;
 begin
   begin
@@ -601,7 +613,7 @@ begin
          where tenant.slug='task8-manager-lock-proof';
         insert into public.identity_providers(
           tenant_id,provider_code,auth_provider,provider_tenant_key,display_name,status
-        ) select id,'task8managerlock','custom:task8managerlock','task8-manager-lock','Task 8 lock identity','active'
+        ) select id,'feishu','custom:task8managerlock','task8-manager-lock','Task 8 lock identity','active'
             from public.tenants where slug='task8-manager-lock-proof';
         insert into public.roles(tenant_id,organization_id,code,name,description,is_system,is_enabled)
         select tenant.id,organization.id,'task8_lock_manager_'||right(organization.slug,1),
@@ -659,7 +671,7 @@ begin
                  member.user_id::text,provider.provider_tenant_key,member.user_id,'active'
             from public.organization_members member
             join public.identity_providers provider on provider.tenant_id=member.tenant_id
-             and provider.provider_code='task8managerlock'
+             and provider.provider_code='feishu'
            where member.user_id in (
              '97000000-0000-4000-8000-000000005101','97000000-0000-4000-8000-000000005201'
            );
@@ -685,6 +697,37 @@ begin
             join public.organization_members member on member.user_id=seed.user_id
             join public.departments department on department.tenant_id=member.tenant_id
              and department.organization_id=member.organization_id and department.code='LOCK';
+        insert into public.directory_connections(
+          tenant_id,organization_id,identity_provider_id,provider_type,
+          external_tenant_key,sync_mode,status
+        ) select tenant.id,organization.id,provider.id,'feishu',
+                 provider.provider_tenant_key,'manual','active'
+            from public.tenants tenant
+            join public.organizations organization on organization.tenant_id=tenant.id
+             and organization.slug='task8-manager-lock-a'
+            join public.identity_providers provider on provider.tenant_id=tenant.id
+             and provider.provider_code='feishu'
+           where tenant.slug='task8-manager-lock-proof';
+        insert into public.directory_sync_runs(
+          public_id,tenant_id,organization_id,connection_id,actor_member_id,
+          status,request_id,completed_at
+        ) select '97000000-0000-4000-8000-000000007201'::uuid,
+                 connection.tenant_id,connection.organization_id,connection.id,member.id,
+                 'completed','97000000-0000-4000-8000-000000007201'::uuid,clock_timestamp()
+            from public.directory_connections connection
+            join public.organization_members member on member.tenant_id=connection.tenant_id
+             and member.organization_id=connection.organization_id
+             and member.user_id='97000000-0000-4000-8000-000000005101'::uuid
+           where connection.external_tenant_key='task8-manager-lock';
+        insert into public.feishu_sync_leases(
+          connection_id,tenant_id,organization_id,run_id,mode,status,
+          lease_expires_at,actor_auth_user_id
+        ) select connection.id,connection.tenant_id,connection.organization_id,
+                 '97000000-0000-4000-8000-000000007201'::uuid,'full','running',
+                 clock_timestamp()+interval '5 minutes',
+                 '97000000-0000-4000-8000-000000005101'::uuid
+            from public.directory_connections connection
+           where connection.external_tenant_key='task8-manager-lock';
         do $remote$
         declare v_tenant bigint; v_organization bigint;
         begin
@@ -885,6 +928,74 @@ begin
     end if;
 
     execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_c','begin';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_c',$lock_connection$
+        do $remote$ begin
+          perform connection.id from public.directory_connections connection
+           where connection.external_tenant_key='task8-manager-lock'
+           for update of connection;
+        end $remote$;
+      $lock_connection$;
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_a','begin';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_a','set local role service_role';
+    execute format('select %I.dblink_send_query($1,$2)',v_extension_schema)
+      into v_integer using 'task8_manager_a',$webhook$
+        select public.ingest_feishu_webhook_event(
+          'task8-app','task8-manager-lock','task8-manager-lock-webhook',
+          'contact.department.created_v3','department','od-task8-lock',1,repeat('a',64)
+        )
+      $webhook$;
+    v_wait_count:=0; v_waiting:=false;
+    loop
+      select exists(select 1 from pg_catalog.pg_stat_activity activity
+        where activity.pid=v_worker_pid and activity.wait_event_type='Lock') into v_waiting;
+      exit when v_waiting or v_wait_count>=100;
+      v_wait_count:=v_wait_count+1; perform pg_sleep(0.01);
+    end loop;
+    if not v_waiting then raise exception 'webhook_not_waiting_on_connection'; end if;
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_b','begin';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_b','set local role service_role';
+    execute format('select %I.dblink_send_query($1,$2)',v_extension_schema)
+      into v_integer using 'task8_manager_b',$fenced$
+        select public.apply_feishu_directory_sync_fenced(
+          '97000000-0000-4000-8000-000000007201',
+          '97000000-0000-4000-8000-000000007101',
+          '97000000-0000-4000-8000-000000005101','{}'::jsonb
+        )
+      $fenced$;
+    v_wait_count:=0; v_waiting:=false;
+    loop
+      select exists(select 1 from pg_catalog.pg_stat_activity activity
+        where activity.pid=v_worker_b_pid and activity.wait_event_type='Lock') into v_waiting;
+      exit when v_waiting or v_wait_count>=100;
+      v_wait_count:=v_wait_count+1; perform pg_sleep(0.01);
+    end loop;
+    if not v_waiting then raise exception 'fenced_sync_not_waiting_behind_webhook'; end if;
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_c','commit';
+    execute format(
+      'select result from %I.dblink_get_result($1) as remote(result jsonb)',v_extension_schema
+    ) into v_webhook_result using 'task8_manager_a';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_a','commit';
+    execute format(
+      'select result from %I.dblink_get_result($1) as remote(result jsonb)',v_extension_schema
+    ) into v_fenced_result using 'task8_manager_b';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'task8_manager_b','commit';
+    if v_webhook_result->>'status'='applied'
+       and v_fenced_result->>'status'='completed' then
+      perform set_config('test.organization_manager_webhook_sync_ordered','true',true);
+    else
+      raise exception 'webhook_fenced_overlap_unexpected_result';
+    end if;
+
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
       into v_status using 'task8_manager_a',$cleanup$
         do $remote$ declare v_scope record; begin
           for v_scope in
@@ -993,6 +1104,11 @@ select case when current_setting('test.organization_manager_dblink_available')='
   then ok(current_setting('test.organization_manager_cross_org_isolated')='true',
     'organization A lifecycle mutation does not block organization B manager command')
   else ok(true,'organization cross-scope manager concurrency # SKIP dblink extension or local connection unavailable')
+end;
+select case when current_setting('test.organization_manager_dblink_available')='true'
+  then ok(current_setting('test.organization_manager_webhook_sync_ordered')='true',
+    'webhook and fenced directory sync share provider-manager-connection lock order')
+  else ok(true,'webhook and fenced directory sync lock order # SKIP dblink extension or local connection unavailable')
 end;
 
 select * from finish(); rollback;

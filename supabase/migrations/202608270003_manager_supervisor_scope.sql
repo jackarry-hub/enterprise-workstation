@@ -605,6 +605,10 @@ drop function if exists public.cleanup_employee_manager_relationships();
 -- lock in front of every active entry point before those legacy row locks.
 do $manager_entrypoint_rename$
 begin
+  if to_regprocedure('public.task8_legacy_ingest_feishu_webhook_event(text,text,text,text,text,text,bigint,text)') is null then
+    alter function public.ingest_feishu_webhook_event(text, text, text, text, text, text, bigint, text)
+      rename to task8_legacy_ingest_feishu_webhook_event;
+  end if;
   if to_regprocedure('public.task8_legacy_revoke_departed_member_access(uuid,text)') is null then
     alter function public.revoke_departed_member_access(uuid, text)
       rename to task8_legacy_revoke_departed_member_access;
@@ -647,13 +651,63 @@ begin
    where profile.public_id = p_member_public_id
      and profile.deleted_at is null
    limit 1;
-  if found then
-    perform pg_advisory_xact_lock(hashtextextended(
-      'manager-tree:' || v_tenant_id::text || ':' || v_organization_id::text, 0
-    ));
-  end if;
+  if not found then return false; end if;
+  perform pg_advisory_xact_lock(hashtextextended(
+    'manager-tree:' || v_tenant_id::text || ':' || v_organization_id::text, 0
+  ));
   return public.task8_legacy_revoke_departed_member_access(
     p_member_public_id, p_event_id
+  );
+end;
+$$;
+
+create or replace function public.ingest_feishu_webhook_event(
+  p_app_id text,
+  p_tenant_key text,
+  p_provider_event_id text,
+  p_event_type text,
+  p_entity_type text,
+  p_entity_external_id text,
+  p_entity_sequence bigint,
+  p_payload_digest text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_scope record;
+begin
+  if nullif(btrim(p_app_id), '') is null
+     or nullif(btrim(p_tenant_key), '') is null then
+    raise exception 'webhook_event_invalid' using errcode = '22023';
+  end if;
+
+  -- Serializes the active connection set with every directory writer. Once
+  -- held, no production sync entrypoint can activate or create another
+  -- matching connection between this scope snapshot and the legacy loop.
+  perform pg_advisory_xact_lock(hashtextextended(
+    'feishu-manager-entrypoint:' || p_tenant_key, 0
+  ));
+  for v_scope in
+    select distinct connection.tenant_id, connection.organization_id
+      from public.identity_providers provider
+      join public.directory_connections connection
+        on connection.tenant_id = provider.tenant_id
+       and connection.identity_provider_id = provider.id
+     where provider.provider_code = 'feishu'
+       and provider.provider_tenant_key = p_tenant_key
+     order by connection.tenant_id, connection.organization_id
+  loop
+    perform pg_advisory_xact_lock(hashtextextended(
+      'manager-tree:' || v_scope.tenant_id::text || ':' || v_scope.organization_id::text, 0
+    ));
+  end loop;
+
+  return public.task8_legacy_ingest_feishu_webhook_event(
+    p_app_id, p_tenant_key, p_provider_event_id, p_event_type,
+    p_entity_type, p_entity_external_id, p_entity_sequence, p_payload_digest
   );
 end;
 $$;
@@ -668,36 +722,14 @@ language plpgsql
 security definer
 set search_path = ''
 as $$
-declare
-  v_tenant_id bigint;
-  v_organization_id bigint;
 begin
-  select tenant.id, organization.id
-    into v_tenant_id, v_organization_id
-    from public.tenants tenant
-    join public.organizations organization
-      on organization.tenant_id = tenant.id
-    join public.organization_members member
-      on member.tenant_id = tenant.id
-     and member.organization_id = organization.id
-     and member.user_id = p_actor_auth_user_id
-     and member.status = 'active'
-    join public.identity_providers provider
-      on provider.tenant_id = tenant.id
-     and provider.provider_code = 'feishu'
-     and provider.status = 'active'
-   where tenant.public_id = p_tenant_public_id
-     and tenant.status = 'active'
-   order by organization.id
-   limit 1;
-  if found then
-    perform pg_advisory_xact_lock(hashtextextended(
-      'manager-tree:' || v_tenant_id::text || ':' || v_organization_id::text, 0
-    ));
-  end if;
-  return public.task8_legacy_apply_feishu_directory_sync(
-    p_tenant_public_id, p_actor_auth_user_id, p_snapshot
-  );
+  -- This pre-control-plane signature derives organization scope from mutable
+  -- memberships. No row or advisory lock can protect the absence of a second
+  -- membership unless every membership writer participates in the protocol.
+  -- Production callers must claim an immutable run and use the fenced RPC.
+  raise exception 'legacy_directory_sync_disabled'
+    using errcode = '55000',
+          hint = 'Claim directory work and call apply_feishu_directory_sync_fenced';
 end;
 $$;
 
@@ -712,36 +744,13 @@ language plpgsql
 security definer
 set search_path = ''
 as $$
-declare
-  v_tenant_id bigint;
-  v_organization_id bigint;
 begin
-  select tenant.id, organization.id
-    into v_tenant_id, v_organization_id
-    from public.tenants tenant
-    join public.organizations organization
-      on organization.tenant_id = tenant.id
-    join public.organization_members member
-      on member.tenant_id = tenant.id
-     and member.organization_id = organization.id
-     and member.user_id = p_actor_auth_user_id
-     and member.status = 'active'
-    join public.identity_providers provider
-      on provider.tenant_id = tenant.id
-     and provider.provider_code = 'feishu'
-     and provider.status = 'active'
-   where tenant.public_id = p_tenant_public_id
-     and tenant.status = 'active'
-   order by organization.id
-   limit 1;
-  if found then
-    perform pg_advisory_xact_lock(hashtextextended(
-      'manager-tree:' || v_tenant_id::text || ':' || v_organization_id::text, 0
-    ));
-  end if;
-  return public.task8_legacy_apply_feishu_directory_sync_observed(
-    p_tenant_public_id, p_actor_auth_user_id, p_snapshot, p_request_id
-  );
+  -- Observability does not make a membership-derived scope immutable. Keep
+  -- the historical signature fail-closed and route all production work
+  -- through claim_feishu_sync_work plus the fenced apply entry point.
+  raise exception 'legacy_directory_sync_disabled'
+    using errcode = '55000',
+          hint = 'Claim directory work and call apply_feishu_directory_sync_fenced';
 end;
 $$;
 
@@ -760,14 +769,14 @@ as $$
 declare
   v_tenant_id bigint;
   v_organization_id bigint;
+  v_provider_tenant_key text;
 begin
-  select run.tenant_id, run.organization_id
-    into v_tenant_id, v_organization_id
+  select run.tenant_id, run.organization_id, provider.provider_tenant_key
+    into v_tenant_id, v_organization_id, v_provider_tenant_key
     from public.directory_sync_runs run
     join public.tenants tenant
       on tenant.id = run.tenant_id
      and tenant.public_id = p_tenant_public_id
-     and tenant.status = 'active'
     join public.organizations organization
       on organization.tenant_id = run.tenant_id
      and organization.id = run.organization_id
@@ -777,26 +786,27 @@ begin
      and actor.organization_id = run.organization_id
      and actor.id = run.actor_member_id
      and actor.user_id = p_actor_auth_user_id
-     and actor.status = 'active'
     join public.directory_connections connection
       on connection.tenant_id = run.tenant_id
      and connection.organization_id = run.organization_id
      and connection.id = run.connection_id
      and connection.provider_type = 'feishu'
-     and connection.status = 'active'
     join public.identity_providers provider
       on provider.tenant_id = connection.tenant_id
      and provider.id = connection.identity_provider_id
      and provider.provider_code = 'feishu'
-     and provider.status = 'active'
    where run.public_id = p_run_id
      and run.request_id = p_run_id
    limit 1;
-  if found then
-    perform pg_advisory_xact_lock(hashtextextended(
-      'manager-tree:' || v_tenant_id::text || ':' || v_organization_id::text, 0
-    ));
+  if not found then
+    raise exception 'sync_lease_stale' using errcode = '55000';
   end if;
+  perform pg_advisory_xact_lock(hashtextextended(
+    'feishu-manager-entrypoint:' || v_provider_tenant_key, 0
+  ));
+  perform pg_advisory_xact_lock(hashtextextended(
+    'manager-tree:' || v_tenant_id::text || ':' || v_organization_id::text, 0
+  ));
   return public.task8_legacy_apply_feishu_directory_sync_exact(
     p_run_id, p_tenant_public_id, p_organization_public_id,
     p_actor_auth_user_id, p_snapshot
@@ -818,13 +828,13 @@ as $$
 declare
   v_tenant_id bigint;
   v_organization_id bigint;
+  v_provider_tenant_key text;
 begin
-  select run.tenant_id, run.organization_id
-    into v_tenant_id, v_organization_id
+  select run.tenant_id, run.organization_id, provider.provider_tenant_key
+    into v_tenant_id, v_organization_id, v_provider_tenant_key
     from public.directory_sync_runs run
     join public.tenants tenant
       on tenant.id = run.tenant_id
-     and tenant.status = 'active'
     join public.organizations organization
       on organization.tenant_id = run.tenant_id
      and organization.id = run.organization_id
@@ -834,26 +844,27 @@ begin
      and actor.organization_id = run.organization_id
      and actor.id = run.actor_member_id
      and actor.user_id = p_actor_auth_user_id
-     and actor.status = 'active'
     join public.directory_connections connection
       on connection.tenant_id = run.tenant_id
      and connection.organization_id = run.organization_id
      and connection.id = run.connection_id
      and connection.provider_type = 'feishu'
-     and connection.status = 'active'
     join public.identity_providers provider
       on provider.tenant_id = connection.tenant_id
      and provider.id = connection.identity_provider_id
      and provider.provider_code = 'feishu'
-     and provider.status = 'active'
    where run.public_id = p_run_id
      and run.request_id = p_run_id
    limit 1;
-  if found then
-    perform pg_advisory_xact_lock(hashtextextended(
-      'manager-tree:' || v_tenant_id::text || ':' || v_organization_id::text, 0
-    ));
+  if not found then
+    raise exception 'sync_lease_stale' using errcode = '55000';
   end if;
+  perform pg_advisory_xact_lock(hashtextextended(
+    'feishu-manager-entrypoint:' || v_provider_tenant_key, 0
+  ));
+  perform pg_advisory_xact_lock(hashtextextended(
+    'manager-tree:' || v_tenant_id::text || ':' || v_organization_id::text, 0
+  ));
   return public.task8_legacy_apply_feishu_directory_sync_fenced(
     p_run_id, p_organization_public_id, p_actor_auth_user_id, p_snapshot
   );
@@ -2132,6 +2143,8 @@ revoke all on function public.repair_legacy_manager_relationships()
   from public, anon, authenticated, service_role;
 revoke all on function public.require_employee_manager_tree_lock()
   from public, anon, authenticated, service_role;
+revoke all on function public.task8_legacy_ingest_feishu_webhook_event(text, text, text, text, text, text, bigint, text)
+  from public, anon, authenticated, service_role;
 revoke all on function public.task8_legacy_revoke_departed_member_access(uuid, text)
   from public, anon, authenticated, service_role;
 revoke all on function public.task8_legacy_apply_feishu_directory_sync(uuid, uuid, jsonb)
@@ -2146,12 +2159,14 @@ revoke all on function public.revoke_departed_member_access(uuid, text)
   from public, anon, authenticated, service_role;
 grant execute on function public.revoke_departed_member_access(uuid, text)
   to service_role;
+revoke all on function public.ingest_feishu_webhook_event(text, text, text, text, text, text, bigint, text)
+  from public, anon, authenticated, service_role;
+grant execute on function public.ingest_feishu_webhook_event(text, text, text, text, text, text, bigint, text)
+  to service_role;
 revoke all on function public.apply_feishu_directory_sync(uuid, uuid, jsonb)
   from public, anon, authenticated, service_role;
 revoke all on function public.apply_feishu_directory_sync_observed(uuid, uuid, jsonb, uuid)
   from public, anon, authenticated, service_role;
-grant execute on function public.apply_feishu_directory_sync_observed(uuid, uuid, jsonb, uuid)
-  to service_role;
 revoke all on function public.apply_feishu_directory_sync_exact(uuid, uuid, uuid, uuid, jsonb)
   from public, anon, authenticated, service_role;
 revoke all on function public.apply_feishu_directory_sync_fenced(uuid, uuid, uuid, jsonb)

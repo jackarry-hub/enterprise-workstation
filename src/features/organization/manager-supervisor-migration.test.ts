@@ -114,6 +114,7 @@ describe("manager and supervisor forward migration", () => {
   it("prelocks exact Task 7 organization trees and fails closed for uncoordinated lifecycle writers", () => {
     const migration = sql();
     const offboarding = lastFunctionBlock("revoke_departed_member_access");
+    const webhook = lastFunctionBlock("ingest_feishu_webhook_event");
     const legacyDirectory = lastFunctionBlock("apply_feishu_directory_sync");
     const observedDirectory = lastFunctionBlock("apply_feishu_directory_sync_observed");
     const exactDirectory = lastFunctionBlock("apply_feishu_directory_sync_exact");
@@ -124,11 +125,15 @@ describe("manager and supervisor forward migration", () => {
     const invariant = functionBlock("enforce_employee_manager_invariants");
     const command = functionBlock("assign_current_member_manager");
     const exactLockBeforeDelegate = (block: string, delegate: string) => {
-      const lock = block.indexOf("pg_advisory_xact_lock(");
+      const lock = block.indexOf("'manager-tree:");
       const call = block.indexOf(delegate);
-      return block.includes("'manager-tree:' || v_tenant_id::text || ':' || v_organization_id::text")
-        && lock >= 0
-        && call > lock;
+      return lock >= 0 && call > lock;
+    };
+    const providerThenTreeBeforeDelegate = (block: string, delegate: string) => {
+      const providerLock = block.indexOf("'feishu-manager-entrypoint:");
+      const treeLock = block.indexOf("'manager-tree:");
+      const call = block.indexOf(delegate);
+      return providerLock >= 0 && treeLock > providerLock && call > treeLock;
     };
     const reconcilesFinalStatement = (block: string) => block.includes("pg_trigger_depth() > 1")
       && block.includes("from new_profiles changed")
@@ -151,28 +156,47 @@ describe("manager and supervisor forward migration", () => {
 
     expect(exactLockBeforeDelegate(offboarding, "task8_legacy_revoke_departed_member_access(")).toBe(true);
     expect(offboarding).toContain("profile.public_id = p_member_public_id");
-    expect(exactLockBeforeDelegate(legacyDirectory, "task8_legacy_apply_feishu_directory_sync(")).toBe(true);
-    expect(legacyDirectory).toContain("order by organization.id");
-    expect(legacyDirectory).toContain("provider.provider_code = 'feishu'");
-    expect(exactLockBeforeDelegate(observedDirectory, "task8_legacy_apply_feishu_directory_sync_observed(")).toBe(true);
-    expect(observedDirectory).toContain("order by organization.id");
-    expect(exactLockBeforeDelegate(exactDirectory, "task8_legacy_apply_feishu_directory_sync_exact(")).toBe(true);
+    expect(offboarding).toContain("if not found then return false");
+    expect(providerThenTreeBeforeDelegate(webhook, "task8_legacy_ingest_feishu_webhook_event(")).toBe(true);
+    expect(webhook).toContain("select distinct connection.tenant_id, connection.organization_id");
+    expect(webhook).toContain("order by connection.tenant_id, connection.organization_id");
+    for (const legacyEntryPoint of [legacyDirectory, observedDirectory]) {
+      expect(legacyEntryPoint).toContain("raise exception 'legacy_directory_sync_disabled'");
+      expect(legacyEntryPoint).toContain("apply_feishu_directory_sync_fenced");
+      expect(legacyEntryPoint).not.toContain("task8_legacy_apply_feishu_directory_sync(");
+      expect(legacyEntryPoint).not.toContain("task8_legacy_apply_feishu_directory_sync_observed(");
+      expect(legacyEntryPoint).not.toContain("organization_members");
+    }
+    expect(providerThenTreeBeforeDelegate(exactDirectory, "task8_legacy_apply_feishu_directory_sync_exact(")).toBe(true);
     expect(exactDirectory).toContain("run.public_id = p_run_id");
     expect(exactDirectory).toContain("run.request_id = p_run_id");
     expect(exactDirectory).toContain("connection.provider_type = 'feishu'");
-    expect(exactLockBeforeDelegate(fencedDirectory, "task8_legacy_apply_feishu_directory_sync_fenced(")).toBe(true);
+    expect(exactDirectory).toContain("if not found then");
+    expect(exactDirectory).not.toContain("tenant.status = 'active'");
+    expect(exactDirectory).not.toContain("actor.status = 'active'");
+    expect(exactDirectory).not.toContain("connection.status = 'active'");
+    expect(exactDirectory).not.toContain("provider.status = 'active'");
+    expect(providerThenTreeBeforeDelegate(fencedDirectory, "task8_legacy_apply_feishu_directory_sync_fenced(")).toBe(true);
     expect(fencedDirectory).toContain("run.public_id = p_run_id");
     expect(fencedDirectory).toContain("organization.public_id = p_organization_public_id");
-    expect(fencedDirectory).toContain("provider.status = 'active'");
-    for (const wrapper of [offboarding, legacyDirectory, observedDirectory, exactDirectory, fencedDirectory]) {
+    expect(fencedDirectory).toContain("if not found then");
+    expect(fencedDirectory).not.toContain("tenant.status = 'active'");
+    expect(fencedDirectory).not.toContain("actor.status = 'active'");
+    expect(fencedDirectory).not.toContain("connection.status = 'active'");
+    expect(fencedDirectory).not.toContain("provider.status = 'active'");
+    for (const wrapper of [offboarding, webhook, legacyDirectory, observedDirectory, exactDirectory, fencedDirectory]) {
       expect(wrapper).not.toContain("for update");
     }
+    expect(migration).toContain("rename to task8_legacy_ingest_feishu_webhook_event");
     expect(migration).toContain("rename to task8_legacy_revoke_departed_member_access");
     expect(migration).toContain("rename to task8_legacy_apply_feishu_directory_sync");
     expect(migration).toContain("rename to task8_legacy_apply_feishu_directory_sync_exact");
     expect(migration).toContain("rename to task8_legacy_apply_feishu_directory_sync_fenced");
+    expect(migration).toMatch(/revoke all on function public\.task8_legacy_ingest_feishu_webhook_event\(text, text, text, text, text, text, bigint, text\)[\s\S]*from public, anon, authenticated, service_role/);
     expect(migration).toMatch(/revoke all on function public\.task8_legacy_revoke_departed_member_access\(uuid, text\)[\s\S]*from public, anon, authenticated, service_role/);
     expect(migration).toMatch(/revoke all on function public\.task8_legacy_apply_feishu_directory_sync_fenced\(uuid, uuid, uuid, jsonb\)[\s\S]*from public, anon, authenticated, service_role/);
+    expect(migration).toMatch(/revoke all on function public\.apply_feishu_directory_sync_observed\(uuid, uuid, jsonb, uuid\)\s+from public, anon, authenticated, service_role/);
+    expect(migration).not.toMatch(/grant execute on function public\.apply_feishu_directory_sync_observed/);
     expect(lockGuard).toContain("from pg_catalog.pg_locks held_lock");
     expect(lockGuard).toContain("held_lock.pid = pg_backend_pid()");
     expect(lockGuard).toContain("held_lock.locktype = 'advisory'");
@@ -211,6 +235,7 @@ describe("manager and supervisor forward migration", () => {
     expect(behavior).toContain("set lock_timeout = ''3s''");
     expect(behavior).toContain("offboarding and manager assignment overlap completes without deadlock");
     expect(behavior).toContain("organization a lifecycle mutation does not block organization b manager command");
+    expect(behavior).toContain("webhook and fenced directory sync share provider-manager-connection lock order");
   });
 
   it("creates a distinct future-safe supervisor role and narrowly scoped permission", () => {
