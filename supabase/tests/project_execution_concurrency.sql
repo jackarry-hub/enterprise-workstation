@@ -1,10 +1,13 @@
 begin;
-select plan(4);
+select plan(7);
 
 select set_config('test.project.execution.concurrent.available','false',true);
 select set_config('test.project.execution.concurrent.same_key_wait','false',true);
 select set_config('test.project.execution.concurrent.same_key_one','false',true);
 select set_config('test.project.execution.concurrent.dag_one','false',true);
+select set_config('test.project.execution.concurrent.task_same_key_wait','false',true);
+select set_config('test.project.execution.concurrent.task_same_key_one','false',true);
+select set_config('test.project.execution.concurrent.task_version_one','false',true);
 
 do $project_execution_concurrency$
 declare
@@ -67,6 +70,7 @@ begin
         set local session_replication_role = replica;
         delete from public.audit_logs where tenant_id in (select id from public.tenants where slug='project-execution-concurrency');
         set local session_replication_role = origin;
+        delete from public.task_command_idempotency where tenant_id in (select id from public.tenants where slug='project-execution-concurrency');
         delete from public.project_execution_command_idempotency where tenant_id in (select id from public.tenants where slug='project-execution-concurrency');
         delete from public.task_dependencies where tenant_id in (select id from public.tenants where slug='project-execution-concurrency');
         delete from public.task_comments where tenant_id in (select id from public.tenants where slug='project-execution-concurrency');
@@ -151,11 +155,13 @@ begin
                'owner',100,project.owner_member_id,project.owner_member_id,1
         from public.projects project where project.public_id='8c200000-0000-4000-8000-000000000001';
         insert into public.tasks(
-          public_id,organization_id,project_id,reporter_member_id,title,description,
-          status,priority,progress,sort_order
+          public_id,tenant_id,organization_id,project_id,assignee_member_id,reporter_member_id,title,description,
+          status,priority,progress,sort_order,created_by_member_id,updated_by_member_id,version
         )
-        select seed.public_id,project.organization_id,project.id,project.owner_member_id,
-               seed.title,'Dependency concurrency proof','todo','medium',0,seed.sort_order
+        select seed.public_id,project.tenant_id,project.organization_id,project.id,
+               project.owner_member_id,project.owner_member_id,
+               seed.title,'Dependency concurrency proof','todo','medium',0,seed.sort_order,
+               project.owner_member_id,project.owner_member_id,1
         from public.projects project
         cross join (values
           ('8c300000-0000-4000-8000-000000000001'::uuid,'Concurrent task A',1),
@@ -346,12 +352,199 @@ begin
       perform set_config('test.project.execution.concurrent.dag_one','true',true);
     end if;
 
+    -- A same-key task batch must serialize on its durable command claim before
+    -- either session can create a second copy.
+    foreach v_connection in array array['execution_concurrency_a','execution_concurrency_b'] loop
+      execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+        into v_status using v_connection,'begin';
+      execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+        into v_status using v_connection,'set local role authenticated';
+      execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+        into v_status using v_connection,'set local "request.jwt.claim.sub" = ''8c000000-0000-4000-8000-000000000001''';
+    end loop;
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'execution_concurrency_setup','begin';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'execution_concurrency_setup',$lock_task_batch_project$
+        do $remote$ begin
+          perform 1 from public.projects
+          where public_id='8c200000-0000-4000-8000-000000000001'
+          for update;
+        end $remote$;
+      $lock_task_batch_project$;
+    execute format('select %I.dblink_send_query($1,$2)',v_extension_schema)
+      into v_integer using 'execution_concurrency_a',$task_batch_a$
+        select public.create_current_task_batch_v2(
+          jsonb_build_array(jsonb_build_object(
+            'projectId','8c200000-0000-4000-8000-000000000001',
+            'assigneeMemberId',(select id from public.organization_members where user_id='8c000000-0000-4000-8000-000000000001'),
+            'title','Concurrent task batch','description','One durable task',
+            'acceptanceCriteria','One canonical row','dueDate',to_char(current_date + 90,'YYYY-MM-DD'),'priority','medium'
+          )),
+          '8c600000-0000-4000-8000-000000000001','8c600000-0000-4000-8000-000000000002'
+        )
+      $task_batch_a$;
+    v_wait_count:=0; v_waiting:=false;
+    loop
+      select exists(
+        select 1 from pg_stat_activity activity
+        where activity.pid=v_worker_a_pid and activity.wait_event_type='Lock'
+      ) into v_waiting;
+      exit when v_waiting or v_wait_count>=200;
+      v_wait_count:=v_wait_count+1; perform pg_sleep(0.005);
+    end loop;
+    if not v_waiting then
+      raise exception 'task batch worker A did not reach the project lock while holding the idempotency claim';
+    end if;
+    execute format('select %I.dblink_send_query($1,$2)',v_extension_schema)
+      into v_integer using 'execution_concurrency_b',$task_batch_b$
+        select public.create_current_task_batch_v2(
+          jsonb_build_array(jsonb_build_object(
+            'projectId','8c200000-0000-4000-8000-000000000001',
+            'assigneeMemberId',(select id from public.organization_members where user_id='8c000000-0000-4000-8000-000000000001'),
+            'title','Concurrent task batch','description','One durable task',
+            'acceptanceCriteria','One canonical row','dueDate',to_char(current_date + 90,'YYYY-MM-DD'),'priority','medium'
+          )),
+          '8c600000-0000-4000-8000-000000000001','8c600000-0000-4000-8000-000000000003'
+        )
+      $task_batch_b$;
+    v_wait_count:=0; v_waiting:=false;
+    loop
+      execute format('select %I.dblink_is_busy($1)',v_extension_schema)
+        into v_busy_b using 'execution_concurrency_b';
+      select exists(
+        select 1 from pg_stat_activity activity
+        where activity.pid=v_worker_b_pid and activity.wait_event_type='Lock'
+      ) into v_waiting;
+      exit when v_waiting or v_busy_b=0 or v_wait_count>=200;
+      v_wait_count:=v_wait_count+1; perform pg_sleep(0.005);
+    end loop;
+    if not v_waiting then
+      raise exception 'task batch worker B did not wait on worker A idempotency claim';
+    end if;
+    perform set_config('test.project.execution.concurrent.task_same_key_wait','true',true);
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'execution_concurrency_setup','commit';
+    execute format('select result from %I.dblink_get_result($1) as remote(result jsonb)',v_extension_schema)
+      into v_result_a using 'execution_concurrency_a';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'execution_concurrency_a','commit';
+    execute format('select result from %I.dblink_get_result($1) as remote(result jsonb)',v_extension_schema)
+      into v_result_b using 'execution_concurrency_b';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'execution_concurrency_b','commit';
+    execute format('select count from %I.dblink($1,$2) as remote(count bigint)',v_extension_schema)
+      into v_count using 'execution_concurrency_setup',$task_batch_count$
+        select count(*) from public.tasks task
+        join public.projects project on project.id=task.project_id
+        where project.public_id='8c200000-0000-4000-8000-000000000001'
+          and task.title='Concurrent task batch'
+      $task_batch_count$;
+    if v_result_a->>'outcome'='success' and v_result_b->>'outcome'='success'
+       and v_result_a->'taskIds'=v_result_b->'taskIds' and v_count=1 then
+      perform set_config('test.project.execution.concurrent.task_same_key_one','true',true);
+    end if;
+
+    -- Different transition commands using the same expected version must
+    -- serialize on project/task locks and leave exactly one winner.
+    foreach v_connection in array array['execution_concurrency_a','execution_concurrency_b'] loop
+      execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+        into v_status using v_connection,'begin';
+      execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+        into v_status using v_connection,'set local role authenticated';
+      execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+        into v_status using v_connection,'set local "request.jwt.claim.sub" = ''8c000000-0000-4000-8000-000000000001''';
+    end loop;
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'execution_concurrency_setup','begin';
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'execution_concurrency_setup',$lock_task_transition_project$
+        do $remote$ begin
+          perform 1 from public.projects
+          where public_id='8c200000-0000-4000-8000-000000000001'
+          for update;
+        end $remote$;
+      $lock_task_transition_project$;
+    execute format('select %I.dblink_send_query($1,$2)',v_extension_schema)
+      into v_integer using 'execution_concurrency_a',$task_transition_a$
+        select public.transition_current_task(
+          '8c300000-0000-4000-8000-000000000001','claim',1,'{}',
+          '8c700000-0000-4000-8000-000000000001'
+        )
+      $task_transition_a$;
+    execute format('select %I.dblink_send_query($1,$2)',v_extension_schema)
+      into v_integer using 'execution_concurrency_b',$task_transition_b$
+        select public.transition_current_task(
+          '8c300000-0000-4000-8000-000000000001','claim',1,'{}',
+          '8c700000-0000-4000-8000-000000000002'
+        )
+      $task_transition_b$;
+    v_wait_count:=0; v_waiting_a:=false; v_waiting_b:=false;
+    loop
+      select exists(
+        select 1 from pg_stat_activity activity
+        where activity.pid=v_worker_a_pid and activity.wait_event_type='Lock'
+      ) into v_waiting_a;
+      select exists(
+        select 1 from pg_stat_activity activity
+        where activity.pid=v_worker_b_pid and activity.wait_event_type='Lock'
+      ) into v_waiting_b;
+      exit when (v_waiting_a and v_waiting_b) or v_wait_count>=200;
+      v_wait_count:=v_wait_count+1; perform pg_sleep(0.005);
+    end loop;
+    if not (v_waiting_a and v_waiting_b) then
+      raise exception 'both task transition workers did not reach the project serialization lock';
+    end if;
+    execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+      into v_status using 'execution_concurrency_setup','commit';
+    v_wait_count:=0;
+    loop
+      execute format('select %I.dblink_is_busy($1)',v_extension_schema)
+        into v_busy_a using 'execution_concurrency_a';
+      execute format('select %I.dblink_is_busy($1)',v_extension_schema)
+        into v_busy_b using 'execution_concurrency_b';
+      exit when v_busy_a=0 or v_busy_b=0 or v_wait_count>=300;
+      v_wait_count:=v_wait_count+1; perform pg_sleep(0.01);
+    end loop;
+    if v_busy_a=0 then
+      execute format('select result from %I.dblink_get_result($1) as remote(result jsonb)',v_extension_schema)
+        into v_result_a using 'execution_concurrency_a';
+      execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+        into v_status using 'execution_concurrency_a','commit';
+      execute format('select result from %I.dblink_get_result($1) as remote(result jsonb)',v_extension_schema)
+        into v_result_b using 'execution_concurrency_b';
+      execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+        into v_status using 'execution_concurrency_b','commit';
+    else
+      execute format('select result from %I.dblink_get_result($1) as remote(result jsonb)',v_extension_schema)
+        into v_result_b using 'execution_concurrency_b';
+      execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+        into v_status using 'execution_concurrency_b','commit';
+      execute format('select result from %I.dblink_get_result($1) as remote(result jsonb)',v_extension_schema)
+        into v_result_a using 'execution_concurrency_a';
+      execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
+        into v_status using 'execution_concurrency_a','commit';
+    end if;
+    execute format('select count from %I.dblink($1,$2) as remote(count bigint)',v_extension_schema)
+      into v_count using 'execution_concurrency_setup',$task_transition_count$
+        select count(*) from public.tasks
+        where public_id='8c300000-0000-4000-8000-000000000001'
+          and status='in_progress' and version=2
+      $task_transition_count$;
+    if v_count=1 and (
+      (v_result_a->>'outcome'='success' and v_result_b->>'error'='version_conflict')
+      or (v_result_b->>'outcome'='success' and v_result_a->>'error'='version_conflict')
+    ) then
+      perform set_config('test.project.execution.concurrent.task_version_one','true',true);
+    end if;
+
     execute format('select %I.dblink_exec($1,$2)',v_extension_schema)
       into v_status using 'execution_concurrency_setup',$cleanup$
         begin;
         set local session_replication_role = replica;
         delete from public.audit_logs where tenant_id in (select id from public.tenants where slug='project-execution-concurrency');
         set local session_replication_role = origin;
+        delete from public.task_command_idempotency where tenant_id in (select id from public.tenants where slug='project-execution-concurrency');
         delete from public.project_execution_command_idempotency where tenant_id in (select id from public.tenants where slug='project-execution-concurrency');
         delete from public.task_dependencies where tenant_id in (select id from public.tenants where slug='project-execution-concurrency');
         delete from public.task_comments where tenant_id in (select id from public.tenants where slug='project-execution-concurrency');
@@ -405,6 +598,7 @@ begin
           set local session_replication_role = replica;
           delete from public.audit_logs where tenant_id in (select id from public.tenants where slug='project-execution-concurrency');
           set local session_replication_role = origin;
+          delete from public.task_command_idempotency where tenant_id in (select id from public.tenants where slug='project-execution-concurrency');
           delete from public.project_execution_command_idempotency where tenant_id in (select id from public.tenants where slug='project-execution-concurrency');
           delete from public.task_dependencies where tenant_id in (select id from public.tenants where slug='project-execution-concurrency');
           delete from public.task_comments where tenant_id in (select id from public.tenants where slug='project-execution-concurrency');
@@ -458,6 +652,18 @@ end;
 select case when current_setting('test.project.execution.concurrent.available')='true'
   then ok(current_setting('test.project.execution.concurrent.dag_one')='true','opposing concurrent dependencies preserve one acyclic edge')
   else ok(true,'concurrent dependency DAG proof # SKIP dblink unavailable')
+end;
+select case when current_setting('test.project.execution.concurrent.available')='true'
+  then ok(current_setting('test.project.execution.concurrent.task_same_key_wait')='true','second same-key task batch waits on the first durable claim')
+  else ok(true,'same-key task batch wait proof # SKIP dblink unavailable')
+end;
+select case when current_setting('test.project.execution.concurrent.available')='true'
+  then ok(current_setting('test.project.execution.concurrent.task_same_key_one')='true','concurrent same-key task batches return one canonical task set')
+  else ok(true,'same-key canonical task batch proof # SKIP dblink unavailable')
+end;
+select case when current_setting('test.project.execution.concurrent.available')='true'
+  then ok(current_setting('test.project.execution.concurrent.task_version_one')='true','concurrent task transitions leave one winner and one version conflict')
+  else ok(true,'task optimistic concurrency proof # SKIP dblink unavailable')
 end;
 
 select * from finish();

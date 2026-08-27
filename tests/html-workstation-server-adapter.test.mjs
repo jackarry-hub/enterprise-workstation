@@ -469,6 +469,102 @@ test("reuses one project command attempt for double-click and ambiguous network 
   dom.window.close();
 });
 
+test("reuses task command keys and versions after an ambiguous response loss", async () => {
+  const source = await readFile(
+    path.join(process.cwd(), "public", "workstation-server-adapter.js"),
+    "utf8",
+  );
+  const bootstrap = {
+    session: { authenticated: true, authMode: "feishu", dataMode: "server", memberId: "m7", permissions: ["task.manage"] },
+    members: [{ id: "m7", n: "任务负责人" }],
+    projects: [{ id: "p1", n: "真实项目", own: "m7" }],
+    tasks: [{ id: "t1", n: "真实任务", p: "p1", own: "m7", createdBy: "m7", reviewer: "m7", st: "进行中", pr: 20, version: 4 }],
+    payroll: { m7: [] },
+    features: { identitySwitch: false, demoReset: false },
+  };
+  const singleInput = { projectId: "p1", assigneeMemberId: "m7", title: "响应丢失单任务" };
+  const batchInput = [
+    { projectId: "p1", assigneeMemberId: "m7", title: "响应丢失批量一" },
+    { projectId: "p1", assigneeMemberId: "m7", title: "响应丢失批量二" },
+  ];
+  const requests = [];
+  const attempts = Object.create(null);
+  let terminalTaskFailure = false;
+  const dom = new JSDOM("<!doctype html><script></script>", {
+    url: "https://work.quantumgalaxy.top/quantxy-ai-workbench-fused.html?formal=1",
+    runScripts: "outside-only",
+  });
+  dom.window.fetch = async (url, init = {}) => {
+    const requestUrl = String(url);
+    if (requestUrl === "/api/workstation/bootstrap") return response(true, bootstrap);
+    requests.push({ url: requestUrl, init });
+    attempts[requestUrl] = (attempts[requestUrl] || 0) + 1;
+    if (attempts[requestUrl] === 1) throw new TypeError("response lost");
+    if (requestUrl === "/api/workstation/tasks") {
+      if (terminalTaskFailure) {
+        return response(false, { error: "command_failed", message: "raw database detail" });
+      }
+      return response(true, { task: { ...bootstrap.tasks[0], id: "t2", n: singleInput.title, pr: 0, version: 1 }, notification: { status: "sent" } });
+    }
+    if (requestUrl === "/api/workstation/tasks/batch") {
+      return response(true, {
+        tasks: batchInput.map((input, index) => ({
+          task: { ...bootstrap.tasks[0], id: `tb${index + 1}`, n: input.title, pr: 0, version: 1 },
+          notification: { status: "sent" },
+        })),
+      });
+    }
+    return response(true, {
+      task: {
+        id: "t1", n: "真实任务", p: "p1", own: "m7", createdBy: "m7",
+        reviewer: "m7", st: "进行中", pr: 60, version: 5,
+      },
+    });
+  };
+
+  dom.window.eval(source);
+  await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.ready();
+
+  await assert.rejects(dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.createTask(singleInput));
+  await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.createTask(singleInput);
+  const singleRequests = requests.filter(({ url }) => url === "/api/workstation/tasks");
+  assert.equal(singleRequests.length, 2);
+  assert.equal(singleRequests[0].init.headers["Idempotency-Key"], singleRequests[1].init.headers["Idempotency-Key"]);
+  assert.equal(singleRequests[0].init.body, singleRequests[1].init.body);
+
+  await assert.rejects(dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.createTasks(batchInput));
+  await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.createTasks(batchInput);
+  const batchRequests = requests.filter(({ url }) => url === "/api/workstation/tasks/batch");
+  assert.equal(batchRequests.length, 2);
+  assert.equal(batchRequests[0].init.headers["Idempotency-Key"], batchRequests[1].init.headers["Idempotency-Key"]);
+  assert.equal(batchRequests[0].init.body, batchRequests[1].init.body);
+
+  await assert.rejects(dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.updateTaskExecution("t1", {
+    progress: 60, blocker: "", nextStep: "完成复核",
+  }));
+  await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.updateTaskExecution("t1", {
+    progress: 60, blocker: "", nextStep: "完成复核",
+  });
+  const transitionRequests = requests.filter(({ url }) => url === "/api/workstation/tasks/t1");
+  assert.equal(transitionRequests.length, 2);
+  assert.equal(transitionRequests[0].init.headers["Idempotency-Key"], transitionRequests[1].init.headers["Idempotency-Key"]);
+  assert.equal(transitionRequests[0].init.body, transitionRequests[1].init.body);
+  assert.equal(JSON.parse(transitionRequests[1].init.body).expectedVersion, 4);
+  assert.equal(dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.loadMyTask("m7", "t1").version, 5);
+
+  const terminalInput = { ...singleInput, title: "终态命令失败任务" };
+  terminalTaskFailure = true;
+  await assert.rejects(
+    dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.createTask(terminalInput),
+    (error) => error.code === "command_failed" && !/database/i.test(error.message),
+  );
+  const terminalKey = requests.at(-1).init.headers["Idempotency-Key"];
+  terminalTaskFailure = false;
+  await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.createTask(terminalInput);
+  assert.notEqual(requests.at(-1).init.headers["Idempotency-Key"], terminalKey);
+  dom.window.close();
+});
+
 test("loads the formal employee session and sends task updates without trusting a browser actor", async () => {
   const source = await readFile(
     path.join(process.cwd(), "public", "workstation-server-adapter.js"),
@@ -477,11 +573,12 @@ test("loads the formal employee session and sends task updates without trusting 
   const requests = [];
   const inheritedErrorCodes = ["constructor", "toString", "__proto__"];
   const encodedTaskId = "task%2Fpart%3Fquery%23fragment%20%E7%A9%BA%E6%A0%BC%20%E4%B8%AD%E6%96%87";
+  const requestIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const bootstrap = {
     session: { authenticated: true, authMode: "feishu", dataMode: "server", memberId: "m7", permissions: ["task.manage"] },
     members: [{ id: "m7", n: "张云帆" }],
     projects: [{ id: "p1", n: "企业工作站", own: "m7" }],
-    tasks: [{ id: "t1", n: "完成接入", own: "m7", createdBy: "m8", reviewer: "m8", st: "进行中", pr: 20 }],
+    tasks: [{ id: "t1", n: "完成接入", own: "m7", createdBy: "m8", reviewer: "m8", st: "进行中", pr: 20, version: 1 }],
     payroll: { m7: [] },
     features: { identitySwitch: false, demoReset: false },
   };
@@ -509,6 +606,7 @@ test("loads the formal employee session and sends task updates without trusting 
             id: `created-${inheritedErrorCode}`,
             n: input.title,
             pr: 0,
+            version: 1,
           },
           notification: {
             status: "failed",
@@ -524,6 +622,7 @@ test("loads the formal employee session and sends task updates without trusting 
           id: queueUnavailable ? "t3" : "t2",
           n: input.title,
           pr: 0,
+          version: 1,
         },
         notification: queueUnavailable
           ? { status: "unavailable", errorCode: "queue_unavailable" }
@@ -595,6 +694,7 @@ test("loads the formal employee session and sends task updates without trusting 
             id: `batch-${index + 1}`,
             n: row.title,
             pr: 0,
+            version: 1,
           },
           notification: index === 0
             ? { status: "sent" }
@@ -602,7 +702,7 @@ test("loads the formal employee session and sends task updates without trusting 
         })),
       });
     }
-    return response(true, { task: { ...bootstrap.tasks[0], pr: 60 } });
+    return response(true, { task: { ...bootstrap.tasks[0], pr: 60, version: 2 } });
   };
 
   dom.window.eval(source);
@@ -625,10 +725,12 @@ test("loads the formal employee session and sends task updates without trusting 
   assert.equal(requests[1].init.method, "PATCH");
   assert.deepEqual(JSON.parse(requests[1].init.body), {
     action: "progress",
+    expectedVersion: 1,
     progress: 60,
     blocker: "",
     nextStep: "联调",
   });
+  assert.match(requests[1].init.headers["Idempotency-Key"], requestIdPattern);
   await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.syncDirectory();
   const created = await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.createTask({
     projectId: "p1",
@@ -636,6 +738,8 @@ test("loads the formal employee session and sends task updates without trusting 
     title: "新任务",
   });
   assert.equal(created.id, "t2");
+  const singleCreateRequest = requests.find(({ url, init }) => url === "/api/workstation/tasks" && init.method === "POST");
+  assert.match(singleCreateRequest.init.headers["Idempotency-Key"], requestIdPattern);
   assert.deepEqual(JSON.parse(JSON.stringify(created.notification)), {
     status: "failed",
     errorCode: "delivery_unconfirmed",
@@ -724,6 +828,7 @@ test("loads the formal employee session and sends task updates without trusting 
   });
   const batchRequests = requests.filter(({ url }) => url === "/api/workstation/tasks/batch");
   assert.equal(batchRequests.length, 1);
+  assert.match(batchRequests[0].init.headers["Idempotency-Key"], requestIdPattern);
   assert.deepEqual(JSON.parse(batchRequests[0].init.body), {
     tasks: [
       { projectId: "p1", assigneeMemberId: "m7", title: "批量任务一" },

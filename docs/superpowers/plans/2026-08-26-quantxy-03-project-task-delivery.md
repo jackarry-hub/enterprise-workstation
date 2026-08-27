@@ -70,7 +70,7 @@ Run: `npx vitest run src/app/api/workstation/projects/handler.test.ts src/featur
 Run: `npm run db:test`
 Expected: invalid money is 400, duplicate key returns the same entity, injected membership failure rolls back.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-08-26-quantxy-03-project-task-delivery.md supabase/migrations/202608270004_project_lifecycle_commands.sql supabase/tests/project_lifecycle.sql supabase/tests/project_lifecycle_concurrency.sql src/app/api/workstation/projects/handler.test.ts src/app/api/workstation/projects/handler.ts src/app/api/workstation/projects/[projectId]/route.ts src/features/projects/project-command-handler.ts src/features/projects/project-command-handler.test.ts src/features/workstation/server-bootstrap.ts src/features/workstation/server-bootstrap.test.ts src/app/api/workstation/bootstrap/handler.ts public/workstation-server-adapter.js quantxy-ai-workbench-fused.html src/middleware.ts src/middleware.test.ts tests/html-workstation-server-adapter.test.mjs tests/html-personal-workbench-behavior.test.mjs
@@ -147,18 +147,30 @@ git commit -m "feat: add project execution commands"
 ### Task 3: Make task batches atomic, idempotent, and fully audited
 
 **Files:**
-- Create: `supabase/migrations/202608260015_task_command_v2.sql`
+- Create: `supabase/migrations/202608270006_task_command_v2.sql` (forward-only after Task 2 migration `202608270005`)
 - Create: `supabase/tests/task_workflow.sql`
+- Modify: `supabase/tests/project_lifecycle.sql`
+- Modify: `supabase/tests/project_execution.sql`
+- Modify: `supabase/tests/project_execution_concurrency.sql`
+- Modify: `src/features/projects/execution-command-handler.test.ts`
+- Modify: `src/app/api/workstation/tasks/handler.test.ts`
+- Modify: `src/app/api/workstation/tasks/handler.ts`
 - Modify: `src/app/api/workstation/tasks/batch/handler.test.ts`
 - Modify: `src/app/api/workstation/tasks/batch/handler.ts`
 - Modify: `src/app/api/workstation/tasks/[taskId]/handler.test.ts`
 - Modify: `src/app/api/workstation/tasks/[taskId]/handler.ts`
+- Modify: `src/app/api/workstation/bootstrap/handler.test.ts`
+- Modify: `src/app/api/workstation/bootstrap/handler.ts`
+- Modify: `src/features/workstation/server-bootstrap.test.ts`
+- Modify: `src/features/workstation/server-bootstrap.ts`
+- Modify: `public/workstation-server-adapter.js`
+- Modify: `tests/html-workstation-server-adapter.test.mjs`
 
 **Interfaces:**
 - Produces RPC `create_current_task_batch_v2(items jsonb, idempotency_key uuid, request_id uuid)`.
 - Produces RPC `transition_current_task(task_public_id uuid, command text, expected_version integer, payload jsonb, request_id uuid)`.
 
-- [ ] **Step 1: Write failing half-batch, duplicate, and transition audit tests**
+- [x] **Step 1: Write failing half-batch, duplicate, and transition audit tests**
 
 ```ts
 expect(await batchAfterInjectedItemFailure()).toHaveLength(0);
@@ -166,25 +178,31 @@ expect((await repeatBatchWithSameKey()).taskIds).toEqual(firstResult.taskIds);
 expect(await transitionAudit(taskId)).toMatchObject({ action: "task.submitted", actorId });
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `npx vitest run src/app/api/workstation/tasks/batch/handler.test.ts src/app/api/workstation/tasks/[taskId]/handler.test.ts`
 Expected: current batch can partially commit and transitions lack audit.
 
-- [ ] **Step 3: Replace loops and direct updates with RPCs**
+- [x] **Step 3: Replace loops and direct updates with RPCs**
 
 Validate one to twenty items before the RPC, create the whole batch in one transaction, and route claim/progress/submit/review/reopen through the transition state machine.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4a: Verify application GREEN**
 
 Run: `npx vitest run src/app/api/workstation/tasks/batch/handler.test.ts src/app/api/workstation/tasks/[taskId]/handler.test.ts`
+Expected: strict command validation, canonical mapping, response-loss retries, notification-after-commit ordering, and static SQL contracts pass.
+
+- [ ] **Step 4b: Verify PostgreSQL GREEN (external release gate)**
+
 Run: `npm run db:test`
-Expected: rollback, duplicate replay, version conflict, actor rules and audit cases pass.
+Expected: rollback, duplicate replay, real concurrent same-key serialization, one-winner optimistic version conflict, actor rules, tenant isolation, and audit cases pass on a clean reset.
+
+Application tests, type checking, HTML adapter tests, static SQL checks, and independent review must pass locally. Clean Supabase reset plus live pgTAP remains an explicit release gate because this workstation has no local PostgreSQL/Supabase runtime.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260015_task_command_v2.sql supabase/tests/task_workflow.sql src/app/api/workstation/tasks/batch/handler.test.ts src/app/api/workstation/tasks/batch/handler.ts src/app/api/workstation/tasks/[taskId]/handler.test.ts src/app/api/workstation/tasks/[taskId]/handler.ts
+git add docs/superpowers/plans/2026-08-26-quantxy-03-project-task-delivery.md supabase/migrations/202608270006_task_command_v2.sql supabase/tests/task_workflow.sql supabase/tests/project_lifecycle.sql supabase/tests/project_execution.sql supabase/tests/project_execution_concurrency.sql src/features/projects/execution-command-handler.test.ts src/app/api/workstation/tasks/handler.test.ts src/app/api/workstation/tasks/handler.ts src/app/api/workstation/tasks/batch/handler.test.ts src/app/api/workstation/tasks/batch/handler.ts src/app/api/workstation/tasks/[taskId]/handler.test.ts src/app/api/workstation/tasks/[taskId]/handler.ts src/app/api/workstation/bootstrap/handler.test.ts src/app/api/workstation/bootstrap/handler.ts src/features/workstation/server-bootstrap.test.ts src/features/workstation/server-bootstrap.ts public/workstation-server-adapter.js tests/html-workstation-server-adapter.test.mjs
 git commit -m "feat: make task workflows atomic and auditable"
 ```
 

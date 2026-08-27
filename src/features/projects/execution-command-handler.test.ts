@@ -352,11 +352,14 @@ describe("project execution command migration", () => {
     expect(milestoneAction).toContain('["pending", "in_progress", "completed", "overdue"]');
   });
 
-  it("keeps executable concurrency coverage for idempotency and dependency cycles", () => {
-    expect(concurrencySql).toContain("select plan(4)");
+  it("keeps executable concurrency coverage for project and task commands", () => {
+    expect(concurrencySql).toContain("select plan(7)");
     expect(concurrencySql).toContain("dblink_send_query");
     expect(concurrencySql).toContain("second same-key execution command waits on the first transaction");
     expect(concurrencySql).toContain("concurrent same-key milestone commands return one canonical row");
     expect(concurrencySql).toContain("opposing concurrent dependencies preserve one acyclic edge");
+    expect(concurrencySql).toContain("second same-key task batch waits on the first durable claim");
+    expect(concurrencySql).toContain("concurrent same-key task batches return one canonical task set");
+    expect(concurrencySql).toContain("concurrent task transitions leave one winner and one version conflict");
   });
 });

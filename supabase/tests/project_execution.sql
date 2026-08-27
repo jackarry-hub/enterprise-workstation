@@ -171,21 +171,17 @@ select set_config('test.project.execution.project_id',current_setting('test.proj
 
 select set_config('request.jwt.claim.sub','88000000-0000-4000-8000-000000000001',true);
 set local role authenticated;
-select set_config('test.project.execution.task_a',public.create_current_project_task_v2(
-  current_setting('test.project.execution.project_id')::uuid,'Task A','Dependency A',
-  (select id from public.organization_members where user_id='88000000-0000-4000-8000-000000000002'),
-  '2026-09-20','high','Acceptance A'
+select set_config('test.project.execution.task_batch',public.create_current_task_batch_v2(
+  jsonb_build_array(
+    jsonb_build_object('projectId',current_setting('test.project.execution.project_id')::uuid,'title','Task A','description','Dependency A','assigneeMemberId',(select id from public.organization_members where user_id='88000000-0000-4000-8000-000000000002'),'dueDate',to_char(current_date + 90,'YYYY-MM-DD'),'priority','high','acceptanceCriteria','Acceptance A'),
+    jsonb_build_object('projectId',current_setting('test.project.execution.project_id')::uuid,'title','Task B','description','Dependency B','assigneeMemberId',(select id from public.organization_members where user_id='88000000-0000-4000-8000-000000000002'),'dueDate',to_char(current_date + 91,'YYYY-MM-DD'),'priority','high','acceptanceCriteria','Acceptance B'),
+    jsonb_build_object('projectId',current_setting('test.project.execution.project_id')::uuid,'title','Task C','description','Dependency C','assigneeMemberId',(select id from public.organization_members where user_id='88000000-0000-4000-8000-000000000002'),'dueDate',to_char(current_date + 92,'YYYY-MM-DD'),'priority','high','acceptanceCriteria','Acceptance C')
+  ),
+  '8a000000-0000-4000-8000-000000000030','8a000000-0000-4000-8000-000000000031'
 )::text,true);
-select set_config('test.project.execution.task_b',public.create_current_project_task_v2(
-  current_setting('test.project.execution.project_id')::uuid,'Task B','Dependency B',
-  (select id from public.organization_members where user_id='88000000-0000-4000-8000-000000000002'),
-  '2026-09-21','high','Acceptance B'
-)::text,true);
-select set_config('test.project.execution.task_c',public.create_current_project_task_v2(
-  current_setting('test.project.execution.project_id')::uuid,'Task C','Dependency C',
-  (select id from public.organization_members where user_id='88000000-0000-4000-8000-000000000002'),
-  '2026-09-22','high','Acceptance C'
-)::text,true);
+select set_config('test.project.execution.task_a',current_setting('test.project.execution.task_batch')::jsonb#>>'{taskIds,0}',true);
+select set_config('test.project.execution.task_b',current_setting('test.project.execution.task_batch')::jsonb#>>'{taskIds,1}',true);
+select set_config('test.project.execution.task_c',current_setting('test.project.execution.task_batch')::jsonb#>>'{taskIds,2}',true);
 select set_config('test.project.execution.milestone_result',public.create_current_project_milestone(
   current_setting('test.project.execution.project_id')::uuid,'Commercial acceptance','Formal acceptance',
   '89000000-0000-4000-8000-000000000002','2026-09-01','2026-09-30',0,

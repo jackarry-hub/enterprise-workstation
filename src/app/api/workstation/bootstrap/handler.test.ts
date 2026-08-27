@@ -245,6 +245,10 @@ describe("workstation bootstrap route", () => {
           accepted_at: null,
           submitted_at: null,
           reviewed_at: null,
+          completed_at: null,
+          version: 2,
+          created_at: "2026-08-18T01:00:00.000Z",
+          updated_at: "2026-08-18T02:00:00.000Z",
         },
         {
           id: 9002,
@@ -269,6 +273,10 @@ describe("workstation bootstrap route", () => {
           accepted_at: null,
           submitted_at: null,
           reviewed_at: null,
+          completed_at: null,
+          version: 1,
+          created_at: "2026-08-18T01:00:00.000Z",
+          updated_at: "2026-08-18T01:00:00.000Z",
         },
       ],
       error: null,
@@ -519,6 +527,7 @@ describe("workstation bootstrap route", () => {
     expect(client.from).not.toHaveBeenCalledWith("salary_grade_policies");
     expect(knowledge.select).toHaveBeenCalledWith(expect.stringContaining("public_id"));
     expect(tasks.select).toHaveBeenCalledWith(expect.stringContaining("id, public_id"));
+    expect(tasks.select).toHaveBeenCalledWith(expect.stringContaining("version, created_at, updated_at"));
     expect(salary.select).toHaveBeenCalledWith(
       expect.stringContaining("calculation_version"),
     );
@@ -540,6 +549,7 @@ describe("workstation bootstrap route", () => {
       status: "failed",
       errorCode: "send_failed",
     });
+    expect(bootstrap.tasks[0].version).toBe(2);
     expect(bootstrap.tasks[1].notification).toEqual({
       status: "unavailable",
       errorCode: "recipient_unavailable",

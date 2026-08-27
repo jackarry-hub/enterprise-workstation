@@ -417,7 +417,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
         .is("deleted_at", null)
         .order("updated_at", { ascending: false }), requestId),
       optionalBootstrapQuery("tasks", client.from("tasks")
-        .select("id, public_id, project_id, title, description, assignee_member_id, reporter_member_id, status, priority, start_date, due_date, progress, acceptance_criteria, blocker, review_note, next_step, result_summary, result_link, result_files, accepted_at, submitted_at, reviewed_at, submission_count, rejection_count")
+        .select("id, public_id, project_id, title, description, assignee_member_id, reporter_member_id, status, priority, start_date, due_date, completed_at, progress, acceptance_criteria, blocker, review_note, next_step, result_summary, result_link, result_files, accepted_at, submitted_at, reviewed_at, submission_count, rejection_count, version, created_at, updated_at")
         .is("deleted_at", null)
         .order("updated_at", { ascending: false }), requestId),
       optionalBootstrapQuery("salary", loadSalaryRows(
@@ -747,8 +747,12 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
           acceptedAt: row.accepted_at,
           submittedAt: row.submitted_at,
           reviewedAt: row.reviewed_at,
+          completedAt: row.completed_at,
           submissionCount: Number(row.submission_count ?? 0),
           rejectionCount: Number(row.rejection_count ?? 0),
+          version: Number(row.version),
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
           notification: notificationByTask.get(row.id) ?? {
             status: "unavailable",
             errorCode: "recipient_unavailable",

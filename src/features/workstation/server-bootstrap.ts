@@ -83,8 +83,12 @@ export type WorkstationTaskRow = {
   acceptedAt?: string | null;
   submittedAt?: string | null;
   reviewedAt?: string | null;
+  completedAt?: string | null;
   submissionCount?: number;
   rejectionCount?: number;
+  version: number;
+  createdAt?: string;
+  updatedAt?: string;
   notification: {
     status: string;
     errorCode: string;
@@ -451,6 +455,10 @@ export function buildServerBootstrap(
       acceptedAt: task.acceptedAt ?? "",
       submittedAt: task.submittedAt ?? "",
       reviewedAt: task.reviewedAt ?? "",
+      completedAt: task.completedAt ?? "",
+      version: task.version,
+      createdAt: task.createdAt ?? "",
+      updatedAt: task.updatedAt ?? "",
       notification: publicTaskNotification(task.notification),
       timeline: [],
       src: "飞书工作站",

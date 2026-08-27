@@ -1,20 +1,26 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createWorkstationTaskCreateHandler } from "@/app/api/workstation/tasks/handler";
+import {
+  createWorkstationTaskCreateHandler,
+  defaultWorkstationTaskCreateDependencies,
+} from "@/app/api/workstation/tasks/handler";
+import { getSupabaseServerClient } from "@/lib/supabase/server";
+
+vi.mock("@/lib/supabase/server", () => ({ getSupabaseServerClient: vi.fn() }));
 
 const tenantId = "22222222-2222-4222-8222-222222222222";
 const organizationId = "33333333-3333-4333-8333-333333333333";
+const projectId = "11111111-1111-4111-8111-111111111111";
 const taskId = "44444444-4444-4444-8444-444444444444";
-
+const key = "65000000-0000-4000-8000-000000000001";
 const managerSession = {
   tenantId,
   organization: { id: organizationId },
   member: { id: 7 },
   permissionCodes: ["task.manage"],
 };
-
 const validBody = {
-  projectId: "11111111-1111-4111-8111-111111111111",
+  projectId,
   assigneeMemberId: "m8",
   title: "完成飞书协作联调",
   description: "验证员工领取、提交和负责人验收",
@@ -22,188 +28,159 @@ const validBody = {
   dueDate: "2026-08-25",
   priority: "P1",
 };
+const canonicalTask = {
+  id: taskId,
+  projectId,
+  assigneeMemberId: "8",
+  reporterMemberId: "7",
+  title: validBody.title,
+  description: validBody.description,
+  acceptanceCriteria: validBody.acceptanceCriteria,
+  status: "todo",
+  priority: "high",
+  startDate: "2026-08-20",
+  dueDate: validBody.dueDate,
+  progress: 0,
+  blocker: "",
+  nextStep: "",
+  resultText: "",
+  resultLink: "",
+  resultFiles: [],
+  reviewNote: "",
+  acceptedAt: null,
+  submittedAt: null,
+  reviewedAt: null,
+  completedAt: null,
+  version: 1,
+  createdAt: "2026-08-20T01:00:00.000Z",
+  updatedAt: "2026-08-20T01:00:00.000Z",
+};
+const commandResult = {
+  outcome: "success", resource: "task_batch", id: key, version: 1,
+  taskIds: [taskId], tasks: [canonicalTask],
+};
 
-const task = { id: taskId, st: "待处理" };
-
-function taskCreateRequest(body: unknown = validBody) {
+function request(body: unknown = validBody, idempotencyKey: string | null = key) {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   return new Request("https://workspace.test/api/workstation/tasks", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+    method: "POST", headers, body: JSON.stringify(body),
   });
 }
 
-describe("formal workstation task creation", () => {
-  it("requires task management permission", async () => {
+function handler(overrides: Record<string, unknown> = {}) {
+  return createWorkstationTaskCreateHandler({
+    loadSession: async () => managerSession,
+    createTask: vi.fn().mockResolvedValue(commandResult),
+    notifyTask: vi.fn().mockResolvedValue({ status: "sent" }),
+    ...overrides,
+  } as never);
+}
+
+describe("formal workstation idempotent single task creation", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("requires authentication and a UUID idempotency key while deferring project ACLs to the database", async () => {
     const createTask = vi.fn();
     const notifyTask = vi.fn();
-    const handler = createWorkstationTaskCreateHandler({
-      loadSession: async () => ({
-        ...managerSession,
-        permissionCodes: ["task.execute"],
-      }),
-      createTask,
-      notifyTask,
-    });
-
-    const response = await handler(taskCreateRequest());
-
-    expect(response.status).toBe(403);
+    expect((await handler({ loadSession: async () => null, createTask, notifyTask })(request())).status).toBe(401);
+    expect((await handler({ createTask, notifyTask })(request(validBody, null))).status).toBe(400);
     expect(createTask).not.toHaveBeenCalled();
     expect(notifyTask).not.toHaveBeenCalled();
+
+    const projectManagerCreate = vi.fn().mockResolvedValue(commandResult);
+    expect((await handler({
+      loadSession: async () => ({ ...managerSession, permissionCodes: [] }),
+      createTask: projectManagerCreate,
+    })(request())).status).toBe(201);
+    expect(projectManagerCreate).toHaveBeenCalledOnce();
   });
 
-  it("creates the task before notifying its assignee with the returned public task ID", async () => {
-    const callOrder: string[] = [];
-    const createTask = vi.fn().mockImplementation(async () => {
-      callOrder.push("created");
-      return task;
-    });
-    const notifyTask = vi.fn().mockImplementation(async () => {
-      callOrder.push("notified");
-      return { status: "sent" as const };
-    });
-    const handler = createWorkstationTaskCreateHandler({
-      loadSession: async () => managerSession,
-      createTask,
-      notifyTask,
-    });
+  it("rejects spoofed or malformed fields before storage", async () => {
+    const createTask = vi.fn();
+    const invalid = [
+      { ...validBody, reporterMemberId: 999 },
+      { ...validBody, dueDate: "2026-02-31" },
+      { ...validBody, assigneeMemberId: "m0" },
+      { ...validBody, priority: "urgent" },
+    ];
+    for (const body of invalid) {
+      expect((await handler({ createTask })(request(body))).status).toBe(400);
+    }
+    expect(createTask).not.toHaveBeenCalled();
+  });
 
-    const response = await handler(taskCreateRequest({
-      ...validBody,
-      reporterMemberId: 999,
-    }));
-
+  it("creates through the one-item batch command before notifying the canonical task ID", async () => {
+    const events: string[] = [];
+    const createTask = vi.fn().mockImplementation(async () => { events.push("created"); return commandResult; });
+    const notifyTask = vi.fn().mockImplementation(async () => { events.push("notified"); return { status: "sent" }; });
+    const response = await handler({ createTask, notifyTask })(request());
     expect(response.status).toBe(201);
-    expect(createTask).toHaveBeenCalledWith({
-      actorMemberId: 7,
-      projectId: validBody.projectId,
-      assigneeMemberId: 8,
-      title: validBody.title,
-      description: validBody.description,
-      acceptanceCriteria: validBody.acceptanceCriteria,
-      dueDate: validBody.dueDate,
-      priority: "high",
-    });
-    expect(notifyTask).toHaveBeenCalledWith({
-      tenantId,
-      organizationId,
-      taskId,
-    });
-    expect(callOrder).toEqual(["created", "notified"]);
-    await expect(response.json()).resolves.toEqual({
-      task,
+    expect(events).toEqual(["created", "notified"]);
+    expect(createTask).toHaveBeenCalledWith(expect.objectContaining({
+      projectId, assigneeMemberId: 8, priority: "high", idempotencyKey: key,
+      requestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    }));
+    expect(createTask.mock.calls[0]?.[0].requestId).not.toBe(key);
+    expect(notifyTask).toHaveBeenCalledWith({ tenantId, organizationId, taskId });
+    expect(await response.json()).toEqual({
+      task: expect.objectContaining({ id: taskId, own: "m8", createdBy: "m7", version: 1 }),
       notification: { status: "sent" },
     });
-  });
-
-  it("rejects malformed task input", async () => {
-    const createTask = vi.fn();
-    const notifyTask = vi.fn();
-    const handler = createWorkstationTaskCreateHandler({
-      loadSession: async () => managerSession,
-      createTask,
-      notifyTask,
-    });
-
-    const response = await handler(taskCreateRequest({
-      ...validBody,
-      assigneeMemberId: "m0",
-    }));
-
-    expect(response.status).toBe(400);
-    expect(createTask).not.toHaveBeenCalled();
-    expect(notifyTask).not.toHaveBeenCalled();
   });
 
   it.each([
     { status: "failed", errorCode: "send_failed" },
     { status: "unavailable", errorCode: "recipient_unavailable" },
     { status: "unavailable", errorCode: "delivery_unconfirmed" },
-    { status: "unavailable", errorCode: "queue_unavailable" },
-  ] as const)(
-    "keeps HTTP 201 when notification delivery returns $status/$errorCode",
-    async (notification) => {
-      const handler = createWorkstationTaskCreateHandler({
-        loadSession: async () => managerSession,
-        createTask: vi.fn().mockResolvedValue(task),
-        notifyTask: vi.fn().mockResolvedValue(notification),
-      });
+  ] as const)("keeps the committed task when notification returns $status", async (notification) => {
+    const response = await handler({ notifyTask: vi.fn().mockResolvedValue(notification) })(request());
+    expect(response.status).toBe(201);
+    expect((await response.json()).notification).toEqual(notification);
+  });
 
-      const response = await handler(taskCreateRequest());
-
-      expect(response.status).toBe(201);
-      await expect(response.json()).resolves.toEqual({ task, notification });
-    },
-  );
-
-  it("normalizes unexpected notifier exceptions without exposing their messages", async () => {
-    const sensitiveMessage = "Feishu rejected secret credential abc123";
-    const handler = createWorkstationTaskCreateHandler({
-      loadSession: async () => managerSession,
-      createTask: vi.fn().mockResolvedValue(task),
-      notifyTask: vi.fn().mockRejectedValue(new Error(sensitiveMessage)),
-    });
-
-    const response = await handler(taskCreateRequest());
+  it("normalizes notifier exceptions without exposing provider details", async () => {
+    const response = await handler({
+      notifyTask: vi.fn().mockRejectedValue(new Error("secret provider response")),
+    })(request());
     const body = await response.json();
-
     expect(response.status).toBe(201);
-    expect(body).toEqual({
-      task,
-      notification: { status: "failed", errorCode: "send_failed" },
-    });
-    expect(JSON.stringify(body)).not.toContain(sensitiveMessage);
+    expect(body.notification).toEqual({ status: "failed", errorCode: "send_failed" });
+    expect(JSON.stringify(body)).not.toContain("secret provider response");
   });
 
-  it("keeps HTTP 201 when the notifier throws synchronously", async () => {
-    const handler = createWorkstationTaskCreateHandler({
-      loadSession: async () => managerSession,
-      createTask: vi.fn().mockResolvedValue(task),
-      notifyTask: vi.fn().mockImplementation(() => {
-        throw new Error("sensitive synchronous Feishu failure");
-      }),
-    });
-
-    const response = await handler(taskCreateRequest());
-
-    expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toEqual({
-      task,
-      notification: { status: "failed", errorCode: "send_failed" },
-    });
-  });
-
-  it("does not notify when task creation fails", async () => {
+  it("maps database domain failures and never notifies", async () => {
     const notifyTask = vi.fn();
-    const handler = createWorkstationTaskCreateHandler({
-      loadSession: async () => managerSession,
-      createTask: vi.fn().mockRejectedValue(new Error("task_create_failed")),
+    for (const [error, status] of [["forbidden", 403], ["not_found", 404], ["scope_conflict", 409]] as const) {
+      const response = await handler({
+        createTask: vi.fn().mockResolvedValue({ outcome: "failure", error }), notifyTask,
+      })(request());
+      expect(response.status).toBe(status);
+      expect(await response.json()).toEqual({ error });
+    }
+    const sanitized = await handler({
+      createTask: vi.fn().mockResolvedValue({ outcome: "failure", error: "relation internal_tasks leaked" }),
       notifyTask,
-    });
-
-    const response = await handler(taskCreateRequest());
-
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({ error: "task_create_failed" });
+    })(request());
+    expect(sanitized.status).toBe(503);
+    expect(await sanitized.json()).toEqual({ error: "command_failed" });
     expect(notifyTask).not.toHaveBeenCalled();
   });
 
-  it("returns forbidden when the database rejects task management scope", async () => {
-    const notifyTask = vi.fn();
-    const databaseError = Object.assign(new Error("sensitive database policy detail"), {
-      code: "42501",
-    });
-    const handler = createWorkstationTaskCreateHandler({
-      loadSession: async () => managerSession,
-      createTask: vi.fn().mockRejectedValue(databaseError),
-      notifyTask,
-    });
-
-    const response = await handler(taskCreateRequest());
-
-    expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({ error: "task_create_forbidden" });
-    expect(notifyTask).not.toHaveBeenCalled();
+  it("calls create_current_task_batch_v2 once in the default dependency", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: commandResult, error: null });
+    vi.mocked(getSupabaseServerClient).mockResolvedValue({ rpc } as never);
+    await expect(defaultWorkstationTaskCreateDependencies.createTask({
+      ...validBody,
+      assigneeMemberId: 8,
+      priority: "high",
+      idempotencyKey: key,
+      requestId: "65000000-0000-4000-8000-000000000002",
+    })).resolves.toEqual(commandResult);
+    expect(rpc).toHaveBeenCalledWith("create_current_task_batch_v2", expect.objectContaining({
+      items: [expect.objectContaining({ projectId, assigneeMemberId: 8 })],
+      idempotency_key: key,
+      request_id: "65000000-0000-4000-8000-000000000002",
+    }));
   });
 });

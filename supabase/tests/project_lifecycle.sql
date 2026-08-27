@@ -11,7 +11,7 @@ select ok(has_table('public','project_command_idempotency'),'project command led
 select ok(has_function('public','create_current_project_v2',array['text','text','text','uuid','numeric','text','text','date','date','bigint','text','uuid','uuid']::name[]),'transactional project create exists');
 select ok(has_function('public','update_current_project',array['uuid','text','text','text','uuid','numeric','text','date','date','bigint','text','uuid','uuid']::name[]),'versioned project update exists');
 select ok(has_function('public','archive_current_project',array['uuid','bigint','text','uuid','uuid']::name[]),'versioned project archive exists');
-select ok(has_function('public','create_current_project_task_v2',array['uuid','text','text','bigint','date','text','text']::name[]),'existing task create remains compatible');
+select ok(has_function('public','create_current_task_batch_v2',array['jsonb','uuid','uuid']::name[]),'transactional task batch command is available');
 select ok(
   has_function_privilege('authenticated','public.create_current_project_v2(text,text,text,uuid,numeric,text,text,date,date,bigint,text,uuid,uuid)','EXECUTE')
   and has_function_privilege('authenticated','public.update_current_project(uuid,text,text,text,uuid,numeric,text,date,date,bigint,text,uuid,uuid)','EXECUTE')
@@ -222,15 +222,19 @@ select ok(exists(select 1 from public.audit_logs where request_id='85000000-0000
 
 select set_config('request.jwt.claim.sub','83000000-0000-4000-8000-000000000001',true);
 set local role authenticated;
-select set_config('test.project.lifecycle.task_result',public.create_current_project_task_v2(
-  current_setting('test.project.lifecycle.project_id')::uuid,'Compatibility task','Task after project hardening',
-  (select id from public.organization_members where user_id='83000000-0000-4000-8000-000000000006'),
-  '2026-10-10','high','Task row and membership commit'
+select set_config('test.project.lifecycle.task_result',public.create_current_task_batch_v2(
+  jsonb_build_array(jsonb_build_object(
+    'projectId',current_setting('test.project.lifecycle.project_id')::uuid,
+    'title','Compatibility task','description','Task after project hardening',
+    'assigneeMemberId',(select id from public.organization_members where user_id='83000000-0000-4000-8000-000000000006'),
+    'dueDate',to_char(current_date + 90,'YYYY-MM-DD'),'priority','high','acceptanceCriteria','Task row and membership commit'
+  )),
+  '85000000-0000-4000-8000-000000000020','85000000-0000-4000-8000-000000000021'
 )::text,true);
 reset role;
 select ok(
-  exists(select 1 from public.tasks where public_id=current_setting('test.project.lifecycle.task_result')::uuid),
-  'existing task create RPC still creates a real task'
+  exists(select 1 from public.tasks where public_id=(current_setting('test.project.lifecycle.task_result')::jsonb#>>'{taskIds,0}')::uuid),
+  'transactional task batch creates a real task'
 );
 select ok(
   exists(

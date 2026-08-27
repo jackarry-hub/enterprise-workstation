@@ -11,6 +11,9 @@
 
   var bootstrap = null;
   var projectCreateAttempt = null;
+  var taskCreateAttempt = null;
+  var taskBatchAttempt = null;
+  var taskTransitionAttempts = Object.create(null);
   var runtime = { authMode: "feishu", dataMode: "server" };
   var embeddedBootstrap = window.__QUANTXY_SERVER_BOOTSTRAP__ || null;
   var bootstrapErrorCodes = {
@@ -22,6 +25,7 @@
     agent_context_unavailable: true,
     confirmed_payroll_immutable: true,
     conflict: true,
+    command_failed: true,
     directory_actor_invalid: true,
     directory_sync_failed: true,
     employee_hire_date_missing: true,
@@ -54,6 +58,11 @@
     project_member_invalid: true,
     task_create_failed: true,
     task_create_forbidden: true,
+    task_batch_unavailable: true,
+    task_transition_unavailable: true,
+    version_conflict: true,
+    invalid_transition: true,
+    invalid_idempotency_key: true,
     task_not_found: true,
     task_update_failed: true,
   };
@@ -330,12 +339,49 @@
     };
   }
 
+  function definitiveCommandFailure(error, unavailableCode) {
+    return !!(error && typeof error.code === "string"
+      && error.code !== "workstation_unavailable"
+      && error.code !== unavailableCode)
+      || !!(error && error.message === "unauthorized");
+  }
+
   function mutateTask(taskId, action, input) {
-    return request("/api/workstation/tasks/" + encodeURIComponent(taskId), {
+    var current = (requireBootstrap().tasks || []).find(function (task) { return task.id === taskId; });
+    if (!current || !Number.isSafeInteger(current.version) || current.version < 1) {
+      return Promise.reject(new Error("workstation_unavailable"));
+    }
+    var body = Object.assign({ action: action, expectedVersion: current.version }, input || {});
+    var payload = JSON.stringify(body);
+    var existing = taskTransitionAttempts[taskId];
+    if (existing && existing.payload !== payload) {
+      if (existing.promise) return Promise.reject(new Error("workstation_unavailable"));
+      delete taskTransitionAttempts[taskId];
+      existing = null;
+    }
+    if (!existing) {
+      existing = { payload: payload, key: commandId(), promise: null };
+      taskTransitionAttempts[taskId] = existing;
+    }
+    if (existing.promise) return existing.promise;
+    var attempt = existing;
+    attempt.promise = request("/api/workstation/tasks/" + encodeURIComponent(taskId), {
       method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(Object.assign({ action: action }, input || {})),
-    }).then(function (result) { return replaceTask(result.task); });
+      headers: { "content-type": "application/json", "Idempotency-Key": attempt.key },
+      body: payload,
+    }).then(function (result) {
+      var task = replaceTask(result.task);
+      if (taskTransitionAttempts[taskId] === attempt) delete taskTransitionAttempts[taskId];
+      return task;
+    }).catch(function (error) {
+      if (definitiveCommandFailure(error, "task_transition_unavailable")) {
+        if (taskTransitionAttempts[taskId] === attempt) delete taskTransitionAttempts[taskId];
+      } else if (taskTransitionAttempts[taskId] === attempt) {
+        attempt.promise = null;
+      }
+      throw error;
+    });
+    return attempt.promise;
   }
 
   window.QUANTXY_WORKSTATION_RUNTIME = runtime;
@@ -431,28 +477,63 @@
       return attempt.promise;
     },
     createTask: function (input) {
-      return request("/api/workstation/tasks", {
+      var payload = JSON.stringify(input || {});
+      if (taskCreateAttempt && taskCreateAttempt.payload !== payload) {
+        if (taskCreateAttempt.promise) return Promise.reject(new Error("workstation_unavailable"));
+        taskCreateAttempt = null;
+      }
+      if (!taskCreateAttempt) taskCreateAttempt = { payload: payload, key: commandId(), promise: null };
+      if (taskCreateAttempt.promise) return taskCreateAttempt.promise;
+      var attempt = taskCreateAttempt;
+      attempt.promise = request("/api/workstation/tasks", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(input || {}),
+        headers: { "content-type": "application/json", "Idempotency-Key": attempt.key },
+        body: payload,
       }).then(function (result) {
         var task = addTask(result.task);
         task.notification = safeNotification(result.notification);
+        if (taskCreateAttempt === attempt) taskCreateAttempt = null;
         return task;
+      }).catch(function (error) {
+        if (definitiveCommandFailure(error, "task_create_failed")) {
+          if (taskCreateAttempt === attempt) taskCreateAttempt = null;
+        } else if (taskCreateAttempt === attempt) {
+          attempt.promise = null;
+        }
+        throw error;
       });
+      return attempt.promise;
     },
     createTasks: function (inputs) {
-      return request("/api/workstation/tasks/batch", {
+      var payload = JSON.stringify({ tasks: Array.isArray(inputs) ? inputs : [] });
+      if (taskBatchAttempt && taskBatchAttempt.payload !== payload) {
+        if (taskBatchAttempt.promise) return Promise.reject(new Error("workstation_unavailable"));
+        taskBatchAttempt = null;
+      }
+      if (!taskBatchAttempt) taskBatchAttempt = { payload: payload, key: commandId(), promise: null };
+      if (taskBatchAttempt.promise) return taskBatchAttempt.promise;
+      var attempt = taskBatchAttempt;
+      attempt.promise = request("/api/workstation/tasks/batch", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ tasks: Array.isArray(inputs) ? inputs : [] }),
+        headers: { "content-type": "application/json", "Idempotency-Key": attempt.key },
+        body: payload,
       }).then(function (result) {
-        return (Array.isArray(result.tasks) ? result.tasks : []).map(function (row) {
+        var tasks = (Array.isArray(result.tasks) ? result.tasks : []).map(function (row) {
           var task = addTask(row.task);
           task.notification = safeNotification(row.notification);
           return task;
         });
+        if (taskBatchAttempt === attempt) taskBatchAttempt = null;
+        return tasks;
+      }).catch(function (error) {
+        if (definitiveCommandFailure(error, "task_batch_unavailable")) {
+          if (taskBatchAttempt === attempt) taskBatchAttempt = null;
+        } else if (taskBatchAttempt === attempt) {
+          attempt.promise = null;
+        }
+        throw error;
       });
+      return attempt.promise;
     },
     retryTaskNotification: function (taskId) {
       return request(

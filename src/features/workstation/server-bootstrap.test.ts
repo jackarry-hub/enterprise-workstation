@@ -22,7 +22,7 @@ describe("formal workstation bootstrap", () => {
           { id: 31, publicId: "11111111-1111-4111-8111-111111111111", name: "企业工作站", ownerMemberId: 7, status: "active", health: "on_track", progress: 45, priority: "high", category: "客户交付", budgetAmount: "125000.25", startsOn: "2026-08-18", dueOn: "2026-09-30", version: 3, updatedAt: "2026-08-18T08:00:00.000Z" },
         ],
         tasks: [
-          { publicId: "22222222-2222-4222-8222-222222222222", projectId: 31, title: "完成飞书接入", description: "接入企业账号", assigneeMemberId: 7, reporterMemberId: 8, status: "in_progress", priority: "urgent", startDate: "2026-08-18", dueDate: "2026-08-20", progress: 35, acceptanceCriteria: "员工可登录", blocker: null, reviewNote: null, acceptedAt: "2026-08-18T01:00:00.000Z", submittedAt: null, notification: { status: "failed", errorCode: "send_failed" } },
+          { publicId: "22222222-2222-4222-8222-222222222222", projectId: 31, title: "完成飞书接入", description: "接入企业账号", assigneeMemberId: 7, reporterMemberId: 8, status: "in_progress", priority: "urgent", startDate: "2026-08-18", dueDate: "2026-08-20", progress: 35, acceptanceCriteria: "员工可登录", blocker: null, reviewNote: null, acceptedAt: "2026-08-18T01:00:00.000Z", submittedAt: null, version: 4, notification: { status: "failed", errorCode: "send_failed" } },
         ],
         salary: [
           {
@@ -74,7 +74,7 @@ describe("formal workstation bootstrap", () => {
       expect.objectContaining({ id: "11111111-1111-4111-8111-111111111111", own: "m7", cat: "客户交付", pr: 45, bud: 12.500025, s: "2026-08-18", e: "2026-09-30", version: 3, st: "进行中" }),
     ]);
     expect(bootstrap.tasks).toEqual([
-      expect.objectContaining({ id: "22222222-2222-4222-8222-222222222222", p: "11111111-1111-4111-8111-111111111111", own: "m7", createdBy: "m8", st: "进行中", pri: "P0", ac: "员工可登录", acceptedAt: "2026-08-18T01:00:00.000Z", submittedAt: "", notification: { status: "failed", errorCode: "send_failed" } }),
+      expect.objectContaining({ id: "22222222-2222-4222-8222-222222222222", p: "11111111-1111-4111-8111-111111111111", own: "m7", createdBy: "m8", st: "进行中", pri: "P0", ac: "员工可登录", acceptedAt: "2026-08-18T01:00:00.000Z", submittedAt: "", version: 4, notification: { status: "failed", errorCode: "send_failed" } }),
     ]);
     expect(bootstrap.tasks[0].notification).toEqual({
       status: "failed",
@@ -379,6 +379,7 @@ describe("formal workstation bootstrap", () => {
           acceptanceCriteria: "员工可登录",
           blocker: null,
           reviewNote: null,
+          version: 1,
           notification: {
             status: "failed",
             errorCode: "recipient_unavailable",
@@ -447,6 +448,7 @@ describe("formal workstation bootstrap", () => {
             acceptanceCriteria: "完成",
             blocker: null,
             reviewNote: null,
+            version: 1,
             notification: { status: "sent", errorCode: "" },
           },
           {
@@ -469,6 +471,7 @@ describe("formal workstation bootstrap", () => {
             reviewedAt: "2000-01-09T08:00:00.000Z",
             submissionCount: 1,
             rejectionCount: 0,
+            version: 1,
             notification: { status: "sent", errorCode: "" },
           },
           {
@@ -491,6 +494,7 @@ describe("formal workstation bootstrap", () => {
             reviewedAt: "2000-01-11T08:00:00.000Z",
             submissionCount: 2,
             rejectionCount: 1,
+            version: 1,
             notification: { status: "sent", errorCode: "" },
           },
         ],
