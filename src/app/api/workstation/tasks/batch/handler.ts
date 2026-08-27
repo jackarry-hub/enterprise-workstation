@@ -29,7 +29,7 @@ export const defaultWorkstationTaskBatchDependencies: WorkstationTaskBatchDepend
   loadSession: getWorkspaceSession,
   async createBatch(input) {
     const client = await getSupabaseServerClient();
-    const { data, error } = await client.rpc("create_current_task_batch_v2", {
+    const { data, error } = await client.rpc("create_current_task_batch_v3", {
       items: input.items,
       idempotency_key: input.idempotencyKey,
       request_id: input.requestId,

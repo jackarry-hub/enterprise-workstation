@@ -2395,10 +2395,10 @@ function viewMe(){
 /* ---------------- 页面：任务执行详情 ---------------- */
 function fieldValue(id){ var node=el(id); return node?node.value.trim():''; }
 function readExecutionInput(){ return {progress:Number(fieldValue('execProgress')),blocker:fieldValue('execBlocker'),nextStep:fieldValue('execNextStep')}; }
-function readResultInput(){ return {resultText:fieldValue('execResultText'),resultLink:fieldValue('execResultLink'),resultFiles:fieldValue('execResultFiles').split(/\r?\n/).map(function(v){ return v.trim(); }).filter(Boolean)}; }
+function readResultInput(){ return {resultText:fieldValue('execResultText'),resultLink:fieldValue('execResultLink'),resultFiles:isDemoRuntime()?fieldValue('execResultFiles').split(/\r?\n/).map(function(v){ return v.trim(); }).filter(Boolean):[]}; }
 function taskError(error){
   var code=String(error&&error.message||error);
-  return {real_write_not_configured:'真实数据写接口未配置',real_data_service_unavailable:'真实数据写接口未配置',forbidden:'当前身份没有此操作权限',invalid_status:'当前任务状态不允许此操作',invalid_progress:'进度必须在 0 到 100 之间',result_required:'请填写成果说明，并提供成果链接或文件名称',review_note_required:'驳回时必须填写验收意见',invalid_decision:'验收决定无效',task_not_found:'任务不存在',task_update_failed:'任务已变化，请刷新后重试',task_create_failed:'任务下发失败，请检查项目和成员权限'}[code]||'任务操作失败';
+  return {real_write_not_configured:'真实数据写接口未配置',real_data_service_unavailable:'真实数据写接口未配置',forbidden:'当前身份没有此操作权限',invalid_status:'当前任务状态不允许此操作',invalid_progress:'进度必须在 0 到 100 之间',result_required:'请填写成果说明，并提供成果链接或已验证项目文件',review_note_required:'驳回时必须填写验收意见',invalid_decision:'验收决定无效',task_not_found:'任务不存在',task_update_failed:'任务已变化，请刷新后重试',task_create_failed:'任务下发失败，请检查项目和成员权限'}[code]||'任务操作失败';
 }
 function mergeTaskMutation(task){
   if(!task||!task.id) return;
@@ -2477,8 +2477,7 @@ function viewExecution(){
       '<div class="card"><div class="hd"><h3>提交成果</h3><div class="grow"></div><span class="tag t-v">提交后待验收</span></div><div class="bd">',
         '<label class="field"><span>成果说明</span><textarea class="ta" id="execResultText" placeholder="说明已完成的内容与验收要点">',esc(task.resultText||''),'</textarea></label>',
         '<label class="field"><span>成果链接</span><input class="inp" id="execResultLink" value="',esc(task.resultLink||''),'" placeholder="https://example.com/result"></label>',
-        '<label class="field"><span>成果文件名称（每行一个）</span><textarea class="ta" id="execResultFiles" placeholder="验收报告.pdf&#10;交付清单.xlsx">',esc((task.resultFiles||[]).join('\n')),'</textarea></label>',
-        '<p class="hint">这里只记录文件名称或链接，不上传二进制文件。</p>',
+        isDemoRuntime()?'<label class="field"><span>演示成果文件名称（每行一个）</span><textarea class="ta" id="execResultFiles" placeholder="验收报告.pdf&#10;交付清单.xlsx">'+esc((task.resultFiles||[]).join('\n'))+'</textarea></label>':'<input type="hidden" id="execResultFiles" value=""><p class="hint">正式模式仅接受成果链接或项目详情中已完成上传校验的文件。本页不会把文件名当作真实附件。</p>',
         '<button class="btn" data-act="task-submit">',ic('send',15),'提交负责人验收</button>',
       '</div></div>'
     ]);

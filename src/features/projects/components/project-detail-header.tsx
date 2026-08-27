@@ -6,6 +6,7 @@ import {
   MoreHorizontal,
   PencilLine,
   Plus,
+  Archive,
 } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarGroup, AvatarGroupCount, AvatarImage } from "@/components/ui/avatar";
@@ -50,9 +51,10 @@ type ProjectDetailHeaderProps = {
   onAddTask: () => void;
   onEdit: () => void;
   canManage?: boolean;
+  onArchive?: () => void;
 };
 
-export function ProjectDetailHeader({ detail, onAddTask, onEdit, canManage = true }: ProjectDetailHeaderProps) {
+export function ProjectDetailHeader({ detail, onAddTask, onEdit, onArchive, canManage = true }: ProjectDetailHeaderProps) {
   const [feedback, setFeedback] = useState("");
   const visibleMembers = detail.members.slice(0, 3);
   const hiddenMemberCount = Math.max(detail.members.length - visibleMembers.length, 0);
@@ -149,6 +151,7 @@ export function ProjectDetailHeader({ detail, onAddTask, onEdit, canManage = tru
             <DropdownMenuContent align="end" className="w-40 rounded-xl border border-glass-border bg-background/95 p-1.5">
               <DropdownMenuItem onSelect={async () => { await navigator.clipboard?.writeText(window.location.href); setFeedback("项目链接已复制"); }}>复制项目链接</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => { const content = JSON.stringify({ project: detail.project, milestones: detail.milestones, tasks: detail.tasks }, null, 2); const url = URL.createObjectURL(new Blob([content], { type: "application/json" })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `${detail.project.code}-项目报告.json`; anchor.click(); URL.revokeObjectURL(url); setFeedback("项目报告已导出"); }}>导出项目报告</DropdownMenuItem>
+              {canManage && onArchive ? <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={onArchive}><Archive />归档项目</DropdownMenuItem> : null}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

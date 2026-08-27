@@ -1,16 +1,17 @@
 begin;
-select plan(42);
+select plan(43);
 
 select ok(has_column('public','tasks','tenant_id'),'tasks carry tenant ownership');
 select ok(has_column('public','tasks','created_by_member_id'),'tasks carry creator ownership');
 select ok(has_column('public','tasks','updated_by_member_id'),'tasks carry last updater ownership');
 select ok(has_column('public','tasks','version'),'tasks carry optimistic version');
 select ok(has_table('public','task_command_idempotency'),'task command ledger exists');
-select ok(has_function('public','create_current_task_batch_v2',array['jsonb','uuid','uuid']::name[]),'atomic task batch command exists');
+select ok(has_function('public','create_current_task_batch_v3',array['jsonb','uuid','uuid']::name[]),'membership-safe atomic task batch command exists');
 select ok(has_function('public','transition_current_task',array['uuid','text','integer','jsonb','uuid']::name[]),'versioned task transition exists');
 select is((select relforcerowsecurity from pg_class where oid='public.tasks'::regclass),true,'tasks force row security');
 select ok(
-  has_function_privilege('authenticated','public.create_current_task_batch_v2(jsonb,uuid,uuid)','EXECUTE')
+  has_function_privilege('authenticated','public.create_current_task_batch_v3(jsonb,uuid,uuid)','EXECUTE')
+  and not has_function_privilege('authenticated','public.create_current_task_batch_v2(jsonb,uuid,uuid)','EXECUTE')
   and has_function_privilege('authenticated','public.transition_current_task(uuid,text,integer,jsonb,uuid)','EXECUTE'),
   'authenticated users enter only controlled task commands'
 );
@@ -115,18 +116,20 @@ from public.projects project where project.public_id in (
   '91020000-0000-4000-8000-000000000001','91020000-0000-4000-8000-000000000002'
 );
 
+select set_config('quantxy.explicit_project_member_mutation','on',true);
 insert into public.project_members(
   tenant_id,organization_id,project_id,member_id,role,allocation_percent,
   created_by_member_id,updated_by_member_id,version
 )
 select project.tenant_id,project.organization_id,project.id,employee.id,
-       'viewer',0,project.owner_member_id,project.owner_member_id,1
+       'member',100,project.owner_member_id,project.owner_member_id,1
 from public.projects project
 join public.organization_members employee
   on employee.tenant_id=project.tenant_id
  and employee.organization_id=project.organization_id
  and employee.user_id='91000000-0000-4000-8000-000000000002'
 where project.public_id='91020000-0000-4000-8000-000000000001';
+select set_config('quantxy.explicit_project_member_mutation','off',true);
 
 insert into public.tasks(
   public_id,tenant_id,organization_id,project_id,title,description,
@@ -141,21 +144,21 @@ from public.projects project where project.public_id='91020000-0000-4000-8000-00
 
 select set_config('request.jwt.claim.sub','91000000-0000-4000-8000-000000000001',true);
 set local role authenticated;
-select set_config('test.task.workflow.batch',public.create_current_task_batch_v2(
+select set_config('test.task.workflow.batch',public.create_current_task_batch_v3(
   jsonb_build_array(
     jsonb_build_object('projectId','91020000-0000-4000-8000-000000000001','assigneeMemberId',(select id from public.organization_members where user_id='91000000-0000-4000-8000-000000000002'),'title','Workflow task A','description','Atomic A','acceptanceCriteria','Acceptance A','dueDate',to_char(current_date + 90,'YYYY-MM-DD'),'priority','high'),
-    jsonb_build_object('projectId','91020000-0000-4000-8000-000000000001','assigneeMemberId',(select id from public.organization_members where user_id='91000000-0000-4000-8000-000000000002'),'title','Workflow task B','description','Atomic B','acceptanceCriteria','Acceptance B','dueDate',to_char(current_date + 91,'YYYY-MM-DD'),'priority','medium')
+    jsonb_build_object('projectId','91020000-0000-4000-8000-000000000001','assigneeMemberId',(select id from public.organization_members where user_id='91000000-0000-4000-8000-000000000002'),'title','Workflow task B','description','Atomic B','acceptanceCriteria','Acceptance B','dueDate',to_char(current_date + 91,'YYYY-MM-DD'),'priority','low')
   ),
   '91040000-0000-4000-8000-000000000001','91040000-0000-4000-8000-000000000002'
 )::text,true);
-select set_config('test.task.workflow.replay',public.create_current_task_batch_v2(
+select set_config('test.task.workflow.replay',public.create_current_task_batch_v3(
   jsonb_build_array(
     jsonb_build_object('projectId','91020000-0000-4000-8000-000000000001','assigneeMemberId',(select id from public.organization_members where user_id='91000000-0000-4000-8000-000000000002'),'title','Workflow task A','description','Atomic A','acceptanceCriteria','Acceptance A','dueDate',to_char(current_date + 90,'YYYY-MM-DD'),'priority','high'),
-    jsonb_build_object('projectId','91020000-0000-4000-8000-000000000001','assigneeMemberId',(select id from public.organization_members where user_id='91000000-0000-4000-8000-000000000002'),'title','Workflow task B','description','Atomic B','acceptanceCriteria','Acceptance B','dueDate',to_char(current_date + 91,'YYYY-MM-DD'),'priority','medium')
+    jsonb_build_object('projectId','91020000-0000-4000-8000-000000000001','assigneeMemberId',(select id from public.organization_members where user_id='91000000-0000-4000-8000-000000000002'),'title','Workflow task B','description','Atomic B','acceptanceCriteria','Acceptance B','dueDate',to_char(current_date + 91,'YYYY-MM-DD'),'priority','low')
   ),
   '91040000-0000-4000-8000-000000000001','91040000-0000-4000-8000-000000000003'
 )::text,true);
-select set_config('test.task.workflow.conflict',public.create_current_task_batch_v2(
+select set_config('test.task.workflow.conflict',public.create_current_task_batch_v3(
   jsonb_build_array(jsonb_build_object('projectId','91020000-0000-4000-8000-000000000001','assigneeMemberId',(select id from public.organization_members where user_id='91000000-0000-4000-8000-000000000002'),'title','Changed payload','description','','acceptanceCriteria','Changed','dueDate',to_char(current_date + 92,'YYYY-MM-DD'),'priority','high')),
   '91040000-0000-4000-8000-000000000001','91040000-0000-4000-8000-000000000004'
 )::text,true);
@@ -164,6 +167,7 @@ reset role;
 select is(current_setting('test.task.workflow.batch')::jsonb->>'outcome','success','manager creates one atomic task batch');
 select is(current_setting('test.task.workflow.replay')::jsonb->'taskIds',current_setting('test.task.workflow.batch')::jsonb->'taskIds','same key replays canonical task ids');
 select is((select count(*) from public.tasks where title in ('Workflow task A','Workflow task B')),2::bigint,'batch replay creates no duplicate tasks');
+select is((select priority from public.tasks where title='Workflow task B'),'low','P3 task priority survives the hardened v3 compatibility boundary');
 select is(current_setting('test.task.workflow.conflict')::jsonb->>'error','scope_conflict','same batch key rejects a changed payload');
 select is((select count(*) from public.audit_logs where action='task.created' and request_id='91040000-0000-4000-8000-000000000002'),2::bigint,'every task in the batch is audited');
 select ok(exists(select 1 from public.audit_logs where action='task.batch_created' and request_id='91040000-0000-4000-8000-000000000002'),'batch completion is audited');
@@ -173,7 +177,7 @@ select is(
    join public.organization_members member on member.id=membership.member_id
    where project.public_id='91020000-0000-4000-8000-000000000001'
      and member.user_id='91000000-0000-4000-8000-000000000002'),
-  'member','assigning a task promotes an active viewer to a contributor'
+  'member','task assignment preserves an explicitly managed contributor membership'
 );
 
 create function public.test_reject_second_task()
@@ -187,7 +191,7 @@ create trigger test_reject_second_task before insert on public.tasks
 for each row execute function public.test_reject_second_task();
 select set_config('request.jwt.claim.sub','91000000-0000-4000-8000-000000000001',true);
 set local role authenticated;
-select set_config('test.task.workflow.failure',public.create_current_task_batch_v2(
+select set_config('test.task.workflow.failure',public.create_current_task_batch_v3(
   jsonb_build_array(
     jsonb_build_object('projectId','91020000-0000-4000-8000-000000000001','assigneeMemberId',(select id from public.organization_members where user_id='91000000-0000-4000-8000-000000000002'),'title','Must roll back task','description','','acceptanceCriteria','Rollback','dueDate',to_char(current_date + 93,'YYYY-MM-DD'),'priority','high'),
     jsonb_build_object('projectId','91020000-0000-4000-8000-000000000001','assigneeMemberId',(select id from public.organization_members where user_id='91000000-0000-4000-8000-000000000002'),'title','Injected task failure','description','','acceptanceCriteria','Rollback','dueDate',to_char(current_date + 94,'YYYY-MM-DD'),'priority','high')
@@ -202,7 +206,7 @@ select is((select count(*) from public.tasks where title in ('Must roll back tas
 
 select set_config('request.jwt.claim.sub','91000000-0000-4000-8000-000000000002',true);
 set local role authenticated;
-select set_config('test.task.workflow.forbidden_batch',public.create_current_task_batch_v2(
+select set_config('test.task.workflow.forbidden_batch',public.create_current_task_batch_v3(
   jsonb_build_array(jsonb_build_object('projectId','91020000-0000-4000-8000-000000000001','assigneeMemberId',(select id from public.organization_members where user_id='91000000-0000-4000-8000-000000000002'),'title','Forbidden manager task','description','','acceptanceCriteria','Denied','dueDate',to_char(current_date + 95,'YYYY-MM-DD'),'priority','medium')),
   '91040000-0000-4000-8000-000000000007','91040000-0000-4000-8000-000000000008'
 )::text,true);
@@ -217,7 +221,7 @@ select set_config('test.task.workflow.claim_replay',public.transition_current_ta
 select set_config('test.task.workflow.claim_conflict',public.transition_current_task(current_setting('test.task.workflow.task_a')::uuid,'claim',2,'{}','91050000-0000-4000-8000-000000000001')::text,true);
 select set_config('test.task.workflow.progress',public.transition_current_task(current_setting('test.task.workflow.task_a')::uuid,'progress',2,jsonb_build_object('progress',40,'blocker','','nextStep','Complete delivery'),'91050000-0000-4000-8000-000000000002')::text,true);
 select set_config('test.task.workflow.stale',public.transition_current_task(current_setting('test.task.workflow.task_a')::uuid,'progress',2,jsonb_build_object('progress',50,'blocker','','nextStep','Stale'),'91050000-0000-4000-8000-000000000003')::text,true);
-select set_config('test.task.workflow.submit',public.transition_current_task(current_setting('test.task.workflow.task_a')::uuid,'submit',3,jsonb_build_object('resultText','Delivered','resultLink','','resultFiles',jsonb_build_array('evidence.pdf')),'91050000-0000-4000-8000-000000000004')::text,true);
+select set_config('test.task.workflow.submit',public.transition_current_task(current_setting('test.task.workflow.task_a')::uuid,'submit',3,jsonb_build_object('resultText','Delivered','resultLink','https://example.test/evidence','resultFiles','[]'::jsonb),'91050000-0000-4000-8000-000000000004')::text,true);
 reset role;
 
 select is(current_setting('test.task.workflow.claim')::jsonb#>>'{entity,status}','in_progress','assignee claims a pending task');

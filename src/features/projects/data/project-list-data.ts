@@ -13,6 +13,7 @@ import type {
   ProjectListItem,
   ProjectMilestoneReminder,
   ProjectPortfolioStat,
+  ArchivedProjectSummary,
 } from "@/features/projects/types";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { formatDateInputInTimeZone } from "@/lib/date";
@@ -21,6 +22,7 @@ import { loadActiveWorkspaceScope } from "@/features/projects/data/active-worksp
 
 type SupabaseServerClient = Awaited<ReturnType<typeof getSupabaseServerClient>>;
 export type ProjectListClientFactory = () => Promise<SupabaseServerClient>;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type ProjectListResult = {
   projects: readonly ProjectListItem[];
@@ -28,6 +30,7 @@ export type ProjectListResult = {
   reminders: readonly ProjectMilestoneReminder[];
   availableMembers: readonly import("@/features/projects/types").MemberSummary[];
   source: "supabase" | "mock";
+  archivedProjects: readonly ArchivedProjectSummary[];
 };
 
 type ProjectRow = {
@@ -87,6 +90,7 @@ function mockResult(): ProjectListResult {
     reminders: mockProjectMilestoneReminders,
     availableMembers: mockMembers,
     source: "mock",
+    archivedProjects: [],
   };
 }
 
@@ -119,6 +123,42 @@ function reminderStatus(dueDate: string): ProjectMilestoneReminder["status"] {
   );
 
   return daysRemaining <= 7 ? "urgent" : "upcoming";
+}
+
+export function mapCanonicalArchivedProjects(value: unknown): ArchivedProjectSummary[] {
+  if (!Array.isArray(value)) throw new Error("archived_project_response_invalid");
+  return value.map((raw) => {
+    const row = raw as Record<string, unknown>;
+    const projectId = typeof row.project_public_id === "string" && UUID_PATTERN.test(row.project_public_id)
+      ? row.project_public_id.toLowerCase() : null;
+    const ownerEmployeePublicId = row.owner_employee_public_id === null
+      ? undefined
+      : typeof row.owner_employee_public_id === "string" && UUID_PATTERN.test(row.owner_employee_public_id)
+        ? row.owner_employee_public_id.toLowerCase() : null;
+    const archivedAt = typeof row.archived_at === "string" && Number.isFinite(Date.parse(row.archived_at))
+      ? row.archived_at : null;
+    const statusBeforeArchive = row.status_before_archive === null ? undefined
+      : typeof row.status_before_archive === "string"
+        && ["planning", "active", "on_hold", "completed", "cancelled"].includes(row.status_before_archive)
+        ? row.status_before_archive as ArchivedProjectSummary["statusBeforeArchive"] : null;
+    if (!projectId || typeof row.code !== "string" || !row.code.trim() || row.code.length > 80
+      || typeof row.name !== "string" || !row.name.trim() || row.name.length > 160
+      || typeof row.version !== "number" || !Number.isSafeInteger(row.version) || row.version < 1
+      || !archivedAt || ownerEmployeePublicId === null || typeof row.owner_name !== "string"
+      || !row.owner_name.trim() || row.owner_name.length > 1000 || statusBeforeArchive === null) {
+      throw new Error("archived_project_response_invalid");
+    }
+    return {
+      id: projectId,
+      code: row.code,
+      name: row.name,
+      statusBeforeArchive,
+      version: row.version,
+      archivedAt,
+      ownerEmployeePublicId,
+      ownerName: row.owner_name,
+    };
+  });
 }
 
 function buildMilestoneReminders(
@@ -167,12 +207,17 @@ export async function loadProjectList(
 
     const projectRows = (projectResponse.data ?? []) as ProjectRow[];
     if (projectRows.length === 0) {
+      const archivedResponse = typeof client.rpc === "function"
+        ? await client.rpc("current_archived_projects")
+        : { data: [], error: null };
+      if (archivedResponse.error) throw archivedResponse.error;
       return {
         projects: [],
         stats: buildPortfolioStats([]),
         reminders: [],
         availableMembers: await loadAvailableProjectMembers(client, scope),
         source: "supabase",
+        archivedProjects: mapCanonicalArchivedProjects(archivedResponse.data),
       };
     }
 
@@ -185,7 +230,7 @@ export async function loadProjectList(
         .select("id, title")
         .in("id", [...new Set(objectiveIds)])
         .is("deleted_at", null);
-    const [membershipResponse, milestoneResponse, objectiveResponse, availableMembers] = await Promise.all([
+    const [membershipResponse, milestoneResponse, objectiveResponse, availableMembers, archivedResponse] = await Promise.all([
       client
         .from("project_members")
         .select("public_id, project_id, member_id, role, left_at")
@@ -199,8 +244,11 @@ export async function loadProjectList(
         .order("due_date"),
       objectivePromise,
       loadAvailableProjectMembers(client, scope),
+      typeof client.rpc === "function"
+        ? client.rpc("current_archived_projects")
+        : Promise.resolve({ data: [], error: null }),
     ]);
-    const relatedError = [membershipResponse, milestoneResponse, objectiveResponse]
+    const relatedError = [membershipResponse, milestoneResponse, objectiveResponse, archivedResponse]
       .find(({ error }) => error)?.error;
     if (relatedError) {
       throw relatedError;
@@ -269,6 +317,7 @@ export async function loadProjectList(
       (milestoneResponse.data ?? []) as MilestoneRow[],
       projectsById,
     );
+    const archivedProjects = mapCanonicalArchivedProjects(archivedResponse.data);
 
     return {
       projects,
@@ -276,6 +325,7 @@ export async function loadProjectList(
       reminders,
       availableMembers,
       source: "supabase",
+      archivedProjects,
     };
   } catch (error) {
     if (allowMockFallback) {

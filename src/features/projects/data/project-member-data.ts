@@ -19,12 +19,14 @@ type EmployeeProfileRow = {
   display_name: string;
   avatar_url: string | null;
   job_title: string;
+  employment_status: string;
   department: DepartmentRelation;
 };
 
 export type ProjectMemberDirectoryEntry = {
   summary: MemberSummary;
   userId: string | null;
+  employmentStatus: string | null;
 };
 
 function departmentName(relation: DepartmentRelation) {
@@ -72,7 +74,7 @@ export async function loadProjectMemberDirectory(
       .in("id", uniqueMemberIds);
   let profileQuery = client
       .from("employee_profiles")
-      .select("public_id, organization_member_id, display_name, avatar_url, job_title, department:departments!employee_profiles_department_id_fkey(name)")
+      .select("public_id, organization_member_id, display_name, avatar_url, job_title, employment_status, department:departments!employee_profiles_department_id_fkey(name)")
       .in("organization_member_id", uniqueMemberIds)
       .is("deleted_at", null);
   if (scope) {
@@ -99,6 +101,7 @@ export async function loadProjectMemberDirectory(
     const profile = profiles.get(member.id);
     directory.set(member.id, {
       userId: member.user_id,
+      employmentStatus: profile?.employment_status ?? null,
       summary: profile
         ? {
           id: member.public_id,
@@ -136,7 +139,11 @@ export async function loadAvailableProjectMembers(
   const directory = await loadProjectMemberDirectory(client, rows.map(({ id }) => id), scope);
 
   return rows.flatMap((row) => {
-    const member = directory.get(row.id)?.summary;
-    return member?.employeePublicId ? [member] : [];
+    const entry = directory.get(row.id);
+    const member = entry?.summary;
+    return member?.employeePublicId
+      && entry?.employmentStatus
+      && ["probation", "active", "on_leave"].includes(entry.employmentStatus)
+      ? [member] : [];
   });
 }

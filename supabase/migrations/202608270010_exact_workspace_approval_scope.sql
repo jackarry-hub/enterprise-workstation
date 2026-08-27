@@ -25,7 +25,6 @@ as $$
     join public.organizations organization
       on organization.tenant_id = identity.tenant_id
      and organization.id = identity.organization_id
-     and organization.status = 'active'
     join public.organization_members member
       on member.tenant_id = identity.tenant_id
      and member.organization_id = identity.organization_id
@@ -93,7 +92,6 @@ as $$
     join public.organizations organization
       on organization.tenant_id = identity.tenant_id
      and organization.id = identity.organization_id
-     and organization.status = 'active'
     join public.organization_members member
       on member.tenant_id = identity.tenant_id
      and member.organization_id = identity.organization_id
@@ -168,7 +166,6 @@ as $$
     join public.organizations organization
       on organization.tenant_id = identity.tenant_id
      and organization.id = identity.organization_id
-     and organization.status = 'active'
     join public.organization_members member
       on member.tenant_id = identity.tenant_id
      and member.organization_id = identity.organization_id

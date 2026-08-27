@@ -8,6 +8,7 @@ import {
 } from "@/app/api/workstation/tasks/handler";
 import { getWorkspaceSession } from "@/features/auth/workspace-session";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { dispatchPendingTaskEventNotifications } from "@/features/workstation/task-event-notification";
 
 type TaskAction = "claim" | "progress" | "submit" | "review" | "reopen";
 type TaskTransitionInput = {
@@ -18,11 +19,12 @@ type TaskTransitionInput = {
   requestId: string;
 };
 
-type TaskSession = { member: { id: number }; roleCodes: readonly string[] };
+type TaskSession = { member: { id: number }; roleCodes: readonly string[]; tenantId?: string; organization?: { id: string } };
 
 export type WorkstationTaskDependencies = {
   loadSession: () => Promise<TaskSession | null>;
   mutateTask: (input: TaskTransitionInput) => Promise<unknown>;
+  notifyTaskEvents?: (input: { tenantId: string; organizationId: string; taskId: string }) => Promise<unknown>;
 };
 
 function cleanText(value: unknown, maximum: number, required = false) {
@@ -72,7 +74,7 @@ function parseTransition(value: unknown): Omit<TaskTransitionInput, "taskId" | "
     const resultText = cleanText(body.resultText, 4000, true);
     const resultLink = cleanLink(body.resultLink);
     const resultFiles = Array.isArray(body.resultFiles)
-      ? body.resultFiles.map((item) => cleanText(item, 240, true)) : null;
+      ? body.resultFiles.map((item) => canonicalUuid(item)) : null;
     if (!resultText || resultLink === null || !resultFiles || resultFiles.length > 10
       || resultFiles.some((item) => item === null) || (!resultLink && resultFiles.length === 0)) return null;
     return {
@@ -109,10 +111,11 @@ export const defaultWorkstationTaskDependencies: WorkstationTaskDependencies = {
     if (error) throw error;
     return data;
   },
+  notifyTaskEvents: dispatchPendingTaskEventNotifications,
 };
 
 function json(error: string, status: number) {
-  return NextResponse.json({ error }, { status });
+  return NextResponse.json({ error }, { status, headers: { "Cache-Control": "no-store" } });
 }
 
 function failureStatus(error: string) {
@@ -158,6 +161,18 @@ export function createWorkstationTaskHandler(dependencies: WorkstationTaskDepend
     if (failure) return json(failure, failureStatus(failure));
     const task = parseTransitionSuccess(result, taskId);
     if (!task) return json("task_transition_unavailable", 503);
-    return NextResponse.json({ task });
+    if (dependencies.notifyTaskEvents && session.tenantId && session.organization?.id) {
+      try {
+        await dependencies.notifyTaskEvents({
+          tenantId: session.tenantId,
+          organizationId: session.organization.id,
+          taskId,
+        });
+      } catch {
+        // The task transaction is authoritative. Durable pending/failed rows
+        // remain available for an explicit retry when provider delivery fails.
+      }
+    }
+    return NextResponse.json({ task }, { headers: { "Cache-Control": "no-store" } });
   };
 }

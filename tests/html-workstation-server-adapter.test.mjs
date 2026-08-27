@@ -629,7 +629,7 @@ test("loads the formal employee session and sends task updates without trusting 
           : { status: "unavailable", errorCode: "delivery_unconfirmed" },
       });
     }
-    if (String(url) === "/api/workstation/tasks/t1/notify") {
+    if (String(url) === "/api/workstation/tasks/t1/notifications/retry") {
       return response(true, {
         notification: {
           status: "unavailable",
@@ -637,7 +637,7 @@ test("loads the formal employee session and sends task updates without trusting 
         },
       });
     }
-    if (String(url) === "/api/workstation/tasks/t2/notify") {
+    if (String(url) === "/api/workstation/tasks/t2/notifications/retry") {
       return response(true, {
         notification: {
           status: "unavailable",
@@ -645,10 +645,10 @@ test("loads the formal employee session and sends task updates without trusting 
         },
       });
     }
-    if (String(url) === `/api/workstation/tasks/${encodedTaskId}/notify`) {
+    if (String(url) === `/api/workstation/tasks/${encodedTaskId}/notifications/retry`) {
       return response(true, { notification: { status: "sent" } });
     }
-    const inheritedRetry = /^\/api\/workstation\/tasks\/retry-(constructor|toString|__proto__)\/notify$/.exec(String(url));
+    const inheritedRetry = /^\/api\/workstation\/tasks\/retry-(constructor|toString|__proto__)\/notifications\/retry$/.exec(String(url));
     if (inheritedRetry) {
       return response(true, {
         notification: {
@@ -758,6 +758,7 @@ test("loads the formal employee session and sends task updates without trusting 
     "function",
   );
   const deliveryUnconfirmed = await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.retryTaskNotification("t1");
+  await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.retryTaskNotification("t1");
   const retryQueueUnavailable = await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.retryTaskNotification("t2");
   assert.deepEqual(JSON.parse(JSON.stringify(deliveryUnconfirmed)), {
     status: "failed",
@@ -767,10 +768,18 @@ test("loads the formal employee session and sends task updates without trusting 
     status: "failed",
     errorCode: "queue_unavailable",
   });
+  const repeatedRetryRequests = requests.filter(({ url }) => (
+    url === "/api/workstation/tasks/t1/notifications/retry"
+  ));
+  assert.equal(repeatedRetryRequests.length, 2);
+  assert.equal(
+    repeatedRetryRequests[0].init.headers["Idempotency-Key"],
+    repeatedRetryRequests[1].init.headers["Idempotency-Key"],
+  );
   const specialTaskId = "task/part?query#fragment 空格 中文";
   await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.retryTaskNotification(specialTaskId);
   const encodedRetryRequest = requests.find(({ url }) => (
-    url === `/api/workstation/tasks/${encodedTaskId}/notify`
+    url === `/api/workstation/tasks/${encodedTaskId}/notifications/retry`
   ));
   assert.equal(encodedRetryRequest.init.method, "POST");
   assert.equal(encodedRetryRequest.init.credentials, "same-origin");
@@ -861,7 +870,7 @@ test("loads the formal employee session and sends task updates without trusting 
   assert.equal(requests.find(({ url }) => url === "/api/workstation/payroll/preview").init.method, "POST");
   for (const taskId of ["t1", "t2"]) {
     const notifyRequest = requests.find(({ url }) => (
-      url === `/api/workstation/tasks/${taskId}/notify`
+      url === `/api/workstation/tasks/${taskId}/notifications/retry`
     ));
     assert.equal(notifyRequest.init.method, "POST");
     assert.equal(notifyRequest.init.credentials, "same-origin");

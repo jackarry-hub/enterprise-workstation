@@ -22,6 +22,7 @@ services:
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY is required}
       AI_CONFIG_ENCRYPTION_KEY: ${AI_CONFIG_ENCRYPTION_KEY:?AI_CONFIG_ENCRYPTION_KEY is required}
       AGENT_INVOCATION_RECOVERY_CRON_SECRET: ${AGENT_INVOCATION_RECOVERY_CRON_SECRET:?AGENT_INVOCATION_RECOVERY_CRON_SECRET is required}
+      TASK_NOTIFICATION_RECOVERY_CRON_SECRET: ${TASK_NOTIFICATION_RECOVERY_CRON_SECRET:?TASK_NOTIFICATION_RECOVERY_CRON_SECRET is required}
       FILE_UPLOAD_CLEANUP_CRON_SECRET: ${FILE_UPLOAD_CLEANUP_CRON_SECRET:?FILE_UPLOAD_CLEANUP_CRON_SECRET is required}
       WORKSTATION_ALLOW_MOCK_DATA: ${WORKSTATION_ALLOW_MOCK_DATA:-false}
       WORKSTATION_DEMO_ENABLED: ${WORKSTATION_DEMO_ENABLED:-false}
@@ -55,6 +56,18 @@ services:
         condition: service_healthy
     environment:
       AGENT_INVOCATION_RECOVERY_CRON_SECRET: ${AGENT_INVOCATION_RECOVERY_CRON_SECRET:?AGENT_INVOCATION_RECOVERY_CRON_SECRET is required}
+
+  task-notification-recovery:
+    build:
+      context: .
+      dockerfile: Dockerfile.task-notification-recovery
+    image: ai-brain-demo-task-notification-recovery:latest
+    restart: unless-stopped
+    depends_on:
+      workstation:
+        condition: service_healthy
+    environment:
+      TASK_NOTIFICATION_RECOVERY_CRON_SECRET: ${TASK_NOTIFICATION_RECOVERY_CRON_SECRET:?TASK_NOTIFICATION_RECOVERY_CRON_SECRET is required}
 
   file-upload-cleanup:
     build:

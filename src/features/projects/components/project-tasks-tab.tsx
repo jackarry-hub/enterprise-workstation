@@ -27,6 +27,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import type { TaskExecutionStatus } from "@/features/projects/data/project-task-operations";
 import type { ProjectDetailData, ProjectTask } from "@/features/projects/types";
 import type { WorkspaceActor } from "@/features/auth/workspace-session-types";
+import type { BusinessTaskTransition } from "@/features/projects/data/business-command-client";
 
 type ProjectTasksTabProps = {
   actor: WorkspaceActor;
@@ -37,6 +38,7 @@ type ProjectTasksTabProps = {
   initialTaskId?: string;
   canManage?: boolean;
   workflowManaged?: boolean;
+  onTransition?: (taskId: string, input: BusinessTaskTransition, idempotencyKey: string) => void | Promise<void>;
 };
 
 const workflowStatusMeta = {
@@ -87,7 +89,7 @@ function formatDate(date?: string) {
   return date ? date.replaceAll("-", "/") : "待确认";
 }
 
-export function ProjectTasksTab({ actor, detail, onCreate, onStatusChange, onComment, initialTaskId, canManage = true, workflowManaged = false }: ProjectTasksTabProps) {
+export function ProjectTasksTab({ actor, detail, onCreate, onStatusChange, onComment, onTransition, initialTaskId, canManage = true, workflowManaged = false }: ProjectTasksTabProps) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(initialTaskId ?? null);
   useEffect(() => { if (initialTaskId) setSelectedTaskId(initialTaskId); }, [initialTaskId]);
   const selectedTask = detail.tasks.find(({ id }) => id === selectedTaskId) ?? null;
@@ -201,7 +203,7 @@ export function ProjectTasksTab({ actor, detail, onCreate, onStatusChange, onCom
           </div>
         )}
       </GlassCard>
-      <ProjectTaskDetailDialog actor={actor} task={selectedTask} detail={detail} open={Boolean(selectedTask)} onOpenChange={(open) => !open && setSelectedTaskId(null)} onComment={onComment} />
+      <ProjectTaskDetailDialog actor={actor} task={selectedTask} detail={detail} open={Boolean(selectedTask)} onOpenChange={(open) => !open && setSelectedTaskId(null)} onComment={onComment} onTransition={onTransition} canManage={canManage} workflowManaged={workflowManaged} />
     </div>
   );
 }

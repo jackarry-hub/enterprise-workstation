@@ -33,8 +33,8 @@ describe("project lifecycle command handler", () => {
     const response = await handleProjectUpdateCommand(
       commandRequest("PATCH", {
         name: "真实交付项目", ownerPublicId: ownerId, budgetAmount: "88.20",
-        startsOn: "2026-09-01", dueOn: "2026-09-30", version: 2,
-        reason: "调整交付范围",
+        description: "正式交付", category: "企业项目", priority: "medium",
+        startsOn: "2026-09-01", dueOn: "2026-09-30", version: 2, reason: "调整交付范围",
       }),
       { params: Promise.resolve({ projectId: projectId.toUpperCase() }) },
       { session, rpc, createRequestId: () => "82000000-0000-4000-8000-000000000004" },
@@ -74,6 +74,7 @@ describe("project lifecycle command handler", () => {
     const response = await handleProjectUpdateCommand(
       commandRequest("PATCH", {
         name: "真实交付项目", ownerPublicId: ownerId, budgetAmount: "1.00",
+        description: "正式交付", category: "企业项目", priority: "medium",
         startsOn: "2026-09-01", dueOn: "2026-09-30", version: 2, reason: "调整",
       }),
       { params: Promise.resolve({ projectId }) },
@@ -90,6 +91,7 @@ describe("project lifecycle command handler", () => {
     const invalid = await handleProjectUpdateCommand(
       commandRequest("PATCH", {
         name: "真实交付项目", ownerPublicId: ownerId, budgetAmount: "1.00",
+        description: "正式交付", category: "企业项目",
         startsOn: "2026-09-01", dueOn: "2026-09-30", version: 2,
         reason: "调整", priority: ["medium"],
       }),
@@ -106,6 +108,29 @@ describe("project lifecycle command handler", () => {
     );
     expect(unknown.status).toBe(503);
     expect(await unknown.json()).toEqual({ error: "project_command_unavailable" });
+  });
+
+  it("enforces JSON media type, the 32 KiB limit and exact operation fields", async () => {
+    const rpc = vi.fn();
+    const extra = await handleProjectArchiveCommand(
+      commandRequest("DELETE", { version: 2, reason: "归档", arbitrary: true }),
+      { params: Promise.resolve({ projectId }) }, { session, rpc },
+    );
+    expect(extra.status).toBe(400);
+
+    const wrongMedia = await handleProjectArchiveCommand(new Request(
+      `https://workspace.test/api/workstation/projects/${projectId}`,
+      { method: "DELETE", headers: { "content-type": "text/plain", "Idempotency-Key": key }, body: "{}" },
+    ), { params: Promise.resolve({ projectId }) }, { session, rpc });
+    expect(wrongMedia.status).toBe(415);
+
+    const oversized = await handleProjectArchiveCommand(new Request(
+      `https://workspace.test/api/workstation/projects/${projectId}`,
+      { method: "DELETE", headers: { "content-type": "application/json", "content-length": "32769",
+        "Idempotency-Key": key }, body: JSON.stringify({ version: 2, reason: "归档" }) },
+    ), { params: Promise.resolve({ projectId }) }, { session, rpc });
+    expect(oversized.status).toBe(413);
+    expect(rpc).not.toHaveBeenCalled();
   });
 });
 

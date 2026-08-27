@@ -14,6 +14,7 @@
   var taskCreateAttempt = null;
   var taskBatchAttempt = null;
   var taskTransitionAttempts = Object.create(null);
+  var taskNotificationRetryAttempts = Object.create(null);
   var runtime = { authMode: "feishu", dataMode: "server" };
   var embeddedBootstrap = window.__QUANTXY_SERVER_BOOTSTRAP__ || null;
   var bootstrapErrorCodes = {
@@ -96,8 +97,8 @@
     if (errorCode === "recipient_unavailable") {
       return { status: "unavailable", errorCode: errorCode };
     }
-    if (notification.status === "pending" || notification.status === "sent") {
-      return { status: notification.status, errorCode: errorCode };
+    if (notification.status === "pending" || notification.status === "sending" || notification.status === "sent") {
+      return { status: notification.status === "sending" ? "pending" : notification.status, errorCode: errorCode };
     }
     if (notification.status === "failed") {
       return { status: "failed", errorCode: errorCode || "send_failed" };
@@ -536,12 +537,35 @@
       return attempt.promise;
     },
     retryTaskNotification: function (taskId) {
-      return request(
-        "/api/workstation/tasks/" + encodeURIComponent(taskId) + "/notify",
-        { method: "POST" },
+      var attempt = Object.prototype.hasOwnProperty.call(taskNotificationRetryAttempts, taskId)
+        ? taskNotificationRetryAttempts[taskId]
+        : null;
+      if (!attempt) {
+        attempt = { key: commandId(), promise: null };
+        taskNotificationRetryAttempts[taskId] = attempt;
+      }
+      if (attempt.promise) return attempt.promise;
+      attempt.promise = request(
+        "/api/workstation/tasks/" + encodeURIComponent(taskId) + "/notifications/retry",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", "Idempotency-Key": attempt.key },
+          body: JSON.stringify({ reason: "从任务执行页授权重试失败通知" }),
+        },
       ).then(function (result) {
-        return safeNotification(result.notification);
+        var notification = safeNotification(result.notification);
+        if (notification.status === "sent") delete taskNotificationRetryAttempts[taskId];
+        else attempt.promise = null;
+        return notification;
+      }).catch(function (error) {
+        if (definitiveCommandFailure(error, "notification_authorization_unavailable")) {
+          delete taskNotificationRetryAttempts[taskId];
+        } else {
+          attempt.promise = null;
+        }
+        throw error;
       });
+      return attempt.promise;
     },
     savePayroll: function (input) {
       return request("/api/workstation/payroll", {

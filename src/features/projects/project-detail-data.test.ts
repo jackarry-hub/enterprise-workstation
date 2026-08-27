@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   loadProjectDetail,
+  mapCanonicalAcceptanceEvent,
   type ProjectDetailClientFactory,
 } from "@/features/projects/data/project-detail-data";
 import { mockProjects } from "@/features/projects/mock-data";
@@ -207,7 +208,7 @@ describe("loadProjectDetail", () => {
     };
     const factory = (async () => ({
       auth: { getUser: async () => ({ data: { user: { id: "user-real-owner" } }, error: null }) },
-      rpc: async () => ({ data: true, error: null }),
+      rpc: async (name: string) => ({ data: name === "current_task_acceptance_history" ? [] : true, error: null }),
       from: (table: string) => createQuery(responses[table]),
     })) as unknown as ProjectDetailClientFactory;
 
@@ -248,5 +249,37 @@ describe("loadProjectDetail", () => {
     expect(result?.detail.risks).toEqual([expect.objectContaining({
       ownerId: "member-real-owner",
     })]);
+  });
+
+  it("accepts only canonical acceptance history DTOs", () => {
+    expect(mapCanonicalAcceptanceEvent({
+      event_public_id: "42000000-0000-4000-8000-000000000001",
+      task_public_id: "42000000-0000-4000-8000-000000000002",
+      event_type: "review_passed",
+      actor_employee_public_id: "42000000-0000-4000-8000-000000000003",
+      actor_name: "审查人",
+      task_version: 4,
+      result_text: "正式验收结果",
+      result_link: "https://example.com/evidence",
+      result_files: ["42000000-0000-4000-8000-000000000004"],
+      decision: "pass",
+      note: "证据完整",
+      occurred_at: "2026-08-28T08:00:00.000Z",
+    })).toEqual(expect.objectContaining({
+      eventType: "review_passed",
+      taskVersion: 4,
+      decision: "pass",
+    }));
+
+    expect(() => mapCanonicalAcceptanceEvent({
+      event_public_id: "not-a-uuid",
+      task_public_id: "42000000-0000-4000-8000-000000000002",
+      event_type: "invented_event",
+      actor_employee_public_id: "42000000-0000-4000-8000-000000000003",
+      actor_name: "审查人",
+      task_version: 0,
+      result_files: [],
+      occurred_at: "invalid-time",
+    })).toThrow("acceptance_history_invalid");
   });
 });

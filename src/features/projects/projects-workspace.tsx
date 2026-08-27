@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Archive, LoaderCircle, Plus, RotateCcw } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { GlassCard } from "@/components/ui/glass-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
@@ -20,7 +21,7 @@ import {
   PROJECTS_CHANGED_EVENT,
   readLocalProjects,
 } from "@/features/projects/data/mock-project-repository";
-import { createBusinessProject } from "@/features/projects/data/business-command-client";
+import { createBusinessProject, restoreBusinessProject } from "@/features/projects/data/business-command-client";
 import {
   mergePortfolioStats,
   mergeProjectList,
@@ -28,6 +29,7 @@ import {
 import { filterProjectList } from "@/features/projects/mock-data";
 import type {
   CreateMockProjectInput,
+  ArchivedProjectSummary,
   MemberSummary,
   ProjectListFilters,
   ProjectListItem,
@@ -50,15 +52,19 @@ type ProjectsWorkspaceProps = {
   reminders: readonly ProjectMilestoneReminder[];
   members: readonly MemberSummary[];
   source: "supabase" | "mock";
+  archivedProjects: readonly ArchivedProjectSummary[];
 };
 
-export function ProjectsWorkspace({ projects, stats, reminders, members, source }: ProjectsWorkspaceProps) {
+export function ProjectsWorkspace({ projects, stats, reminders, members, source, archivedProjects }: ProjectsWorkspaceProps) {
   const session = useWorkspaceSession();
   const { context, actor, isFixtureBound } = useOperations(session);
   const router = useRouter();
   const [filters, setFilters] = useState<ProjectListFilters>(defaultFilters);
   const [visibleProjects, setVisibleProjects] = useState<ProjectListItem[]>(source === "supabase" || isFixtureBound ? [...projects] : []);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [restoreFeedback, setRestoreFeedback] = useState("");
+  const restoreAttemptRef = useRef<{ signature: string; key: string } | null>(null);
   const refreshLocalProjects = useCallback(() => {
     setVisibleProjects(source === "mock"
       ? isFixtureBound ? mergeProjectList(projects, readLocalProjects(context)) : []
@@ -120,6 +126,27 @@ export function ProjectsWorkspace({ projects, stats, reminders, members, source 
     router.refresh();
   }
 
+  async function restoreProject(project: ArchivedProjectSummary) {
+    if (restoringId) return;
+    try {
+      setRestoringId(project.id); setRestoreFeedback("");
+      const safeLegacyStatus = !project.statusBeforeArchive || project.statusBeforeArchive === "cancelled" ? "on_hold" : null;
+      const signature = `${project.id}:${project.version}:${safeLegacyStatus ?? "original"}`;
+      if (restoreAttemptRef.current?.signature !== signature) {
+        restoreAttemptRef.current = { signature, key: crypto.randomUUID() };
+      }
+      await restoreBusinessProject(project.id, {
+        expectedVersion: project.version,
+        restoreStatus: safeLegacyStatus,
+        reason: safeLegacyStatus ? "从归档区以暂停状态恢复历史项目" : "从归档区恢复项目",
+      }, restoreAttemptRef.current.key);
+      restoreAttemptRef.current = null;
+      router.refresh();
+    } catch (error) {
+      setRestoreFeedback(error instanceof Error ? error.message : "项目恢复失败，请稍后重试");
+    } finally { setRestoringId(null); }
+  }
+
   return (
     <main className="mx-auto flex w-full max-w-420 flex-col gap-4 px-3 pt-5 pb-26 sm:px-4 lg:px-5 lg:pt-9 lg:pb-6">
       <PageHeader
@@ -149,6 +176,8 @@ export function ProjectsWorkspace({ projects, stats, reminders, members, source 
         </GlassCard>
         <ProjectAside reminders={reminders} />
       </div>
+
+      {source === "supabase" && archivedProjects.length ? <GlassCard className="p-4 sm:p-5"><div className="flex items-center gap-2"><Archive className="size-5 text-muted-foreground" /><div><h2 className="font-semibold">归档项目</h2><p className="mt-0.5 text-xs text-muted-foreground">保留完整历史与子资源，可由项目负责人恢复。</p></div><Badge variant="outline" className="ml-auto">{archivedProjects.length}</Badge></div>{restoreFeedback ? <p role="alert" className="mt-3 text-xs text-destructive">{restoreFeedback}</p> : null}<div className="mt-4 grid gap-2 lg:grid-cols-2">{archivedProjects.map((project) => <article key={project.id} className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-background/55 p-4 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{project.name}</p><p className="mt-1 text-xs text-muted-foreground">{project.code} · {project.ownerName} · {new Date(project.archivedAt).toLocaleDateString("zh-CN")}</p>{!project.statusBeforeArchive || project.statusBeforeArchive === "cancelled" ? <p className="mt-1 text-[11px] text-warning">历史归档缺少可恢复原状态，将以“暂停”状态安全恢复。</p> : null}</div><Button size="sm" variant="outline" disabled={restoringId !== null} onClick={() => void restoreProject(project)}>{restoringId === project.id ? <LoaderCircle className="animate-spin" /> : <RotateCcw />}恢复</Button></article>)}</div></GlassCard> : null}
 
       <CreateProjectDialog
         open={isCreateOpen}

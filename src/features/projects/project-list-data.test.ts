@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   loadProjectList,
+  mapCanonicalArchivedProjects,
   type ProjectListClientFactory,
 } from "@/features/projects/data/project-list-data";
 import { mockProjects } from "@/features/projects/mock-data";
@@ -51,6 +52,48 @@ describe("loadProjectList", () => {
     await expect(loadProjectList(async () => {
       throw new Error("offline");
     })).rejects.toThrow("offline");
+  });
+
+  it("accepts only canonical archived project DTOs", () => {
+    expect(mapCanonicalArchivedProjects([{
+      project_public_id: "41000000-0000-4000-8000-000000000001",
+      code: "QXY-ARCHIVE",
+      name: "已归档项目",
+      status_before_archive: "active",
+      version: 3,
+      archived_at: "2026-08-28T08:00:00.000Z",
+      owner_employee_public_id: "41000000-0000-4000-8000-000000000002",
+      owner_name: "项目负责人",
+    }])).toEqual([expect.objectContaining({
+      id: "41000000-0000-4000-8000-000000000001",
+      version: 3,
+      statusBeforeArchive: "active",
+    })]);
+
+    expect(() => mapCanonicalArchivedProjects([{
+      project_public_id: "invalid",
+      code: "QXY-ARCHIVE",
+      name: "已归档项目",
+      status_before_archive: "unknown",
+      version: 0,
+      archived_at: "invalid-time",
+      owner_employee_public_id: "invalid",
+      owner_name: "项目负责人",
+    }])).toThrow("archived_project_response_invalid");
+
+    expect(mapCanonicalArchivedProjects([{
+      project_public_id: "41000000-0000-4000-8000-000000000003",
+      code: "QXY-ARCHIVE-OWNER-LEFT",
+      name: "原负责人已离职的项目",
+      status_before_archive: "on_hold",
+      version: 4,
+      archived_at: "2026-08-28T09:00:00.000Z",
+      owner_employee_public_id: null,
+      owner_name: "原负责人已离职",
+    }])[0]).toEqual(expect.objectContaining({
+      ownerEmployeePublicId: undefined,
+      ownerName: "原负责人已离职",
+    }));
   });
 
   it("assembles projects, owners, members and milestones from Supabase", async () => {

@@ -49,6 +49,10 @@ export const projectActivityActionTypes = [
   "project_created",
   "project_updated",
   "member_added",
+  "member_role_changed",
+  "member_removed",
+  "project_archived",
+  "project_restored",
   "milestone_updated",
   "task_updated",
   "file_uploaded",
@@ -152,6 +156,7 @@ export interface ProjectMember {
   allocationPercent: number;
   joinedAt: string;
   leftAt?: string;
+  version?: number;
 }
 
 export interface Milestone {
@@ -191,6 +196,13 @@ export interface ProjectTask {
   estimatedHours?: number;
   sortOrder: number;
   version?: number;
+  resultText?: string;
+  resultLink?: string;
+  resultFiles?: readonly string[];
+  reviewNote?: string;
+  submittedAt?: string;
+  reviewedAt?: string;
+  acceptedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -221,6 +233,21 @@ export interface ProjectFile {
   uploadedById: string;
   verifiedAt?: string;
   createdAt: string;
+}
+
+export interface TaskAcceptanceEvent {
+  id: string;
+  taskId: string;
+  eventType: "submitted" | "review_passed" | "review_rejected" | "reopened";
+  actorEmployeePublicId: string;
+  actorName: string;
+  taskVersion: number;
+  resultText?: string;
+  resultLink?: string;
+  resultFiles: readonly string[];
+  decision?: "pass" | "reject";
+  note?: string;
+  occurredAt: string;
 }
 
 export interface DailyReport {
@@ -344,6 +371,18 @@ export interface ProjectDetailData {
   risks: readonly ProjectRisk[];
   fileRelations: readonly FileRelation[];
   retrospective?: ProjectRetrospective;
+  acceptanceEvents?: readonly TaskAcceptanceEvent[];
+}
+
+export interface ArchivedProjectSummary {
+  id: string;
+  code: string;
+  name: string;
+  statusBeforeArchive?: ProjectStatus;
+  version: number;
+  archivedAt: string;
+  ownerEmployeePublicId?: string;
+  ownerName: string;
 }
 
 export interface ProjectDetailResult {
@@ -353,6 +392,7 @@ export interface ProjectDetailResult {
     canManage: boolean;
     viewerMemberId?: string;
   };
+  availableMembers?: readonly MemberSummary[];
 }
 
 export type CreateMockProjectInput = {

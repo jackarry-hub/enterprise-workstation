@@ -39,8 +39,9 @@ const priorityOptions: Array<{ value: TaskPriority; label: string }> = [
 ];
 
 export function CreateTaskDialog({ detail, open, onClose, onCreated, requireAcceptanceCriteria = false }: CreateTaskDialogProps) {
-  const defaultAssigneeId = detail.members.find(({ role }) => role === "owner")?.member.id
-    ?? detail.members[0]?.member.id
+  const assigneeOptions = detail.members.filter(({ leftAt, role }) => !leftAt && role !== "viewer");
+  const defaultAssigneeId = assigneeOptions.find(({ role }) => role === "owner")?.member.id
+    ?? assigneeOptions[0]?.member.id
     ?? "";
   const [assigneeId, setAssigneeId] = useState(defaultAssigneeId);
   const [priority, setPriority] = useState<TaskPriority>("high");
@@ -153,7 +154,7 @@ export function CreateTaskDialog({ detail, open, onClose, onCreated, requireAcce
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
-                    {detail.members.filter(({ leftAt }) => !leftAt).map(({ id, member }) => (
+                    {assigneeOptions.map(({ id, member }) => (
                       <SelectItem key={id} value={member.id}>{member.displayName} · {member.title}</SelectItem>
                     ))}
                   </SelectGroup>

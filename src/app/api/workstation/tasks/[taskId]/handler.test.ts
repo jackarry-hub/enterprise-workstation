@@ -181,4 +181,32 @@ describe("formal workstation audited task transition", () => {
       request_id: requestId,
     });
   });
+
+  it("dispatches durable transition events after commit and never rolls back the task on provider failure", async () => {
+    const scopedSession = {
+      ...session,
+      tenantId: "88000000-0000-4000-8000-000000000001",
+      organization: { id: "88000000-0000-4000-8000-000000000002" },
+    };
+    const notifyTaskEvents = vi.fn().mockRejectedValue(new Error("provider unavailable"));
+    const response = await handler({
+      loadSession: async () => scopedSession,
+      notifyTaskEvents,
+    })(request({
+      action: "submit",
+      expectedVersion: 2,
+      resultText: "已完成并可复验",
+      resultLink: "https://example.test/evidence",
+      resultFiles: [],
+    }), context);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(notifyTaskEvents).toHaveBeenCalledWith({
+      tenantId: scopedSession.tenantId,
+      organizationId: scopedSession.organization.id,
+      taskId,
+    });
+    expect(await response.json()).toEqual({ task: expect.objectContaining({ id: taskId }) });
+  });
 });

@@ -28,7 +28,6 @@ as $$
      and profile.deleted_at is null
      and profile.employment_status = 'active'
     where organization.tenant_id = (select public.current_tenant_id())
-      and organization.status = 'active'
     order by profile.id
     limit 1
   ),
@@ -91,7 +90,6 @@ as $$
     join public.organizations organization
       on organization.tenant_id = member.tenant_id
      and organization.id = member.organization_id
-     and organization.status = 'active'
     where member.tenant_id = (select public.current_tenant_id())
       and member.user_id = (select auth.uid())
       and member.status = 'active'

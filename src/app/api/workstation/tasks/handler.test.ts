@@ -178,7 +178,7 @@ describe("formal workstation idempotent single task creation", () => {
     expect(notifyTask).not.toHaveBeenCalled();
   });
 
-  it("calls create_current_task_batch_v2 once in the default dependency", async () => {
+  it("calls create_current_task_batch_v3 once in the default dependency", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: commandResult, error: null });
     vi.mocked(getSupabaseServerClient).mockResolvedValue({ rpc } as never);
     await expect(defaultWorkstationTaskCreateDependencies.createTask({
@@ -188,7 +188,7 @@ describe("formal workstation idempotent single task creation", () => {
       idempotencyKey: key,
       requestId: "65000000-0000-4000-8000-000000000002",
     })).resolves.toEqual(commandResult);
-    expect(rpc).toHaveBeenCalledWith("create_current_task_batch_v2", expect.objectContaining({
+    expect(rpc).toHaveBeenCalledWith("create_current_task_batch_v3", expect.objectContaining({
       items: [expect.objectContaining({ projectId, assigneeMemberId: 8 })],
       idempotency_key: key,
       request_id: "65000000-0000-4000-8000-000000000002",

@@ -13,6 +13,7 @@ const defaultResult: ProjectListResult = {
   reminders: mockProjectMilestoneReminders,
   availableMembers: mockMembers,
   source: "mock",
+  archivedProjects: [],
 };
 
 export function ProjectsPage({ result = defaultResult }: { result?: ProjectListResult }) {
@@ -23,6 +24,7 @@ export function ProjectsPage({ result = defaultResult }: { result?: ProjectListR
       reminders={result.reminders}
       members={result.availableMembers}
       source={result.source}
+      archivedProjects={result.archivedProjects}
     />
   );
 }

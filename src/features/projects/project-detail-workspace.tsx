@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { LockKeyhole } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Tabs } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { CreateMilestoneDialog } from "@/features/projects/components/create-milestone-dialog";
 import { CreateTaskDialog } from "@/features/projects/components/create-task-dialog";
 import { EditProjectDialog, type EditProjectInput } from "@/features/projects/components/edit-project-dialog";
@@ -15,6 +17,7 @@ import { ProjectGanttTab } from "@/features/projects/components/project-gantt-ta
 import { ProjectDetailHeader } from "@/features/projects/components/project-detail-header";
 import { ProjectDetailTabs, projectDetailTabs, type ProjectDetailTab } from "@/features/projects/components/project-detail-tabs";
 import { ProjectMilestonesTab } from "@/features/projects/components/project-milestones-tab";
+import { ProjectMemberManagementDialog } from "@/features/projects/components/project-member-management-dialog";
 import { ProjectMobileNav } from "@/features/projects/components/project-mobile-nav";
 import { ProjectOverviewTab } from "@/features/projects/components/project-overview-tab";
 import { ProjectReportsTab, type DailyReportInput } from "@/features/projects/components/project-reports-tab";
@@ -43,7 +46,11 @@ import {
   createBusinessTaskComment,
   publicTaskPriority,
   submitBusinessProjectReport,
+  transitionBusinessTask,
+  type BusinessTaskTransition,
   updateBusinessProject,
+  archiveBusinessProject,
+  mutateBusinessProjectMember,
 } from "@/features/projects/data/business-command-client";
 import { formatDateInputInTimeZone } from "@/lib/date";
 import { useWorkspaceRouter } from "@/lib/navigation/use-workspace-router";
@@ -64,7 +71,13 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
   const [isMilestoneOpen, setIsMilestoneOpen] = useState(false);
   const [isTaskOpen, setIsTaskOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isMembersOpen, setIsMembersOpen] = useState(false);
+  const [isArchiveOpen, setIsArchiveOpen] = useState(false);
+  const [archiveReason, setArchiveReason] = useState("");
+  const [isArchiving, setIsArchiving] = useState(false);
+  const [archiveFeedback, setArchiveFeedback] = useState("");
   const [initialTaskId, setInitialTaskId] = useState<string | undefined>();
+  const archiveAttemptRef = useRef<{ signature: string; key: string } | null>(null);
   const nextSortOrder = useMemo(
     () => detail.milestones.reduce((maximum, milestone) => Math.max(maximum, milestone.sortOrder), -1) + 1,
     [detail.milestones],
@@ -81,6 +94,9 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
     ? result.access?.canManage ?? localCanManage
     : localCanManage;
   const workflowManaged = result.source === "supabase" || operationsState.command.projectId === detail.project.id;
+  const taskActor = result.source === "supabase" && result.access?.viewerMemberId
+    ? { ...auditActor, memberId: result.access.viewerMemberId }
+    : auditActor;
 
   useEffect(() => {
     if (result.source === "mock") {
@@ -176,6 +192,37 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
       return;
     }
     persistDetail(addMockTaskComment(detail, taskId, body, auditActor));
+  }
+
+  async function transitionTask(taskId: string, input: BusinessTaskTransition, idempotencyKey: string) {
+    if (result.source !== "supabase") throw new Error("演示项目不使用正式验收状态机");
+    await transitionBusinessTask(taskId, input, idempotencyKey);
+    router.refresh();
+  }
+
+  async function mutateMember(mutation: Omit<Parameters<typeof mutateBusinessProjectMember>[1], "expectedProjectVersion">, idempotencyKey: string) {
+    const projectVersion = detail.project.version;
+    if (result.source !== "supabase" || !projectVersion) throw new Error("项目版本不可用，请刷新后重试");
+    await mutateBusinessProjectMember(detail.project.id, { ...mutation, expectedProjectVersion: projectVersion }, idempotencyKey);
+    router.refresh();
+  }
+
+  async function archiveProject() {
+    const version = detail.project.version;
+    if (result.source !== "supabase" || !version || !archiveReason.trim() || isArchiving) return;
+    try {
+      setIsArchiving(true); setArchiveFeedback("");
+      const signature = `${detail.project.id}:${version}:${archiveReason.trim()}`;
+      if (archiveAttemptRef.current?.signature !== signature) {
+        archiveAttemptRef.current = { signature, key: crypto.randomUUID() };
+      }
+      await archiveBusinessProject(detail.project.id, version, archiveReason.trim(), archiveAttemptRef.current.key);
+      archiveAttemptRef.current = null;
+      router.push("/projects?view=archived");
+      router.refresh();
+    } catch (error) {
+      setArchiveFeedback(error instanceof Error ? error.message : "项目归档失败，请稍后重试");
+    } finally { setIsArchiving(false); }
   }
 
   async function editProject(input: EditProjectInput, idempotencyKey: string) {
@@ -288,16 +335,16 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
 
   return (
     <main className="mx-auto flex w-full max-w-420 flex-col gap-4 px-3 pt-4 pb-26 sm:px-4 lg:px-5 lg:pt-6 lg:pb-8">
-      <ProjectDetailHeader detail={detail} onAddTask={openTaskDialog} onEdit={() => setIsEditOpen(true)} canManage={canManageProject} />
+      <ProjectDetailHeader detail={detail} onAddTask={openTaskDialog} onEdit={() => setIsEditOpen(true)} onArchive={result.source === "supabase" ? () => setIsArchiveOpen(true) : undefined} canManage={canManageProject} />
 
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as ProjectDetailTab)} className="gap-4">
         <ProjectDetailTabs />
-        {activeTab === "overview" ? <ProjectOverviewTab detail={detail} /> : null}
+        {activeTab === "overview" ? <ProjectOverviewTab detail={detail} canManage={canManageProject && result.source === "supabase"} onManageMembers={() => setIsMembersOpen(true)} /> : null}
         {activeTab === "milestones" ? (
           <ProjectMilestonesTab detail={detail} milestones={detail.milestones} onCreate={() => setIsMilestoneOpen(true)} canManage={canManageProject} />
         ) : null}
         {activeTab === "tasks" ? (
-          <ProjectTasksTab actor={auditActor} detail={detail} onCreate={() => setIsTaskOpen(true)} onStatusChange={updateTaskStatus} onComment={addTaskComment} initialTaskId={initialTaskId} canManage={canManageProject} workflowManaged={workflowManaged} />
+          <ProjectTasksTab actor={taskActor} detail={detail} onCreate={() => setIsTaskOpen(true)} onStatusChange={updateTaskStatus} onComment={addTaskComment} onTransition={transitionTask} initialTaskId={initialTaskId} canManage={canManageProject} workflowManaged={workflowManaged} />
         ) : null}
         {activeTab === "gantt" ? <ProjectGanttTab detail={detail} /> : null}
         {activeTab === "files" ? <ProjectFilesTab detail={detail} formal={result.source === "supabase"} onUpload={uploadFile} onDownload={downloadFile} /> : null}
@@ -306,6 +353,8 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
       </Tabs>
 
       <EditProjectDialog detail={detail} open={isEditOpen} onOpenChange={setIsEditOpen} onSave={editProject} allowStatusChange={result.source === "mock"} />
+      {result.source === "supabase" ? <ProjectMemberManagementDialog detail={detail} availableMembers={result.availableMembers ?? []} open={isMembersOpen} onOpenChange={setIsMembersOpen} onMutate={mutateMember} /> : null}
+      <Dialog open={isArchiveOpen} onOpenChange={(open) => !isArchiving && setIsArchiveOpen(open)}><DialogContent className="h-[100dvh] w-screen max-w-none rounded-none sm:h-auto sm:max-w-md sm:rounded-2xl"><DialogHeader><DialogTitle>归档项目</DialogTitle><DialogDescription>归档后项目从当前列表移入归档区，历史和子资源保留，可由负责人恢复。</DialogDescription></DialogHeader><Textarea value={archiveReason} onChange={(event) => setArchiveReason(event.target.value)} placeholder="填写归档原因（必填）" />{archiveFeedback ? <p role="alert" className="text-xs text-destructive">{archiveFeedback}</p> : null}<div className="mt-auto flex flex-col-reverse gap-2 sm:mt-0 sm:flex-row sm:justify-end"><Button variant="outline" disabled={isArchiving} onClick={() => setIsArchiveOpen(false)}>取消</Button><Button variant="destructive" disabled={isArchiving || !archiveReason.trim()} onClick={() => void archiveProject()}>{isArchiving ? "正在归档…" : "确认归档"}</Button></div></DialogContent></Dialog>
 
       <CreateMilestoneDialog
         detail={detail}

@@ -1,6 +1,7 @@
 import { getProjectDetailMock } from "@/features/projects/mock-data";
 import {
   fallbackProjectMember,
+  loadAvailableProjectMembers,
   loadProjectMemberDirectory,
 } from "@/features/projects/data/project-member-data";
 import type {
@@ -17,6 +18,7 @@ import type {
   ProjectTask,
   TaskComment,
   DailyReport,
+  TaskAcceptanceEvent,
 } from "@/features/projects/types";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { shouldAllowMockBusinessData } from "@/lib/runtime/workstation-mode";
@@ -24,6 +26,8 @@ import { loadActiveWorkspaceScope } from "@/features/projects/data/active-worksp
 
 type SupabaseServerClient = Awaited<ReturnType<typeof getSupabaseServerClient>>;
 export type ProjectDetailClientFactory = () => Promise<SupabaseServerClient>;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const acceptanceEventTypes = new Set(["submitted", "review_passed", "review_rejected", "reopened"]);
 
 type ProjectRow = {
   id: number;
@@ -59,6 +63,7 @@ type ProjectMemberRow = {
   allocation_percent: number | string;
   joined_at: string;
   left_at: string | null;
+  version: number;
 };
 
 type ObjectiveRow = {
@@ -115,6 +120,13 @@ type TaskRow = {
   estimated_hours: number | string | null;
   sort_order: number;
   version: number;
+  result_summary: string;
+  result_link: string;
+  result_files: string[];
+  review_note: string;
+  submitted_at: string | null;
+  reviewed_at: string | null;
+  accepted_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -218,6 +230,58 @@ function requiredMemberPublicId(
   return publicId;
 }
 
+function canonicalUuid(value: unknown) {
+  return typeof value === "string" && UUID_PATTERN.test(value) ? value.toLowerCase() : null;
+}
+
+function canonicalTime(value: unknown) {
+  return typeof value === "string" && Number.isFinite(Date.parse(value)) ? value : null;
+}
+
+function optionalBoundedText(value: unknown, maximum: number) {
+  if (value === null) return undefined;
+  return typeof value === "string" && value.length <= maximum && !/[\u0000-\u001f\u007f]/.test(value)
+    ? value : null;
+}
+
+export function mapCanonicalAcceptanceEvent(raw: unknown): TaskAcceptanceEvent {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("acceptance_history_invalid");
+  const row = raw as Record<string, unknown>;
+  const id = canonicalUuid(row.event_public_id);
+  const taskId = canonicalUuid(row.task_public_id);
+  const actorEmployeePublicId = canonicalUuid(row.actor_employee_public_id);
+  const eventType = typeof row.event_type === "string" && acceptanceEventTypes.has(row.event_type)
+    ? row.event_type as TaskAcceptanceEvent["eventType"] : null;
+  const actorName = typeof row.actor_name === "string" && row.actor_name.trim()
+    && row.actor_name.length <= 1000 && !/[\u0000-\u001f\u007f]/.test(row.actor_name) ? row.actor_name : null;
+  const taskVersion = typeof row.task_version === "number" && Number.isSafeInteger(row.task_version)
+    && row.task_version > 0 ? row.task_version : null;
+  const resultText = optionalBoundedText(row.result_text, 4000);
+  const note = optionalBoundedText(row.note, 2000);
+  const resultLinkText = optionalBoundedText(row.result_link, 2000);
+  let resultLink: string | undefined | null = resultLinkText;
+  if (typeof resultLinkText === "string") {
+    try {
+      const parsed = new URL(resultLinkText);
+      resultLink = parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : null;
+    } catch { resultLink = null; }
+  }
+  const resultFiles = Array.isArray(row.result_files) && row.result_files.length <= 10
+    ? row.result_files.map(canonicalUuid) : null;
+  const decision = row.decision === null ? undefined
+    : row.decision === "pass" || row.decision === "reject" ? row.decision : null;
+  const occurredAt = canonicalTime(row.occurred_at);
+  if (!id || !taskId || !actorEmployeePublicId || !eventType || !actorName || !taskVersion
+    || resultText === null || note === null || resultLink === null || !resultFiles
+    || resultFiles.some((fileId) => !fileId) || decision === null || !occurredAt) {
+    throw new Error("acceptance_history_invalid");
+  }
+  return {
+    id, taskId, eventType, actorEmployeePublicId, actorName, taskVersion,
+    resultText, resultLink, resultFiles: resultFiles as string[], decision, note, occurredAt,
+  };
+}
+
 function mapObjective(
   row: ObjectiveRow,
   directory: Awaited<ReturnType<typeof loadProjectMemberDirectory>>,
@@ -316,11 +380,11 @@ export async function loadProjectDetail(
         .eq("id", projectRow.objective_id)
         .is("deleted_at", null)
         .maybeSingle();
-    const [objectiveResponse, memberResponse, milestoneResponse, taskResponse, commentResponse, reportResponse, activityResponse, riskResponse, fileResponse, fileRelationResponse, accessResponse] = await Promise.all([
+    const [objectiveResponse, memberResponse, milestoneResponse, taskResponse, commentResponse, reportResponse, activityResponse, riskResponse, fileResponse, fileRelationResponse, accessResponse, acceptanceResponse, availableMembers] = await Promise.all([
       objectivePromise,
       client
         .from("project_members")
-        .select("id, public_id, organization_id, project_id, member_id, role, allocation_percent, joined_at, left_at")
+        .select("id, public_id, organization_id, project_id, member_id, role, allocation_percent, joined_at, left_at, version")
         .eq("project_id", projectRow.id)
         .is("left_at", null)
         .order("joined_at"),
@@ -332,7 +396,7 @@ export async function loadProjectDetail(
         .order("sort_order"),
       client
         .from("tasks")
-        .select("id, public_id, organization_id, milestone_id, parent_task_id, title, description, acceptance_criteria, assignee_member_id, reporter_member_id, status, priority, start_date, due_date, completed_at, progress, estimated_hours, sort_order, version, created_at, updated_at")
+        .select("id, public_id, organization_id, milestone_id, parent_task_id, title, description, acceptance_criteria, assignee_member_id, reporter_member_id, status, priority, start_date, due_date, completed_at, progress, estimated_hours, sort_order, version, result_summary, result_link, result_files, review_note, submitted_at, reviewed_at, accepted_at, created_at, updated_at")
         .eq("project_id", projectRow.id)
         .is("deleted_at", null)
         .order("sort_order"),
@@ -374,9 +438,13 @@ export async function loadProjectDetail(
       typeof client.rpc === "function"
         ? client.rpc("can_manage_project", { target_project_id: projectRow.id })
         : Promise.resolve({ data: false, error: null }),
+      typeof client.rpc === "function"
+        ? client.rpc("current_task_acceptance_history", { p_project_public_id: projectPublicId })
+        : Promise.resolve({ data: [], error: null }),
+      loadAvailableProjectMembers(client, scope),
     ]);
 
-    const responses = [objectiveResponse, memberResponse, milestoneResponse, taskResponse, commentResponse, reportResponse, activityResponse, riskResponse, fileResponse, fileRelationResponse, accessResponse];
+    const responses = [objectiveResponse, memberResponse, milestoneResponse, taskResponse, commentResponse, reportResponse, activityResponse, riskResponse, fileResponse, fileRelationResponse, accessResponse, acceptanceResponse];
     const relatedError = responses.find(({ error }) => error)?.error;
     if (relatedError) {
       throw relatedError;
@@ -433,7 +501,8 @@ export async function loadProjectDetail(
         role: row.role,
         allocationPercent: asNumber(row.allocation_percent),
         joinedAt: row.joined_at,
-        leftAt: row.left_at ?? undefined,
+      leftAt: row.left_at ?? undefined,
+      version: row.version,
       };
     });
 
@@ -496,6 +565,13 @@ export async function loadProjectDetail(
       estimatedHours: row.estimated_hours == null ? undefined : asNumber(row.estimated_hours),
       sortOrder: row.sort_order,
       version: row.version,
+      resultText: row.result_summary || undefined,
+      resultLink: row.result_link || undefined,
+      resultFiles: row.result_files ?? [],
+      reviewNote: row.review_note || undefined,
+      submittedAt: row.submitted_at ?? undefined,
+      reviewedAt: row.reviewed_at ?? undefined,
+      acceptedAt: row.accepted_at ?? undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
@@ -558,6 +634,8 @@ export async function loadProjectDetail(
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
+
+    const acceptanceEvents = ((acceptanceResponse.data ?? []) as unknown[]).map(mapCanonicalAcceptanceEvent);
 
     const filePublicIds = new Map(fileRows.map((row) => [row.id, row.public_id]));
     const files = fileRows.map<ProjectFile>((row) => ({
@@ -622,6 +700,7 @@ export async function loadProjectDetail(
       activities,
       risks,
       fileRelations,
+      acceptanceEvents,
     };
 
     return {
@@ -631,6 +710,7 @@ export async function loadProjectDetail(
         canManage: accessResponse.data === true,
         viewerMemberId: scope.memberPublicId,
       },
+      availableMembers,
     };
   } catch (error) {
     const fallbackResult = fallback();

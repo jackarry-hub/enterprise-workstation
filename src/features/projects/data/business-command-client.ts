@@ -21,6 +21,8 @@ const commandErrors: Record<string, string> = {
   scope_conflict: "请求范围与当前企业不一致",
   invalid_request: "提交内容不完整或格式不正确",
   invalid_transition: "当前任务状态不允许该操作",
+  invalid_state: "当前记录状态不允许该操作",
+  restore_status_required: "历史归档项目缺少原状态，请选择安全的恢复状态",
 };
 
 function record(value: unknown): JsonRecord | null {
@@ -39,6 +41,11 @@ function positiveInteger(value: unknown) {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0
     ? value
     : null;
+}
+
+function allocation(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100
+    && Math.round(value * 100) === value * 100 ? value : null;
 }
 
 function canonicalDate(value: unknown) {
@@ -152,6 +159,126 @@ export async function updateBusinessProject(
     throw new Error("项目更新结果无法确认，请刷新后核对");
   }
   return { version };
+}
+
+export async function archiveBusinessProject(
+  projectId: string,
+  version: number,
+  reason: string,
+  idempotencyKey: string,
+) {
+  const payload = await requestJson(`/api/workstation/projects/${projectId}`, {
+    method: "DELETE",
+    headers: commandHeaders(idempotencyKey),
+    body: JSON.stringify({ version, reason }),
+  });
+  const id = canonicalUuid(payload.id);
+  const nextVersion = positiveInteger(payload.version);
+  if (payload.outcome !== "success" || id !== canonicalUuid(projectId) || !nextVersion) {
+    throw new Error("项目归档结果无法确认，请刷新项目列表核对");
+  }
+  return { id, version: nextVersion };
+}
+
+export async function restoreBusinessProject(
+  projectId: string,
+  input: { expectedVersion: number; restoreStatus: "planning" | "active" | "on_hold" | "completed" | null; reason: string },
+  idempotencyKey: string,
+) {
+  const payload = await requestJson(`/api/workstation/projects/${projectId}/restore`, {
+    method: "POST",
+    headers: commandHeaders(idempotencyKey),
+    body: JSON.stringify(input),
+  });
+  const id = canonicalUuid(payload.id);
+  const version = positiveInteger(payload.version);
+  const status = typeof payload.status === "string"
+    && ["planning", "active", "on_hold", "completed"].includes(payload.status)
+    ? payload.status as "planning" | "active" | "on_hold" | "completed" : null;
+  if (payload.outcome !== "success" || id !== canonicalUuid(projectId) || !version
+    || !status) {
+    throw new Error("项目恢复结果无法确认，请刷新归档项目核对");
+  }
+  return { id, version, status };
+}
+
+export async function mutateBusinessProjectMember(
+  projectId: string,
+  input: {
+    command: "add" | "change_role" | "remove";
+    employeePublicId: string;
+    role?: "manager" | "member" | "viewer";
+    allocationPercent?: number;
+    expectedProjectVersion: number;
+    expectedMembershipVersion: number;
+    reason: string;
+  },
+  idempotencyKey: string,
+) {
+  const method = input.command === "remove" ? "DELETE" : "POST";
+  const body = input.command === "remove" ? {
+    employeePublicId: input.employeePublicId,
+    expectedProjectVersion: input.expectedProjectVersion,
+    expectedMembershipVersion: input.expectedMembershipVersion,
+    reason: input.reason,
+  } : {
+    ...input,
+    role: input.role,
+    allocationPercent: input.allocationPercent,
+  };
+  const payload = await requestJson(`/api/workstation/projects/${projectId}/members`, {
+    method,
+    headers: commandHeaders(idempotencyKey),
+    body: JSON.stringify(body),
+  });
+  const responseId = canonicalUuid(payload.id);
+  const responseVersion = positiveInteger(payload.version);
+  const responseProjectId = canonicalUuid(payload.projectId);
+  const projectVersion = positiveInteger(payload.projectVersion);
+  const member = record(payload.member);
+  const id = canonicalUuid(member?.id);
+  const employeePublicId = canonicalUuid(member?.employeePublicId);
+  const version = positiveInteger(member?.version);
+  const role = typeof member?.role === "string" && ["manager", "member", "viewer"].includes(member.role)
+    ? member.role : null;
+  const allocationPercent = allocation(member?.allocationPercent);
+  const leftAt = member?.leftAt === null ? null : timestamp(member?.leftAt);
+  if (payload.outcome !== "success" || payload.resource !== "project_member"
+    || !id || responseId !== id || !version || responseVersion !== version
+    || responseProjectId !== canonicalUuid(projectId)
+    || !projectVersion || employeePublicId !== canonicalUuid(input.employeePublicId)
+    || !role || allocationPercent === null
+    || (member?.leftAt !== null && !leftAt)) {
+    throw new Error("项目成员变更结果无法确认，请刷新成员列表核对");
+  }
+  return { projectVersion, member: { id, employeePublicId, version, role,
+    allocationPercent, leftAt } };
+}
+
+export type BusinessTaskTransition =
+  | { action: "claim"; expectedVersion: number }
+  | { action: "progress"; expectedVersion: number; progress: number; blocker: string; nextStep: string }
+  | { action: "submit"; expectedVersion: number; resultText: string; resultLink: string; resultFiles: string[] }
+  | { action: "review"; expectedVersion: number; decision: "pass" | "reject"; note: string }
+  | { action: "reopen"; expectedVersion: number; note: string };
+
+export async function transitionBusinessTask(
+  taskId: string,
+  input: BusinessTaskTransition,
+  idempotencyKey: string,
+) {
+  const payload = await requestJson(`/api/workstation/tasks/${taskId}`, {
+    method: "PATCH",
+    headers: commandHeaders(idempotencyKey),
+    body: JSON.stringify(input),
+  });
+  const task = record(payload.task);
+  const id = canonicalUuid(task?.id);
+  const version = positiveInteger(task?.version);
+  if (id !== canonicalUuid(taskId) || !version || typeof task?.st !== "string") {
+    throw new Error("任务状态变更结果无法确认，请刷新任务核对");
+  }
+  return { id, version, displayStatus: task.st };
 }
 
 export type CreateBusinessTaskInput = {

@@ -4,6 +4,7 @@ import {
   createBusinessProject,
   createBusinessTask,
   createBusinessTaskComment,
+  mutateBusinessProjectMember,
   publicTaskPriority,
   submitBusinessProjectReport,
   updateBusinessProject,
@@ -109,6 +110,22 @@ describe("business command browser client", () => {
     await expect(submitBusinessProjectReport(projectId, {
       reportDate: "2026-08-27", summary: "完成联调", nextPlan: "开始验收",
       blockers: "", supportNeeded: "", reason: "提交日报",
+    }, key)).rejects.toThrow("结果无法确认");
+  });
+
+  it("binds member confirmations to the canonical resource, id, version and numeric allocation", async () => {
+    const employeeId = "a1000000-0000-4000-8000-000000000008";
+    const memberId = "a1000000-0000-4000-8000-000000000009";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+      outcome: "success", resource: "project_member", id: memberId, version: 1,
+      projectId, projectVersion: 2,
+      member: { id: memberId, employeePublicId: employeeId, role: "member",
+        allocationPercent: null, version: 1, leftAt: null },
+    })));
+
+    await expect(mutateBusinessProjectMember(projectId, {
+      command: "add", employeePublicId: employeeId, role: "member", allocationPercent: 80,
+      expectedProjectVersion: 1, expectedMembershipVersion: 0, reason: "加入交付小组",
     }, key)).rejects.toThrow("结果无法确认");
   });
 

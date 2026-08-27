@@ -38,6 +38,16 @@ export type FeishuDeliveryOptions = {
   transport?: FeishuTransport;
 };
 
+export type FeishuTaskEventNotificationInput = {
+  taskId: string;
+  recipientOpenId: string;
+  eventType: "task.assigned" | "task.submitted" | "task.review_passed" | "task.review_rejected" | "task.reopened";
+  taskTitle: string;
+  projectName: string;
+  actorName: string;
+  reviewNote: string;
+};
+
 function configurationUnavailable(): never {
   throw new Error("configuration_unavailable");
 }
@@ -185,6 +195,28 @@ export async function sendFeishuTaskNotification(
   );
 }
 
+function escapedMarkdownText(value: string) {
+  return value.replace(/[\\`*_{}\[\]()#+\-.!|>]/g, "\\$&");
+}
+
+function eventNotificationCard(input: FeishuTaskEventNotificationInput, taskUrl: string) {
+  const meta = {
+    "task.assigned": { title: "收到新任务", action: "查看并领取", template: "blue" },
+    "task.submitted": { title: "任务待验收", action: "查看并验收", template: "orange" },
+    "task.review_passed": { title: "任务已通过验收", action: "查看结果", template: "green" },
+    "task.review_rejected": { title: "任务被退回修改", action: "查看验收意见", template: "red" },
+    "task.reopened": { title: "任务已重新打开", action: "查看最新要求", template: "blue" },
+  }[input.eventType];
+  return {
+    config: { wide_screen_mode: true },
+    header: { template: meta.template, title: { tag: "plain_text", content: meta.title } },
+    elements: [
+      { tag: "markdown", content: [`**任务：** ${escapedMarkdownText(input.taskTitle)}`, `**项目：** ${escapedMarkdownText(input.projectName)}`, `**操作人：** ${escapedMarkdownText(input.actorName)}`, input.reviewNote ? `**说明：** ${escapedMarkdownText(input.reviewNote)}` : ""].filter(Boolean).join("\n") },
+      { tag: "action", actions: [{ tag: "button", type: "primary", text: { tag: "plain_text", content: meta.action }, url: taskUrl }] },
+    ],
+  };
+}
+
 export async function sendFeishuTaskBatchNotification(
   input: FeishuTaskBatchNotificationInput,
   env: FeishuTaskNotificationEnv,
@@ -205,6 +237,16 @@ export async function sendFeishuTaskBatchNotification(
     notificationEnv,
     options,
   );
+}
+
+export async function sendFeishuTaskEventNotification(
+  input: FeishuTaskEventNotificationInput,
+  env: FeishuTaskNotificationEnv,
+  options: FeishuDeliveryOptions,
+) {
+  const notificationEnv = validatedEnv(env);
+  const taskUrl = buildTaskNotificationLink(notificationEnv.appUrl, input.taskId);
+  return sendInteractiveCard(input.recipientOpenId, eventNotificationCard(input, taskUrl), notificationEnv, options);
 }
 
 let cachedTransport: {
@@ -229,7 +271,7 @@ function defaultTransport(notificationEnv: FeishuTaskNotificationEnv) {
 
 async function sendInteractiveCard(
   recipientOpenId: string,
-  card: ReturnType<typeof notificationCard>,
+    card: ReturnType<typeof notificationCard> | ReturnType<typeof eventNotificationCard>,
   notificationEnv: FeishuTaskNotificationEnv,
   options: FeishuDeliveryOptions,
 ) {

@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import { readStrictJson } from "@/app/api/workstation/tasks/handler";
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MONEY_PATTERN = /^(0|[1-9]\d{0,15})(?:\.(\d{1,2}))?$/;
@@ -46,23 +48,28 @@ function positiveInteger(value: unknown) {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
+function exactKeys(value: Record<string, unknown>, expected: readonly string[]) {
+  const actual = Object.keys(value).sort();
+  const sorted = [...expected].sort();
+  return actual.length === sorted.length && actual.every((key, index) => key === sorted[index]);
+}
+
 async function body(request: Request) {
-  try {
-    const value: unknown = await request.json();
-    return value && typeof value === "object" && !Array.isArray(value)
-      ? value as Record<string, unknown>
-      : null;
-  } catch {
-    return null;
+  const parsed = await readStrictJson(request);
+  if (!parsed.ok) {
+    const status = parsed.error === "unsupported_media_type" ? 415
+      : parsed.error === "payload_too_large" ? 413 : 400;
+    return { ok: false, response: json({ error: parsed.error }, status) } as const;
   }
+  if (!parsed.value || typeof parsed.value !== "object" || Array.isArray(parsed.value)) {
+    return { ok: false, response: json({ error: "invalid_request" }, 400) } as const;
+  }
+  return { ok: true, value: parsed.value as Record<string, unknown> } as const;
 }
 
 function allowed(dependencies: ProjectCommandDependencies) {
   const session = dependencies.session;
-  return Boolean(session) && session?.member.status === "active" && (
-    session.permissionCodes.includes("project.manage")
-    || session.permissionCodes.includes("organization.manage")
-  );
+  return Boolean(session) && session?.member.status === "active";
 }
 
 function failureStatus(error: string) {
@@ -103,8 +110,14 @@ async function invoke(
   if (!projectId) return json({ error: "invalid_request" }, 400);
   const idempotencyKey = canonicalUuid(request.headers.get("Idempotency-Key"));
   if (!idempotencyKey) return json({ error: "invalid_idempotency_key" }, 400);
-  const parsed = await body(request);
-  if (!parsed || ["tenantId", "organizationId", "actorId"].some((field) => field in parsed)) {
+  const parsedBody = await body(request);
+  if (!parsedBody.ok) return parsedBody.response;
+  const parsed = parsedBody.value;
+  const expectedKeys = operation === "archive"
+    ? ["version", "reason"]
+    : ["version", "reason", "name", "description", "category", "ownerPublicId",
+      "budgetAmount", "priority", "startsOn", "dueOn"];
+  if (!exactKeys(parsed, expectedKeys)) {
     return json({ error: "invalid_request" }, 400);
   }
   const version = positiveInteger(parsed.version);
@@ -120,7 +133,7 @@ async function invoke(
   let name: string;
   let args: Record<string, unknown>;
   if (operation === "archive") {
-    name = "archive_current_project";
+    name = "archive_current_project_v2";
     args = common;
   } else {
     const projectName = text(parsed.name, 160, true);

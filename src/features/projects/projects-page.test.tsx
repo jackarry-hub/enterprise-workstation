@@ -42,6 +42,7 @@ describe("ProjectsPage", () => {
       reminders: mockProjectMilestoneReminders,
       availableMembers: [owner],
       source: "supabase",
+      archivedProjects: [],
     }} />, unboundExecutiveWorkspaceSession);
 
     expect(screen.getAllByText(project.name).length).toBeGreaterThan(0);
@@ -89,6 +90,7 @@ describe("ProjectsPage", () => {
       reminders: [],
       availableMembers: [owner],
       source: "supabase",
+      archivedProjects: [],
     }} />, unboundExecutiveWorkspaceSession);
 
     await user.click(screen.getByRole("button", { name: "新建项目" }));

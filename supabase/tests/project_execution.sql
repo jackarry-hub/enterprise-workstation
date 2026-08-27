@@ -171,7 +171,7 @@ select set_config('test.project.execution.project_id',current_setting('test.proj
 
 select set_config('request.jwt.claim.sub','88000000-0000-4000-8000-000000000001',true);
 set local role authenticated;
-select set_config('test.project.execution.task_batch',public.create_current_task_batch_v2(
+select set_config('test.project.execution.task_batch',public.create_current_task_batch_v3(
   jsonb_build_array(
     jsonb_build_object('projectId',current_setting('test.project.execution.project_id')::uuid,'title','Task A','description','Dependency A','assigneeMemberId',(select id from public.organization_members where user_id='88000000-0000-4000-8000-000000000002'),'dueDate',to_char(current_date + 90,'YYYY-MM-DD'),'priority','high','acceptanceCriteria','Acceptance A'),
     jsonb_build_object('projectId',current_setting('test.project.execution.project_id')::uuid,'title','Task B','description','Dependency B','assigneeMemberId',(select id from public.organization_members where user_id='88000000-0000-4000-8000-000000000002'),'dueDate',to_char(current_date + 91,'YYYY-MM-DD'),'priority','high','acceptanceCriteria','Acceptance B'),

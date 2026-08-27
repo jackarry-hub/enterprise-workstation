@@ -430,6 +430,7 @@ describe("workstation bootstrap route", () => {
       }],
       error: null,
     });
+    const acceptanceHistory = query({ data: [], error: null });
     const builders = {
       members,
       projects,
@@ -445,6 +446,7 @@ describe("workstation bootstrap route", () => {
       agentPermissions,
       agentInvocations,
       knowledge,
+      acceptanceHistory,
     };
     const client = {
       from: vi.fn((table: string) => {
@@ -453,6 +455,7 @@ describe("workstation bootstrap route", () => {
         if (table === "tasks") return builders.tasks;
         if (table === "salary") return builders.salary;
         if (table === "task_notifications") return builders.notifications;
+        if (table === "task_acceptance_events") return builders.acceptanceHistory;
         if (table === "departments") return builders.departments;
         if (table === "employee_skills") return builders.employeeSkills;
         if (table === "agent_permissions") return builders.agentPermissions;
@@ -814,6 +817,7 @@ describe("workstation bootstrap route", () => {
       error: null,
     });
     const notifications = query({ data: [], error: null });
+    const acceptanceHistory = query({ data: [], error: null });
     const workProfiles = query({ data: [], error: null });
     const departments = query({ data: [], error: null });
     const salaryGradePolicies = query({ data: [], error: null });
@@ -830,6 +834,7 @@ describe("workstation bootstrap route", () => {
         if (table === "tasks") return tasks;
         if (table === "salary") return salaryCalls++ === 0 ? detailedSalary : legacySalary;
         if (table === "task_notifications") return notifications;
+        if (table === "task_acceptance_events") return acceptanceHistory;
         if (table === "departments") return departments;
         if (table === "salary_grade_policies") return salaryGradePolicies;
         if (table === "employee_skills") return employeeSkills;

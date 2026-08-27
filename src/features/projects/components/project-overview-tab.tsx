@@ -7,10 +7,12 @@ import {
   History,
   Target,
   UsersRound,
+  UserCog,
 } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { GlassCard } from "@/components/ui/glass-card";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import type { ProjectActivity, ProjectDetailData } from "@/features/projects/types";
 import { formatDateInputInTimeZone } from "@/lib/date";
@@ -39,7 +41,7 @@ function activityIcon(activity: ProjectActivity) {
   return History;
 }
 
-export function ProjectOverviewTab({ detail }: { detail: ProjectDetailData }) {
+export function ProjectOverviewTab({ detail, canManage = false, onManageMembers }: { detail: ProjectDetailData; canManage?: boolean; onManageMembers?: () => void }) {
   const completedTasks = detail.tasks.filter(({ status }) => status === "done").length;
   const taskCompletion = detail.tasks.length === 0
     ? 0
@@ -123,6 +125,7 @@ export function ProjectOverviewTab({ detail }: { detail: ProjectDetailData }) {
               <h2 className="font-semibold text-foreground">项目成员</h2>
               <p className="mt-0.5 text-xs text-muted-foreground">共 {detail.members.length} 位协作成员</p>
             </div>
+            {canManage && onManageMembers ? <Button type="button" size="sm" variant="outline" className="ml-auto" onClick={onManageMembers}><UserCog />管理</Button> : null}
           </div>
           <div className="mt-4 flex flex-col gap-2">
             {detail.members.map(({ id, member, role }) => (

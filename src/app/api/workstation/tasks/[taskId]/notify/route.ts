@@ -1,9 +1,7 @@
-import {
-  createWorkstationTaskNotifyHandler,
-  defaultWorkstationTaskNotifyDependencies,
-} from "@/app/api/workstation/tasks/[taskId]/notify/handler";
-
 export const dynamic = "force-dynamic";
-export const POST = createWorkstationTaskNotifyHandler(
-  defaultWorkstationTaskNotifyDependencies,
-);
+export async function POST() {
+  return Response.json(
+    { error: "notification_retry_endpoint_retired" },
+    { status: 410, headers: { "Cache-Control": "no-store" } },
+  );
+}

@@ -316,6 +316,14 @@ export async function callTaskNotificationRpc(name: string, parameters: Record<s
   return result;
 }
 
+export async function callTaskNotificationRowsRpc(name: string, parameters: Record<string, unknown>) {
+  const { data, error } = await adminClient().rpc(name, parameters);
+  if (error || !Array.isArray(data)) throw new Error("notification_queue_unavailable");
+  const rows = data.map(object);
+  if (rows.some((row) => !row)) throw new Error("notification_queue_unavailable");
+  return rows as Record<string, unknown>[];
+}
+
 function successfulState(value: unknown, allowed: string[]) {
   const result = object(value);
   if (!result || result.outcome !== "success" || typeof result.state !== "string"

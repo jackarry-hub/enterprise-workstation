@@ -374,7 +374,7 @@ begin
       $lock_task_batch_project$;
     execute format('select %I.dblink_send_query($1,$2)',v_extension_schema)
       into v_integer using 'execution_concurrency_a',$task_batch_a$
-        select public.create_current_task_batch_v2(
+        select public.create_current_task_batch_v3(
           jsonb_build_array(jsonb_build_object(
             'projectId','8c200000-0000-4000-8000-000000000001',
             'assigneeMemberId',(select id from public.organization_members where user_id='8c000000-0000-4000-8000-000000000001'),
@@ -398,7 +398,7 @@ begin
     end if;
     execute format('select %I.dblink_send_query($1,$2)',v_extension_schema)
       into v_integer using 'execution_concurrency_b',$task_batch_b$
-        select public.create_current_task_batch_v2(
+        select public.create_current_task_batch_v3(
           jsonb_build_array(jsonb_build_object(
             'projectId','8c200000-0000-4000-8000-000000000001',
             'assigneeMemberId',(select id from public.organization_members where user_id='8c000000-0000-4000-8000-000000000001'),

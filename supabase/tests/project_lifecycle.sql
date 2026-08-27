@@ -1,5 +1,5 @@
 begin;
-select plan(52);
+select plan(61);
 
 select ok(has_column('public','projects','tenant_id'),'projects carry tenant ownership');
 select ok(has_column('public','projects','budget_amount'),'projects persist fixed-precision budget');
@@ -10,18 +10,22 @@ select ok(has_column('public','project_members','tenant_id'),'project membership
 select ok(has_table('public','project_command_idempotency'),'project command ledger exists');
 select ok(has_function('public','create_current_project_v2',array['text','text','text','uuid','numeric','text','text','date','date','bigint','text','uuid','uuid']::name[]),'transactional project create exists');
 select ok(has_function('public','update_current_project',array['uuid','text','text','text','uuid','numeric','text','date','date','bigint','text','uuid','uuid']::name[]),'versioned project update exists');
-select ok(has_function('public','archive_current_project',array['uuid','bigint','text','uuid','uuid']::name[]),'versioned project archive exists');
-select ok(has_function('public','create_current_task_batch_v2',array['jsonb','uuid','uuid']::name[]),'transactional task batch command is available');
+select ok(has_function('public','archive_current_project_v2',array['uuid','bigint','text','uuid','uuid']::name[]),'versioned project archive exists');
+select ok(has_function('public','create_current_task_batch_v3',array['jsonb','uuid','uuid']::name[]),'membership-safe task batch command is available');
 select ok(
   has_function_privilege('authenticated','public.create_current_project_v2(text,text,text,uuid,numeric,text,text,date,date,bigint,text,uuid,uuid)','EXECUTE')
   and has_function_privilege('authenticated','public.update_current_project(uuid,text,text,text,uuid,numeric,text,date,date,bigint,text,uuid,uuid)','EXECUTE')
-  and has_function_privilege('authenticated','public.archive_current_project(uuid,bigint,text,uuid,uuid)','EXECUTE'),
+  and has_function_privilege('authenticated','public.archive_current_project_v2(uuid,bigint,text,uuid,uuid)','EXECUTE'),
   'authenticated users can enter only the controlled lifecycle commands'
 );
 select ok(
   not has_function_privilege('service_role','public.create_current_project_v2(text,text,text,uuid,numeric,text,text,date,date,bigint,text,uuid,uuid)','EXECUTE')
-  and not has_function_privilege('authenticated','public.create_current_project(text,text,bigint,bigint[],text,text,date,date)','EXECUTE'),
-  'service and legacy create bypasses are closed'
+  and not has_function_privilege('authenticated','public.create_current_project(text,text,bigint,bigint[],text,text,date,date)','EXECUTE')
+  and not has_function_privilege('authenticated','public.archive_current_project(uuid,bigint,text,uuid,uuid)','EXECUTE')
+  and not has_function_privilege('authenticated','public.create_current_project_task(uuid,text,text,bigint,date,text)','EXECUTE')
+  and not has_function_privilege('authenticated','public.create_current_project_task_v2(uuid,text,text,bigint,date,text,text)','EXECUTE')
+  and not has_function_privilege('authenticated','public.create_current_task_batch_v2(jsonb,uuid,uuid)','EXECUTE'),
+  'service and legacy project or task mutation bypasses are closed'
 );
 select ok(
   not exists (
@@ -222,16 +226,26 @@ select ok(exists(select 1 from public.audit_logs where request_id='85000000-0000
 
 select set_config('request.jwt.claim.sub','83000000-0000-4000-8000-000000000001',true);
 set local role authenticated;
-select set_config('test.project.lifecycle.task_result',public.create_current_task_batch_v2(
+select set_config('test.project.lifecycle.non_member_task_result',public.create_current_task_batch_v3(
+  jsonb_build_array(jsonb_build_object(
+    'projectId',current_setting('test.project.lifecycle.project_id')::uuid,
+    'title','Rejected implicit membership','description','Assignee must join the project first',
+    'assigneeMemberId',(select id from public.organization_members where user_id='83000000-0000-4000-8000-000000000006'),
+    'dueDate',to_char(current_date + 90,'YYYY-MM-DD'),'priority','high','acceptanceCriteria','No implicit membership'
+  )),
+  '85000000-0000-4000-8000-000000000018','85000000-0000-4000-8000-000000000019'
+)::text,true);
+select set_config('test.project.lifecycle.task_result',public.create_current_task_batch_v3(
   jsonb_build_array(jsonb_build_object(
     'projectId',current_setting('test.project.lifecycle.project_id')::uuid,
     'title','Compatibility task','description','Task after project hardening',
-    'assigneeMemberId',(select id from public.organization_members where user_id='83000000-0000-4000-8000-000000000006'),
+    'assigneeMemberId',(select id from public.organization_members where user_id='83000000-0000-4000-8000-000000000003'),
     'dueDate',to_char(current_date + 90,'YYYY-MM-DD'),'priority','high','acceptanceCriteria','Task row and membership commit'
   )),
   '85000000-0000-4000-8000-000000000020','85000000-0000-4000-8000-000000000021'
 )::text,true);
 reset role;
+select is(current_setting('test.project.lifecycle.non_member_task_result')::jsonb->>'error','conflict','task assignment requires an explicit active contributor membership');
 select ok(
   exists(select 1 from public.tasks where public_id=(current_setting('test.project.lifecycle.task_result')::jsonb#>>'{taskIds,0}')::uuid),
   'transactional task batch creates a real task'
@@ -243,14 +257,82 @@ select ok(
     join public.organization_members member on member.id=membership.member_id
       and member.organization_id=membership.organization_id
     where project.public_id=current_setting('test.project.lifecycle.project_id')::uuid
-      and member.user_id='83000000-0000-4000-8000-000000000006'
+      and member.user_id='83000000-0000-4000-8000-000000000003'
       and membership.tenant_id=project.tenant_id
       and membership.created_by_member_id is not null
       and membership.updated_by_member_id is not null
       and membership.version=1
   ),
-  'task assignment fills hardened project membership ownership fields'
+  'task assignment reuses an explicitly managed project membership'
 );
+
+select set_config('request.jwt.claim.sub','83000000-0000-4000-8000-000000000001',true);
+set local role authenticated;
+select set_config('test.project.lifecycle.member_project',public.create_current_project_v2(
+  'Member lifecycle project','Covers offboarding and reactivation','Delivery',
+  '84000000-0000-4000-8000-000000000002',100.00,'active','medium',
+  '2026-10-01','2026-10-31',0,'Create member lifecycle project',
+  '85000000-0000-4000-8000-000000000050','85000000-0000-4000-8000-000000000051'
+)::text,true);
+select set_config('test.project.lifecycle.member_project_id',current_setting('test.project.lifecycle.member_project')::jsonb->>'id',true);
+select set_config('test.project.lifecycle.member_add',public.mutate_current_project_member(
+  current_setting('test.project.lifecycle.member_project_id')::uuid,
+  '84000000-0000-4000-8000-000000000006','add','member',50,1,0,
+  'Add a delivery contributor','85000000-0000-4000-8000-000000000052',
+  '85000000-0000-4000-8000-000000000053'
+)::text,true);
+reset role;
+select is(current_setting('test.project.lifecycle.member_project')::jsonb->>'outcome','success','member lifecycle fixture project is created through the command boundary');
+select is(current_setting('test.project.lifecycle.member_add')::jsonb->>'outcome','success','active employee joins through the explicit membership command');
+
+update public.organization_members set status='suspended'
+where user_id='83000000-0000-4000-8000-000000000006';
+update public.employee_profiles set employment_status='terminated',deleted_at=clock_timestamp()
+where public_id='84000000-0000-4000-8000-000000000006';
+select set_config('request.jwt.claim.sub','83000000-0000-4000-8000-000000000001',true);
+set local role authenticated;
+select set_config('test.project.lifecycle.member_remove',public.mutate_current_project_member(
+  current_setting('test.project.lifecycle.member_project_id')::uuid,
+  '84000000-0000-4000-8000-000000000006','remove',null,0,2,1,
+  'Complete offboarding after directory suspension','85000000-0000-4000-8000-000000000054',
+  '85000000-0000-4000-8000-000000000055'
+)::text,true);
+reset role;
+select is(current_setting('test.project.lifecycle.member_remove')::jsonb->>'outcome','success','suspended or deleted employee can still be removed through the only controlled command');
+select ok((select left_at is not null from public.project_members membership
+  join public.projects project on project.id=membership.project_id
+  join public.organization_members member on member.id=membership.member_id
+  where project.public_id=current_setting('test.project.lifecycle.member_project_id')::uuid
+    and member.user_id='83000000-0000-4000-8000-000000000006'),'offboarding closes the durable project membership');
+
+update public.organization_members set status='active'
+where user_id='83000000-0000-4000-8000-000000000006';
+update public.employee_profiles set employment_status='active',deleted_at=null
+where public_id='84000000-0000-4000-8000-000000000006';
+select set_config('request.jwt.claim.sub','83000000-0000-4000-8000-000000000001',true);
+set local role authenticated;
+select set_config('test.project.lifecycle.member_readd',public.mutate_current_project_member(
+  current_setting('test.project.lifecycle.member_project_id')::uuid,
+  '84000000-0000-4000-8000-000000000006','add','member',75,3,0,
+  'Rejoin after formal reactivation','85000000-0000-4000-8000-000000000056',
+  '85000000-0000-4000-8000-000000000057'
+)::text,true);
+reset role;
+select is(current_setting('test.project.lifecycle.member_readd')::jsonb->>'outcome','success','inactive historical membership accepts the safe create-or-reactivate version zero contract');
+select is((current_setting('test.project.lifecycle.member_readd')::jsonb#>>'{entity,version}')::bigint,3::bigint,'reactivation advances the historical membership version without duplicating it');
+
+select set_config('request.jwt.claim.sub','83000000-0000-4000-8000-000000000005',true);
+set local role authenticated;
+select set_config('test.project.lifecycle.member_scope_conflict',public.mutate_current_project_member(
+  current_setting('test.project.lifecycle.member_project_id')::uuid,
+  '84000000-0000-4000-8000-000000000005','add','member',10,4,0,
+  'Cross organization conflict proof','85000000-0000-4000-8000-000000000058',
+  '85000000-0000-4000-8000-000000000057'
+)::text,true);
+reset role;
+select is(current_setting('test.project.lifecycle.member_scope_conflict')::jsonb->>'error','scope_conflict','new member command fails closed on a cross-organization key collision');
+select ok(exists(select 1 from public.audit_logs where request_id='85000000-0000-4000-8000-000000000058'
+  and action='project.execution_failed' and metadata->>'failure'='scope_conflict'),'new command scope conflicts leave durable audit evidence');
 
 create or replace function public.test_project_update_failure()
 returns trigger language plpgsql set search_path='' as $$
@@ -293,7 +375,7 @@ for each row execute function public.test_project_archive_failure();
 select set_config('test.project.archive_failure','on',true);
 select set_config('request.jwt.claim.sub','83000000-0000-4000-8000-000000000001',true);
 set local role authenticated;
-select set_config('test.project.lifecycle.archive_failure_result',public.archive_current_project(
+select set_config('test.project.lifecycle.archive_failure_result',public.archive_current_project_v2(
   current_setting('test.project.lifecycle.project_id')::uuid,2,'Archive atomicity proof',
   '85000000-0000-4000-8000-000000000031','85000000-0000-4000-8000-000000000032'
 )::text,true);
@@ -301,13 +383,13 @@ reset role;
 select set_config('test.project.archive_failure','off',true);
 select is(current_setting('test.project.lifecycle.archive_failure_result')::jsonb->>'error','command_failed','archive injection returns a stable sanitized failure');
 select ok((select archived_at is null and deleted_at is null and version=2 from public.projects where public_id=current_setting('test.project.lifecycle.project_id')::uuid),'failed archive rolls back all project changes');
-select ok(exists(select 1 from public.audit_logs where request_id='85000000-0000-4000-8000-000000000031' and action='project.command_failed' and metadata->>'failure'='command_failed'),'failed archive leaves durable sanitized audit evidence');
+select ok(exists(select 1 from public.audit_logs where request_id='85000000-0000-4000-8000-000000000031' and action='project.execution_failed' and metadata->>'failure'='command_failed'),'failed archive leaves durable sanitized audit evidence');
 drop trigger test_project_archive_failure on public.projects;
 drop function public.test_project_archive_failure();
 
 select set_config('request.jwt.claim.sub','83000000-0000-4000-8000-000000000004',true);
 set local role authenticated;
-select set_config('test.project.lifecycle.foreign_result',public.archive_current_project(
+select set_config('test.project.lifecycle.foreign_result',public.archive_current_project_v2(
   current_setting('test.project.lifecycle.project_id')::uuid,2,'Foreign archive',
   '85000000-0000-4000-8000-000000000008','85000000-0000-4000-8000-000000000009'
 )::text,true);
@@ -379,12 +461,12 @@ select throws_ok($$ select public.update_current_project(
   '84000000-0000-4000-8000-000000000003',1.00,null,'2026-09-02','2026-10-05',
   2,'Null update priority','85000000-0000-4000-8000-000000000029','85000000-0000-4000-8000-000000000030'
 ) $$,'22023','Project command is invalid','database rejects null update priority');
-select set_config('test.project.lifecycle.archive_result',public.archive_current_project(
+select set_config('test.project.lifecycle.archive_result',public.archive_current_project_v2(
   current_setting('test.project.lifecycle.project_id')::uuid,2,'Delivery closed',
   '85000000-0000-4000-8000-000000000014','85000000-0000-4000-8000-000000000015'
 )::text,true);
 reset role;
-select is((current_setting('test.project.lifecycle.archive_result')::jsonb->>'version')::bigint,3::bigint,'archive increments project version');
+select is((current_setting('test.project.lifecycle.archive_result')::jsonb#>>'{entity,version}')::bigint,3::bigint,'archive increments project version');
 select ok((select archived_at is not null and deleted_at is not null and status='cancelled' from public.projects where public_id=current_setting('test.project.lifecycle.project_id')::uuid),'archive is durable and internally consistent');
 select ok(exists(select 1 from public.audit_logs where request_id='85000000-0000-4000-8000-000000000014' and action='project.archived'),'archive is audited');
 select * from finish();

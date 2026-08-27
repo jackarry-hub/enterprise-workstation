@@ -276,7 +276,7 @@ export const defaultWorkstationTaskCreateDependencies: WorkstationTaskCreateDepe
       dueDate: input.dueDate,
       priority: input.priority,
     };
-    const { data, error } = await client.rpc("create_current_task_batch_v2", {
+    const { data, error } = await client.rpc("create_current_task_batch_v3", {
       items: [item], idempotency_key: input.idempotencyKey, request_id: input.requestId,
     });
     if (error) throw error;

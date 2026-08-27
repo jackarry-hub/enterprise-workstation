@@ -401,6 +401,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       salaryResult,
       salaryClassificationsResult,
       notificationsResult,
+      acceptanceHistoryResult,
       departmentsResult,
       salaryGradePoliciesResult,
       positionTemplatesResult,
@@ -426,7 +427,11 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       ), requestId),
       salaryClassificationsQuery,
       optionalBootstrapQuery("task_notifications", client.from("task_notifications")
-        .select("task_id, status, last_error_code"), requestId),
+        .select("task_id, status, last_error_code")
+        .eq("event_type", "task.assigned"), requestId),
+      optionalBootstrapQuery("task_acceptance_events", client.from("task_acceptance_events")
+        .select("task_id, event_type, actor_member_id, task_version_after, result_text, note, occurred_at")
+        .order("occurred_at", { ascending: true }), requestId),
       optionalBootstrapQuery("departments", client.from("departments")
         .select("id, name")
         .is("deleted_at", null), requestId),
@@ -487,6 +492,29 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
     const salaryGradePolicies = normalizeSalaryGradePolicies(
       salaryGradePoliciesResult.data ?? [],
     );
+    const acceptanceHistoryByTask = new Map<number, Array<{
+      actorMemberId: number;
+      action: string;
+      note: string;
+      occurredAt: string;
+    }>>();
+    for (const row of acceptanceHistoryResult.data ?? []) {
+      const taskId = Number(row.task_id);
+      const actorMemberId = Number(row.actor_member_id);
+      if (!Number.isSafeInteger(taskId) || !Number.isSafeInteger(actorMemberId)
+        || typeof row.event_type !== "string" || typeof row.occurred_at !== "string") continue;
+      const entries = acceptanceHistoryByTask.get(taskId) ?? [];
+      entries.push({
+        actorMemberId,
+        action: row.event_type === "submitted" ? "提交验收"
+          : row.event_type === "review_passed" ? "验收通过"
+            : row.event_type === "review_rejected" ? "退回修改" : "重新打开",
+        note: typeof row.result_text === "string" && row.result_text
+          ? row.result_text : typeof row.note === "string" ? row.note : "",
+        occurredAt: row.occurred_at,
+      });
+      acceptanceHistoryByTask.set(taskId, entries);
+    }
     const classificationsByMember = salaryClassificationsByMember(
       salaryClassificationsResult.data ?? [],
     );
@@ -626,7 +654,8 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
     const currentJobLevel = positiveIntegerOrNull(session.profile.jobLevel);
     const failedModules = new Set<BootstrapModule>();
     if (optionalQueryFailed(projectsResult)) failedModules.add("projects");
-    if (optionalQueryFailed(tasksResult) || optionalQueryFailed(notificationsResult)) failedModules.add("tasks");
+    if (optionalQueryFailed(tasksResult) || optionalQueryFailed(notificationsResult)
+      || optionalQueryFailed(acceptanceHistoryResult)) failedModules.add("tasks");
     if (
       optionalQueryFailed(salaryResult)
       || optionalQueryFailed(salaryClassificationsResult)
@@ -757,6 +786,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
             status: "unavailable",
             errorCode: "recipient_unavailable",
           },
+          timeline: acceptanceHistoryByTask.get(row.id) ?? [],
         })),
         salary: ((salaryResult.data ?? []) as Array<Record<string, unknown>>).map((row) => ({
           payrollMonth: String(row.payroll_month),

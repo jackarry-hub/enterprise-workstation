@@ -213,7 +213,7 @@ describe("formal workstation atomic task batch", () => {
     expect(await response.json()).toEqual({ error: "task_batch_unavailable" });
   });
 
-  it("calls create_current_task_batch_v2 exactly once in the default dependency", async () => {
+  it("calls create_current_task_batch_v3 exactly once in the default dependency", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: batchResult, error: null });
     vi.mocked(getSupabaseServerClient).mockResolvedValue({ rpc } as never);
     await expect(defaultWorkstationTaskBatchDependencies.createBatch({
@@ -222,7 +222,7 @@ describe("formal workstation atomic task batch", () => {
       requestId: "66000000-0000-4000-8000-000000000002",
     })).resolves.toEqual(batchResult);
     expect(rpc).toHaveBeenCalledTimes(1);
-    expect(rpc).toHaveBeenCalledWith("create_current_task_batch_v2", expect.objectContaining({
+    expect(rpc).toHaveBeenCalledWith("create_current_task_batch_v3", expect.objectContaining({
       idempotency_key: idempotencyKey,
       request_id: "66000000-0000-4000-8000-000000000002",
     }));
@@ -231,15 +231,18 @@ describe("formal workstation atomic task batch", () => {
 
 describe("task command migration contract", () => {
   it("defines forward-only tenant, version, idempotency, audit, and closed-DML controls", () => {
-    const sql = readFileSync(
+    const sql = `${readFileSync(
       join(process.cwd(), "supabase/migrations/202608270006_task_command_v2.sql"),
       "utf8",
-    ).toLowerCase();
+    )}\n${readFileSync(
+      join(process.cwd(), "supabase/migrations/202608270011_project_commercial_completion.sql"),
+      "utf8",
+    )}`.toLowerCase();
     expect(sql).toContain("alter table public.tasks");
     expect(sql).toContain("tenant_id bigint");
     expect(sql).toContain("version bigint not null default 1");
     expect(sql).toContain("create table public.task_command_idempotency");
-    expect(sql).toContain("create or replace function public.create_current_task_batch_v2");
+    expect(sql).toContain("create or replace function public.create_current_task_batch_v3");
     expect(sql).toContain("create or replace function public.transition_current_task");
     expect(sql).toContain("task.batch_created");
     expect(sql).toContain("task.submitted");

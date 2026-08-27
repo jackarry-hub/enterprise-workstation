@@ -93,6 +93,12 @@ export type WorkstationTaskRow = {
     status: string;
     errorCode: string;
   };
+  timeline?: readonly {
+    actorMemberId: number;
+    action: string;
+    note: string;
+    occurredAt: string;
+  }[];
 };
 
 export type WorkstationSalaryRow = {
@@ -231,6 +237,9 @@ function publicTaskNotification(notification: WorkstationTaskRow["notification"]
   }
   if (notification.status === "pending" || notification.status === "sent") {
     return { status: notification.status, errorCode };
+  }
+  if (notification.status === "sending") {
+    return { status: "pending" as const, errorCode };
   }
   if (notification.status === "failed") {
     return { status: "failed" as const, errorCode: errorCode || "send_failed" };
@@ -460,7 +469,12 @@ export function buildServerBootstrap(
       createdAt: task.createdAt ?? "",
       updatedAt: task.updatedAt ?? "",
       notification: publicTaskNotification(task.notification),
-      timeline: [],
+      timeline: (task.timeline ?? []).map((event) => ({
+        actor: memberId(event.actorMemberId),
+        action: event.action,
+        note: event.note,
+        at: event.occurredAt,
+      })),
       src: "飞书工作站",
       dep: [],
     })),
