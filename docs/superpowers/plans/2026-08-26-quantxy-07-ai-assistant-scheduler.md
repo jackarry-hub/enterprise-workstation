@@ -17,6 +17,7 @@
 - Rule fallback is explicitly labeled and never presented as model output.
 - Missing cost data is rendered as unconfigured, not zero.
 - Every model attempt reaches a durable terminal invocation state.
+- Follow `docs/audits/2026-08-27-open-source-backend-reuse-audit.md`: use native TypeScript/Supabase provider ports, quota/cost projections, and workflow traces inspired by Open ACE and Coze; do not embed their runtimes or databases.
 
 ---
 

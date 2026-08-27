@@ -17,6 +17,7 @@
 - Published versions and terminal execution logs are append-only.
 - Formal empty data is an empty state, never a seeded Agent list.
 - Agent orchestration is a manually authored, reviewed DAG only; advanced autonomous multi-Agent collaboration is Deferred.
+- Follow `docs/audits/2026-08-27-open-source-backend-reuse-audit.md`: provider adapters, version pins, node traces, budgets, recovery, and human controls are implemented inside the existing QuantXY authorization and persistence boundary; no Open ACE, Coze, or NocoBase runtime is embedded.
 
 ---
 

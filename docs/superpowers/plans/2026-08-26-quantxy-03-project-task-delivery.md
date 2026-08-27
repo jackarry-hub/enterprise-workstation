@@ -17,6 +17,7 @@
 - File metadata is not success until the uploaded object is verified.
 - Feishu delivery never determines whether the task transaction committed.
 - No fixture or IndexedDB business repository remains in formal pages.
+- Follow `docs/audits/2026-08-27-open-source-backend-reuse-audit.md`: the official Lark Node SDK may replace transport plumbing only behind QuantXY's durable outbox, tenant checks, replay controls, and audit boundary.
 
 ---
 
@@ -217,8 +218,12 @@ git commit -m "feat: add verified business file uploads"
 ### Task 5: Persist every Feishu notification delivery transition
 
 **Files:**
+- Modify: `package.json`
+- Modify: `package-lock.json`
 - Create: `supabase/migrations/202608260017_notification_outbox_v2.sql`
 - Create: `supabase/tests/notification_outbox.sql`
+- Create: `src/features/feishu/feishu-transport.ts`
+- Create: `src/features/feishu/feishu-transport.test.ts`
 - Modify: `src/features/workstation/task-notification.test.ts`
 - Modify: `src/features/workstation/task-notification.ts`
 - Modify: `src/features/workstation/task-notification-batch.test.ts`
@@ -227,33 +232,35 @@ git commit -m "feat: add verified business file uploads"
 **Interfaces:**
 - Produces claim/complete/fail RPCs keyed by notification ID and attempt token.
 - Removes process-local `unconfirmedDeliveries` as source of reconciliation truth.
+- Produces a narrow `FeishuTransport` adapter backed by the pinned official `@larksuiteoapi/node-sdk`; business services never call the SDK directly.
 
 - [ ] **Step 1: Write failing restart and duplicate-delivery tests**
 
 ```ts
 expect(await recoverAfterProcessRestart(notificationId)).toEqual({ action: "reconcile", messageId });
 expect(await concurrentClaims(notificationId)).toHaveLength(1);
+expect(await sdkLostResponseRetry(notificationId)).toHaveLength(1);
 ```
 
 - [ ] **Step 2: Verify RED**
 
-Run: `npx vitest run src/features/workstation/task-notification.test.ts src/features/workstation/task-notification-batch.test.ts`
-Expected: restart loses the in-memory delivery record.
+Run: `npx vitest run src/features/feishu/feishu-transport.test.ts src/features/workstation/task-notification.test.ts src/features/workstation/task-notification-batch.test.ts`
+Expected: restart loses the in-memory delivery record and no SDK transport adapter exists.
 
 - [ ] **Step 3: Implement database-backed attempts and reconciliation**
 
-Persist attempt token before send, message ID immediately after send, and final state in a separate transaction. Retry reads DB state and never relies on an in-process Map.
+Persist attempt token before send, message ID immediately after send, and final state in a separate transaction. Retry reads DB state and never relies on an in-process Map. Pin and wrap the official Lark Node SDK for token lifecycle and typed message/card calls; preserve current timeout, safe error mapping, tenant scope, recipient dedupe, request evidence, and lost-response reconciliation.
 
 - [ ] **Step 4: Verify GREEN**
 
-Run: `npx vitest run src/features/workstation/task-notification.test.ts src/features/workstation/task-notification-batch.test.ts`
+Run: `npx vitest run src/features/feishu/feishu-transport.test.ts src/features/workstation/task-notification.test.ts src/features/workstation/task-notification-batch.test.ts`
 Run: `npm run db:test`
 Expected: one claim wins; restart recovery and duplicate protection pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260017_notification_outbox_v2.sql supabase/tests/notification_outbox.sql src/features/workstation/task-notification.test.ts src/features/workstation/task-notification.ts src/features/workstation/task-notification-batch.test.ts src/features/workstation/task-notification-batch.ts
+git add package.json package-lock.json supabase/migrations/202608260017_notification_outbox_v2.sql supabase/tests/notification_outbox.sql src/features/feishu/feishu-transport.ts src/features/feishu/feishu-transport.test.ts src/features/workstation/task-notification.test.ts src/features/workstation/task-notification.ts src/features/workstation/task-notification-batch.test.ts src/features/workstation/task-notification-batch.ts
 git commit -m "feat: persist Feishu notification delivery state"
 ```
 
