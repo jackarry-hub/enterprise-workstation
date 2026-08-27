@@ -22,42 +22,53 @@
 ### Task 1: Create tenant-safe CRM schema and RLS
 
 **Files:**
-- Create: `supabase/migrations/202608260018_customer_crm.sql`
+- Create: `supabase/migrations/202608280001_customer_crm.sql`
 - Create: `supabase/tests/customer_crm.sql`
 - Create: `src/features/customers/customer-types-v2.ts`
-- Modify: `src/features/auth/workspace-session-types.ts`
-- Modify: `src/features/auth/workspace-access.ts`
+- Create: `src/features/customers/customer-crm-migration.test.ts`
+- Verify: `src/features/auth/workspace-session-types.ts` and `src/features/auth/workspace-access.ts` already carry the Plan 01 `customer.manage` contract.
 
 **Interfaces:**
 - Produces tables `customers`, `customer_contacts`, `opportunities`, `customer_follow_ups`, `customer_project_links`.
 - Produces tenant-unique normalized customer name and optional registration-code constraints.
 
-- [ ] **Step 1: Write failing two-tenant RLS and uniqueness tests**
+- [x] **Step 1: Write failing two-tenant RLS and uniqueness tests**
 
 ```sql
 select is((select count(*) from public.customers where name = 'A 客户'), 1::bigint, 'assigned tenant reads customer');
 select throws_ok($$ insert into public.customers (...) values (...) $$, '42501', null, 'employee cannot direct insert');
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `npm run db:test`
 Expected: CRM tables do not exist.
 
-- [ ] **Step 3: Create tables, indexes, RLS, FORCE RLS, and grants**
+RED was confirmed by the initial repository scan: the five authoritative CRM tables and `customer_crm.sql` were absent and the formal page still depended on seed/localStorage. Live `npm run db:test` was not run because this workstation has no PostgreSQL, `psql`, Supabase CLI or Docker runtime.
+
+- [x] **Step 3: Create tables, indexes, RLS, FORCE RLS, and grants**
 
 Use composite tenant/org foreign keys, soft archive timestamps, decimal opportunity amounts, assigned-member visibility, and no authenticated direct writes.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `npm run db:reset:test`
 Run: `npm run db:test`
 Expected: cross-tenant reads return zero, duplicate normalized customer fails, direct writes are denied.
 
-- [ ] **Step 5: Commit**
+Task 1 local verification (2026-08-28):
+
+- Focused CRM Vitest — 3 files / 10 tests passed.
+- `npm run typecheck` and `git diff --check` — passed.
+- `customer_crm.sql` static pgTAP plan/assertion count — 36/36.
+- Independent SQL/RLS review — CLEAN with no remaining P0-P3 findings.
+- The fixture contains real rows for customer, assigned/manager-only contacts, opportunity, follow-up and project link across owner, manager, outsider and second-tenant sessions.
+- Live migration, pgTAP and database constraint execution remain mandatory external gates and are not reported as passed locally.
+
+- [x] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260018_customer_crm.sql supabase/tests/customer_crm.sql src/features/customers/customer-types-v2.ts src/features/auth/workspace-session-types.ts src/features/auth/workspace-access.ts
+git add supabase/migrations/202608280001_customer_crm.sql supabase/tests/customer_crm.sql src/features/customers/customer-types-v2.ts src/features/customers/customer-crm-migration.test.ts docs/superpowers/plans/2026-08-26-quantxy-04-customer-crm.md
 git commit -m "feat: add tenant-safe customer CRM schema"
 ```
 
