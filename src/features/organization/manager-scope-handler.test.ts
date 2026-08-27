@@ -109,6 +109,57 @@ describe("manager scope handler", () => {
     expect(await response.json()).toEqual({ error: "manager_scope_unavailable" });
   });
 
+  it("treats a malformed nonempty protected projection as unavailable, never as not found", async () => {
+    const malformedRows = [
+      [{}],
+      [{
+        employee_public_id: directReportId,
+        display_name: "陈工",
+        department_name: "工程部",
+        job_title: "后端工程师",
+        manager_employee_public_id: managerId,
+        manager_version: "4",
+        manager_source: "manual",
+      }],
+      null,
+    ];
+
+    for (const data of malformedRows) {
+      const handlers = createManagerScopeHandlers({
+        session: supervisorSession,
+        rpc: vi.fn().mockResolvedValue({ data, error: null }),
+      });
+      const response = await handlers.GET(
+        new Request("https://workspace.test"),
+        context(directReportId),
+      );
+
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "manager_scope_unavailable" });
+    }
+  });
+
+  it("maps rejected session loading to a stable retryable response before any RPC", async () => {
+    const rpc = vi.fn();
+    const loadSession = vi.fn().mockRejectedValue(new Error("session store offline"));
+    const handlers = createManagerScopeHandlers({ loadSession, rpc });
+
+    const read = await handlers.GET(
+      new Request("https://workspace.test"),
+      context(directReportId),
+    );
+    const write = await handlers.POST(
+      writeRequest({ managerEmployeeId: managerId, expectedVersion: 4, reason: "组织调整" }),
+      context(directReportId),
+    );
+
+    expect(read.status).toBe(503);
+    expect(await read.json()).toEqual({ error: "manager_scope_unavailable" });
+    expect(write.status).toBe(503);
+    expect(await write.json()).toEqual({ error: "manager_scope_unavailable" });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
   it("validates the manager command before invoking the database", async () => {
     const rpc = vi.fn();
     const handlers = createManagerScopeHandlers({ session: managerSession, rpc });
@@ -171,7 +222,6 @@ describe("manager scope handler", () => {
     ["stale_version", 409],
     ["manager_cycle", 409],
     ["directory_manager_owned", 409],
-    ["invalid_manager", 400],
   ] as const)("maps stable database outcome %s without leaking target details", async (error, status) => {
     const handlers = createManagerScopeHandlers({
       session: managerSession,
@@ -184,6 +234,23 @@ describe("manager scope handler", () => {
 
     expect(response.status).toBe(status);
     expect(await response.json()).toEqual({ error });
+  });
+
+  it("does not echo an unrecognized database failure outcome", async () => {
+    const handlers = createManagerScopeHandlers({
+      session: managerSession,
+      rpc: vi.fn().mockResolvedValue({
+        data: { outcome: "failure", error: "private_constraint_detail" },
+        error: null,
+      }),
+    });
+    const response = await handlers.POST(
+      writeRequest({ managerEmployeeId: managerId, expectedVersion: 4, reason: "组织调整" }),
+      context(directReportId),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "manager_scope_unavailable" });
   });
 
   it("maps an unexpected database error to an explicit unavailable response", async () => {

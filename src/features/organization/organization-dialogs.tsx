@@ -295,18 +295,25 @@ function AssignManagerDialog({
     (candidate) => candidate.employeeId === managerEmployeeId,
   )
     ? managerEmployeeId
-    : eligibleManagers[0]?.employeeId ?? "";
+    : eligibleManagers.some(
+      (candidate) => candidate.employeeId === selectedTarget?.currentManagerEmployeeId,
+    )
+      ? selectedTarget?.currentManagerEmployeeId ?? ""
+      : eligibleManagers[0]?.employeeId ?? "";
 
   function selectTarget(nextTargetEmployeeId: string) {
     setTargetEmployeeId(nextTargetEmployeeId);
     const nextTarget = assignableTargets.find(
       (target) => target.employeeId === nextTargetEmployeeId,
     );
-    const nextManager = managerTargets.targets.find(
+    const eligibleNextManagers = managerTargets.targets.filter(
       (candidate) => nextTarget
         && candidate.employeeId !== nextTarget.employeeId
         && candidate.departmentPublicId === nextTarget.departmentPublicId,
     );
+    const nextManager = eligibleNextManagers.find(
+      (candidate) => candidate.employeeId === nextTarget?.currentManagerEmployeeId,
+    ) ?? eligibleNextManagers[0];
     setManagerEmployeeId(nextManager?.employeeId ?? "");
   }
 

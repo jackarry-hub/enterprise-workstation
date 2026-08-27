@@ -80,14 +80,25 @@ test("organization manager assigns a real responsive manager relationship and re
   const managerOption = page.getByRole("combobox", { name: "选择主管" })
     .locator("option")
     .filter({ hasText: roleFixtures.department_head.displayName });
+  const managerEmployeeId = (await managerOption.getAttribute("value"))!;
   await page.getByRole("combobox", { name: "选择主管" }).selectOption(
-    (await managerOption.getAttribute("value"))!,
+    managerEmployeeId,
   );
   await page.getByRole("textbox", { name: "主管调整理由" }).fill("E2E 验证直属汇报关系");
   await page.getByRole("button", { name: "提交主管变更" }).click();
 
   await expect(page.getByText("直属主管已更新，正在刷新服务器数据。")).toBeVisible();
   await page.reload({ waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "分配直属主管" }).click();
+  const reloadedEmployeeOption = page.getByRole("combobox", { name: "选择员工" })
+    .locator("option")
+    .filter({ hasText: roleFixtures.employee.displayName });
+  await page.getByRole("combobox", { name: "选择员工" }).selectOption(
+    (await reloadedEmployeeOption.getAttribute("value"))!,
+  );
+  await expect(page.getByRole("combobox", { name: "选择主管" })).toHaveValue(managerEmployeeId);
+  await expect(page.getByRole("combobox", { name: "选择主管" }).locator("option:checked"))
+    .toContainText(roleFixtures.department_head.displayName);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
   await context.close();
 });

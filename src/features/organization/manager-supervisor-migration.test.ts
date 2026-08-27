@@ -57,12 +57,77 @@ describe("manager and supervisor forward migration", () => {
     expect(authorizationMutation).not.toContain("manager.organization_id = new.organization_id");
   });
 
+  it("repairs unsafe legacy manager links and enforces manager-side lifecycle changes after upgrade", () => {
+    const migration = sql();
+    const classifyDirectory = functionBlock("classify_legacy_directory_manager_relationships");
+    const repair = functionBlock("repair_legacy_manager_relationships");
+    const invariant = functionBlock("enforce_employee_manager_invariants");
+    const cleanup = functionBlock("cleanup_employee_manager_relationships");
+    const repairsOnlyManualLinks = (block: string) => block.includes("target.manager_source = 'manual'")
+      && block.includes("target.employment_status not in ('probation', 'active', 'on_leave')")
+      && block.includes("manager_member.status = 'active'")
+      && block.includes("manager.department_id = target.department_id")
+      && block.includes("with recursive legacy_manager_chain")
+      && block.includes("manager_employee_id = null")
+      && block.includes("manager_version = target.manager_version + 1");
+    const preservesVerifiedDirectoryAuthority = (block: string) => block.includes("connection.provider_type = 'feishu'")
+      && block.includes("target_link.connection_id = connection.id")
+      && block.includes("manager_link.connection_id = connection.id")
+      && block.includes("department_link.connection_id = connection.id")
+      && block.includes("manager_profile.organization_member_id = department.leader_member_id")
+      && block.includes("manager_source = 'directory'");
+    const enforcesManagerSide = (block: string) => block.includes("candidate.id = new.id")
+      && block.includes("candidate.manager_employee_id = new.id")
+      && block.includes("manager.employment_status in ('probation', 'active', 'on_leave')")
+      && block.includes("manager_member.status = 'active'")
+      && block.includes("v_manager.department_id is distinct from target.department_id")
+      && block.includes("with recursive reporting_chain");
+
+    expect(preservesVerifiedDirectoryAuthority(classifyDirectory)).toBe(true);
+    expect(preservesVerifiedDirectoryAuthority(classifyDirectory.replaceAll(
+      "manager_link.connection_id = connection.id",
+      "manager_link.connection_id is not null",
+    ))).toBe(false);
+    expect(repairsOnlyManualLinks(repair)).toBe(true);
+    expect(repairsOnlyManualLinks(repair.replaceAll(
+      "target.manager_source = 'manual'",
+      "target.manager_source in ('manual', 'directory')",
+    ))).toBe(false);
+    expect(enforcesManagerSide(invariant)).toBe(true);
+    expect(enforcesManagerSide(invariant.replace(
+      "candidate.manager_employee_id = new.id",
+      "candidate.manager_employee_id is not null",
+    ))).toBe(false);
+    expect(cleanup).toContain("new.employment_status not in ('probation', 'active', 'on_leave')");
+    expect(cleanup).toContain("new.deleted_at is not null");
+    expect(cleanup).toContain("report.manager_employee_id = new.id");
+    expect(migration).toMatch(/create constraint trigger employee_profiles_manager_invariants[\s\S]*deferrable initially deferred/);
+    expect(migration).toContain("create trigger organization_members_manager_status_cleanup");
+  });
+
   it("creates a distinct future-safe supervisor role and narrowly scoped permission", () => {
     const migration = sql();
     const canonical = functionBlock("is_canonical_workspace_role_code");
     const provision = functionBlock("ensure_supervisor_role_for_tenant");
+    const quarantine = functionBlock("quarantine_legacy_supervisor_roles");
+    const quarantineCall = "select public.quarantine_legacy_supervisor_roles();";
+    const quarantinesWithoutReusing = (block: string) => block.includes("legacy.code = 'supervisor'")
+      && block.includes("not legacy.is_system")
+      && block.includes("legacy_supervisor_")
+      && block.includes("collision.id <> v_role.id")
+      && block.includes("is_enabled = false");
 
     expect(canonical).toMatch(/'owner'[\s\S]*'supervisor'[\s\S]*'employee'/);
+    expect(quarantinesWithoutReusing(quarantine)).toBe(true);
+    expect(quarantinesWithoutReusing(quarantine.replace(
+      "collision.id <> v_role.id",
+      "collision.id = v_role.id",
+    ))).toBe(false);
+    expect(migration).toContain(quarantineCall);
+    expect(migration.indexOf(quarantineCall)).toBeLessThan(
+      migration.indexOf("create or replace function public.is_canonical_workspace_role_code"),
+    );
+    expect(quarantine).not.toContain("delete from public.member_roles");
     expect(provision).toContain("'supervisor', '主管'");
     expect(provision).toContain("'employee.supervisor.read'");
     expect(provision).toContain("delete from public.role_permissions");
@@ -91,6 +156,8 @@ describe("manager and supervisor forward migration", () => {
     const projection = functionBlock("current_supervisor_employee_projection");
     const enforcesBoundary = (block: string) => block.includes("external.auth_user_id = (select auth.uid())")
       && block.includes("external.status = 'active'")
+      && block.includes("active_tenant.id = external.tenant_id")
+      && block.includes("active_tenant.status = 'active'")
       && block.includes("actor.status = 'active'")
       && block.includes("target.organization_id = actor.organization_id")
       && block.includes("scope_role.code = 'supervisor'")
@@ -105,8 +172,21 @@ describe("manager and supervisor forward migration", () => {
     );
     expect(missingIdentityMutation).not.toBe(projection);
     expect(enforcesBoundary(missingIdentityMutation)).toBe(false);
+    const suspendedTenantMutation = projection.replace(
+      "active_tenant.status = 'active'",
+      "active_tenant.status is not null",
+    );
+    expect(suspendedTenantMutation).not.toBe(projection);
+    expect(enforcesBoundary(suspendedTenantMutation)).toBe(false);
     expect(sql()).toMatch(/grant execute on function public\.current_supervisor_employee_projection\(uuid\) to authenticated/);
     expect(sql()).toMatch(/revoke all on function public\.current_supervisor_employee_projection\(uuid\)\s+from public, anon, authenticated, service_role/);
+  });
+
+  it("allows a user to hold another organization membership without selecting it as the active workspace", () => {
+    const migration = sql();
+
+    expect(migration).toContain("drop index if exists public.organization_members_tenant_user_idx");
+    expect(migration).toMatch(/create unique index if not exists organization_members_tenant_organization_user_idx[\s\S]*\(tenant_id, organization_id, user_id\)[\s\S]*where user_id is not null/);
   });
 
   it("makes manager assignment versioned, idempotent, audited, and directory-authority safe", () => {
@@ -192,6 +272,16 @@ describe("manager and supervisor forward migration", () => {
       "manager assignment replay does not duplicate its audit",
       "directory completion maps the synchronized department leader as manager",
       "directory authority conflict is durable instead of silently overwritten",
+      "legacy supervisor assignment remains quarantined without canonical scope escalation",
+      "suspended tenant denies the direct supervisor projection rpc",
+      "legacy upgrade clears direct invalid and departed manager relationships",
+      "legacy upgrade clears direct and transitive reporting cycles",
+      "multi-row directory move preserves the directory-owned manager mapping",
+      "target department move cannot strand a cross-department manual manager",
+      "manager department move cannot strand cross-department reports",
+      "manager departure clears both manual and directory-owned reports",
+      "active-workspace user cannot select its second membership by target id",
+      "active-workspace user cannot project its second membership by target id",
     ]) {
       expect(tests).toContain(proof);
     }

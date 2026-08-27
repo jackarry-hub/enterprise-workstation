@@ -41,7 +41,12 @@ export function createManagerScopeHandlers(dependencies: ManagerScopeDependencie
 
   return {
     async GET(_request: Request, context: RouteContext) {
-      const workspaceSession = await session();
+      let workspaceSession: WorkspaceSession | null;
+      try {
+        workspaceSession = await session();
+      } catch {
+        return json({ error: "manager_scope_unavailable" }, 503);
+      }
       if (!workspaceSession) return json({ error: "unauthorized" }, 401);
       const { memberId } = await context.params;
       if (!isUuid(memberId)) return json({ error: "invalid_request" }, 400);
@@ -55,9 +60,12 @@ export function createManagerScopeHandlers(dependencies: ManagerScopeDependencie
           { p_employee_public_id: memberId },
         );
         if (result.error) throw new ManagerScopeStoreError(result.error.code);
-        const projection = parseProjection(result.data, memberId);
-        return projection
-          ? json(projection)
+        const parsed = parseProjection(result.data, memberId);
+        if (parsed.kind === "malformed") {
+          throw new ManagerScopeStoreError("P0001");
+        }
+        return parsed.kind === "projection"
+          ? json(parsed.value)
           : json({ error: "not_found" }, 404);
       } catch {
         return json({ error: "manager_scope_unavailable" }, 503);
@@ -65,7 +73,12 @@ export function createManagerScopeHandlers(dependencies: ManagerScopeDependencie
     },
 
     async POST(request: Request, context: RouteContext) {
-      const workspaceSession = await session();
+      let workspaceSession: WorkspaceSession | null;
+      try {
+        workspaceSession = await session();
+      } catch {
+        return json({ error: "manager_scope_unavailable" }, 503);
+      }
       if (!workspaceSession) return json({ error: "unauthorized" }, 401);
       const { memberId } = await context.params;
       if (!isUuid(memberId)) return json({ error: "invalid_request" }, 400);
@@ -101,7 +114,9 @@ export function createManagerScopeHandlers(dependencies: ManagerScopeDependencie
         });
         if (result.error) throw new ManagerScopeStoreError(result.error.code);
         if (isFailureResult(result.data)) {
-          return json({ error: result.data.error }, failureStatus(result.data.error));
+          const status = failureStatus(result.data.error);
+          if (!status) throw new ManagerScopeStoreError("P0001");
+          return json({ error: result.data.error }, status);
         }
         if (!isSuccessResult(result.data)) {
           throw new ManagerScopeStoreError("P0001");
@@ -115,8 +130,11 @@ export function createManagerScopeHandlers(dependencies: ManagerScopeDependencie
 }
 
 function parseProjection(value: unknown, expectedEmployeeId: string) {
-  const row = Array.isArray(value) ? value[0] : null;
-  if (!row || typeof row !== "object") return null;
+  if (!Array.isArray(value)) return { kind: "malformed" } as const;
+  if (value.length === 0) return { kind: "empty" } as const;
+  if (value.length !== 1) return { kind: "malformed" } as const;
+  const row = value[0];
+  if (!row || typeof row !== "object") return { kind: "malformed" } as const;
   const record = row as Record<string, unknown>;
   if (
     record.employee_public_id !== expectedEmployeeId
@@ -128,17 +146,20 @@ function parseProjection(value: unknown, expectedEmployeeId: string) {
     || (record.manager_employee_public_id !== null
       && !isUuid(record.manager_employee_public_id))
   ) {
-    return null;
+    return { kind: "malformed" } as const;
   }
   return {
-    employeeId: record.employee_public_id,
-    displayName: record.display_name,
-    departmentName: record.department_name,
-    jobTitle: record.job_title,
-    managerEmployeeId: record.manager_employee_public_id,
-    managerVersion: record.manager_version,
-    managerSource: record.manager_source,
-  };
+    kind: "projection",
+    value: {
+      employeeId: record.employee_public_id,
+      displayName: record.display_name,
+      departmentName: record.department_name,
+      jobTitle: record.job_title,
+      managerEmployeeId: record.manager_employee_public_id,
+      managerVersion: record.manager_version,
+      managerSource: record.manager_source,
+    },
+  } as const;
 }
 
 function isFailureResult(value: unknown): value is { outcome: "failure"; error: string } {
@@ -168,7 +189,7 @@ function failureStatus(error: string) {
     || error === "duplicate_request"
     || error === "scope_conflict"
   ) return 409;
-  return 400;
+  return null;
 }
 
 function mapStoreError(error: unknown) {

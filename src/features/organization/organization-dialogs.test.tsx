@@ -24,11 +24,19 @@ const managerTargets = {
     displayLabel: "陈工 · QXY-2101 · 后端工程师",
     departmentPublicId: "73000000-0000-4000-8000-000000000001",
     departmentName: "工程部",
-    currentManagerEmployeeId: "72000000-0000-4000-8000-000000000002",
+    currentManagerEmployeeId: "72000000-0000-4000-8000-000000000004",
     managerVersion: 4,
     managerSource: "manual" as const,
   }, {
     employeeId: "72000000-0000-4000-8000-000000000002",
+    displayLabel: "李工 · QXY-2002 · 前端工程师",
+    departmentPublicId: "73000000-0000-4000-8000-000000000001",
+    departmentName: "工程部",
+    currentManagerEmployeeId: null,
+    managerVersion: 1,
+    managerSource: "unassigned" as const,
+  }, {
+    employeeId: "72000000-0000-4000-8000-000000000004",
     displayLabel: "王主管 · QXY-2001 · 研发主管",
     departmentPublicId: "73000000-0000-4000-8000-000000000001",
     departmentName: "工程部",
@@ -164,6 +172,9 @@ describe("organization dialogs", () => {
     await user.click(screen.getByRole("button", { name: "分配直属主管" }));
     expect(screen.getByRole("combobox", { name: "选择员工" })).toHaveTextContent("陈工");
     expect(screen.getByRole("combobox", { name: "选择主管" })).toHaveTextContent("王主管");
+    expect(screen.getByRole("combobox", { name: "选择主管" })).toHaveValue(
+      managerTargets.targets[0].currentManagerEmployeeId,
+    );
     expect(screen.getByRole("combobox", { name: "选择主管" })).not.toHaveTextContent("赵经理");
     expect(screen.queryByRole("textbox", { name: "员工编号" })).not.toBeInTheDocument();
     expect(screen.queryByRole("spinbutton", { name: "主管版本" })).not.toBeInTheDocument();
@@ -176,7 +187,7 @@ describe("organization dialogs", () => {
         method: "POST",
         headers: expect.objectContaining({ "Idempotency-Key": expect.any(String) }),
         body: JSON.stringify({
-          managerEmployeeId: managerTargets.targets[1].employeeId,
+          managerEmployeeId: managerTargets.targets[2].employeeId,
           expectedVersion: 4,
           reason: "明确研发汇报关系",
         }),

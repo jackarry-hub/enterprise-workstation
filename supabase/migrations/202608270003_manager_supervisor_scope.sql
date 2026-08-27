@@ -2,18 +2,209 @@
 -- distinct supervisor scope. Historical directory/session migrations remain
 -- immutable so upgraded databases receive the same contract as fresh ones.
 
+-- A user may belong to more than one organization in a tenant, but the active
+-- workspace remains selected only by its exact external identity.
+drop index if exists public.organization_members_tenant_user_idx;
+create unique index if not exists organization_members_tenant_organization_user_idx
+  on public.organization_members (tenant_id, organization_id, user_id)
+  where user_id is not null;
+
 alter table public.employee_profiles
   add column if not exists manager_version bigint not null default 1,
   add column if not exists manager_source text not null default 'unassigned';
 
 update public.employee_profiles
-set manager_source = case
-  when manager_employee_id is null then 'unassigned'
-  else 'manual'
-end
-where manager_source not in ('unassigned', 'manual', 'directory')
-   or (manager_employee_id is null and manager_source <> 'unassigned')
-   or (manager_employee_id is not null and manager_source = 'unassigned');
+set manager_source = 'unassigned'
+where manager_employee_id is null
+  and manager_source <> 'unassigned';
+
+create or replace function public.classify_legacy_directory_manager_relationships()
+returns bigint
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_classified bigint;
+begin
+  update public.employee_profiles target
+  set manager_source = 'directory',
+      updated_at = clock_timestamp()
+  where target.manager_employee_id is not null
+    and target.manager_source in ('unassigned', 'manual')
+    and target.deleted_at is null
+    and target.employment_status in ('probation', 'active', 'on_leave')
+    and exists (
+      select 1
+      from public.directory_connections connection
+      join public.identity_providers provider
+        on provider.tenant_id = connection.tenant_id
+       and provider.id = connection.identity_provider_id
+       and provider.provider_code = 'feishu'
+       and provider.status = 'active'
+      join public.directory_entity_links target_link
+        on target_link.tenant_id = connection.tenant_id
+       and target_link.organization_id = connection.organization_id
+       and target_link.connection_id = connection.id
+       and target_link.entity_type = 'employee'
+       and target_link.employee_profile_id = target.id
+      join public.employee_profiles manager_profile
+        on manager_profile.tenant_id = target.tenant_id
+       and manager_profile.organization_id = target.organization_id
+       and manager_profile.id = target.manager_employee_id
+       and manager_profile.deleted_at is null
+       and manager_profile.employment_status in ('probation', 'active', 'on_leave')
+      join public.organization_members manager_member
+        on manager_member.tenant_id = manager_profile.tenant_id
+       and manager_member.organization_id = manager_profile.organization_id
+       and manager_member.id = manager_profile.organization_member_id
+       and manager_member.status = 'active'
+      join public.directory_entity_links manager_link
+        on manager_link.tenant_id = connection.tenant_id
+       and manager_link.organization_id = connection.organization_id
+       and manager_link.connection_id = connection.id
+       and manager_link.entity_type = 'employee'
+       and manager_link.employee_profile_id = manager_profile.id
+      join lateral (
+        with recursive department_chain(id, parent_department_id) as (
+          select department.id, department.parent_department_id
+          from public.departments department
+          where department.tenant_id = target.tenant_id
+            and department.organization_id = target.organization_id
+            and department.id = target.department_id
+            and department.deleted_at is null
+
+          union all
+
+          select parent.id, parent.parent_department_id
+          from public.departments parent
+          join department_chain child on child.parent_department_id = parent.id
+          where parent.tenant_id = target.tenant_id
+            and parent.organization_id = target.organization_id
+            and parent.deleted_at is null
+        )
+        select chain.id from department_chain chain
+      ) authoritative_department on true
+      join public.departments department
+       on department.tenant_id = target.tenant_id
+       and department.organization_id = target.organization_id
+       and department.id = authoritative_department.id
+       and manager_profile.organization_member_id = department.leader_member_id
+      join public.directory_entity_links department_link
+        on department_link.tenant_id = connection.tenant_id
+       and department_link.organization_id = connection.organization_id
+       and department_link.connection_id = connection.id
+       and department_link.entity_type = 'department'
+       and department_link.department_id = department.id
+      where connection.tenant_id = target.tenant_id
+        and connection.organization_id = target.organization_id
+        and connection.provider_type = 'feishu'
+        and connection.status = 'active'
+    );
+  get diagnostics v_classified = row_count;
+  return v_classified;
+end;
+$$;
+
+select public.classify_legacy_directory_manager_relationships();
+
+update public.employee_profiles
+set manager_source = 'manual'
+where manager_employee_id is not null
+  and manager_source <> 'directory';
+
+create or replace function public.repair_legacy_manager_relationships()
+returns bigint
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_repaired bigint;
+begin
+  with recursive legacy_manager_chain (
+    tenant_id, organization_id, root_id, current_id,
+    next_id, path, cycle
+  ) as (
+    select target.tenant_id,
+      target.organization_id,
+      target.id,
+      target.id,
+      target.manager_employee_id,
+      array[target.id]::bigint[],
+      target.manager_employee_id = target.id
+    from public.employee_profiles target
+    where target.manager_source = 'manual'
+      and target.manager_employee_id is not null
+
+    union all
+
+    select chain.tenant_id,
+      chain.organization_id,
+      chain.root_id,
+      manager.id,
+      manager.manager_employee_id,
+      chain.path || manager.id,
+      manager.id = any (chain.path)
+    from legacy_manager_chain chain
+    join public.employee_profiles manager
+      on manager.tenant_id = chain.tenant_id
+     and manager.organization_id = chain.organization_id
+     and manager.id = chain.next_id
+    where chain.next_id is not null
+      and not chain.cycle
+  ), cyclic_roots as (
+    select distinct chain.tenant_id, chain.organization_id, chain.root_id
+    from legacy_manager_chain chain
+    where chain.cycle
+  ), invalid_roots as (
+    select target.tenant_id, target.organization_id, target.id
+    from public.employee_profiles target
+    where target.manager_source = 'manual'
+      and target.manager_employee_id is not null
+      and (
+        target.deleted_at is not null
+        or target.employment_status not in ('probation', 'active', 'on_leave')
+        or not exists (
+          select 1
+          from public.employee_profiles manager
+          join public.organization_members manager_member
+            on manager_member.tenant_id = manager.tenant_id
+           and manager_member.organization_id = manager.organization_id
+           and manager_member.id = manager.organization_member_id
+           and manager_member.status = 'active'
+          where manager.tenant_id = target.tenant_id
+            and manager.organization_id = target.organization_id
+            and manager.id = target.manager_employee_id
+            and manager.deleted_at is null
+            and manager.employment_status in ('probation', 'active', 'on_leave')
+            and target.department_id is not null
+            and manager.department_id = target.department_id
+        )
+        or exists (
+          select 1
+          from cyclic_roots cyclic
+          where cyclic.tenant_id = target.tenant_id
+            and cyclic.organization_id = target.organization_id
+            and cyclic.root_id = target.id
+        )
+      )
+  )
+  update public.employee_profiles target
+  set manager_employee_id = null,
+      manager_source = 'unassigned',
+      manager_version = target.manager_version + 1,
+      updated_at = clock_timestamp()
+  from invalid_roots invalid
+  where target.tenant_id = invalid.tenant_id
+    and target.organization_id = invalid.organization_id
+    and target.id = invalid.id;
+  get diagnostics v_repaired = row_count;
+  return v_repaired;
+end;
+$$;
+
+select public.repair_legacy_manager_relationships();
 
 alter table public.employee_profiles
   drop constraint if exists employee_profiles_manager_source_check;
@@ -72,14 +263,54 @@ on conflict (code) do update set
   module = excluded.module,
   action = excluded.action;
 
--- Disable a historical custom lookalike while the previous canonical
--- predicate still treats the code as custom. The redefined predicate and
--- existing shape trigger reject any future collision.
-update public.roles role
-set is_enabled = false
-where role.code = 'supervisor'
-  and role.is_enabled
-  and (not role.is_system or role.organization_id is not null);
+-- Keep legacy role IDs and their assignments, but quarantine every custom
+-- lookalike under a collision-safe disabled code before canonical provisioning.
+create or replace function public.quarantine_legacy_supervisor_roles()
+returns bigint
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_role record;
+  v_candidate text;
+  v_suffix integer;
+  v_quarantined bigint := 0;
+begin
+  for v_role in
+    select legacy.id, legacy.tenant_id, legacy.organization_id
+    from public.roles legacy
+    where legacy.code = 'supervisor'
+      and (not legacy.is_system or legacy.organization_id is not null)
+    order by legacy.id
+    for update
+  loop
+    v_suffix := 0;
+    loop
+      v_candidate := 'legacy_supervisor_' || v_role.id::text
+        || case when v_suffix = 0 then '' else '_' || v_suffix::text end;
+      exit when not exists (
+        select 1
+        from public.roles collision
+        where collision.tenant_id = v_role.tenant_id
+          and collision.organization_id is not distinct from v_role.organization_id
+          and collision.code = v_candidate
+          and collision.id <> v_role.id
+      );
+      v_suffix := v_suffix + 1;
+    end loop;
+
+    update public.roles legacy
+    set code = v_candidate,
+        is_enabled = false
+    where legacy.id = v_role.id;
+    v_quarantined := v_quarantined + 1;
+  end loop;
+  return v_quarantined;
+end;
+$$;
+
+select public.quarantine_legacy_supervisor_roles();
 
 create or replace function public.is_canonical_workspace_role_code(p_code text)
 returns boolean
@@ -231,7 +462,11 @@ begin
     raise exception 'manager_department_forbidden' using errcode = '23514';
   end if;
 
-  if new.manager_source = 'directory' and not exists (
+  if new.manager_source = 'directory'
+     and (tg_op = 'INSERT'
+       or new.manager_employee_id is distinct from old.manager_employee_id
+       or new.manager_source is distinct from old.manager_source)
+     and not exists (
     with recursive department_chain as (
       select department.id, department.parent_department_id
       from public.departments department
@@ -306,6 +541,202 @@ before insert or update of
   manager_source
 on public.employee_profiles
 for each row execute function public.guard_employee_profile_relations();
+
+create or replace function public.cleanup_employee_manager_relationships()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.deleted_at is not null
+     or new.employment_status not in ('probation', 'active', 'on_leave') then
+    if new.manager_employee_id is not null then
+      new.manager_employee_id := null;
+      new.manager_source := 'unassigned';
+      new.manager_version := new.manager_version + 1;
+    end if;
+
+    update public.employee_profiles report
+    set manager_employee_id = null,
+        manager_source = 'unassigned',
+        manager_version = report.manager_version + 1,
+        updated_at = clock_timestamp()
+    where report.tenant_id = new.tenant_id
+      and report.organization_id = new.organization_id
+      and report.manager_employee_id = new.id;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists employee_profiles_00_manager_lifecycle_cleanup
+  on public.employee_profiles;
+create trigger employee_profiles_00_manager_lifecycle_cleanup
+before update of employment_status, deleted_at on public.employee_profiles
+for each row execute function public.cleanup_employee_manager_relationships();
+
+create or replace function public.cleanup_employee_managers_for_member_status()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_member public.organization_members%rowtype;
+begin
+  if tg_op = 'DELETE' then
+    v_member := old;
+  else
+    v_member := new;
+  end if;
+  if tg_op = 'DELETE' or v_member.status <> 'active' then
+    update public.employee_profiles target
+    set manager_employee_id = null,
+        manager_source = 'unassigned',
+        manager_version = target.manager_version + 1,
+        updated_at = clock_timestamp()
+    where target.tenant_id = v_member.tenant_id
+      and target.organization_id = v_member.organization_id
+      and target.manager_employee_id is not null
+      and (
+        target.organization_member_id = v_member.id
+        or target.manager_employee_id in (
+          select manager.id
+          from public.employee_profiles manager
+          where manager.tenant_id = v_member.tenant_id
+            and manager.organization_id = v_member.organization_id
+            and manager.organization_member_id = v_member.id
+        )
+      );
+  end if;
+  if tg_op = 'DELETE' then return old; end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists organization_members_manager_status_cleanup
+  on public.organization_members;
+create trigger organization_members_manager_status_cleanup
+before update of status on public.organization_members
+for each row execute function public.cleanup_employee_managers_for_member_status();
+drop trigger if exists organization_members_manager_delete_cleanup
+  on public.organization_members;
+create trigger organization_members_manager_delete_cleanup
+before delete on public.organization_members
+for each row execute function public.cleanup_employee_managers_for_member_status();
+
+create or replace function public.enforce_employee_manager_invariants()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  target public.employee_profiles%rowtype;
+  v_manager public.employee_profiles%rowtype;
+begin
+  for target in
+    select candidate.*
+    from public.employee_profiles candidate
+    where candidate.tenant_id = new.tenant_id
+      and candidate.organization_id = new.organization_id
+      and candidate.manager_employee_id is not null
+      and (candidate.id = new.id or candidate.manager_employee_id = new.id)
+    order by candidate.id
+  loop
+    if target.deleted_at is not null
+       or target.employment_status not in ('probation', 'active', 'on_leave') then
+      raise exception 'target_manager_inactive' using errcode = '23514';
+    end if;
+
+    select manager.* into v_manager
+    from public.employee_profiles manager
+    join public.organization_members manager_member
+      on manager_member.tenant_id = manager.tenant_id
+     and manager_member.organization_id = manager.organization_id
+     and manager_member.id = manager.organization_member_id
+     and manager_member.status = 'active'
+    where manager.tenant_id = target.tenant_id
+      and manager.organization_id = target.organization_id
+      and manager.id = target.manager_employee_id
+      and manager.deleted_at is null
+      and manager.employment_status in ('probation', 'active', 'on_leave');
+    if not found then
+      raise exception 'Manager must be an active employee in the same tenant and organization'
+        using errcode = '23514';
+    end if;
+
+    if target.manager_source = 'manual'
+       and (target.department_id is null
+         or v_manager.department_id is distinct from target.department_id) then
+      raise exception 'manager_department_forbidden' using errcode = '23514';
+    end if;
+
+    if target.manager_source = 'directory' and not exists (
+      with recursive department_chain as (
+        select department.id, department.parent_department_id
+        from public.departments department
+        where department.tenant_id = target.tenant_id
+          and department.organization_id = target.organization_id
+          and department.id = target.department_id
+          and department.deleted_at is null
+
+        union all
+
+        select parent.id, parent.parent_department_id
+        from public.departments parent
+        join department_chain child on child.parent_department_id = parent.id
+        where parent.tenant_id = target.tenant_id
+          and parent.organization_id = target.organization_id
+          and parent.deleted_at is null
+      )
+      select 1
+      from department_chain chain
+      join public.departments department
+        on department.tenant_id = target.tenant_id
+       and department.organization_id = target.organization_id
+       and department.id = chain.id
+      where department.leader_member_id = v_manager.organization_member_id
+    ) then
+      raise exception 'directory_manager_invalid' using errcode = '23514';
+    end if;
+
+    if exists (
+      with recursive reporting_chain(id, manager_employee_id, path) as (
+        select manager.id, manager.manager_employee_id, array[manager.id]::bigint[]
+        from public.employee_profiles manager
+        where manager.tenant_id = target.tenant_id
+          and manager.organization_id = target.organization_id
+          and manager.id = target.manager_employee_id
+
+        union all
+
+        select next_manager.id,
+          next_manager.manager_employee_id,
+          chain.path || next_manager.id
+        from reporting_chain chain
+        join public.employee_profiles next_manager
+          on next_manager.tenant_id = target.tenant_id
+         and next_manager.organization_id = target.organization_id
+         and next_manager.id = chain.manager_employee_id
+        where not next_manager.id = any (chain.path)
+      )
+      select 1 from reporting_chain where id = target.id
+    ) then
+      raise exception 'manager_cycle' using errcode = '23514';
+    end if;
+  end loop;
+  return null;
+end;
+$$;
+
+drop trigger if exists employee_profiles_manager_invariants
+  on public.employee_profiles;
+create constraint trigger employee_profiles_manager_invariants
+after insert or update on public.employee_profiles
+deferrable initially deferred
+for each row execute function public.enforce_employee_manager_invariants();
 
 create or replace function public.current_workspace_access()
 returns jsonb
@@ -479,6 +910,9 @@ as $$
     target.manager_version,
     target.manager_source
   from public.external_identities external
+  join public.tenants active_tenant
+    on active_tenant.id = external.tenant_id
+   and active_tenant.status = 'active'
   join public.identity_providers provider
     on provider.tenant_id = external.tenant_id
    and provider.id = external.identity_provider_id
@@ -1165,11 +1599,23 @@ execute function public.apply_directory_manager_hierarchy_on_completion();
 
 revoke all on function public.is_canonical_workspace_role_code(text)
   from public, anon, authenticated, service_role;
+revoke all on function public.quarantine_legacy_supervisor_roles()
+  from public, anon, authenticated, service_role;
 revoke all on function public.ensure_supervisor_role_for_tenant(bigint)
   from public, anon, authenticated, service_role;
 revoke all on function public.provision_supervisor_role_for_new_tenant()
   from public, anon, authenticated, service_role;
 revoke all on function public.guard_employee_profile_relations()
+  from public, anon, authenticated, service_role;
+revoke all on function public.classify_legacy_directory_manager_relationships()
+  from public, anon, authenticated, service_role;
+revoke all on function public.repair_legacy_manager_relationships()
+  from public, anon, authenticated, service_role;
+revoke all on function public.cleanup_employee_manager_relationships()
+  from public, anon, authenticated, service_role;
+revoke all on function public.cleanup_employee_managers_for_member_status()
+  from public, anon, authenticated, service_role;
+revoke all on function public.enforce_employee_manager_invariants()
   from public, anon, authenticated, service_role;
 revoke all on function public.current_workspace_access()
   from public, anon, authenticated, service_role;
