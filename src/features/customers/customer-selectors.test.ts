@@ -15,7 +15,7 @@ describe("customer selectors", () => {
       status: "following", source: "consulting", industry: "企业服务", region: "上海",
       lastContactAt: null, nextFollowUpAt: null, dealProgress: 40, dealAmount: "0.00",
       createdAt: "2026-08-02T00:00:00Z", updatedAt: "2026-08-02T00:00:00Z",
-      relatedProjects: [], opportunities: [], activities: [], detailState: "complete",
+      relatedProjects: [], contracts: [], sourceLinks: [], opportunities: [], activities: [], detailState: "complete",
     },
     {
       id: "10000000-0000-4000-8000-000000000002", version: 1, name: "已成交客户",
@@ -23,7 +23,7 @@ describe("customer selectors", () => {
       status: "won", source: "referral", industry: "制造业", region: "苏州",
       lastContactAt: null, nextFollowUpAt: null, dealProgress: 100, dealAmount: "120000.00",
       createdAt: "2026-07-02T00:00:00Z", updatedAt: "2026-07-02T00:00:00Z",
-      relatedProjects: [], opportunities: [], activities: [], detailState: "complete",
+      relatedProjects: [], contracts: [], sourceLinks: [], opportunities: [], activities: [], detailState: "complete",
     },
   ];
 

@@ -262,7 +262,7 @@ git commit -m "feat: connect customer CRM to real data"
 ### Task 5: Add commercial CRM governance, exchange and lifecycle controls
 
 **Files:**
-- Create: `supabase/migrations/202608260041_crm_governance.sql`
+- Create: `supabase/migrations/202608280005_crm_governance.sql`
 - Modify: `supabase/tests/customer_crm.sql`
 - Modify: `src/features/customers/customer-command-handler.ts`
 - Modify: `src/features/customers/opportunity-command-handler.ts`
@@ -270,6 +270,7 @@ git commit -m "feat: connect customer CRM to real data"
 - Create: `src/features/customers/crm-import-export-handler.test.ts`
 - Create: `src/app/api/workstation/customers/import/route.ts`
 - Create: `src/app/api/workstation/customers/export/route.ts`
+- Create: `src/app/api/workstation/customers/export/[exportId]/route.ts`
 - Create: `src/app/api/workstation/customers/[customerId]/contracts/route.ts`
 - Create: `src/app/api/workstation/customers/[customerId]/source-links/route.ts`
 - Modify: `src/features/customers/components/customer-detail-dialog.tsx`
@@ -279,7 +280,7 @@ git commit -m "feat: connect customer CRM to real data"
 - Produces ownership transfer, contact PII projection, stage-history, contract/source/project link, archive/restore and audit RPCs.
 - Produces `validateCrmImport(rows, tenantId)` and `requestCrmExport(scope, idempotencyKey)` with permission-scoped columns and export audit.
 
-- [ ] **Step 1: Write failing duplicate, transfer, PII, source-link and export-audit tests**
+- [x] **Step 1: Write failing duplicate, transfer, PII, source-link and export-audit tests**
 
 ```ts
 expect((await transferCustomer(unassignedEmployee)).status).toBe(403);
@@ -288,26 +289,40 @@ expect(await exportAsUnassigned()).toMatchObject({ status: 403 });
 expect(await createContractForOtherTenant()).toMatchObject({ status: 404 });
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `npx vitest run src/features/customers/crm-import-export-handler.test.ts src/features/customers`
 Run: `npm run db:test`
 Expected: CRM governance and controlled import/export surfaces are absent.
 
-- [ ] **Step 3: Implement tenant-safe governance**
+RED exposed the absent governance migration, routes, immutable history/provenance models, controlled PII projection and durable import/export lifecycle before implementation.
+
+- [x] **Step 3: Implement tenant-safe governance**
 
 Normalize dedupe keys, preserve ownership-transfer and opportunity-stage history, restrict contact PII, and make QuantXY CRM the authoritative record while modeling contracts and source provenance as first-class tenant-scoped entities. Enforce composite FKs/RLS in RPCs and contract/source APIs; render authorized contract/project provenance in customer detail. Validate imports before one transaction per accepted row; export only authorized projections, watermark sensitive exports and append audit. Archive rather than hard-delete business entities and allow authorized restore.
 
-- [ ] **Step 4: Verify GREEN**
+Implementation adds tenant/org exact-pair constraints and FORCE RLS, immutable ownership/stage/source facts, permission-scoped contact projection, optimistic transfer/archive/restore/contract/source commands, resumable 20-row import batches with content-bound manifests, and separately requested/audited 15-minute export snapshots. Client and server validate exact DTOs, stable idempotency, rejection completeness, current download scope and snapshot SHA before saving an artifact. Source URLs use one fail-closed canonical HTTPS contract across command, read model, CHECK and RPC validation.
+
+- [x] **Step 4: Verify GREEN**
 
 Run: `npx vitest run src/features/customers`
 Run: `npm run db:test`
 Run: `npx playwright test tests/e2e/customers.spec.ts --project=chrome`
 Expected: dedupe, transfer, stage history, PII restrictions, import/export audit and archive/restore all respect tenant/role scope.
 
-- [ ] **Step 5: Commit**
+Task 5 local/static verification (2026-08-28):
+
+- Customer Vitest — 9 files / 83 tests passed; final governance/exchange delta — 4 files / 39 tests passed.
+- Full declared test command — 184 unit files / 1275 tests plus 152/152 HTML contracts passed.
+- `npm run typecheck`, `npm run lint -- --quiet`, production `npm run build`, and `git diff --check` — passed (line-ending notices only).
+- `customer_crm.sql` static pgTAP plan/assertion count — 167/167, including exact contract pairing, durable failure replay, current-scope export revocation/purge, and canonical source URL rejection.
+- Customer Playwright suite — two desktop/mobile workflows discovered successfully with `--list`; live persistence execution remains an isolated database/auth browser gate.
+- Independent API/UI and SQL/RLS delta reviews — CLEAN with no remaining P0-P3 findings.
+- `npm run db:test` remains BLOCKED with `connection_refused`; this workstation has no running local PostgreSQL/Supabase target, so live migration, pgTAP and authenticated persistence E2E are mandatory pre-deployment gates and are not reported as passed.
+
+- [x] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260041_crm_governance.sql supabase/tests/customer_crm.sql src/features/customers src/app/api/workstation/customers tests/e2e/customers.spec.ts
+git add supabase/migrations/202608280005_crm_governance.sql supabase/tests/customer_crm.sql src/features/customers src/app/api/workstation/customers tests/e2e/customers.spec.ts
 git commit -m "feat: add commercial CRM governance"
 ```

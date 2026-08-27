@@ -184,3 +184,71 @@ describe("customer CRM read models", () => {
     expect(sql).toContain("filter (where opportunity.stage<>'lost')");
   });
 });
+
+describe("commercial CRM governance migration", () => {
+  const sql = readFileSync(
+    join(process.cwd(), "supabase/migrations/202608280005_crm_governance.sql"),
+    "utf8",
+  ).toLowerCase();
+
+  it("adds immutable tenant-scoped governance and durable exchange records", () => {
+    for (const table of [
+      "customer_ownership_history", "opportunity_stage_history", "customer_contracts",
+      "crm_source_links", "crm_import_jobs", "crm_import_rows", "crm_export_jobs",
+    ]) {
+      expect(sql).toContain(`create table public.${table}`);
+      expect(sql).toContain(`alter table public.${table} force row level security`);
+      expect(sql).toContain(`revoke all on table public.${table} from public,anon,authenticated,service_role`);
+    }
+    expect(sql).toContain("customer_ownership_history_reject_truncate");
+    expect(sql).toContain("opportunity_stage_history_reject_truncate");
+    expect(sql).toContain("crm_source_links_reject_truncate");
+  });
+
+  it("closes the legacy owner and contact PII bypasses", () => {
+    expect(sql).toContain("'failure','ownership_transfer_required'");
+    expect(sql).toContain("customers_guard_owner_transfer");
+    expect(sql).toContain("revoke all on table public.customer_contacts from authenticated");
+    expect(sql).toContain("list_current_customer_contacts(uuid[],boolean,integer)");
+    expect(sql).toContain("customer.archived_at is null");
+  });
+
+  it("uses dedicated exchange permissions and keeps snapshots out of command results", () => {
+    expect(sql).toContain("'customer.import'");
+    expect(sql).toContain("'customer.export'");
+    expect(sql).toContain("'customer.export_pii'");
+    expect(sql).toContain("create or replace function public.begin_current_crm_import");
+    expect(sql).toContain("create or replace function public.finalize_current_crm_import");
+    expect(sql).toContain("create or replace function public.download_current_crm_export");
+    expect(sql).toContain("create or replace function public.purge_expired_crm_exports");
+    expect(sql).toContain("accepted_manifest jsonb not null");
+    expect(sql).toContain("compute_crm_import_row_digest");
+    expect(sql).toContain("where exchange.code in ('customer.import','customer.export')");
+    expect(sql).not.toContain("where exchange.code in ('customer.import','customer.export','customer.export_pii')");
+    const exportStart = sql.indexOf("create or replace function public.request_current_crm_export");
+    const downloadStart = sql.indexOf("create or replace function public.download_current_crm_export");
+    const requestBlock = sql.slice(exportStart, downloadStart);
+    expect(requestBlock).toContain("insert into public.crm_export_jobs");
+    expect(requestBlock).toContain("'downloadurl'");
+    expect(requestBlock).not.toContain("'rows',v_job.snapshot");
+  });
+
+  it("records stage and owner events under fixed command boundaries", () => {
+    expect(sql).toContain("after insert or update of stage on public.opportunities");
+    expect(sql).toContain("set_config('quantxy.crm_stage_reason_digest'");
+    expect(sql).toMatch(/claim_crm_command[\s\S]+select \* into v_customer[\s\S]+for update;[\s\S]+select \* into v_opportunity/);
+    expect(sql).toContain("insert into public.customer_ownership_history");
+    expect(sql).toContain("set_config('quantxy.crm_owner_transfer','allowed',true)");
+  });
+});
+
+describe("customer CRM pgTAP contract", () => {
+  const sql = readFileSync(join(process.cwd(), "supabase/tests/customer_crm.sql"), "utf8");
+
+  it("keeps the declared pgTAP plan synchronized with every assertion", () => {
+    const planned = Number(/select plan\((\d+)\)/i.exec(sql)?.[1]);
+    const assertions = sql.match(/^select\s+(?:ok|is|isnt|like|unlike|cmp_ok|throws_ok|lives_ok|results_eq|set_eq|bag_eq|row_eq|has_[a-z_]+|col_[a-z_]+|function_[a-z_]+)\s*\(/gim)?.length ?? 0;
+    expect(planned).toBe(167);
+    expect(assertions).toBe(planned);
+  });
+});

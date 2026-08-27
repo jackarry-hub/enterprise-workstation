@@ -28,6 +28,7 @@ const ids = {
   member: "10000000-0000-4000-8000-000000000003", employee: "10000000-0000-4000-8000-000000000004",
   customer: "20000000-0000-4000-8000-000000000001", contact: "30000000-0000-4000-8000-000000000001",
   opportunity: "40000000-0000-4000-8000-000000000001", followUp: "50000000-0000-4000-8000-000000000001",
+  contract: "60000000-0000-4000-8000-000000000001", sourceLink: "70000000-0000-4000-8000-000000000001",
 };
 
 function fixture(customerName = "数据库客户", wonAmount = "0.00") {
@@ -39,12 +40,19 @@ function fixture(customerName = "数据库客户", wonAmount = "0.00") {
     organization_members: [{ id: 10, public_id: ids.member, user_id: ids.user, status: "active" }],
     employee_profiles: [{ public_id: ids.employee, organization_member_id: 10, display_name: "真实负责人", avatar_url: null, job_title: "客户经理", employment_status: "active", department: { name: "客户成功部" } }],
     customers: [{ id: 20, public_id: ids.customer, owner_member_id: 10, name: customerName, registration_code: null, industry: "企业服务", source: "consulting", region: "上海", status: "following", version: 2, created_at: "2026-08-28T00:00:00Z", updated_at: "2026-08-28T02:00:00Z" }],
-    customer_contacts: [{ public_id: ids.contact, customer_id: 20, name: "陈总", title: "信息总监", phone: "13800000000", email: "chen@example.com", visibility: "assigned", is_primary: true, version: 1, created_at: "2026-08-28T00:00:00Z", updated_at: "2026-08-28T01:00:00Z" }],
+    customer_contacts: [{ record_id: 21, public_id: ids.contact, customer_id: 20, name: "陈总", title: "信息总监", phone: "13800000000", email: "chen@example.com", visibility: "assigned", is_primary: true, version: 1, created_at: "2026-08-28T00:00:00Z", updated_at: "2026-08-28T01:00:00Z" }],
     current_customer_opportunity_metrics: [{ customer_id: 20, opportunity_count: 1, deal_progress: 40, won_amount_cny: wonAmount }],
     current_customer_follow_up_metrics: [{ customer_id: 20, last_contact_at: "2026-08-28T02:00:00Z", next_follow_up_at: "2026-08-29T02:00:00Z" }],
     current_customer_industries: [{ industry: "企业服务" }, { industry: "制造业" }],
     current_customer_opportunities: [{ id: 30, public_id: ids.opportunity, customer_id: 20, owner_member_id: 10, name: "数字化升级", stage: "qualified", amount: "9999999999999999.99", currency: "CNY", expected_close_on: "2026-10-01", loss_reason: null, version: 2, created_at: "2026-08-28T00:00:00Z", updated_at: "2026-08-28T01:00:00Z" }],
     customer_follow_ups: [{ public_id: ids.followUp, customer_id: 20, opportunity_id: 30, actor_member_id: 10, kind: "meeting", content: "已完成需求确认", occurred_at: "2026-08-28T02:00:00Z", next_follow_up_at: "2026-08-29T02:00:00Z" }],
+    customer_contracts: [{ public_id: ids.contract, customer_id: 20, opportunity_id: 30, project_id: null,
+      contract_number: "HT-2026-001", title: "数字化交付合同", status: "active", amount: "880000.00",
+      currency: "CNY", signed_on: "2026-08-28", starts_on: "2026-09-01", ends_on: "2026-10-31",
+      version: 1, created_at: "2026-08-28T02:00:00Z", updated_at: "2026-08-28T02:00:00Z" }],
+    crm_source_links: [{ public_id: ids.sourceLink, customer_id: 20, contact_id: null, opportunity_id: 30,
+      project_id: null, target_kind: "opportunity", source_system: "feishu", external_record_id: "opp-001",
+      source_url: "https://example.test/opp-001", created_at: "2026-08-28T02:00:00Z" }],
     customer_project_links: [], projects: [],
   };
   return {
@@ -52,6 +60,11 @@ function fixture(customerName = "数据库客户", wonAmount = "0.00") {
     client: {
       auth: { getUser: async () => ({ data: { user: { id: ids.user } }, error: null }) },
       from: (table: string) => new Query(table, tables[table] ?? [], log),
+      rpc: (name: string, args: unknown) => {
+        log.push([name, "rpc", args]);
+        return Promise.resolve({ data: name === "list_current_customer_contacts"
+          ? [...tables.customer_contacts] : null, error: null });
+      },
     },
   };
 }
@@ -73,9 +86,10 @@ describe("customer data", () => {
     expect(test.log).toContainEqual(["customers", "range", 0, 29]);
     expect(test.log).toContainEqual(["customers", "order", "updated_at", { ascending: false }]);
     expect(test.log).toContainEqual(["customers", "order", "id", { ascending: false }]);
-    expect(test.log).toContainEqual(["customer_contacts", "eq", "tenant_id", 1]);
-    expect(test.log).toContainEqual(["customer_contacts", "eq", "organization_id", 2]);
-    expect(test.log).toContainEqual(["customer_contacts", "eq", "is_primary", true]);
+    expect(test.log).toContainEqual(["list_current_customer_contacts", "rpc", {
+      p_customer_public_ids: [ids.customer], p_primary_only: true, p_per_customer_limit: 1,
+    }]);
+    expect(test.log.some(([table]) => table === "customer_contacts")).toBe(false);
     expect(test.log.some(([table]) => table === "current_customer_opportunities")).toBe(false);
   });
 
@@ -109,10 +123,17 @@ describe("customer data", () => {
     expect(result.customer).toMatchObject({
       detailState: "complete", opportunities: [{ amount: "9999999999999999.99" }],
       activities: [{ content: "已完成需求确认" }],
+      contracts: [{ id: ids.contract, contractNumber: "HT-2026-001", opportunityId: ids.opportunity }],
+      sourceLinks: [{ id: ids.sourceLink, targetKind: "opportunity", opportunityId: ids.opportunity }],
     });
     expect(test.log).toContainEqual(["current_customer_opportunities", "range", 0, 100]);
+    expect(test.log).toContainEqual(["list_current_customer_contacts", "rpc", {
+      p_customer_public_ids: [ids.customer], p_primary_only: false, p_per_customer_limit: 101,
+    }]);
     expect(test.log).toContainEqual(["customer_follow_ups", "eq", "tenant_id", 1]);
     expect(test.log).toContainEqual(["customer_follow_ups", "eq", "organization_id", 2]);
+    expect(test.log).toContainEqual(["customer_contracts", "eq", "customer_id", 20]);
+    expect(test.log).toContainEqual(["crm_source_links", "eq", "customer_id", 20]);
   });
 
   it("fails closed when authoritative rows are malformed", async () => {

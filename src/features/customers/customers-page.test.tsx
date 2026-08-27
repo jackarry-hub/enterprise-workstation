@@ -14,6 +14,9 @@ const result: CustomerWorkspaceResult = {
   data: {
     canManage: true,
     canConvertToProject: true,
+    canImport: true,
+    canExport: true,
+    canExportPii: true,
     filters: { query: "", status: "all", source: "all", industry: "all" },
     industryOptions: ["企业服务"],
     pagination: { page: 1, pageSize: 30, total: 1, hasPrevious: false, hasNext: false },
@@ -42,7 +45,7 @@ const result: CustomerWorkspaceResult = {
       status: "following", source: "consulting", industry: "企业服务", region: "上海",
       lastContactAt: "2026-08-28T02:00:00Z", nextFollowUpAt: "2026-08-29T02:00:00Z",
       dealProgress: 40, dealAmount: "0.00", createdAt: "2026-08-28T00:00:00Z", updatedAt: "2026-08-28T02:00:00Z",
-      relatedProjects: [], opportunities: [], activities: [], detailState: "summary",
+      relatedProjects: [], contracts: [], sourceLinks: [], opportunities: [], activities: [], detailState: "summary",
     }],
   },
 };
@@ -63,6 +66,7 @@ describe("CustomersPage", () => {
     expect(screen.getAllByText("数据库真实客户").length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText("星河科技有限公司")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "新建客户" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "客户数据交换" })).toBeVisible();
     expect(getItem).not.toHaveBeenCalled();
   });
 

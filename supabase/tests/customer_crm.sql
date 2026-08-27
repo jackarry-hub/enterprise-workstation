@@ -1,5 +1,5 @@
 begin;
-select plan(101);
+select plan(167);
 
 select ok(has_table('public','customers'),'customers table exists');
 select ok(has_table('public','customer_contacts'),'customer contacts table exists');
@@ -103,6 +103,172 @@ select ok(
   and not has_sequence_privilege('service_role','public.customer_contacts_id_seq','SELECT'),
   'CRM internal identities are not exposed through sequences'
 );
+select ok(
+  has_table('public','customer_ownership_history')
+  and has_table('public','opportunity_stage_history')
+  and has_table('public','customer_contracts')
+  and has_table('public','crm_source_links')
+  and has_table('public','crm_import_jobs')
+  and has_table('public','crm_import_rows')
+  and has_table('public','crm_export_jobs'),
+  'commercial CRM governance and exchange tables exist'
+);
+select ok(
+  (select bool_and(relforcerowsecurity) from pg_class where oid=any(array[
+    'public.customer_ownership_history'::regclass,'public.opportunity_stage_history'::regclass,
+    'public.customer_contracts'::regclass,'public.crm_source_links'::regclass,
+    'public.crm_import_jobs'::regclass,'public.crm_import_rows'::regclass,
+    'public.crm_export_jobs'::regclass
+  ])),
+  'all CRM governance and exchange tables force RLS'
+);
+select ok(
+  not exists (
+    select 1 from unnest(array['anon','authenticated','service_role']) role_name
+    cross join unnest(array[
+      'public.customer_ownership_history','public.opportunity_stage_history',
+      'public.customer_contracts','public.crm_source_links','public.crm_import_jobs',
+      'public.crm_import_rows','public.crm_export_jobs'
+    ]) table_name
+    cross join unnest(array['INSERT','UPDATE','DELETE','TRUNCATE']) privilege_name
+    where has_table_privilege(role_name,table_name,privilege_name)
+  ),
+  'browser and service roles cannot mutate governance or exchange tables'
+);
+select ok(
+  not has_table_privilege('authenticated','public.crm_import_jobs','SELECT')
+  and not has_table_privilege('authenticated','public.crm_import_rows','SELECT')
+  and not has_table_privilege('authenticated','public.crm_export_jobs','SELECT')
+  and not has_table_privilege('service_role','public.crm_export_jobs','SELECT'),
+  'durable exchange internals are private'
+);
+select ok(
+  not has_table_privilege('authenticated','public.customer_contacts','SELECT')
+  and has_function_privilege('authenticated',
+    'public.list_current_customer_contacts(uuid[],boolean,integer)','EXECUTE'),
+  'contact PII requires the controlled projection RPC'
+);
+select ok(
+  not has_function_privilege('anon','public.list_current_customer_contacts(uuid[],boolean,integer)','EXECUTE')
+  and not has_function_privilege('service_role','public.list_current_customer_contacts(uuid[],boolean,integer)','EXECUTE'),
+  'contact PII projection is closed to anonymous and service roles'
+);
+select ok(
+  has_function_privilege('authenticated','public.transfer_current_customer_owner(uuid,uuid,bigint,text,uuid,uuid)','EXECUTE')
+  and has_function_privilege('authenticated','public.archive_current_customer(uuid,bigint,text,uuid,uuid)','EXECUTE')
+  and has_function_privilege('authenticated','public.restore_current_customer(uuid,bigint,text,uuid,uuid)','EXECUTE'),
+  'authenticated sessions can enter customer governance commands'
+);
+select ok(
+  not has_function_privilege('anon','public.transfer_current_customer_owner(uuid,uuid,bigint,text,uuid,uuid)','EXECUTE')
+  and not has_function_privilege('service_role','public.archive_current_customer(uuid,bigint,text,uuid,uuid)','EXECUTE'),
+  'customer governance commands reject bypass roles'
+);
+select ok(
+  exists(select 1 from public.permissions where code='customer.import')
+  and exists(select 1 from public.permissions where code='customer.export')
+  and exists(select 1 from public.permissions where code='customer.export_pii'),
+  'import, export and PII export use distinct permissions'
+);
+select ok(
+  has_function_privilege('authenticated',
+    'public.begin_current_crm_import(text,integer,integer,jsonb,jsonb,text,uuid,uuid)','EXECUTE')
+  and has_function_privilege('authenticated',
+    'public.finalize_current_crm_import(uuid,text,uuid,uuid)','EXECUTE'),
+  'authenticated sessions can enter the durable import job lifecycle'
+);
+select ok(
+  has_function_privilege('authenticated',
+    'public.request_current_crm_export(uuid,boolean,text,uuid,uuid)','EXECUTE')
+  and has_function_privilege('authenticated',
+    'public.download_current_crm_export(uuid,uuid)','EXECUTE'),
+  'authenticated sessions use separate export request and download RPCs'
+);
+select ok(
+  has_function_privilege('service_role','public.purge_expired_crm_exports(integer)','EXECUTE')
+  and not has_function_privilege('authenticated','public.purge_expired_crm_exports(integer)','EXECUTE')
+  and not has_function_privilege('anon','public.purge_expired_crm_exports(integer)','EXECUTE'),
+  'only the service worker can purge expired CRM export snapshots'
+);
+select ok(
+  (select qual::text like '%archived_at IS NULL%' or qual::text like '%archived_at is null%'
+   from pg_policies where schemaname='public' and tablename='customers'
+     and policyname='customers_current_scope_select'),
+  'ordinary customer reads exclude archived roots'
+);
+select ok(
+  (select count(*) from pg_policies
+   where schemaname='public' and tablename in (
+     'customer_contacts','opportunities','customer_follow_ups','customer_project_links'
+   ) and qual::text ilike '%archived_at%')=4,
+  'all child read policies enforce active customer lifecycle'
+);
+select ok(
+  (select count(*) from pg_trigger
+   where not tgisinternal and tgrelid=any(array[
+     'public.customer_ownership_history'::regclass,
+     'public.opportunity_stage_history'::regclass,
+     'public.crm_source_links'::regclass
+   ]))=6,
+  'ownership, stage and provenance facts reject mutation and truncate'
+);
+select ok(
+  exists(select 1 from pg_trigger where not tgisinternal
+    and tgrelid='public.customers'::regclass and tgname='customers_guard_owner_transfer')
+  and exists(select 1 from pg_trigger where not tgisinternal
+    and tgrelid='public.customers'::regclass and tgname='customers_append_ownership_baseline'),
+  'customer ownership changes are guarded and new customers receive a baseline event'
+);
+select ok(
+  exists(select 1 from pg_trigger where not tgisinternal
+    and tgrelid='public.opportunities'::regclass
+    and tgname='opportunities_append_stage_history'
+    and pg_get_triggerdef(oid) ilike '%AFTER INSERT OR UPDATE%'),
+  'opportunity create and transition append immutable stage history'
+);
+select ok(
+  exists(select 1 from pg_constraint
+    where conrelid='public.customer_contracts'::regclass
+      and contype='f'
+      and pg_get_constraintdef(oid) ilike
+        '%FOREIGN KEY (tenant_id, organization_id, customer_id, opportunity_id, project_id)%'
+      and pg_get_constraintdef(oid) ilike
+        '%REFERENCES customer_project_links(tenant_id, organization_id, customer_id, opportunity_id, project_id)%'),
+  'contracts reference an exact customer-project delivery link'
+);
+select ok(
+  exists(select 1 from pg_constraint
+    where conrelid='public.crm_source_links'::regclass
+      and pg_get_constraintdef(oid) ilike '%customer_project_links%'),
+  'project provenance references an exact customer-project link'
+);
+select ok(
+  not exists(select 1 from information_schema.columns
+    where table_schema='public' and table_name='crm_import_rows'
+      and column_name in ('name','phone','email','raw_row','payload')),
+  'durable import row results do not store source PII'
+);
+select ok(
+  has_column('public','crm_export_jobs','snapshot')
+  and has_column('public','crm_export_jobs','purged_at')
+  and has_column('public','crm_import_jobs','accepted_manifest')
+  and not has_table_privilege('authenticated','public.crm_export_jobs','SELECT'),
+  'exchange jobs bind accepted manifests and support private snapshot purge'
+);
+select ok(
+  not has_function_privilege('authenticated','public.current_crm_exchange_identity(text)','EXECUTE')
+  and not has_function_privilege('authenticated',
+    'public.change_current_customer_archive_state(uuid,bigint,text,uuid,uuid,boolean)','EXECUTE'),
+  'exchange identity and lifecycle helpers remain internal'
+);
+select ok(
+  not has_function_privilege('authenticated','public.reject_immutable_crm_fact_mutation()','EXECUTE')
+  and not has_function_privilege('authenticated','public.guard_customer_owner_transfer()','EXECUTE')
+  and not has_function_privilege('authenticated','public.append_customer_ownership_baseline()','EXECUTE')
+  and not has_function_privilege('authenticated','public.append_opportunity_stage_history()','EXECUTE')
+  and not has_function_privilege('authenticated','public.crm_import_digest_part(text)','EXECUTE'),
+  'trigger and digest helpers are not callable by browser roles'
+);
 
 insert into public.tenants(name,slug,status) values
   ('CRM tenant A','crm-schema-a','active'),
@@ -166,7 +332,9 @@ where tenant.slug='crm-schema-a';
 insert into public.role_permissions(tenant_id,role_id,permission_id)
 select role.tenant_id,role.id,permission.id
 from public.roles role
-join public.permissions permission on permission.code in ('customer.manage','project.manage')
+join public.permissions permission on permission.code in (
+  'customer.manage','project.manage','customer.import','customer.export','customer.export_pii'
+)
 where role.code='crm_schema_manager';
 insert into public.member_roles(tenant_id,member_id,role_id)
 select member.tenant_id,member.id,role.id
@@ -175,6 +343,23 @@ join auth.users user_row on user_row.id=member.user_id
 join public.roles role on role.tenant_id=member.tenant_id
   and role.organization_id=member.organization_id and role.code='crm_schema_manager'
 where user_row.email='crm-manager-a@example.test';
+insert into public.roles(tenant_id,organization_id,code,name,description,is_system,is_enabled)
+select tenant.id,organization.id,'crm_export_no_pii','CRM export without PII','Least privilege export role',false,true
+from public.tenants tenant
+join public.organizations organization on organization.tenant_id=tenant.id
+where tenant.slug='crm-schema-a' and organization.slug='crm-schema-org-a';
+insert into public.role_permissions(tenant_id,role_id,permission_id)
+select role.tenant_id,role.id,permission.id
+from public.roles role
+join public.permissions permission on permission.code='customer.export'
+where role.code='crm_export_no_pii';
+insert into public.member_roles(tenant_id,member_id,role_id)
+select member.tenant_id,member.id,role.id
+from public.organization_members member
+join auth.users user_row on user_row.id=member.user_id
+join public.roles role on role.tenant_id=member.tenant_id
+  and role.organization_id=member.organization_id and role.code='crm_export_no_pii'
+where user_row.email='crm-owner-a@example.test';
 
 insert into public.customers(
   public_id,tenant_id,organization_id,owner_member_id,created_by_member_id,updated_by_member_id,
@@ -255,8 +440,12 @@ from public.customers customer where customer.public_id='a4100000-0000-4000-8000
 select set_config('request.jwt.claim.sub','a4000000-0000-4000-8000-000000000001',true);
 set local role authenticated;
 select is((select count(*) from public.customers),1::bigint,'assigned member reads only the owned customer in the exact tenant');
-select is((select count(*) from public.customer_contacts),1::bigint,'assigned member sees assigned contact PII but not manager-only PII');
-select is((select phone from public.customer_contacts limit 1),'13800000000','assigned contact projection retains real PII');
+select is((select count(*) from public.list_current_customer_contacts(
+  array(select public_id from public.customers),false,101)),1::bigint,
+  'assigned member sees assigned contact PII but not manager-only PII');
+select is((select phone from public.list_current_customer_contacts(
+  array(select public_id from public.customers),false,101) limit 1),'13800000000',
+  'assigned contact projection retains real PII');
 select ok(
   (select count(*) from public.opportunities)=1
   and (select count(*) from public.customer_follow_ups)=1
@@ -280,7 +469,9 @@ reset role;
 select set_config('request.jwt.claim.sub','a4000000-0000-4000-8000-000000000002',true);
 set local role authenticated;
 select is((select count(*) from public.customers),1::bigint,'customer manager reads its organization customer only');
-select is((select count(*) from public.customer_contacts),2::bigint,'customer manager reads both assigned and manager-only contact rows');
+select is((select count(*) from public.list_current_customer_contacts(
+  array(select public_id from public.customers),false,101)),2::bigint,
+  'customer manager reads both assigned and manager-only contact rows');
 select ok(
   (select count(*) from public.opportunities)=1
   and (select count(*) from public.customer_follow_ups)=1
@@ -299,7 +490,9 @@ reset role;
 select set_config('request.jwt.claim.sub','a4000000-0000-4000-8000-000000000003',true);
 set local role authenticated;
 select is((select count(*) from public.customers),0::bigint,'unassigned employee cannot read customer PII');
-select is((select count(*) from public.customer_contacts),0::bigint,'unassigned employee cannot read contact PII');
+select is((select count(*) from public.list_current_customer_contacts(
+  array['a4100000-0000-4000-8000-000000000001'::uuid],false,101)),0::bigint,
+  'unassigned employee cannot read contact PII');
 select ok(
   (select count(*) from public.opportunities)=0
   and (select count(*) from public.customer_follow_ups)=0
@@ -319,7 +512,9 @@ select set_config('request.jwt.claim.sub','a4000000-0000-4000-8000-000000000004'
 set local role authenticated;
 select is((select count(*) from public.customers),1::bigint,'second tenant member reads only the second tenant customer');
 select is((select count(*) from public.customers where public_id='a4100000-0000-4000-8000-000000000001'),0::bigint,'cross-tenant customer is invisible');
-select is((select count(*) from public.customer_contacts),0::bigint,'cross-tenant contact PII is invisible');
+select is((select count(*) from public.list_current_customer_contacts(
+  array['a4100000-0000-4000-8000-000000000001'::uuid],false,101)),0::bigint,
+  'cross-tenant contact PII is invisible');
 select ok(
   (select count(*) from public.opportunities)=0
   and (select count(*) from public.customer_follow_ups)=0
@@ -553,6 +748,56 @@ create trigger test_crm_reject_project_link
 before insert on public.customer_project_links
 for each row execute function public.test_crm_reject_project_link();
 
+create or replace function public.test_crm_reject_ownership_history()
+returns trigger
+language plpgsql
+set search_path=''
+as $$
+begin
+  if new.change_kind='transfer'
+     and current_setting('test.crm.inject_owner_history_failure',true)='on' then
+    raise exception 'injected ownership history failure';
+  end if;
+  return new;
+end;
+$$;
+create trigger test_crm_reject_ownership_history
+before insert on public.customer_ownership_history
+for each row execute function public.test_crm_reject_ownership_history();
+
+create or replace function public.test_crm_reject_import_source()
+returns trigger
+language plpgsql
+set search_path=''
+as $$
+begin
+  if new.source_system='import'
+     and current_setting('test.crm.inject_import_source_failure',true)='on' then
+    raise exception 'injected import source failure';
+  end if;
+  return new;
+end;
+$$;
+create trigger test_crm_reject_import_source
+before insert on public.crm_source_links
+for each row execute function public.test_crm_reject_import_source();
+
+create or replace function public.test_crm_reject_export_job()
+returns trigger
+language plpgsql
+set search_path=''
+as $$
+begin
+  if current_setting('test.crm.inject_export_failure',true)='on' then
+    raise exception 'injected CRM export job failure';
+  end if;
+  return new;
+end;
+$$;
+create trigger test_crm_reject_export_job
+before insert on public.crm_export_jobs
+for each row execute function public.test_crm_reject_export_job();
+
 select set_config('request.jwt.claim.sub','a4000000-0000-4000-8000-000000000002',true);
 set local role authenticated;
 select throws_ok(
@@ -720,6 +965,351 @@ select ok(not exists(select 1 from public.projects where name='回滚验证项�
 select ok(not exists(select 1 from public.audit_logs
   where request_id='a4800000-0000-4000-8000-000000000019' and action='project.created'),
   'rolled-back nested project audit is not persisted');
+
+select set_config('request.jwt.claim.sub','a4000000-0000-4000-8000-000000000001',true);
+set local role authenticated;
+select throws_ok(
+  $$select public.request_current_crm_export(null,true,'不应允许联系人隐私导出',
+    'b5100000-0000-4000-8000-000000000001','b5100000-0000-4000-8000-000000000002')$$,
+  '42501',null,'customer.export alone cannot request contact PII'
+);
+select set_config('test.crm.owner_export_job',public.request_current_crm_export(
+  (current_setting('test.crm.created')::jsonb->>'id')::uuid,false,'负责人权限范围快照',
+  'b5100000-0000-4000-8000-000000000005','b5100000-0000-4000-8000-000000000006'
+)::text,true);
+reset role;
+
+select set_config('test.crm.manager_employee',(
+  select profile.public_id::text from public.employee_profiles profile
+  join public.organization_members member on member.tenant_id=profile.tenant_id
+    and member.organization_id=profile.organization_id and member.id=profile.organization_member_id
+  where member.user_id='a4000000-0000-4000-8000-000000000002'
+),true);
+select set_config('quantxy.crm_owner_transfer','',true);
+select throws_ok(
+  $$update public.customers customer set owner_member_id=(
+      select profile.organization_member_id from public.employee_profiles profile
+      where profile.public_id=current_setting('test.crm.manager_employee')::uuid
+    ) where customer.public_id=(current_setting('test.crm.created')::jsonb->>'id')::uuid$$,
+  '42501',null,'owner guard rejects direct changes when the transfer GUC is unset'
+);
+select set_config('test.crm.import_digest',public.compute_crm_import_row_digest(
+  '导入客户 C','91310000-C',current_setting('test.crm.manager_employee')::uuid,
+  'enterprise','referral','杭州','周负责人','采购经理','13611112222','buyer-c@example.test',
+  'assigned',true
+),true);
+select set_config('test.crm.rollback_import_digest',public.compute_crm_import_row_digest(
+  '导入回滚客户','91310000-ROLLBACK',current_setting('test.crm.manager_employee')::uuid,
+  'enterprise','referral','杭州','回滚联系人','采购经理','13611113333','rollback@example.test',
+  'assigned',true
+),true);
+select set_config('request.jwt.claim.sub','a4000000-0000-4000-8000-000000000002',true);
+set local role authenticated;
+select set_config('test.crm.owner_bypass',public.update_current_customer(
+  (current_setting('test.crm.created')::jsonb->>'id')::uuid,
+  'B 客户升级','91310000-B',current_setting('test.crm.manager_employee')::uuid,
+  'manufacturing','outbound','苏州','proposal',2,'尝试绕过负责人转移',
+  'b5000000-0000-4000-8000-000000000001','b5000000-0000-4000-8000-000000000002'
+)::text,true);
+select set_config('test.crm.inject_owner_history_failure','on',true);
+select set_config('test.crm.transfer_failure',public.transfer_current_customer_owner(
+  (current_setting('test.crm.created')::jsonb->>'id')::uuid,
+  current_setting('test.crm.manager_employee')::uuid,2,'注入负责人历史失败',
+  'b5100000-0000-4000-8000-000000000003','b5100000-0000-4000-8000-000000000004'
+)::text,true);
+select set_config('test.crm.inject_owner_history_failure','off',true);
+select set_config('test.crm.transfer_failure_replay',public.transfer_current_customer_owner(
+  (current_setting('test.crm.created')::jsonb->>'id')::uuid,
+  current_setting('test.crm.manager_employee')::uuid,2,'注入负责人历史失败',
+  'b5100000-0000-4000-8000-000000000003','b5100000-0000-4000-8000-000000000004'
+)::text,true);
+select set_config('test.crm.version_after_transfer_failure',(
+  select customer.version::text from public.customers customer
+  where customer.public_id=(current_setting('test.crm.created')::jsonb->>'id')::uuid
+),true);
+select set_config('test.crm.transferred',public.transfer_current_customer_owner(
+  (current_setting('test.crm.created')::jsonb->>'id')::uuid,
+  current_setting('test.crm.manager_employee')::uuid,2,'正式调整客户负责人',
+  'b5000000-0000-4000-8000-000000000003','b5000000-0000-4000-8000-000000000004'
+)::text,true);
+select set_config('test.crm.contract_mismatch',public.create_current_customer_contract(
+  (current_setting('test.crm.created')::jsonb->>'id')::uuid,
+  'a4900000-0000-4000-8000-000000000001',
+  (current_setting('test.crm.converted')::jsonb#>>'{entity,projectId}')::uuid,
+  'HT-CRM-2026-MISMATCH','错配交付合同','active',660000.00,'CNY',
+  '2026-08-28','2026-09-01','2026-10-31',0,'拒绝跨商机项目错配',
+  'b5400000-0000-4000-8000-000000000001','b5400000-0000-4000-8000-000000000002'
+)::text,true);
+select set_config('test.crm.contract',public.create_current_customer_contract(
+  (current_setting('test.crm.created')::jsonb->>'id')::uuid,
+  (current_setting('test.crm.opportunity')::jsonb->>'id')::uuid,
+  (current_setting('test.crm.converted')::jsonb#>>'{entity,projectId}')::uuid,
+  'HT-CRM-2026-001','智能工厂交付合同','active',880000.00,'CNY',
+  '2026-08-28','2026-09-01','2026-10-31',0,'登记真实交付合同',
+  'b5000000-0000-4000-8000-000000000005','b5000000-0000-4000-8000-000000000006'
+)::text,true);
+select set_config('test.crm.source_link',public.create_current_crm_source_link(
+  (current_setting('test.crm.created')::jsonb->>'id')::uuid,null,
+  (current_setting('test.crm.opportunity')::jsonb->>'id')::uuid,null,
+  'feishu','crm-opportunity-2026-001','https://example.test/crm/opportunity/2026-001',
+  0,'登记飞书原始来源',
+  'b5000000-0000-4000-8000-000000000007','b5000000-0000-4000-8000-000000000008'
+)::text,true);
+select throws_ok(
+  $$select public.create_current_crm_source_link(
+    (current_setting('test.crm.created')::jsonb->>'id')::uuid,null,
+    (current_setting('test.crm.opportunity')::jsonb->>'id')::uuid,null,
+    'external_crm','unsafe-source','https://example.test/source?access_token=secret',
+    0,'敏感来源 URL 应拒绝','b5300000-0000-4000-8000-000000000001',
+    'b5300000-0000-4000-8000-000000000002')$$,
+  '22023',null,'source provenance rejects credentials and sensitive URL query parameters'
+);
+select throws_ok(
+  $$select public.create_current_crm_source_link(
+    (current_setting('test.crm.created')::jsonb->>'id')::uuid,null,
+    (current_setting('test.crm.opportunity')::jsonb->>'id')::uuid,null,
+    'external_crm','unsafe-fragment','https://example.test/source#access%5Ftoken=secret',
+    0,'敏感片段 URL 应拒绝','b5400000-0000-4000-8000-000000000003',
+    'b5400000-0000-4000-8000-000000000004')$$,
+  '22023',null,'source provenance rejects credentials in encoded URL fragments'
+);
+select throws_ok(
+  $$select public.create_current_crm_source_link(
+    (current_setting('test.crm.created')::jsonb->>'id')::uuid,null,
+    (current_setting('test.crm.opportunity')::jsonb->>'id')::uuid,null,
+    'external_crm','unsafe-valueless-key','https://example.test/source?access_token',
+    0,'无值敏感参数也应拒绝','b5400000-0000-4000-8000-000000000009',
+    'b5400000-0000-4000-8000-000000000010')$$,
+  '22023',null,'source provenance rejects valueless sensitive URL query keys'
+);
+select set_config('test.crm.archived',public.archive_current_customer(
+  (current_setting('test.crm.created')::jsonb->>'id')::uuid,3,'合作阶段结束',
+  'b5000000-0000-4000-8000-000000000009','b5000000-0000-4000-8000-000000000010'
+)::text,true);
+select set_config('test.crm.archived_visible_count',(
+  select count(*)::text from public.customers
+  where public_id=(current_setting('test.crm.created')::jsonb->>'id')::uuid
+),true);
+select set_config('test.crm.archived_child_count',(
+  select ((select count(*) from public.opportunities opportunity
+      where opportunity.public_id=(current_setting('test.crm.opportunity')::jsonb->>'id')::uuid)
+    +(select count(*) from public.customer_follow_ups follow_up
+      where follow_up.public_id=(current_setting('test.crm.follow_up')::jsonb->>'id')::uuid)
+    +(select count(*) from public.customer_project_links link
+      where link.public_id=(current_setting('test.crm.converted')::jsonb#>>'{entity,customerProjectLinkId}')::uuid)
+    +(select count(*) from public.customer_contracts contract
+      where contract.public_id=(current_setting('test.crm.contract')::jsonb->>'id')::uuid)
+    +(select count(*) from public.crm_source_links source_link
+      where source_link.public_id=(current_setting('test.crm.source_link')::jsonb->>'id')::uuid))::text
+),true);
+select set_config('test.crm.restored',public.restore_current_customer(
+  (current_setting('test.crm.created')::jsonb->>'id')::uuid,4,'客户重新启动合作',
+  'b5000000-0000-4000-8000-000000000011','b5000000-0000-4000-8000-000000000012'
+)::text,true);
+select throws_ok(
+  $$select public.begin_current_crm_import(repeat('d',64),2,0,'[]'::jsonb,
+    '[{"index":0,"errors":["invalid_row"]},{"index":0,"errors":["invalid_name"]}]'::jsonb,
+    '重复拒绝索引','b5200000-0000-4000-8000-000000000001','b5200000-0000-4000-8000-000000000002')$$,
+  '22023',null,'import manifest rejects duplicate validation rejection indexes'
+);
+select throws_ok(
+  $$select public.begin_current_crm_import(repeat('e',64),2,1,
+    jsonb_build_array(jsonb_build_object('index',0,'rowDigest',repeat('a',64))),
+    '[{"index":0,"errors":["invalid_row"]}]'::jsonb,
+    '重叠清单索引','b5200000-0000-4000-8000-000000000003','b5200000-0000-4000-8000-000000000004')$$,
+  '22023',null,'import manifest rejects accepted and rejected index overlap'
+);
+select set_config('test.crm.mismatch_import_job',public.begin_current_crm_import(
+  repeat('f',64),1,1,jsonb_build_array(jsonb_build_object(
+    'index',0,'rowDigest',current_setting('test.crm.import_digest'))),'[]'::jsonb,
+  '摘要不匹配验证','b5200000-0000-4000-8000-000000000005','b5200000-0000-4000-8000-000000000006'
+)::text,true);
+select set_config('test.crm.mismatch_import_row',public.import_current_customer_row(
+  (current_setting('test.crm.mismatch_import_job')::jsonb->>'id')::uuid,0,
+  current_setting('test.crm.import_digest'),'被篡改的客户名','91310000-C',
+  current_setting('test.crm.manager_employee')::uuid,'enterprise','referral','杭州',
+  '周负责人','采购经理','13611112222','buyer-c@example.test','assigned',true,0,
+  '摘要不匹配验证','b5200000-0000-4000-8000-000000000007','b5200000-0000-4000-8000-000000000008'
+)::text,true);
+select set_config('test.crm.rollback_import_job',public.begin_current_crm_import(
+  repeat('1',64),1,1,jsonb_build_array(jsonb_build_object(
+    'index',0,'rowDigest',current_setting('test.crm.rollback_import_digest'))),'[]'::jsonb,
+  '导入原子回滚验证','b5200000-0000-4000-8000-000000000009','b5200000-0000-4000-8000-000000000010'
+)::text,true);
+select set_config('test.crm.inject_import_source_failure','on',true);
+select set_config('test.crm.rollback_import_row',public.import_current_customer_row(
+  (current_setting('test.crm.rollback_import_job')::jsonb->>'id')::uuid,0,
+  current_setting('test.crm.rollback_import_digest'),'导入回滚客户','91310000-ROLLBACK',
+  current_setting('test.crm.manager_employee')::uuid,'enterprise','referral','杭州',
+  '回滚联系人','采购经理','13611113333','rollback@example.test','assigned',true,0,
+  '导入原子回滚验证','b5200000-0000-4000-8000-000000000011','b5200000-0000-4000-8000-000000000012'
+)::text,true);
+select set_config('test.crm.inject_import_source_failure','off',true);
+select set_config('test.crm.import_job',public.begin_current_crm_import(
+  repeat('b',64),1,1,jsonb_build_array(jsonb_build_object(
+    'index',0,'rowDigest',current_setting('test.crm.import_digest'))),'[]'::jsonb,'首批客户迁移',
+  'b5000000-0000-4000-8000-000000000013','b5000000-0000-4000-8000-000000000014'
+)::text,true);
+select set_config('test.crm.import_row',public.import_current_customer_row(
+  (current_setting('test.crm.import_job')::jsonb->>'id')::uuid,0,current_setting('test.crm.import_digest'),
+  '导入客户 C','91310000-C',current_setting('test.crm.manager_employee')::uuid,
+  'enterprise','referral','杭州','周负责人','采购经理','13611112222','buyer-c@example.test',
+  'assigned',true,0,'真实客户迁移',
+  'b5000000-0000-4000-8000-000000000015','b5000000-0000-4000-8000-000000000016'
+)::text,true);
+select set_config('test.crm.import_final',public.finalize_current_crm_import(
+  (current_setting('test.crm.import_job')::jsonb->>'id')::uuid,'完成客户迁移',
+  'b5000000-0000-4000-8000-000000000017','b5000000-0000-4000-8000-000000000018'
+)::text,true);
+select set_config('test.crm.inject_export_failure','on',true);
+select set_config('test.crm.export_failure',public.request_current_crm_export(
+  null,false,'注入导出持久化失败',
+  'b5400000-0000-4000-8000-000000000005','b5400000-0000-4000-8000-000000000006'
+)::text,true);
+select set_config('test.crm.inject_export_failure','off',true);
+select set_config('test.crm.export_failure_replay',public.request_current_crm_export(
+  null,false,'注入导出持久化失败',
+  'b5400000-0000-4000-8000-000000000005','b5400000-0000-4000-8000-000000000006'
+)::text,true);
+select set_config('test.crm.export_job',public.request_current_crm_export(
+  (current_setting('test.crm.created')::jsonb->>'id')::uuid,true,'法务归档导出',
+  'b5000000-0000-4000-8000-000000000019','b5000000-0000-4000-8000-000000000020'
+)::text,true);
+select set_config('test.crm.export_download',public.download_current_crm_export(
+  (current_setting('test.crm.export_job')::jsonb->>'id')::uuid,
+  'b5000000-0000-4000-8000-000000000021'
+)::text,true);
+reset role;
+update public.crm_export_jobs job set created_at=clock_timestamp()-interval '2 hours',
+  expires_at=clock_timestamp()-interval '1 hour'
+where job.public_id=(current_setting('test.crm.export_job')::jsonb->>'id')::uuid;
+select set_config('request.jwt.claim.sub','a4000000-0000-4000-8000-000000000002',true);
+set local role authenticated;
+select set_config('test.crm.expired_export_download',public.download_current_crm_export(
+  (current_setting('test.crm.export_job')::jsonb->>'id')::uuid,
+  'b5300000-0000-4000-8000-000000000003'
+)::text,true);
+reset role;
+
+select set_config('request.jwt.claim.sub','a4000000-0000-4000-8000-000000000001',true);
+set local role authenticated;
+select set_config('test.crm.owner_export_download_after_transfer',public.download_current_crm_export(
+  (current_setting('test.crm.owner_export_job')::jsonb->>'id')::uuid,
+  'b5400000-0000-4000-8000-000000000007'
+)::text,true);
+reset role;
+
+select is(current_setting('test.crm.owner_bypass')::jsonb->>'error','ownership_transfer_required',
+  'legacy customer update cannot bypass ownership history');
+select is(current_setting('test.crm.transfer_failure')::jsonb->>'error','command_failed',
+  'ownership history failure returns a durable command failure');
+select is(current_setting('test.crm.transfer_failure_replay')::jsonb,
+  current_setting('test.crm.transfer_failure')::jsonb,
+  'failed ownership transfer replays the exact terminal result');
+select is(current_setting('test.crm.version_after_transfer_failure')::bigint,2::bigint,
+  'failed ownership history append rolls back the customer owner and version');
+select ok(exists(select 1 from public.audit_logs
+  where request_id='b5100000-0000-4000-8000-000000000003'
+    and action='customer.command_failed' and metadata->>'failure'='command_failed'),
+  'failed ownership transfer persists audit evidence');
+select is(current_setting('test.crm.transferred')::jsonb->>'outcome','success',
+  'dedicated ownership transfer succeeds');
+select is(current_setting('test.crm.contract_mismatch')::jsonb->>'error','not_found',
+  'contract creation rejects a project linked to a different opportunity');
+select ok(exists(select 1 from public.customer_ownership_history history
+  where history.customer_id=(select id from public.customers
+      where public_id=(current_setting('test.crm.created')::jsonb->>'id')::uuid)
+    and history.change_kind='transfer' and history.customer_version=3),
+  'ownership transfer appends an immutable versioned event');
+select is(current_setting('test.crm.contract')::jsonb->>'outcome','success',
+  'contract creation accepts the exact customer opportunity and project link');
+select is(current_setting('test.crm.source_link')::jsonb->>'outcome','success',
+  'source provenance accepts an exact customer opportunity target');
+select is(current_setting('test.crm.archived')::jsonb#>>'{entity,archived}','true',
+  'customer archive changes only the authoritative root lifecycle');
+select is(current_setting('test.crm.archived_visible_count')::bigint,0::bigint,
+  'archived customer is immediately invisible through RLS');
+select is(current_setting('test.crm.archived_child_count')::bigint,0::bigint,
+  'archived customer children are immediately invisible through RLS');
+select is(current_setting('test.crm.restored')::jsonb#>>'{entity,archived}','false',
+  'authorized restore reactivates the customer root');
+select is(current_setting('test.crm.import_job')::jsonb#>>'{entity,status}','running',
+  'import starts a durable scoped job');
+select is(current_setting('test.crm.mismatch_import_row')::jsonb->>'error','invalid_request',
+  'import row content must match the accepted manifest digest');
+select is((select count(*) from public.crm_import_rows row_result
+  where row_result.import_job_id=(select job.id from public.crm_import_jobs job
+    where job.public_id=(current_setting('test.crm.mismatch_import_job')::jsonb->>'id')::uuid)),0::bigint,
+  'an unapproved import row index or digest cannot poison job progress');
+select is(current_setting('test.crm.rollback_import_row')::jsonb->>'error','command_failed',
+  'import source failure becomes a durable row failure');
+select ok(not exists(select 1 from public.customers customer where customer.name_normalized='导入回滚客户')
+  and not exists(select 1 from public.customer_contacts contact where contact.email='rollback@example.test')
+  and not exists(select 1 from public.crm_source_links source_link
+    where source_link.external_record_id=(current_setting('test.crm.rollback_import_job')::jsonb->>'id')||':0'),
+  'customer contact and source writes roll back atomically when import provenance fails');
+select is(current_setting('test.crm.import_row')::jsonb->>'outcome','success',
+  'one accepted import row commits atomically');
+select is(current_setting('test.crm.import_final')::jsonb#>>'{entity,status}','completed',
+  'import finalization derives durable row totals');
+select ok(not exists(select 1 from public.crm_import_jobs job
+    where job.validation_rejections::text like '%13611112222%'
+      or job.validation_rejections::text like '%buyer-c@example.test%')
+  and not exists(select 1 from public.crm_import_rows row_result
+    where row_result::text like '%13611112222%' or row_result::text like '%buyer-c@example.test%'),
+  'durable import job and row records exclude raw contact PII');
+select is(current_setting('test.crm.export_failure')::jsonb->>'error','command_failed',
+  'export persistence failure returns a durable command failure');
+select is(current_setting('test.crm.export_failure_replay')::jsonb,
+  current_setting('test.crm.export_failure')::jsonb,
+  'failed export request replays its exact terminal result');
+select ok(not exists(select 1 from public.crm_export_jobs job
+    where job.public_id=(select ledger.target_public_id from public.crm_command_idempotency ledger
+      where ledger.operation='request_current_crm_export'
+        and ledger.idempotency_key='b5400000-0000-4000-8000-000000000006')),
+  'failed export request leaves no partial export job');
+select ok(exists(select 1 from public.audit_logs
+    where request_id='b5400000-0000-4000-8000-000000000005'
+      and action='customer.command_failed' and metadata->>'failure'='command_failed'),
+  'failed export request persists audit evidence');
+select is(current_setting('test.crm.owner_export_job')::jsonb->>'outcome','success',
+  'customer owner can create a least-privilege non-PII export snapshot');
+select is(current_setting('test.crm.owner_export_download_after_transfer')::jsonb->>'error','scope_revoked',
+  'export download revalidates current customer visibility after ownership transfer');
+select ok(exists(select 1 from public.crm_export_jobs job
+    where job.public_id=(current_setting('test.crm.owner_export_job')::jsonb->>'id')::uuid
+      and job.state='expired' and job.snapshot is null and job.purged_at is not null),
+  'scope-revoked export is purged while retaining job metadata');
+select ok(exists(select 1 from public.audit_logs
+    where request_id='b5400000-0000-4000-8000-000000000007'
+      and action='customer.command_failed' and metadata->>'failure'='scope_revoked'),
+  'scope-revoked export download persists failure audit evidence');
+select ok(not (current_setting('test.crm.export_job')::jsonb#>'{entity}') ? 'rows'
+  and (current_setting('test.crm.export_job')::jsonb#>>'{entity,downloadUrl}') like '/api/workstation/customers/export/%',
+  'export request returns only job metadata and a separate download URL');
+select is((current_setting('test.crm.export_download')::jsonb->>'rowCount')::bigint,1::bigint,
+  'audited export download returns the fixed scoped snapshot');
+select ok(exists(select 1 from public.audit_logs
+  where request_id='b5000000-0000-4000-8000-000000000021'
+    and action='customer.export_downloaded'),
+  'every export snapshot download appends audit evidence');
+select ok(current_setting('test.crm.expired_export_download')::jsonb->>'error'='export_expired'
+  and exists(select 1 from public.crm_export_jobs job
+    where job.public_id=(current_setting('test.crm.export_job')::jsonb->>'id')::uuid
+      and job.state='expired' and job.snapshot is null and job.purged_at is not null),
+  'expired export download purges the stored snapshot while preserving metadata');
+select ok((select count(*)>=4 from public.opportunity_stage_history history
+  where history.opportunity_id=(select id from public.opportunities
+    where public_id=(current_setting('test.crm.opportunity')::jsonb->>'id')::uuid)
+    and history.change_kind in ('initial','migration_snapshot','transition')),
+  'opportunity lifecycle preserves an explicit initial or migration snapshot plus every successful stage transition');
+select ok(not exists(select 1 from public.audit_logs
+  where request_id=any(array[
+    'b5000000-0000-4000-8000-000000000003'::uuid,
+    'b5000000-0000-4000-8000-000000000009'::uuid,
+    'b5000000-0000-4000-8000-000000000011'::uuid
+  ]) and metadata ? 'businessReason' and metadata->>'businessReason' is not null),
+  'governance audit stores reason digests instead of raw commercial text');
 
 select * from finish();
 rollback;

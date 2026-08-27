@@ -53,6 +53,35 @@ export interface CustomerProjectLink {
   createdAt: string;
 }
 
+export interface CustomerContract {
+  id: string;
+  opportunityId: string | null;
+  projectId: string | null;
+  contractNumber: string;
+  title: string;
+  status: "draft" | "active" | "completed" | "terminated";
+  amount: string;
+  currency: string;
+  signedOn: string | null;
+  startsOn: string;
+  endsOn: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CustomerSourceLink {
+  id: string;
+  contactId: string | null;
+  opportunityId: string | null;
+  projectId: string | null;
+  targetKind: "customer" | "contact" | "opportunity" | "project";
+  sourceSystem: "feishu" | "import" | "external_crm" | "n8n" | "other";
+  externalRecordId: string;
+  sourceUrl: string | null;
+  createdAt: string;
+}
+
 export interface Customer {
   id: string;
   version: number;
@@ -72,10 +101,12 @@ export interface Customer {
   createdAt: string;
   updatedAt: string;
   relatedProjects: CustomerProjectLink[];
+  contracts: CustomerContract[];
+  sourceLinks: CustomerSourceLink[];
   opportunities: CustomerOpportunity[];
   activities: CustomerActivity[];
   detailState: "summary" | "complete";
-  truncatedResources?: Array<"contacts" | "opportunities" | "followUps" | "projectLinks">;
+  truncatedResources?: Array<"contacts" | "opportunities" | "followUps" | "projectLinks" | "contracts" | "sourceLinks">;
 }
 
 export interface CustomerFilters {
@@ -119,6 +150,9 @@ export type CustomerWorkspaceResult = {
     availableOwners: MemberSummary[];
     canManage: boolean;
     canConvertToProject: boolean;
+    canImport: boolean;
+    canExport: boolean;
+    canExportPii: boolean;
     filters: CustomerFilters;
     industryOptions: string[];
     pagination: {

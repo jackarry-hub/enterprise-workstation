@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, Plus, RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Database, Plus, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { CreateCustomerDialog } from "@/features/customers/components/create-customer-dialog";
+import { CrmExchangeDialog } from "@/features/customers/components/crm-exchange-dialog";
 import { CustomerDetailDialog } from "@/features/customers/components/customer-detail-dialog";
 import { CustomerDistributions } from "@/features/customers/components/customer-distributions";
 import { CustomerList } from "@/features/customers/components/customer-list";
@@ -105,6 +106,7 @@ export function CustomersWorkspace({ result }: { result: CustomerWorkspaceResult
   const [detailError, setDetailError] = useState("");
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isExchangeOpen, setIsExchangeOpen] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [pendingContactCustomerId, setPendingContactCustomerId] = useState<string | null>(null);
   const commandAttempts = useRef(new Map<string, string>());
@@ -298,7 +300,7 @@ export function CustomersWorkspace({ result }: { result: CustomerWorkspaceResult
   const { pagination } = result.data;
   return (
     <main className="mx-auto flex w-full max-w-420 flex-col gap-3 px-3 pt-4 pb-26 sm:px-4 lg:px-5 lg:pt-8 lg:pb-8">
-      <PageHeader title="客户管理" description="真实客户、联系人、商机、跟进与交付项目统一管理。" actions={result.data.canManage ? <Button type="button" size="lg" className="h-10 rounded-xl px-4 shadow-[0_10px_24px_rgba(47,125,246,0.24)]" onClick={() => setIsCreateOpen(true)}><Plus data-icon="inline-start" />新建客户</Button> : undefined} />
+      <PageHeader title="客户管理" description="真实客户、联系人、商机、跟进与交付项目统一管理。" actions={result.data.canManage || result.data.canImport || result.data.canExport ? <div className="flex w-full gap-2 sm:w-auto">{result.data.canImport || result.data.canExport ? <Button type="button" variant="outline" className="flex-1 sm:flex-none" onClick={() => setIsExchangeOpen(true)}><Database />客户数据交换</Button> : null}{result.data.canManage ? <Button type="button" className="flex-1 shadow-[0_10px_24px_rgba(47,125,246,0.24)] sm:flex-none" onClick={() => setIsCreateOpen(true)}><Plus data-icon="inline-start" />新建客户</Button> : null}</div> : undefined} />
       {result.data.loadError ? <section role="alert" className="flex flex-col gap-3 rounded-2xl border border-warning/30 bg-warning-soft p-4 sm:flex-row sm:items-center"><div className="flex-1"><p className="font-semibold text-warning">客户数据未加载</p><p className="mt-1 text-sm text-muted-foreground">{result.data.loadError}</p></div><Button type="button" variant="outline" onClick={() => router.refresh()}><RefreshCw />重新加载</Button></section> : null}
       {feedback ? <p role="status" className="rounded-xl bg-success-soft px-3 py-2 text-xs font-medium text-success">{feedback}</p> : null}
       {!result.data.loadError ? <>
@@ -308,6 +310,10 @@ export function CustomersWorkspace({ result }: { result: CustomerWorkspaceResult
         <div className="hidden lg:block"><CustomerDistributions source={getCustomerDistribution(customers, "source")} industry={getCustomerDistribution(customers, "industry")} region={getCustomerDistribution(customers, "region")} /></div>
       </> : null}
       <CreateCustomerDialog open={isCreateOpen} onOpenChange={changeCreateOpen} owners={result.data.availableOwners} onCreate={createCustomer} />
+      <CrmExchangeDialog open={isExchangeOpen} onOpenChange={setIsExchangeOpen}
+        canImport={result.data.canImport} canExport={result.data.canExport}
+        canExportPii={result.data.canExportPii}
+        onComplete={(message) => { setFeedback(message); router.refresh(); }} />
       <CustomerDetailDialog customer={displayedDetail} owners={result.data.availableOwners} open={isDetailOpen} onOpenChange={changeDetailOpen} canManage={result.data.canManage} canConvertToProject={result.data.canConvertToProject} loading={detailLoading} loadError={detailError} onRetry={() => selectedCustomerId && loadDetail(selectedCustomerId)} onAddContact={addContact} onAddFollowUp={addFollowUp} onCreateOpportunity={createOpportunity} onTransition={transitionOpportunity} onConvert={convertOpportunity} />
     </main>
   );

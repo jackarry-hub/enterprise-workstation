@@ -23,6 +23,9 @@ export default async function CustomersRoute({ searchParams }: { searchParams: P
   const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 && requestedPage <= 100_000
     ? requestedPage : 1;
   const canManage = session.permissionCodes.includes("customer.manage");
+  const canImport = session.permissionCodes.includes("customer.import");
+  const canExport = session.permissionCodes.includes("customer.export");
+  const canExportPii = session.permissionCodes.includes("customer.export_pii");
   const canConvertToProject = canManage && session.permissionCodes.some((permission) =>
     permission === "project.manage" || permission === "organization.manage");
   const filters = normalizeCustomerFilters({
@@ -31,6 +34,8 @@ export default async function CustomersRoute({ searchParams }: { searchParams: P
     source: params.source,
     industry: params.industry,
   });
-  const result = await loadCustomerWorkspaceData(undefined, { canManage, canConvertToProject, page, filters });
+  const result = await loadCustomerWorkspaceData(undefined, {
+    canManage, canConvertToProject, canImport, canExport, canExportPii, page, filters,
+  });
   return <CustomersPage result={result} />;
 }

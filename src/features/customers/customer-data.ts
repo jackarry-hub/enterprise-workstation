@@ -2,10 +2,12 @@ import type {
   Customer,
   CustomerActivity,
   CustomerContact,
+  CustomerContract,
   CustomerDetailResult,
   CustomerFilters,
   CustomerOpportunity,
   CustomerProjectLink,
+  CustomerSourceLink,
   CustomerSource,
   CustomerStatus,
   CustomerWorkspaceResult,
@@ -27,7 +29,7 @@ type CustomerRow = {
   created_at: string; updated_at: string;
 };
 type ContactRow = {
-  public_id: string; customer_id: number; name: string; title: string;
+  record_id: number; public_id: string; customer_id: number; name: string; title: string;
   phone: string | null; email: string | null; visibility: "assigned" | "managers";
   is_primary: boolean; version: number | string; created_at: string; updated_at: string;
 };
@@ -50,6 +52,18 @@ type LinkRow = {
   link_type: CustomerProjectLink["linkType"]; created_at: string;
 };
 type ProjectRow = { id: number; public_id: string; name: string; progress: number | string };
+type ContractRow = {
+  public_id: string; customer_id: number; opportunity_id: number | null; project_id: number | null;
+  contract_number: string; title: string; status: CustomerContract["status"]; amount: string;
+  currency: string; signed_on: string | null; starts_on: string; ends_on: string;
+  version: number | string; created_at: string; updated_at: string;
+};
+type SourceLinkRow = {
+  public_id: string; customer_id: number; contact_id: number | null; opportunity_id: number | null;
+  project_id: number | null; target_kind: CustomerSourceLink["targetKind"];
+  source_system: CustomerSourceLink["sourceSystem"]; external_record_id: string;
+  source_url: string | null; created_at: string;
+};
 
 const PAGE_SIZE = 30;
 const MAX_DETAIL_ROWS = 100;
@@ -70,13 +84,17 @@ function pagination(page: number, total = 0) {
 function unavailableResult(
   canManage: boolean,
   canConvertToProject: boolean,
+  canImport: boolean,
+  canExport: boolean,
+  canExportPii: boolean,
   page: number,
   filters: CustomerFilters,
 ): CustomerWorkspaceResult {
   return {
     source: "supabase",
     data: {
-      customers: [], availableOwners: [], canManage, canConvertToProject, filters, industryOptions: [],
+      customers: [], availableOwners: [], canManage, canConvertToProject,
+      canImport, canExport, canExportPii, filters, industryOptions: [],
       pagination: pagination(page),
       loadError: "客户数据暂时不可用，请检查数据库迁移、权限与当前组织范围后重试。",
     },
@@ -91,6 +109,19 @@ function requiredUuid(value: unknown) {
 function requiredText(value: unknown, maximum: number) {
   if (typeof value !== "string" || !value.trim() || value.length > maximum) throw new Error("invalid_customer_text");
   return value.trim();
+}
+
+function isSafeSourceUrl(value: string) {
+  try {
+    const parsed = new URL(value);
+    const sensitive = new Set(["token", "access_token", "key", "api_key", "signature", "sig", "auth", "password", "secret"]);
+    return /^https:\/\/[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?:[/?]|$)/.test(value)
+      && parsed.protocol === "https:" && Boolean(parsed.hostname) && !parsed.username && !parsed.password
+      && !value.includes("#") && !/[?&][^=&#]*%[^=&#]*=/.test(value)
+      && ![...parsed.searchParams.keys()].some((key) => sensitive.has(key.toLowerCase()));
+  } catch {
+    return false;
+  }
 }
 
 function timestamp(value: unknown) {
@@ -196,7 +227,7 @@ function mapCustomerSummary(
     dealProgress: opportunityMetric ? boundedInteger(opportunityMetric.deal_progress, 0, 100) : 0,
     dealAmount: opportunityMetric ? canonicalMoney(opportunityMetric.won_amount_cny, true) : "0.00",
     createdAt: timestamp(row.created_at), updatedAt: timestamp(row.updated_at),
-    relatedProjects: [], opportunities: [], activities: [], detailState: "summary",
+    relatedProjects: [], contracts: [], sourceLinks: [], opportunities: [], activities: [], detailState: "summary",
   };
 }
 
@@ -205,12 +236,18 @@ export async function loadCustomerWorkspaceData(
   options: {
     canManage?: boolean;
     canConvertToProject?: boolean;
+    canImport?: boolean;
+    canExport?: boolean;
+    canExportPii?: boolean;
     page?: number;
     filters?: Partial<CustomerFilters>;
   } = {},
 ): Promise<CustomerWorkspaceResult> {
   const canManage = options.canManage ?? false;
   const canConvertToProject = options.canConvertToProject ?? false;
+  const canImport = options.canImport ?? false;
+  const canExport = options.canExport ?? false;
+  const canExportPii = options.canExportPii ?? false;
   const page = Number.isSafeInteger(options.page) && (options.page ?? 0) > 0 ? options.page! : 1;
   const filters = normalizeCustomerFilters(options.filters);
   try {
@@ -241,17 +278,18 @@ export async function loadCustomerWorkspaceData(
       const industryOptions = ((industryResponse.data ?? []) as IndustryRow[])
         .map(({ industry }) => requiredText(industry, 80));
       return { source: "supabase", data: {
-        customers: [], availableOwners, canManage, canConvertToProject, filters, industryOptions,
+        customers: [], availableOwners, canManage, canConvertToProject,
+        canImport, canExport, canExportPii, filters, industryOptions,
         pagination: pagination(page, total!),
       } };
     }
 
     const customerIds = customerRows.map(({ id }) => id);
+    const customerPublicIds = customerRows.map(({ public_id }) => public_id);
     const [contactResponse, opportunityMetricResponse, followUpMetricResponse, availableOwners, industryResponse] = await Promise.all([
-      client.from("customer_contacts")
-        .select("public_id, customer_id, name, title, phone, email, visibility, is_primary, version, created_at, updated_at")
-        .eq("tenant_id", scope.tenantId).eq("organization_id", scope.organizationId)
-        .in("customer_id", customerIds).eq("is_primary", true).is("archived_at", null),
+      client.rpc("list_current_customer_contacts", {
+        p_customer_public_ids: customerPublicIds, p_primary_only: true, p_per_customer_limit: 1,
+      }),
       client.from("current_customer_opportunity_metrics")
         .select("customer_id, opportunity_count, deal_progress, won_amount_cny")
         .eq("tenant_id", scope.tenantId).eq("organization_id", scope.organizationId).in("customer_id", customerIds),
@@ -264,7 +302,8 @@ export async function loadCustomerWorkspaceData(
     const relatedError = [contactResponse, opportunityMetricResponse, followUpMetricResponse, industryResponse]
       .find(({ error }) => error)?.error;
     if (relatedError) throw relatedError;
-    const primaryContacts = new Map(((contactResponse.data ?? []) as ContactRow[]).map((row) => [row.customer_id, mapContact(row)]));
+    const primaryContacts = new Map(((contactResponse.data ?? []) as ContactRow[])
+      .filter(({ is_primary }) => is_primary).map((row) => [row.customer_id, mapContact(row)]));
     const opportunityMetrics = new Map(((opportunityMetricResponse.data ?? []) as OpportunityMetricRow[]).map((row) => [row.customer_id, row]));
     const followUpMetrics = new Map(((followUpMetricResponse.data ?? []) as FollowUpMetricRow[]).map((row) => [row.customer_id, row]));
     const directory = await loadProjectMemberDirectory(client, customerRows.map(({ owner_member_id }) => owner_member_id), scope);
@@ -275,11 +314,12 @@ export async function loadCustomerWorkspaceData(
     const industryOptions = ((industryResponse.data ?? []) as IndustryRow[])
       .map(({ industry }) => requiredText(industry, 80));
     return { source: "supabase", data: {
-      customers, availableOwners, canManage, canConvertToProject, filters, industryOptions,
+      customers, availableOwners, canManage, canConvertToProject,
+      canImport, canExport, canExportPii, filters, industryOptions,
       pagination: pagination(page, total!),
     } };
   } catch {
-    return unavailableResult(canManage, canConvertToProject, page, filters);
+    return unavailableResult(canManage, canConvertToProject, canImport, canExport, canExportPii, page, filters);
   }
 }
 
@@ -299,11 +339,11 @@ export async function loadCustomerDetailData(
     const row = customerResponse.data as CustomerRow | null;
     if (!row) return { source: "supabase" };
 
-    const [contactResponse, opportunityResponse, followUpResponse, linkResponse] = await Promise.all([
-      client.from("customer_contacts")
-        .select("public_id, customer_id, name, title, phone, email, visibility, is_primary, version, created_at, updated_at")
-        .eq("tenant_id", scope.tenantId).eq("organization_id", scope.organizationId)
-        .eq("customer_id", row.id).is("archived_at", null).order("updated_at", { ascending: false }).range(0, MAX_DETAIL_ROWS),
+    const [contactResponse, opportunityResponse, followUpResponse, linkResponse, contractResponse, sourceResponse] = await Promise.all([
+      client.rpc("list_current_customer_contacts", {
+        p_customer_public_ids: [customerPublicId], p_primary_only: false,
+        p_per_customer_limit: MAX_DETAIL_ROWS + 1,
+      }),
       client.from("current_customer_opportunities")
         .select("id, public_id, customer_id, owner_member_id, name, stage, amount, currency, expected_close_on, loss_reason, version, created_at, updated_at")
         .eq("tenant_id", scope.tenantId).eq("organization_id", scope.organizationId)
@@ -316,13 +356,24 @@ export async function loadCustomerDetailData(
         .select("public_id, customer_id, opportunity_id, project_id, link_type, created_at")
         .eq("tenant_id", scope.tenantId).eq("organization_id", scope.organizationId)
         .eq("customer_id", row.id).is("archived_at", null).order("created_at", { ascending: false }).range(0, MAX_DETAIL_ROWS),
+      client.from("customer_contracts")
+        .select("public_id, customer_id, opportunity_id, project_id, contract_number, title, status, amount, currency, signed_on, starts_on, ends_on, version, created_at, updated_at")
+        .eq("tenant_id", scope.tenantId).eq("organization_id", scope.organizationId)
+        .eq("customer_id", row.id).is("archived_at", null).order("updated_at", { ascending: false }).range(0, MAX_DETAIL_ROWS),
+      client.from("crm_source_links")
+        .select("public_id, customer_id, contact_id, opportunity_id, project_id, target_kind, source_system, external_record_id, source_url, created_at")
+        .eq("tenant_id", scope.tenantId).eq("organization_id", scope.organizationId)
+        .eq("customer_id", row.id).order("created_at", { ascending: false }).range(0, MAX_DETAIL_ROWS),
     ]);
-    const relatedError = [contactResponse, opportunityResponse, followUpResponse, linkResponse].find(({ error }) => error)?.error;
+    const relatedError = [contactResponse, opportunityResponse, followUpResponse, linkResponse, contractResponse, sourceResponse]
+      .find(({ error }) => error)?.error;
     if (relatedError) throw relatedError;
     const contactRows = (contactResponse.data ?? []) as ContactRow[];
     const opportunityRows = (opportunityResponse.data ?? []) as OpportunityRow[];
     const followUpRows = (followUpResponse.data ?? []) as FollowUpRow[];
     const linkRows = (linkResponse.data ?? []) as LinkRow[];
+    const contractRows = (contractResponse.data ?? []) as ContractRow[];
+    const sourceRows = (sourceResponse.data ?? []) as SourceLinkRow[];
     const visibleOpportunityRows = opportunityRows.slice(0, MAX_DETAIL_ROWS);
     const visibleLinkRows = linkRows.slice(0, MAX_DETAIL_ROWS);
     const projectIds = [...new Set(visibleLinkRows.map(({ project_id }) => project_id))];
@@ -339,6 +390,8 @@ export async function loadCustomerDetailData(
       ...followUpRows.slice(0, MAX_DETAIL_ROWS).map(({ actor_member_id }) => actor_member_id),
     ], scope);
     const opportunityPublicIds = new Map(opportunityRows.map((opportunity) => [opportunity.id, requiredUuid(opportunity.public_id)]));
+    const contactPublicIds = new Map(contactRows.map((contact) => [contact.record_id, requiredUuid(contact.public_id)]));
+    const projectPublicIds = new Map([...projects].map(([id, project]) => [id, requiredUuid(project.public_id)]));
     const links = visibleLinkRows.map<CustomerProjectLink>((link) => {
       if (!LINK_TYPES.has(link.link_type)) throw new Error("invalid_customer_link");
       const project = projects.get(link.project_id);
@@ -374,6 +427,42 @@ export async function loadCustomerDetailData(
         nextFollowUpAt: optionalTimestamp(followUp.next_follow_up_at),
       };
     });
+    const contracts = contractRows.slice(0, MAX_DETAIL_ROWS).map<CustomerContract>((contract) => {
+      if (!new Set<CustomerContract["status"]>(["draft", "active", "completed", "terminated"]).has(contract.status)) {
+        throw new Error("invalid_contract_status");
+      }
+      const signedOn = optionalDate(contract.signed_on);
+      const startsOn = optionalDate(contract.starts_on);
+      const endsOn = optionalDate(contract.ends_on);
+      if (!startsOn || !endsOn || endsOn < startsOn || !/^[A-Z]{3}$/.test(contract.currency)) {
+        throw new Error("invalid_contract_period");
+      }
+      return {
+        id: requiredUuid(contract.public_id),
+        opportunityId: contract.opportunity_id === null ? null : opportunityPublicIds.get(contract.opportunity_id) ?? null,
+        projectId: contract.project_id === null ? null : projectPublicIds.get(contract.project_id) ?? null,
+        contractNumber: requiredText(contract.contract_number, 80), title: requiredText(contract.title, 160),
+        status: contract.status, amount: canonicalMoney(contract.amount), currency: contract.currency,
+        signedOn, startsOn, endsOn, version: positiveInteger(contract.version),
+        createdAt: timestamp(contract.created_at), updatedAt: timestamp(contract.updated_at),
+      };
+    });
+    const sourceLinks = sourceRows.slice(0, MAX_DETAIL_ROWS).map<CustomerSourceLink>((sourceLink) => {
+      if (!new Set<CustomerSourceLink["targetKind"]>(["customer", "contact", "opportunity", "project"]).has(sourceLink.target_kind)
+        || !new Set<CustomerSourceLink["sourceSystem"]>(["feishu", "import", "external_crm", "n8n", "other"]).has(sourceLink.source_system)
+        || sourceLink.source_url !== null && !isSafeSourceUrl(sourceLink.source_url)) {
+        throw new Error("invalid_source_link");
+      }
+      return {
+        id: requiredUuid(sourceLink.public_id),
+        contactId: sourceLink.contact_id === null ? null : contactPublicIds.get(sourceLink.contact_id) ?? null,
+        opportunityId: sourceLink.opportunity_id === null ? null : opportunityPublicIds.get(sourceLink.opportunity_id) ?? null,
+        projectId: sourceLink.project_id === null ? null : projectPublicIds.get(sourceLink.project_id) ?? null,
+        targetKind: sourceLink.target_kind, sourceSystem: sourceLink.source_system,
+        externalRecordId: requiredText(sourceLink.external_record_id, 255), sourceUrl: sourceLink.source_url,
+        createdAt: timestamp(sourceLink.created_at),
+      };
+    });
     const contacts = contactRows.slice(0, MAX_DETAIL_ROWS).map(mapContact);
     const nextFollowUpAt = activities.flatMap((activity) => activity.nextFollowUpAt ? [activity.nextFollowUpAt] : [])
       .sort()[0] ?? null;
@@ -383,6 +472,8 @@ export async function loadCustomerDetailData(
     customer.opportunities = opportunities;
     customer.activities = activities;
     customer.relatedProjects = links;
+    customer.contracts = contracts;
+    customer.sourceLinks = sourceLinks;
     customer.lastContactAt = activities[0]?.occurredAt ?? null;
     customer.nextFollowUpAt = nextFollowUpAt;
     customer.dealProgress = opportunities.length
@@ -396,6 +487,8 @@ export async function loadCustomerDetailData(
       ...(opportunityRows.length > MAX_DETAIL_ROWS ? ["opportunities" as const] : []),
       ...(followUpRows.length > MAX_DETAIL_ROWS ? ["followUps" as const] : []),
       ...(linkRows.length > MAX_DETAIL_ROWS ? ["projectLinks" as const] : []),
+      ...(contractRows.length > MAX_DETAIL_ROWS ? ["contracts" as const] : []),
+      ...(sourceRows.length > MAX_DETAIL_ROWS ? ["sourceLinks" as const] : []),
     ];
     return { source: "supabase", customer };
   } catch {
