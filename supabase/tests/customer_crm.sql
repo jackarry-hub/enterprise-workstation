@@ -1,5 +1,5 @@
 begin;
-select plan(36);
+select plan(58);
 
 select ok(has_table('public','customers'),'customers table exists');
 select ok(has_table('public','customer_contacts'),'customer contacts table exists');
@@ -12,6 +12,31 @@ select ok(has_column('public','customers','registration_code_normalized'),'regis
 select ok(has_column('public','opportunities','amount'),'opportunities persist fixed precision amount');
 select ok(has_column('public','customer_contacts','visibility'),'contact PII has explicit visibility');
 select ok(has_function('public','can_read_current_customer',array['bigint','bigint','bigint']::name[]),'customer RLS helper exists');
+select ok(has_table('public','crm_command_idempotency'),'CRM command ledger exists');
+select ok(
+  (select relforcerowsecurity from pg_class where oid='public.crm_command_idempotency'::regclass),
+  'CRM command ledger forces row level security'
+);
+select ok(
+  has_function('public','create_current_customer',array['text','text','uuid','text','text','text','text','bigint','text','uuid','uuid']::name[])
+  and has_function('public','update_current_customer',array['uuid','text','text','uuid','text','text','text','text','bigint','text','uuid','uuid']::name[])
+  and has_function('public','create_current_customer_contact',array['uuid','text','text','text','text','text','boolean','bigint','text','uuid','uuid']::name[]),
+  'customer and contact command RPCs exist'
+);
+select ok(
+  has_function_privilege('authenticated','public.create_current_customer(text,text,uuid,text,text,text,text,bigint,text,uuid,uuid)','EXECUTE')
+  and has_function_privilege('authenticated','public.update_current_customer(uuid,text,text,uuid,text,text,text,text,bigint,text,uuid,uuid)','EXECUTE')
+  and has_function_privilege('authenticated','public.create_current_customer_contact(uuid,text,text,text,text,text,boolean,bigint,text,uuid,uuid)','EXECUTE')
+  and not has_function_privilege('anon','public.create_current_customer(text,text,uuid,text,text,text,text,bigint,text,uuid,uuid)','EXECUTE')
+  and not has_function_privilege('service_role','public.update_current_customer(uuid,text,text,uuid,text,text,text,text,bigint,text,uuid,uuid)','EXECUTE'),
+  'only authenticated sessions can enter CRM commands'
+);
+select ok(
+  not has_table_privilege('authenticated','public.crm_command_idempotency','SELECT')
+  and not has_table_privilege('authenticated','public.crm_command_idempotency','INSERT')
+  and not has_table_privilege('service_role','public.crm_command_idempotency','SELECT'),
+  'command ledger is unreachable outside security-definer commands'
+);
 select ok(
   (select bool_and(relforcerowsecurity) from pg_class
    where oid=any(array[
@@ -295,6 +320,113 @@ select throws_ok(
        owner_member_id,owner_member_id,'NaN amount','lead','NaN'::numeric
      from public.customers where public_id='a4100000-0000-4000-8000-000000000001' $$,
   '23514',null,'opportunity amount rejects numeric NaN'
+);
+
+select set_config('test.crm.owner_employee',(
+  select profile.public_id::text from public.employee_profiles profile
+  join public.organization_members member on member.tenant_id=profile.tenant_id
+    and member.organization_id=profile.organization_id and member.id=profile.organization_member_id
+  where member.user_id='a4000000-0000-4000-8000-000000000001'
+),true);
+select set_config('request.jwt.claim.sub','a4000000-0000-4000-8000-000000000001',true);
+set local role authenticated;
+select throws_ok(
+  $$ select public.create_current_customer(
+    'Forbidden customer',null,
+    current_setting('test.crm.owner_employee')::uuid,
+    'technology','referral','上海','lead',0,'普通员工不得创建',
+    'a4700000-0000-4000-8000-000000000001','a4700000-0000-4000-8000-000000000002'
+  ) $$,
+  '42501','CRM command permission required','assigned employee without customer.manage cannot create a customer'
+);
+reset role;
+
+select set_config('request.jwt.claim.sub','a4000000-0000-4000-8000-000000000002',true);
+set local role authenticated;
+select set_config('test.crm.created',public.create_current_customer(
+  'B 客户','91310000-B',
+  current_setting('test.crm.owner_employee')::uuid,
+  'manufacturing','outbound','苏州','following',0,'创建正式客户',
+  'a4700000-0000-4000-8000-000000000003','a4700000-0000-4000-8000-000000000004'
+)::text,true);
+select set_config('test.crm.created_replay',public.create_current_customer(
+  'B 客户','91310000-B',
+  current_setting('test.crm.owner_employee')::uuid,
+  'manufacturing','outbound','苏州','following',0,'创建正式客户',
+  'a4700000-0000-4000-8000-000000000003','a4700000-0000-4000-8000-000000000004'
+)::text,true);
+select set_config('test.crm.scope_conflict',public.create_current_customer(
+  '篡改后的 B 客户','91310000-B',
+  current_setting('test.crm.owner_employee')::uuid,
+  'manufacturing','outbound','苏州','following',0,'创建正式客户',
+  'a4700000-0000-4000-8000-000000000005','a4700000-0000-4000-8000-000000000004'
+)::text,true);
+select set_config('test.crm.duplicate',public.create_current_customer(
+  '  B 客户  ',null,
+  current_setting('test.crm.owner_employee')::uuid,
+  'manufacturing','referral','苏州','lead',0,'重复客户检查',
+  'a4700000-0000-4000-8000-000000000006','a4700000-0000-4000-8000-000000000007'
+)::text,true);
+select set_config('test.crm.updated',public.update_current_customer(
+  (current_setting('test.crm.created')::jsonb->>'id')::uuid,
+  'B 客户升级','91310000-B',
+  current_setting('test.crm.owner_employee')::uuid,
+  'manufacturing','outbound','苏州','proposal',1,'进入方案阶段',
+  'a4700000-0000-4000-8000-000000000008','a4700000-0000-4000-8000-000000000009'
+)::text,true);
+select set_config('test.crm.stale',public.update_current_customer(
+  (current_setting('test.crm.created')::jsonb->>'id')::uuid,
+  '过期更新','91310000-B',
+  current_setting('test.crm.owner_employee')::uuid,
+  'manufacturing','outbound','苏州','proposal',1,'过期版本',
+  'a4700000-0000-4000-8000-000000000010','a4700000-0000-4000-8000-000000000011'
+)::text,true);
+select set_config('test.crm.contact',public.create_current_customer_contact(
+  (current_setting('test.crm.created')::jsonb->>'id')::uuid,
+  '李采购','采购负责人','13700000000','buyer-b@example.test','assigned',true,0,
+  '录入主要联系人 13700000000 buyer-b@example.test','a4700000-0000-4000-8000-000000000012','a4700000-0000-4000-8000-000000000013'
+)::text,true);
+select set_config('test.crm.contact_replay',public.create_current_customer_contact(
+  (current_setting('test.crm.created')::jsonb->>'id')::uuid,
+  '李采购','采购负责人','13700000000','buyer-b@example.test','assigned',true,0,
+  '录入主要联系人 13700000000 buyer-b@example.test','a4700000-0000-4000-8000-000000000012','a4700000-0000-4000-8000-000000000013'
+)::text,true);
+select set_config('test.crm.contact_second',public.create_current_customer_contact(
+  (current_setting('test.crm.created')::jsonb->>'id')::uuid,
+  '赵法务','法务负责人',null,'legal-b@example.test','managers',true,0,
+  '更换主要联系人','a4700000-0000-4000-8000-000000000014','a4700000-0000-4000-8000-000000000015'
+)::text,true);
+reset role;
+
+select is(current_setting('test.crm.created')::jsonb->>'outcome','success','customer manager creates a customer');
+select is(current_setting('test.crm.created_replay')::jsonb,current_setting('test.crm.created')::jsonb,'same customer command replays the canonical result');
+select is((select count(*) from public.customers where name_normalized='b 客户'),1::bigint,'idempotent create persists one customer');
+select ok(exists(select 1 from public.audit_logs where request_id='a4700000-0000-4000-8000-000000000003' and action='customer.created'),'customer create is audited');
+select is(current_setting('test.crm.scope_conflict')::jsonb->>'error','scope_conflict','changed payload cannot reuse a customer idempotency key');
+select ok(exists(select 1 from public.audit_logs where request_id='a4700000-0000-4000-8000-000000000005' and action='customer.command_failed' and metadata->>'failure'='scope_conflict'),'scope conflict leaves durable audit evidence');
+select is(current_setting('test.crm.duplicate')::jsonb->>'error','conflict','normalized duplicate customer returns a stable conflict');
+select is((current_setting('test.crm.updated')::jsonb->>'version')::bigint,2::bigint,'customer update uses optimistic versioning');
+select is(current_setting('test.crm.stale')::jsonb->>'error','stale_version','stale customer update is rejected');
+select is(current_setting('test.crm.contact')::jsonb->>'outcome','success','customer manager creates restricted contact PII');
+select is(current_setting('test.crm.contact_replay')::jsonb,current_setting('test.crm.contact')::jsonb,'contact create replays without duplication');
+select is((select count(*) from public.customer_contacts contact
+  join public.customers customer on customer.id=contact.customer_id
+  where customer.name_normalized='b 客户升级'),2::bigint,'two distinct contact commands create exactly two contacts');
+select is((select contact.created_by_member_id from public.customer_contacts contact
+  where contact.public_id=(current_setting('test.crm.contact')::jsonb->>'id')::uuid),
+  (select member.id from public.organization_members member where member.user_id='a4000000-0000-4000-8000-000000000002'),
+  'contact actor is derived from the authenticated session');
+select ok(not exists(select 1 from public.audit_logs where request_id='a4700000-0000-4000-8000-000000000012'
+  and (metadata::text like '%13700000000%' or metadata::text like '%buyer-b@example.test%')),
+  'contact audit excludes raw PII even when caller reason repeats it');
+select is(current_setting('test.crm.contact_second')::jsonb->>'outcome','success','a later primary contact command succeeds');
+select ok(
+  (select count(*) from public.customer_contacts contact
+    join public.customers customer on customer.id=contact.customer_id
+    where customer.name_normalized='b 客户升级' and contact.is_primary and contact.archived_at is null)=1
+  and (select version from public.customer_contacts
+    where public_id=(current_setting('test.crm.contact')::jsonb->>'id')::uuid)=2,
+  'primary contact replacement is atomic and versions the prior row'
 );
 select is(
   (select count(*) from pg_indexes where schemaname='public'

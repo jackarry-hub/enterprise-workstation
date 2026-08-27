@@ -45,3 +45,54 @@ describe("customer CRM schema migration", () => {
     expect(sql).toContain("amount <> 'nan'::numeric");
   });
 });
+
+describe("customer CRM command migration", () => {
+  const sql = readFileSync(
+    join(process.cwd(), "supabase/migrations/202608280002_customer_commands.sql"),
+    "utf8",
+  ).toLowerCase();
+
+  it("binds commands to the exact authenticated active member and permission", () => {
+    expect(sql).toContain("member.user_id=(select auth.uid()) and member.status='active'");
+    expect(sql).toContain("external.auth_user_id=(select auth.uid()) and external.status='active'");
+    expect(sql).toContain("permission.code='customer.manage'");
+    expect(sql).toContain("provider.status='active'");
+  });
+
+  it("uses an actor, target and payload-bound durable idempotency ledger", () => {
+    expect(sql).toContain("create table public.crm_command_idempotency");
+    expect(sql).toContain("actor_member_id bigint not null");
+    expect(sql).toContain("target_public_id uuid not null");
+    expect(sql).toContain("payload_digest text not null");
+    expect(sql).toContain("v_actor<>p_actor_member_id");
+    expect(sql).toContain("v_digest<>v_expected_digest");
+    expect(sql).toContain("for update;");
+  });
+
+  it("uses owner validation locks compatible with foreign-key key-share checks", () => {
+    expect(sql.match(/for share of profile,member;/g)?.length).toBe(2);
+    expect(sql).not.toContain("for update of profile,member;");
+  });
+
+  it("keeps direct writes and internal helpers closed", () => {
+    expect(sql).toContain("revoke all on table public.crm_command_idempotency from public,anon,authenticated,service_role");
+    for (const helper of [
+      "current_crm_command_identity()", "claim_crm_command(bigint,bigint,bigint,text,uuid,jsonb,uuid,uuid)",
+      "complete_crm_command(bigint,bigint,uuid,bigint,text,text,text,text,uuid,uuid,text,text,text,jsonb)",
+      "audit_crm_scope_conflict(bigint,bigint,uuid,bigint,text,text,text,uuid,uuid,text)",
+    ]) {
+      expect(sql).toContain(`revoke all on function public.${helper}`);
+    }
+    expect(sql).not.toMatch(/grant\s+(?:insert|update|delete)\s+on/);
+  });
+
+  it("audits only contact digests and atomically replaces the primary contact", () => {
+    expect(sql).toContain("'entitydigest',case when p_outcome='success' then encode(");
+    expect(sql.match(/'businessreason',case when p_resource='customer_contact' then null else p_reason end/g)?.length).toBe(2);
+    expect(sql.match(/'businessreasondigest',encode\(/g)?.length).toBe(2);
+    expect(sql).not.toContain("'phone',p_phone");
+    expect(sql).not.toContain("'email',p_email");
+    expect(sql).toMatch(/if p_is_primary then\s+update public\.customer_contacts[\s\S]+insert into public\.customer_contacts/);
+    expect(sql).toContain("version=contact.version+1");
+  });
+});

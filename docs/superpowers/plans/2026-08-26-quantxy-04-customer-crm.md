@@ -80,14 +80,14 @@ git commit -m "feat: add tenant-safe customer CRM schema"
 - Create: `src/app/api/workstation/customers/route.ts`
 - Create: `src/app/api/workstation/customers/[customerId]/route.ts`
 - Create: `src/app/api/workstation/customers/[customerId]/contacts/route.ts`
-- Create: `supabase/migrations/202608260019_customer_commands.sql`
+- Create: `supabase/migrations/202608280002_customer_commands.sql`
 - Modify: `supabase/tests/customer_crm.sql`
 
 **Interfaces:**
 - Produces audited RPCs `create_current_customer`, `update_current_customer`, `create_current_customer_contact`.
 - Commands require `idempotencyKey`; updates require `version`.
 
-- [ ] **Step 1: Write failing validation, permission, and duplicate tests**
+- [x] **Step 1: Write failing validation, permission, and duplicate tests**
 
 ```ts
 expect((await createCustomer({ name: "" })).status).toBe(400);
@@ -95,25 +95,39 @@ expect((await createCustomerAs(employeeSession)).status).toBe(403);
 expect((await repeatCustomerCreate(sameKey)).body.customerId).toBe(firstCustomerId);
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `npx vitest run src/features/customers/customer-command-handler.test.ts`
 Expected: handler is absent.
 
-- [ ] **Step 3: Implement handlers and RPC transactions**
+The repository baseline had no customer/contact command handler, routes, command migration, or command pgTAP coverage. The new tests define the previously missing permission, validation, exact DTO, PII, idempotency, duplicate and optimistic-version boundaries.
+
+- [x] **Step 3: Implement handlers and RPC transactions**
 
 Normalize names on the server, encrypt or restrict sensitive contact fields, derive actor and organization from session, and append audit rows.
 
-- [ ] **Step 4: Verify GREEN**
+Implementation uses a forced-RLS, no-direct-access idempotency ledger bound to organization, actor, target and payload. Contact audit rows omit caller-controlled reason and entity PII, retaining SHA-256 digests. Owner validation uses `FOR SHARE` so concurrent reverse assignments remain compatible with foreign-key `KEY SHARE` locks.
+
+- [x] **Step 4: Verify GREEN**
 
 Run: `npx vitest run src/features/customers/customer-command-handler.test.ts`
 Run: `npm run db:test`
 Expected: authorization, validation, idempotency and duplicate-name conflict pass.
 
-- [ ] **Step 5: Commit**
+Task 2 local verification (2026-08-28):
+
+- Focused customer command/migration Vitest — 2 files / 20 tests passed.
+- Full unit regression — 178 files / 1221 tests passed; HTML contract suite — 152/152 passed.
+- `npm run typecheck` and `git diff --check` — passed.
+- `npm run lint` — passed with 0 errors and one pre-existing generated coverage warning.
+- `customer_crm.sql` static pgTAP plan/assertion count — 58/58.
+- Independent API review and independent SQL/RLS/concurrency review — CLEAN with no remaining P0-P3 findings.
+- Live migration and pgTAP execution remain mandatory external gates because this workstation has no PostgreSQL, `psql`, Supabase CLI or Docker runtime.
+
+- [x] **Step 5: Commit**
 
 ```bash
-git add src/features/customers/customer-command-handler.ts src/features/customers/customer-command-handler.test.ts src/app/api/workstation/customers/route.ts src/app/api/workstation/customers/[customerId]/route.ts src/app/api/workstation/customers/[customerId]/contacts/route.ts supabase/migrations/202608260019_customer_commands.sql supabase/tests/customer_crm.sql
+git add src/features/customers/customer-command-handler.ts src/features/customers/customer-command-handler.test.ts src/features/customers/customer-crm-migration.test.ts src/app/api/workstation/customers/route.ts src/app/api/workstation/customers/[customerId]/route.ts src/app/api/workstation/customers/[customerId]/contacts/route.ts supabase/migrations/202608280002_customer_commands.sql supabase/tests/customer_crm.sql docs/superpowers/plans/2026-08-26-quantxy-04-customer-crm.md
 git commit -m "feat: add customer and contact commands"
 ```
 
