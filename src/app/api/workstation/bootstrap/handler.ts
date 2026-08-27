@@ -351,7 +351,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
     const client = await getSupabaseServerClient();
     const canManageSalary = session.permissionCodes.includes("salary.manage");
     const membersResult = await client.from("employee_profiles")
-      .select("id, tenant_id, organization_id, organization_member_id, display_name, job_title, department_id, position_template_id, skills, department:departments!employee_profiles_department_id_fkey(name)")
+      .select("id, public_id, tenant_id, organization_id, organization_member_id, display_name, job_title, department_id, position_template_id, skills, department:departments!employee_profiles_department_id_fkey(name)")
       .is("deleted_at", null)
       .in("employment_status", ["probation", "active", "on_leave"])
       .order("display_name");
@@ -413,7 +413,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
       knowledgeResult,
     ] = await Promise.all([
       optionalBootstrapQuery("projects", client.from("projects")
-        .select("id, public_id, name, owner_member_id, status, health, progress, priority, updated_at")
+        .select("id, public_id, name, owner_member_id, status, health, progress, priority, category, budget_amount, start_date, due_date, version, updated_at")
         .is("deleted_at", null)
         .order("updated_at", { ascending: false }), requestId),
       optionalBootstrapQuery("tasks", client.from("tasks")
@@ -673,6 +673,7 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
           };
           return {
             id: row.organization_member_id,
+            publicId: row.public_id,
             profileId: row.id,
             departmentId: numberOrNull(row.department_id),
             displayName: row.display_name,
@@ -715,6 +716,11 @@ export const defaultWorkstationBootstrapDependencies: WorkstationBootstrapDepend
           health: row.health,
           progress: Number(row.progress),
           priority: row.priority,
+          category: row.category,
+          budgetAmount: row.budget_amount,
+          startsOn: row.start_date,
+          dueOn: row.due_date,
+          version: row.version,
           updatedAt: row.updated_at,
         })),
         tasks: (tasksResult.data ?? []).map((row) => ({

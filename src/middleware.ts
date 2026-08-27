@@ -128,6 +128,7 @@ export function isStandaloneAuthorizedPath(pathname: string) {
     || pathname === "/api/workstation/bootstrap"
     || pathname === "/api/workstation/directory-sync"
     || pathname === "/api/workstation/projects"
+    || pathname.startsWith("/api/workstation/projects/")
     || pathname === "/api/workstation/tasks"
     || pathname.startsWith("/api/workstation/tasks/")
     || pathname === "/api/workstation/payroll"

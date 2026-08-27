@@ -9,6 +9,7 @@ type SessionInput = {
 
 export type WorkstationMemberRow = {
   id: number;
+  publicId?: string;
   profileId?: number;
   departmentId?: number | null;
   displayName: string;
@@ -52,6 +53,11 @@ export type WorkstationProjectRow = {
   health: string;
   progress: number;
   priority: string;
+  category?: string;
+  budgetAmount?: number | string;
+  startsOn?: string | null;
+  dueOn?: string | null;
+  version?: number;
   updatedAt: string;
 };
 
@@ -356,6 +362,7 @@ export function buildServerBootstrap(
       const mayReadSalaryClassification = canManageSalary || member.id === session.memberId;
       const bootstrapMember = {
         id: memberId(member.id),
+        ...(member.publicId ? { employeePublicId: member.publicId } : {}),
         n: member.displayName,
         r: member.jobTitle,
         sk: uniqueSkillNames(member).join(" · "),
@@ -410,11 +417,14 @@ export function buildServerBootstrap(
       id: project.publicId,
       n: project.name,
       own: memberId(project.ownerMemberId),
-      cat: "企业项目",
+      cat: project.category ?? "企业项目",
       pr: Number(project.progress),
-      bud: 0,
+      bud: Number(project.budgetAmount ?? 0) / 10_000,
       health: projectHealth[project.health] ?? 70,
       st: projectStatuses[project.status] ?? "进行中",
+      ...(project.startsOn !== undefined ? { s: project.startsOn ?? "" } : {}),
+      ...(project.dueOn !== undefined ? { e: project.dueOn ?? "" } : {}),
+      ...(project.version !== undefined ? { version: project.version } : {}),
       up: project.updatedAt,
     })),
     tasks: rows.tasks.map((task) => ({

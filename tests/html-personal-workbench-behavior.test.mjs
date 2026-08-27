@@ -671,8 +671,8 @@ function formalBootstrap({
       primaryRole,
     },
     members: [
-      { id: memberId, n: "当前员工", r: "产品经理", dept: "产品中心", lv: 3 },
-      { id: ownerId, n: "任务执行人", r: "产品经理", dept: "产品中心", lv: 3 },
+      { id: memberId, employeePublicId: "a2222222-2222-4222-8222-222222222221", n: "当前员工", r: "产品经理", dept: "产品中心", lv: 3 },
+      { id: ownerId, employeePublicId: "a2222222-2222-4222-8222-222222222222", n: "任务执行人", r: "产品经理", dept: "产品中心", lv: 3 },
     ].filter((member, index, rows) => rows.findIndex((row) => row.id === member.id) === index),
     projects: [{ id: projectId, n: "正式项目", own: memberId, st: "进行中", cat: "企业项目" }],
     tasks: [{
@@ -716,6 +716,8 @@ test("migrates legacy tasks to the execution schema without losing records", asy
 test("allows formal project creation to call the server gateway", async () => {
   const bootstrap = formalBootstrap({ permissions: ["task.manage"] });
   let createdInput = null;
+  let createdCalls = 0;
+  let resolveCreate;
   const createdProject = {
     id: "33333333-3333-4333-8333-333333333333",
     n: "AI商业矩阵",
@@ -728,8 +730,9 @@ test("allows formal project creation to call the server gateway", async () => {
     bootstrap,
     {
       createProject: async (input) => {
+        createdCalls += 1;
         createdInput = input;
-        return createdProject;
+        return new Promise((resolve) => { resolveCreate = resolve; });
       },
     },
   );
@@ -747,8 +750,15 @@ test("allows formal project creation to call the server gateway", async () => {
     await waitFor(() => createdInput);
     assert.equal(createdInput.name, "AI商业矩阵");
     assert.equal(createdInput.category, "AI研发");
-    assert.equal(createdInput.ownerMemberId, bootstrap.session.memberId);
-    assert.equal(createdInput.budgetWan, 10);
+    assert.equal(createdInput.ownerPublicId, bootstrap.members[0].employeePublicId);
+    assert.equal(createdInput.budgetAmount, "100000.00");
+    assert.equal(createdInput.version, 0);
+    const pendingButton = dom.window.document.querySelector('[data-act="f-project"]');
+    assert.equal(pendingButton.disabled, true);
+    pendingButton.click();
+    assert.equal(createdCalls, 1);
+    resolveCreate(createdProject);
+    await waitFor(() => S.page === "proj");
     assert.equal(S.page, "proj");
   } finally {
     dom.window.close();

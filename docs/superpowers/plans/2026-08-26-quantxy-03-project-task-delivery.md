@@ -23,19 +23,28 @@
 ### Task 1: Add transactional project lifecycle commands
 
 **Files:**
-- Create: `supabase/migrations/202608260013_project_lifecycle_commands.sql`
+- Create: `supabase/migrations/202608270004_project_lifecycle_commands.sql` (forward-only after the shipped `202608270002/003` constraint rebuilds)
 - Create: `supabase/tests/project_lifecycle.sql`
+- Create: `supabase/tests/project_lifecycle_concurrency.sql`
 - Modify: `src/app/api/workstation/projects/handler.test.ts`
 - Modify: `src/app/api/workstation/projects/handler.ts`
 - Create: `src/app/api/workstation/projects/[projectId]/route.ts`
 - Create: `src/features/projects/project-command-handler.ts`
 - Create: `src/features/projects/project-command-handler.test.ts`
+- Modify: `src/features/workstation/server-bootstrap.ts`
+- Modify: `src/app/api/workstation/bootstrap/handler.ts`
+- Modify: `public/workstation-server-adapter.js`
+- Modify: `quantxy-ai-workbench-fused.html`
+- Modify: `src/middleware.ts`
+- Modify: `src/middleware.test.ts`
+- Modify: `tests/html-workstation-server-adapter.test.mjs`
+- Modify: `tests/html-personal-workbench-behavior.test.mjs`
 
 **Interfaces:**
 - Produces RPCs `create_current_project_v2`, `update_current_project`, `archive_current_project`.
 - Commands include `idempotencyKey`, `version`, `name`, `ownerPublicId`, `budgetAmount`, `startsOn`, `dueOn`.
 
-- [ ] **Step 1: Write failing atomicity, money-validation, and idempotency tests**
+- [x] **Step 1: Write failing atomicity, money-validation, and idempotency tests**
 
 ```ts
 expect((await createProject({ ...input, budgetAmount: "abc" })).status).toBe(400);
@@ -48,11 +57,13 @@ expect(projectWithoutMembershipAfterInjectedFailure).toBeNull();
 Run: `npx vitest run src/app/api/workstation/projects/handler.test.ts src/features/projects/project-command-handler.test.ts`
 Expected: invalid budget becomes zero and the current multi-step insert is not atomic.
 
-- [ ] **Step 3: Implement RPC-backed create/update/archive**
+- [x] **Step 3: Implement RPC-backed create/update/archive**
 
 Use numeric strings parsed by the server money utility. RPC creates project, owner membership, audit and idempotency result atomically; update/archive use version comparison.
 
 - [ ] **Step 4: Verify GREEN and DB failure rollback**
+
+Local TypeScript, HTML, security, build, static pgTAP, and independent-review gates pass. Clean Supabase reset plus live pgTAP execution remains a required pre-release gate because this workstation has no local PostgreSQL/Supabase runtime.
 
 Run: `npx vitest run src/app/api/workstation/projects/handler.test.ts src/features/projects/project-command-handler.test.ts`
 Run: `npm run db:test`
@@ -61,7 +72,7 @@ Expected: invalid money is 400, duplicate key returns the same entity, injected 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260013_project_lifecycle_commands.sql supabase/tests/project_lifecycle.sql src/app/api/workstation/projects/handler.test.ts src/app/api/workstation/projects/handler.ts src/app/api/workstation/projects/[projectId]/route.ts src/features/projects/project-command-handler.ts src/features/projects/project-command-handler.test.ts
+git add docs/superpowers/plans/2026-08-26-quantxy-03-project-task-delivery.md supabase/migrations/202608270004_project_lifecycle_commands.sql supabase/tests/project_lifecycle.sql supabase/tests/project_lifecycle_concurrency.sql src/app/api/workstation/projects/handler.test.ts src/app/api/workstation/projects/handler.ts src/app/api/workstation/projects/[projectId]/route.ts src/features/projects/project-command-handler.ts src/features/projects/project-command-handler.test.ts src/features/workstation/server-bootstrap.ts src/features/workstation/server-bootstrap.test.ts src/app/api/workstation/bootstrap/handler.ts public/workstation-server-adapter.js quantxy-ai-workbench-fused.html src/middleware.ts src/middleware.test.ts tests/html-workstation-server-adapter.test.mjs tests/html-personal-workbench-behavior.test.mjs
 git commit -m "feat: add transactional project lifecycle"
 ```
 
@@ -320,7 +331,7 @@ expect(await replayNotificationEvent()).toHaveLength(1);
 expect((await markRecipientRead()).readAt).not.toBeNull();
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `npx vitest run src/features/projects src/features/workstation/task-notification`
 Run: `npm run db:test`
@@ -337,7 +348,7 @@ Run: `npm run db:test`
 Run: `npx playwright test tests/e2e/projects-closure.spec.ts tests/e2e/task-workflow.spec.ts --project=chrome`
 Expected: the complete project closure survives refresh and cross-role authorization; no duplicate notification is delivered.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit the independently reviewable Task 1 boundary**
 
 ```bash
 git add supabase/migrations/202608260040_project_commercial_completion.sql supabase/tests/project_execution.sql supabase/tests/notification_outbox.sql src/features/projects src/features/workstation/task-notification.ts src/app/api/workstation/projects tests/e2e/projects-closure.spec.ts tests/e2e/task-workflow.spec.ts

@@ -3081,13 +3081,14 @@ function fsel(f,v,opts){
 }
 function memOpts(){ return MEMBERS.map(function(m){ return {v:m.id,l:m.n+'（'+m.r+'）'}; }); }
 function formShell(title,sub,back,act,cta,body,side){
+  var submitBusy=act==='f-project'&&S.projectCreateBusy;
   return j(['<div class="fade" id="formPage">',
     '<div class="card"><div class="bd" style="display:flex;align-items:center;gap:14px">',
       '<button class="btn ghost" data-act="go" data-page="',back,'">← 返回</button>',
       '<div><b style="font-size:15px">',title,'</b><div style="font-size:12px;color:var(--mut);margin-top:2px">',sub,'</div></div>',
       '<div class="grow"></div>',
       '<button class="btn ghost" data-act="go" data-page="',back,'">取消</button>',
-      '<button class="btn" data-act="',act,'">',ic('ok',15),cta,'</button>',
+      '<button class="btn" data-act="',act,'"',submitBusy?' disabled':'','>',ic('ok',15),submitBusy?'创建中…':cta,'</button>',
     '</div></div>',
     '<div class="grid" style="grid-template-columns:1.55fr 1fr;margin-top:16px;align-items:start">',
       '<div class="card"><div class="bd" style="padding:20px">',body,'</div></div>',
@@ -3201,6 +3202,7 @@ function viewNewProject(){
       ['负责人不等于执行人','负责人负责整体把控，具体任务由 AI 按角色分配给团队成员。']]));
 }
 function createProject(){
+  if(S.projectCreateBusy) return;
   syncForm(); var f=S.form.project;
   if(!f.n){ toast('请填写项目名称'); return; }
   var goal=f.goal, auto=Number(f.auto);
@@ -3214,20 +3216,39 @@ function createProject(){
     S.page= goal?'sched':'proj'; render();
   }
   if(!isDemoRuntime()){
+    var owner=MB[f.own]||{}, budgetAmount=projectBudgetAmount(f.bud);
+    if(!owner.employeePublicId){ toast('负责人缺少真实员工标识，请先同步企业通讯录'); return; }
+    if(budgetAmount===null){ toast('项目预算格式不正确，最多支持 6 位万元小数'); return; }
+    S.projectCreateBusy=true; render();
     try{
       WORKSTATION_GATEWAY.createProject({
-        name:f.n, category:f.cat, ownerMemberId:f.own, startDate:f.s, dueDate:f.e,
-        budgetWan:parseFloat(f.bud)||0, description:f.desc||'', goal:goal||''
+        name:f.n, category:f.cat, ownerPublicId:owner.employeePublicId,
+        startsOn:f.s, dueOn:f.e, budgetAmount:budgetAmount,
+        description:f.desc||'', priority:'medium', status:'planning',
+        version:0, reason:'创建项目'
       }).then(done).catch(function(error){
         toast(projectCreateFailureMessage(error));
+      }).finally(function(){
+        S.projectCreateBusy=false;
+        if(S.page==='new-project') render();
       });
     }catch(error){
+      S.projectCreateBusy=false;
       toast(projectCreateFailureMessage(error));
+      render();
     }
     return;
   }
   var id='p'+Date.now().toString(36).slice(-5);
   done({id:id,n:f.n,own:f.own,cat:f.cat,pr:0,bud:parseFloat(f.bud)||0,health:80,st:'进行中',up:'刚刚'});
+}
+
+function projectBudgetAmount(value){
+  var match=/^(0|[1-9]\d{0,11})(?:\.(\d{1,6}))?$/.exec(String(value==null?'':value).trim());
+  if(!match||typeof BigInt!=='function') return null;
+  var cents=BigInt(match[1])*1000000n+BigInt((match[2]||'').padEnd(6,'0'));
+  if(cents>999999999999999999n) return null;
+  return String(cents/100n)+'.'+String(cents%100n).padStart(2,'0');
 }
 
 /* ---- 上传文档 ---- */

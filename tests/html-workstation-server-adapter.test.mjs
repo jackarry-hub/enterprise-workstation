@@ -341,6 +341,134 @@ test("uses embedded formal bootstrap when browser request APIs are unavailable",
   dom.window.close();
 });
 
+test("creates a formal project with an idempotency key and maps the canonical server DTO", async () => {
+  const source = await readFile(
+    path.join(process.cwd(), "public", "workstation-server-adapter.js"),
+    "utf8",
+  );
+  const ownerPublicId = "a1111111-1111-4111-8111-111111111141";
+  const projectId = "a1111111-1111-4111-8111-111111111142";
+  const requests = [];
+  const bootstrap = {
+    session: { authenticated: true, authMode: "feishu", dataMode: "server", memberId: "m7", permissions: ["project.manage"] },
+    members: [{ id: "m7", employeePublicId: ownerPublicId, n: "项目负责人" }],
+    projects: [], tasks: [], payroll: { m7: [] },
+    features: { identitySwitch: false, demoReset: false },
+  };
+  const dom = new JSDOM("<!doctype html><script></script>", {
+    url: "https://work.quantumgalaxy.top/quantxy-ai-workbench-fused.html?formal=1",
+    runScripts: "outside-only",
+  });
+  dom.window.fetch = async (url, init = {}) => {
+    requests.push({ url: String(url), init });
+    if (String(url) === "/api/workstation/bootstrap") return response(true, bootstrap);
+    return response(true, {
+      project: {
+        id: projectId, version: 1, name: "正式交付项目", ownerPublicId,
+        category: "客户交付", budgetAmount: "125000.25", status: "planning",
+        priority: "medium", health: "on_track", progress: 0,
+        startsOn: "2026-09-01", dueOn: "2026-09-30",
+        updatedAt: "2026-08-27T08:00:00.000Z",
+      },
+    });
+  };
+
+  dom.window.eval(source);
+  await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.ready();
+  const created = await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.createProject({
+    name: "正式交付项目", ownerPublicId, category: "客户交付",
+    budgetAmount: "125000.25", startsOn: "2026-09-01", dueOn: "2026-09-30",
+    priority: "medium", status: "planning", version: 0, reason: "创建项目",
+  });
+
+  const command = requests[1];
+  assert.equal(command.url, "/api/workstation/projects");
+  assert.equal(command.init.method, "POST");
+  assert.match(command.init.headers["Idempotency-Key"], /^[0-9a-f-]{36}$/i);
+  assert.deepEqual(JSON.parse(command.init.body), {
+    name: "正式交付项目", ownerPublicId, category: "客户交付",
+    budgetAmount: "125000.25", startsOn: "2026-09-01", dueOn: "2026-09-30",
+    priority: "medium", status: "planning", version: 0, reason: "创建项目",
+  });
+  assert.equal(created.id, projectId);
+  assert.equal(created.own, "m7");
+  assert.equal(created.bud, 12.500025);
+  assert.equal(dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.listMyProjects("m7")[0].id, projectId);
+  dom.window.close();
+});
+
+test("reuses one project command attempt for double-click and ambiguous network retry", async () => {
+  const source = await readFile(
+    path.join(process.cwd(), "public", "workstation-server-adapter.js"),
+    "utf8",
+  );
+  const ownerPublicId = "a1111111-1111-4111-8111-111111111151";
+  const projectId = "a1111111-1111-4111-8111-111111111152";
+  const bootstrap = {
+    session: { authenticated: true, authMode: "feishu", dataMode: "server", memberId: "m7", permissions: ["project.manage"] },
+    members: [{ id: "m7", employeePublicId: ownerPublicId, n: "项目负责人" }],
+    projects: [], tasks: [], payroll: { m7: [] },
+    features: { identitySwitch: false, demoReset: false },
+  };
+  const input = {
+    name: "幂等交付项目", ownerPublicId, category: "客户交付",
+    budgetAmount: "100.00", startsOn: "2026-09-01", dueOn: "2026-09-30",
+    priority: "medium", status: "planning", version: 0, reason: "创建项目",
+  };
+  const canonical = {
+    project: {
+      id: projectId, version: 1, name: input.name, ownerPublicId,
+      category: input.category, budgetAmount: input.budgetAmount, status: "planning",
+      priority: "medium", health: "on_track", progress: 0,
+      startsOn: input.startsOn, dueOn: input.dueOn, updatedAt: "2026-08-27T08:00:00.000Z",
+    },
+  };
+  const requests = [];
+  let resolveFirst;
+  let mode = "pending";
+  const dom = new JSDOM("<!doctype html><script></script>", {
+    url: "https://work.quantumgalaxy.top/quantxy-ai-workbench-fused.html?formal=1",
+    runScripts: "outside-only",
+  });
+  dom.window.fetch = async (url, init = {}) => {
+    if (String(url) === "/api/workstation/bootstrap") return response(true, bootstrap);
+    requests.push({ init });
+    if (mode === "pending") {
+      return new Promise((resolve) => { resolveFirst = resolve; });
+    }
+    if (mode === "network") throw new TypeError("response lost");
+    if (mode === "business") return response(false, { error: "not_found" });
+    return response(true, canonical);
+  };
+
+  dom.window.eval(source);
+  await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.ready();
+  const first = dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.createProject(input);
+  const duplicate = dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.createProject(input);
+  assert.equal(first, duplicate);
+  assert.equal(requests.length, 1);
+  resolveFirst(response(true, canonical));
+  await first;
+
+  mode = "network";
+  await assert.rejects(dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.createProject({ ...input, name: "响应丢失项目" }));
+  const retryKey = requests.at(-1).init.headers["Idempotency-Key"];
+  mode = "success";
+  await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.createProject({ ...input, name: "响应丢失项目" });
+  assert.equal(requests.at(-1).init.headers["Idempotency-Key"], retryKey);
+
+  mode = "business";
+  await assert.rejects(
+    dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.createProject({ ...input, name: "负责人失效项目" }),
+    (error) => error.code === "not_found",
+  );
+  const failedBusinessKey = requests.at(-1).init.headers["Idempotency-Key"];
+  mode = "success";
+  await dom.window.QUANTXY_WORKSTATION_SERVER_ADAPTER.createProject({ ...input, name: "负责人失效项目" });
+  assert.notEqual(requests.at(-1).init.headers["Idempotency-Key"], failedBusinessKey);
+  dom.window.close();
+});
+
 test("loads the formal employee session and sends task updates without trusting a browser actor", async () => {
   const source = await readFile(
     path.join(process.cwd(), "public", "workstation-server-adapter.js"),

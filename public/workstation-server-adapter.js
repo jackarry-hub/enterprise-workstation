@@ -10,6 +10,7 @@
   }
 
   var bootstrap = null;
+  var projectCreateAttempt = null;
   var runtime = { authMode: "feishu", dataMode: "server" };
   var embeddedBootstrap = window.__QUANTXY_SERVER_BOOTSTRAP__ || null;
   var bootstrapErrorCodes = {
@@ -20,6 +21,7 @@
     activation_example_mismatch: true,
     agent_context_unavailable: true,
     confirmed_payroll_immutable: true,
+    conflict: true,
     directory_actor_invalid: true,
     directory_sync_failed: true,
     employee_hire_date_missing: true,
@@ -35,6 +37,7 @@
     invalid_task: true,
     missing_history: true,
     missing_opening_cumulative: true,
+    not_found: true,
     notification_retry_failed: true,
     opening_cumulative_mismatch: true,
     organization_not_found: true,
@@ -45,6 +48,9 @@
     profile_save_failed: true,
     project_create_failed: true,
     project_create_forbidden: true,
+    project_command_unavailable: true,
+    scope_conflict: true,
+    stale_version: true,
     project_member_invalid: true,
     task_create_failed: true,
     task_create_forbidden: true,
@@ -267,6 +273,63 @@
     return clone(project);
   }
 
+  function commandId() {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return window.crypto.randomUUID();
+    }
+    if (window.crypto && typeof window.crypto.getRandomValues === "function") {
+      var bytes = new Uint8Array(16);
+      window.crypto.getRandomValues(bytes);
+      bytes[6] = (bytes[6] & 15) | 64;
+      bytes[8] = (bytes[8] & 63) | 128;
+      var hex = Array.prototype.map.call(bytes, function (value) {
+        return value.toString(16).padStart(2, "0");
+      }).join("");
+      return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16),
+        hex.slice(16, 20), hex.slice(20)].join("-");
+    }
+    throw new Error("workstation_unavailable");
+  }
+
+  function projectRow(project) {
+    var value = project && typeof project === "object" ? project : {};
+    var owner = (requireBootstrap().members || []).find(function (member) {
+      return member.employeePublicId === value.ownerPublicId;
+    });
+    var moneyPattern = /^(0|[1-9]\d{0,15})\.\d{2}$/;
+    var projectStatuses = { planning: true, active: true };
+    var projectHealth = { on_track: true, at_risk: true, off_track: true };
+    if (!owner || typeof value.id !== "string" || !requestIdPattern.test(value.id)
+        || typeof value.ownerPublicId !== "string" || !requestIdPattern.test(value.ownerPublicId)
+        || typeof value.name !== "string" || !value.name.trim()
+        || typeof value.category !== "string" || !value.category.trim()
+        || typeof value.budgetAmount !== "string" || !moneyPattern.test(value.budgetAmount)
+        || !Number.isSafeInteger(value.version) || value.version < 1
+        || typeof value.progress !== "number" || !Number.isFinite(value.progress)
+        || value.progress < 0 || value.progress > 100
+        || !Object.prototype.hasOwnProperty.call(projectStatuses, value.status)
+        || !Object.prototype.hasOwnProperty.call(projectHealth, value.health)
+        || typeof value.updatedAt !== "string" || !Number.isFinite(new Date(value.updatedAt).getTime())) {
+      throw new Error("workstation_unavailable");
+    }
+    var statuses = { planning: "规划中", active: "进行中" };
+    var health = { on_track: 90, at_risk: 65, off_track: 35 };
+    return {
+      id: value.id,
+      n: value.name,
+      own: owner.id,
+      cat: value.category,
+      pr: Number(value.progress) || 0,
+      bud: Number(value.budgetAmount) / 10000,
+      health: health[value.health] || 70,
+      st: statuses[value.status] || "进行中",
+      s: value.startsOn || "",
+      e: value.dueOn || "",
+      version: value.version,
+      up: value.updatedAt,
+    };
+  }
+
   function mutateTask(taskId, action, input) {
     return request("/api/workstation/tasks/" + encodeURIComponent(taskId), {
       method: "PATCH",
@@ -333,13 +396,39 @@
       return request("/api/workstation/directory-sync", { method: "POST" });
     },
     createProject: function (input) {
-      return request("/api/workstation/projects", {
+      var payload = JSON.stringify(input || {});
+      if (projectCreateAttempt && projectCreateAttempt.payload !== payload) {
+        if (projectCreateAttempt.promise) return Promise.reject(new Error("workstation_unavailable"));
+        projectCreateAttempt = null;
+      }
+      if (!projectCreateAttempt) {
+        projectCreateAttempt = { payload: payload, key: commandId(), promise: null };
+      }
+      if (projectCreateAttempt.promise) return projectCreateAttempt.promise;
+      var attempt = projectCreateAttempt;
+      attempt.promise = request("/api/workstation/projects", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(input || {}),
+        headers: {
+          "content-type": "application/json",
+          "Idempotency-Key": attempt.key,
+        },
+        body: payload,
       }).then(function (result) {
-        return addProject(result.project);
+        var created = addProject(projectRow(result.project));
+        if (projectCreateAttempt === attempt) projectCreateAttempt = null;
+        return created;
+      }).catch(function (error) {
+        var explicitFailure = error && typeof error.code === "string"
+          && error.code !== "workstation_unavailable"
+          && error.code !== "project_command_unavailable";
+        if (explicitFailure || (error && error.message === "unauthorized")) {
+          if (projectCreateAttempt === attempt) projectCreateAttempt = null;
+        } else if (projectCreateAttempt === attempt) {
+          attempt.promise = null;
+        }
+        throw error;
       });
+      return attempt.promise;
     },
     createTask: function (input) {
       return request("/api/workstation/tasks", {
