@@ -46,7 +46,17 @@ describe("commercial approval submission migration", () => {
   it("keeps the pgTAP plan synchronized with executable assertions", () => {
     const planned = Number(/select plan\((\d+)\)/.exec(pgTap)?.[1]);
     const assertions = [...pgTap.matchAll(/^select\s+(?:ok|is|isnt|throws_ok|lives_ok|cmp_ok|like|unlike|pass|fail)\s*\(/gm)];
-    expect(planned).toBe(54);
+    expect(planned).toBe(86);
     expect(assertions).toHaveLength(planned);
+  });
+
+  it("adds one optimistic and idempotent approval action state machine", () => {
+    const actionMigration = readFileSync(resolve(process.cwd(),
+      "supabase/migrations/202608280007_approval_action_commands.sql"), "utf8");
+    expect(actionMigration).toContain("create or replace function public.act_on_current_approval");
+    expect(actionMigration).toContain("approval_action_idempotency");
+    expect(actionMigration).toContain("approval.version<>expected_version");
+    expect(actionMigration).toContain("approval_actions_reject_mutation");
+    expect(actionMigration).not.toContain("p_actor_employee");
   });
 });

@@ -72,17 +72,18 @@ git commit -m "feat: add transactional approval submission"
 ### Task 2: Add secure approval decisions and cancellation
 
 **Files:**
-- Create: `supabase/migrations/202608260022_approval_action_commands.sql`
+- Create: `supabase/migrations/202608280007_approval_action_commands.sql`
 - Modify: `supabase/tests/approval_workflow.sql`
 - Create: `src/app/api/workstation/approvals/[approvalId]/actions/route.ts`
 - Modify: `src/features/approvals/approval-command-handler.ts`
 - Modify: `src/features/approvals/approval-command-handler.test.ts`
+- Modify: `src/features/approvals/approval-workflow-migration.test.ts`
 
 **Interfaces:**
 - Produces RPC `act_on_current_approval(approval_public_id uuid, command text, expected_version integer, comment text, request_id uuid)`.
 - Commands: approve, reject, return, cancel.
 
-- [ ] **Step 1: Write failing current-approver, actor-spoof, and concurrency tests**
+- [x] **Step 1: Write failing current-approver, actor-spoof, and concurrency tests**
 
 ```ts
 expect((await actAs(unrelatedEmployee, "approve")).status).toBe(403);
@@ -90,25 +91,29 @@ expect(savedAction.actorId).toBe(currentApprover.member.publicId);
 expect((await concurrentApprovalSecondWriter()).status).toBe(409);
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `npx vitest run src/features/approvals/approval-command-handler.test.ts`
 Expected: action route/RPC does not exist.
 
-- [ ] **Step 3: Implement the approval state machine**
+Verified RED: action handler tests failed because `handleApprovalAction` did not exist, and the migration contract failed because the action migration was absent.
+
+- [x] **Step 3: Implement the approval state machine**
 
 Lock the approval row, verify current pending step and approver, ignore actor values from input, transition step/approval/action/audit atomically, and advance to the next step only after approval.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `npx vitest run src/features/approvals/approval-command-handler.test.ts`
 Run: `npm run db:test`
 Expected: only current approver acts; version conflict returns 409; action and audit are immutable.
 
-- [ ] **Step 5: Commit**
+Verified GREEN: approval action/migration Vitest 30/30, full Vitest 186 files / 1311 tests, HTML contracts 152/152, typecheck, lint and production build passed (excluding the existing generated coverage warning). The pgTAP plan is statically synchronized at 86 assertions and independently reviewed CLEAN; live `npm run db:test` remains explicitly blocked by local PostgreSQL connection refusal.
+
+- [x] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260022_approval_action_commands.sql supabase/tests/approval_workflow.sql src/app/api/workstation/approvals/[approvalId]/actions/route.ts src/features/approvals/approval-command-handler.ts src/features/approvals/approval-command-handler.test.ts
+git add supabase/migrations/202608280007_approval_action_commands.sql supabase/tests/approval_workflow.sql src/app/api/workstation/approvals/[approvalId]/actions/route.ts src/features/approvals/approval-command-handler.ts src/features/approvals/approval-command-handler.test.ts src/features/approvals/approval-workflow-migration.test.ts
 git commit -m "feat: add secure approval decisions"
 ```
 

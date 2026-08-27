@@ -1,8 +1,36 @@
 begin;
-select plan(54);
+select plan(86);
 
 select ok(has_table('public','approval_templates'),'versioned approval templates exist');
 select ok(has_table('public','approval_command_idempotency'),'approval command ledger exists');
+select ok(has_table('public','approval_action_idempotency'),'approval action replay ledger exists');
+select ok((select relforcerowsecurity from pg_class
+  where oid='public.approval_action_idempotency'::regclass),
+  'approval action ledger forces RLS');
+select ok(has_function('public','act_on_current_approval',array[
+  'uuid','text','integer','text','uuid'
+]::name[]),'optimistic approval action RPC exists');
+select ok(has_function_privilege(
+    'authenticated','public.act_on_current_approval(uuid,text,integer,text,uuid)','EXECUTE'
+  ) and not has_function_privilege(
+    'anon','public.act_on_current_approval(uuid,text,integer,text,uuid)','EXECUTE'
+  ) and not has_function_privilege(
+    'service_role','public.act_on_current_approval(uuid,text,integer,text,uuid)','EXECUTE'
+  ),'only authenticated sessions can enter approval decisions');
+select ok(not has_function_privilege('authenticated','public.current_approval_actor_identity()','EXECUTE')
+  and not has_function_privilege('authenticated',
+    'public.claim_approval_action(bigint,bigint,bigint,uuid,text,bigint,text,uuid)','EXECUTE')
+  and not has_function_privilege('authenticated',
+    'public.complete_approval_action(bigint,bigint,uuid,bigint,uuid,uuid,text,text,text,jsonb)','EXECUTE'),
+  'approval actor ledger and completion helpers remain internal');
+select ok(not has_table_privilege('authenticated','public.approval_action_idempotency','SELECT')
+  and not has_table_privilege('service_role','public.approval_action_idempotency','SELECT'),
+  'approval action replay internals are private');
+select ok(exists(select 1 from pg_trigger where not tgisinternal
+    and tgrelid='public.approval_actions'::regclass and tgname='approval_actions_reject_mutation')
+  and exists(select 1 from pg_trigger where not tgisinternal
+    and tgrelid='public.approval_actions'::regclass and tgname='approval_actions_reject_truncate'),
+  'approval actions reject update delete and truncate');
 select ok(has_column('public','approvals','tenant_id') and has_column('public','approvals','template_id')
   and has_column('public','approvals','template_version') and has_column('public','approvals','version'),
   'approval instances carry exact tenant template version and optimistic version');
@@ -293,6 +321,17 @@ end;
 $$;
 create trigger test_approval_reject_step before insert on public.approval_steps
 for each row execute function public.test_approval_reject_step();
+create or replace function public.test_approval_reject_action()
+returns trigger language plpgsql set search_path='' as $$
+begin
+  if current_setting('test.approval.inject_action_failure',true)='on' then
+    raise exception 'injected approval action failure';
+  end if;
+  return new;
+end;
+$$;
+create trigger test_approval_reject_action before insert on public.approval_actions
+for each row execute function public.test_approval_reject_action();
 
 select set_config('request.jwt.claim.sub','c1000000-0000-4000-8000-000000000001',true);
 set local role authenticated;
@@ -347,6 +386,51 @@ select throws_ok(
     from public.approvals approval limit 1$$,
   '42501',null,'authenticated applicant cannot directly append approval actions'
 );
+select throws_ok(
+  $$select public.act_on_current_approval(
+    (current_setting('test.approval.valid')::jsonb->>'id')::uuid,
+    'reject',1,E'\t\n','c4000000-0000-4000-8000-000000000011')$$,
+  '22023','Approval action is invalid','tab and newline-only decision reason fails at the RPC boundary'
+);
+select throws_ok(
+  $$select public.act_on_current_approval(
+    (current_setting('test.approval.valid')::jsonb->>'id')::uuid,
+    'return',1,U&'\00A0\3000','c4000000-0000-4000-8000-000000000012')$$,
+  '22023','Approval action is invalid','unicode whitespace-only decision reason fails at the RPC boundary'
+);
+select set_config('test.approval.applicant_action',public.act_on_current_approval(
+  (current_setting('test.approval.valid')::jsonb->>'id')::uuid,
+  'approve',1,null,'c4000000-0000-4000-8000-000000000001'
+)::text,true);
+select set_config('test.approval.reject_case',public.submit_current_approval(
+  current_setting('test.approval.template_a')::uuid,
+  '{"amount":"200.00","purpose":"驳回链路","expenseDate":"2026-08-28","costType":"office"}'::jsonb,
+  'c2000000-0000-4000-8000-000000000019','c2000000-0000-4000-8000-000000000020'
+)::text,true);
+select set_config('test.approval.return_case',public.submit_current_approval(
+  current_setting('test.approval.template_a')::uuid,
+  '{"amount":"300.00","purpose":"退回链路","expenseDate":"2026-08-28","costType":"other"}'::jsonb,
+  'c2000000-0000-4000-8000-000000000021','c2000000-0000-4000-8000-000000000022'
+)::text,true);
+select set_config('test.approval.cancel_case',public.submit_current_approval(
+  current_setting('test.approval.template_a')::uuid,
+  '{"amount":"400.00","purpose":"取消链路","expenseDate":"2026-08-28","costType":"transport"}'::jsonb,
+  'c2000000-0000-4000-8000-000000000023','c2000000-0000-4000-8000-000000000024'
+)::text,true);
+select set_config('test.approval.cancel_action',public.act_on_current_approval(
+  (current_setting('test.approval.cancel_case')::jsonb->>'id')::uuid,
+  'cancel',1,'申请内容有误','c4000000-0000-4000-8000-000000000002'
+)::text,true);
+select set_config('test.approval.self_case',public.submit_current_approval(
+  current_setting('test.approval.template_a')::uuid,
+  '{"amount":"500.00","purpose":"历史自审批防护","expenseDate":"2026-08-28","costType":"other"}'::jsonb,
+  'c2000000-0000-4000-8000-000000000025','c2000000-0000-4000-8000-000000000026'
+)::text,true);
+select set_config('test.approval.action_failure_case',public.submit_current_approval(
+  current_setting('test.approval.template_a')::uuid,
+  '{"amount":"600.00","purpose":"动作回滚验证","expenseDate":"2026-08-28","costType":"other"}'::jsonb,
+  'c2000000-0000-4000-8000-000000000027','c2000000-0000-4000-8000-000000000028'
+)::text,true);
 reset role;
 
 select is(current_setting('test.approval.failed')::jsonb->>'error','command_failed',
@@ -391,6 +475,37 @@ select is(current_setting('test.approval.shadow_templates')::bigint,0::bigint,
   'authenticated member cannot read templates from another organization in the same tenant');
 select is(current_setting('test.approval.shadow_helper'),'false',
   'exact external identity helper rejects the same-tenant shadow organization');
+select is(current_setting('test.approval.applicant_action')::jsonb->>'error','forbidden',
+  'applicant cannot approve their own pending request');
+select ok((select approval.status='cancelled' and approval.version=2
+    and approval.completed_at is not null and approval.current_step_order is null
+    and not exists(select 1 from public.approval_steps step
+      where step.approval_id=approval.id and step.status<>'skipped')
+    and exists(select 1 from public.approval_actions action
+      where action.approval_id=approval.id and action.action_type='cancel'
+        and action.content='申请内容有误')
+  from public.approvals approval
+  where approval.public_id=(current_setting('test.approval.cancel_case')::jsonb->>'id')::uuid),
+  'applicant cancellation terminates versions and closes every pending fact');
+
+update public.approval_steps step set approver_employee_id=approval.applicant_employee_id
+from public.approvals approval
+where approval.id=step.approval_id and step.step_order=1
+  and approval.public_id=(current_setting('test.approval.self_case')::jsonb->>'id')::uuid;
+update public.approvals approval set owner_employee_id=approval.applicant_employee_id
+where approval.public_id=(current_setting('test.approval.self_case')::jsonb->>'id')::uuid;
+select set_config('request.jwt.claim.sub','c1000000-0000-4000-8000-000000000001',true);
+set local role authenticated;
+select set_config('test.approval.self_action',public.act_on_current_approval(
+  (current_setting('test.approval.self_case')::jsonb->>'id')::uuid,
+  'approve',1,null,'c4000000-0000-4000-8000-000000000010'
+)::text,true);
+reset role;
+select ok(current_setting('test.approval.self_action')::jsonb->>'error'='forbidden'
+  and (select approval.version=1 and approval.status='pending'
+    from public.approvals approval
+    where approval.public_id=(current_setting('test.approval.self_case')::jsonb->>'id')::uuid),
+  'historical self-approval rows remain impossible to decide');
 
 update public.organization_members member set status='active'
 from auth.users user_row where user_row.id=member.user_id
@@ -403,11 +518,149 @@ select set_config('test.approval.no_manager',public.submit_current_approval(
   '{"amount":"10.00","purpose":"无主管验证","expenseDate":"2026-08-28","costType":"other"}'::jsonb,
   'c2000000-0000-4000-8000-000000000009','c2000000-0000-4000-8000-000000000010'
 )::text,true);
+select set_config('test.approval.unrelated_action',public.act_on_current_approval(
+  (current_setting('test.approval.reject_case')::jsonb->>'id')::uuid,
+  'approve',1,null,'c4000000-0000-4000-8000-000000000003'
+)::text,true);
 reset role;
 select is(current_setting('test.approval.outsider_visible')::bigint,0::bigint,
   'unrelated organization employee cannot read another approval');
 select is(current_setting('test.approval.no_manager')::jsonb->>'error','approver_unavailable',
   'missing server-owned manager fails explicitly without fabricating an approver');
+select is(current_setting('test.approval.unrelated_action')::jsonb->>'error','forbidden',
+  'unrelated employee cannot decide another participant approval');
+
+select set_config('request.jwt.claim.sub','c1000000-0000-4000-8000-000000000002',true);
+set local role authenticated;
+select set_config('test.approval.inject_action_failure','on',true);
+select set_config('test.approval.action_failure',public.act_on_current_approval(
+  (current_setting('test.approval.action_failure_case')::jsonb->>'id')::uuid,
+  'reject',1,'注入动作写入失败','c4000000-0000-4000-8000-000000000009'
+)::text,true);
+select set_config('test.approval.inject_action_failure','off',true);
+select set_config('test.approval.action_failure_replay',public.act_on_current_approval(
+  (current_setting('test.approval.action_failure_case')::jsonb->>'id')::uuid,
+  'reject',1,'注入动作写入失败','c4000000-0000-4000-8000-000000000009'
+)::text,true);
+select set_config('test.approval.manager_approve',public.act_on_current_approval(
+  (current_setting('test.approval.valid')::jsonb->>'id')::uuid,
+  'approve',1,'同意推进','c4000000-0000-4000-8000-000000000004'
+)::text,true);
+select set_config('test.approval.manager_replay',public.act_on_current_approval(
+  (current_setting('test.approval.valid')::jsonb->>'id')::uuid,
+  'approve',1,'同意推进','c4000000-0000-4000-8000-000000000004'
+)::text,true);
+select set_config('test.approval.manager_reject',public.act_on_current_approval(
+  (current_setting('test.approval.reject_case')::jsonb->>'id')::uuid,
+  'reject',1,'预算依据不足','c4000000-0000-4000-8000-000000000005'
+)::text,true);
+select set_config('test.approval.manager_return',public.act_on_current_approval(
+  (current_setting('test.approval.return_case')::jsonb->>'id')::uuid,
+  'return',1,'请补充业务说明','c4000000-0000-4000-8000-000000000006'
+)::text,true);
+reset role;
+select is(current_setting('test.approval.action_failure')::jsonb->>'error','command_failed',
+  'injected decision action failure returns a bounded durable failure');
+select is(current_setting('test.approval.action_failure_replay')::jsonb,
+  current_setting('test.approval.action_failure')::jsonb,
+  'failed decision replays the exact terminal failure');
+select ok((select approval.version=1 and approval.status='pending'
+    and exists(select 1 from public.approval_steps step where step.approval_id=approval.id
+      and step.step_order=1 and step.status='pending' and step.acted_at is null)
+    and not exists(select 1 from public.approval_actions action
+      where action.approval_id=approval.id and action.action_type='reject')
+  from public.approvals approval
+  where approval.public_id=(current_setting('test.approval.action_failure_case')::jsonb->>'id')::uuid),
+  'decision action failure rolls back approval step and action facts atomically');
+select ok(exists(select 1 from public.audit_logs audit
+  where audit.request_id='c4000000-0000-4000-8000-000000000009'
+    and audit.action='approval.command_failed' and audit.metadata->>'failure'='command_failed'),
+  'failed decision persists bounded audit evidence outside the mutation subtransaction');
+select ok(current_setting('test.approval.manager_approve')::jsonb->>'outcome'='success'
+  and (current_setting('test.approval.manager_approve')::jsonb->>'version')::bigint=2
+  and (current_setting('test.approval.manager_approve')::jsonb->'entity'->>'currentStepOrder')::integer=2,
+  'current manager advances exactly one optimistic version and one step');
+select is(current_setting('test.approval.manager_replay')::jsonb,
+  current_setting('test.approval.manager_approve')::jsonb,
+  'same approval action request replays the exact canonical result');
+select ok((select action.actor_employee_id=manager.id
+  from public.approval_actions action
+  join public.approvals approval on approval.id=action.approval_id
+  join public.employee_profiles manager on manager.id=action.actor_employee_id
+  where approval.public_id=(current_setting('test.approval.valid')::jsonb->>'id')::uuid
+    and action.action_type='approve' and manager.display_name='approval-manager'),
+  'decision actor is derived from the exact authenticated employee');
+select ok(current_setting('test.approval.manager_reject')::jsonb->'entity'->>'status'='rejected'
+  and exists(select 1 from public.approvals approval
+    join public.approval_steps step on step.approval_id=approval.id and step.step_order=1
+    join public.approval_actions action on action.approval_id=approval.id and action.action_type='reject'
+    where approval.public_id=(current_setting('test.approval.reject_case')::jsonb->>'id')::uuid
+      and approval.completed_at is not null and step.status='rejected' and step.acted_at is not null
+      and action.content='预算依据不足'
+      and not exists(select 1 from public.approval_steps later
+        where later.approval_id=approval.id and later.step_order>1 and later.status<>'skipped')),
+  'current manager rejection persists terminal step action and skipped successors');
+select ok(current_setting('test.approval.manager_return')::jsonb->'entity'->>'status'='returned'
+  and exists(select 1 from public.approvals approval
+    join public.approval_steps step on step.approval_id=approval.id and step.step_order=1
+    join public.approval_actions action on action.approval_id=approval.id and action.action_type='return'
+    where approval.public_id=(current_setting('test.approval.return_case')::jsonb->>'id')::uuid
+      and approval.completed_at is not null and step.status='returned' and step.acted_at is not null
+      and action.content='请补充业务说明'
+      and not exists(select 1 from public.approval_steps later
+        where later.approval_id=approval.id and later.step_order>1 and later.status<>'skipped')),
+  'current manager return persists terminal step action and skipped successors');
+select ok(exists(select 1 from public.audit_logs audit
+  where audit.request_id='c4000000-0000-4000-8000-000000000004'
+    and audit.action='approval.step_approved'
+    and audit.metadata->>'resultingStatus'='pending'
+    and (audit.metadata->>'resultingVersion')::bigint=2
+    and (audit.metadata->>'currentStepOrder')::integer=2),
+  'intermediate approval emits a distinct step audit with bounded next-state metadata');
+
+select set_config('request.jwt.claim.sub','c1000000-0000-4000-8000-000000000003',true);
+set local role authenticated;
+select set_config('test.approval.finance_conflict',public.act_on_current_approval(
+  (current_setting('test.approval.valid')::jsonb->>'id')::uuid,
+  'approve',1,null,'c4000000-0000-4000-8000-000000000007'
+)::text,true);
+select set_config('test.approval.finance_approve',public.act_on_current_approval(
+  (current_setting('test.approval.valid')::jsonb->>'id')::uuid,
+  'approve',2,'财务复核通过','c4000000-0000-4000-8000-000000000008'
+)::text,true);
+select set_config('test.approval.action_scope_conflict',public.act_on_current_approval(
+  (current_setting('test.approval.valid')::jsonb->>'id')::uuid,
+  'reject',2,'复用请求攻击','c4000000-0000-4000-8000-000000000008'
+)::text,true);
+reset role;
+select is(current_setting('test.approval.finance_conflict')::jsonb->>'error','conflict',
+  'stale current approver receives an optimistic version conflict');
+select ok(current_setting('test.approval.finance_approve')::jsonb->'entity'->>'status'='approved'
+  and (current_setting('test.approval.finance_approve')::jsonb->>'version')::bigint=3,
+  'final approver completes the approval at the next version');
+select is(current_setting('test.approval.action_scope_conflict')::jsonb->>'error','scope_conflict',
+  'one action request id cannot be rebound to another command payload');
+select ok(exists(select 1 from public.audit_logs audit
+  where audit.request_id='c4000000-0000-4000-8000-000000000008'
+    and audit.action='approval.command_failed' and audit.metadata->>'failure'='scope_conflict'),
+  'action request rebinding attack appends bounded failure audit evidence');
+select is((select count(*) from public.approval_actions action
+  join public.approvals approval on approval.id=action.approval_id
+  where approval.public_id=(current_setting('test.approval.valid')::jsonb->>'id')::uuid
+    and action.action_type='approve'),2::bigint,
+  'manager replay and stale writer create no duplicate decision actions');
+select ok(exists(select 1 from public.audit_logs audit
+  where audit.request_id='c4000000-0000-4000-8000-000000000008'
+    and audit.action='approval.approved'
+    and audit.metadata::text not like '%财务复核通过%'),
+  'decision audit stores a digest without the raw private comment');
+select is((select count(*) from public.approval_action_idempotency ledger
+  where ledger.request_id='c4000000-0000-4000-8000-000000000004'),1::bigint,
+  'replayed decision owns one private ledger record');
+select ok(exists(select 1 from public.audit_logs audit
+  where audit.request_id='c4000000-0000-4000-8000-000000000007'
+    and audit.action='approval.command_failed' and audit.metadata->>'failure'='conflict'),
+  'optimistic conflict persists bounded audit evidence');
 
 update public.roles role set is_enabled=false where role.code='approval_test_reviewer'
   and role.tenant_id=(select tenant.id from public.tenants tenant where tenant.slug='approval-workflow-a');
@@ -446,6 +699,11 @@ select is(current_setting('test.approval.cross_tenant')::jsonb->>'error','templa
 select is(current_setting('test.approval.other_tenant_visible')::bigint,0::bigint,
   'second tenant cannot read the first tenant approval');
 
+select throws_ok(
+  $$update public.approval_actions set content='tampered'
+    where action_type in ('approve','reject','return','cancel')$$,
+  '42501','Approval actions are append-only','completed approval actions reject mutation'
+);
 select throws_ok(
   $$update public.approval_templates set title='mutated' where public_id=current_setting('test.approval.template_a')::uuid$$,
   '42501','Approval template versions are immutable','template versions reject in-place edits'

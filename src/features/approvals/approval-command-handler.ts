@@ -13,10 +13,13 @@ export type ApprovalCommandDependencies = {
 };
 
 const PUBLIC_FAILURES = new Set([
-  "forbidden", "template_not_found", "invalid_form", "approver_unavailable", "conflict", "scope_conflict",
+  "forbidden", "template_not_found", "approval_not_found", "invalid_form", "approver_unavailable",
+  "invalid_state", "conflict", "scope_conflict",
 ]);
 const APPROVAL_TYPES = new Set(["reimbursement", "purchase", "contract"]);
 const APPROVAL_STATUSES = new Set(["pending"]);
+const ACTION_COMMANDS = new Set(["approve", "reject", "return", "cancel"]);
+const ACTION_STATUSES = new Set(["pending", "approved", "rejected", "returned", "cancelled"]);
 const APPROVAL_CODE_PATTERN = /^AP-[0-9A-F]{20}$/;
 const TIMESTAMP_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(?:Z|[+-](\d{2}):(\d{2}))$/;
 
@@ -55,10 +58,70 @@ function timestamp(value: unknown) {
 
 function failureStatus(error: string) {
   if (error === "forbidden") return 403;
-  if (error === "template_not_found") return 404;
+  if (["template_not_found", "approval_not_found"].includes(error)) return 404;
   if (error === "invalid_form") return 422;
-  if (["approver_unavailable", "conflict", "scope_conflict"].includes(error)) return 409;
+  if (["approver_unavailable", "invalid_state", "conflict", "scope_conflict"].includes(error)) return 409;
   return 503;
+}
+
+function canonicalApprovalAction(
+  value: unknown,
+  expectedId: string,
+  expectedVersion: number,
+  expectedCommand: string,
+  expectedComment: string | null,
+) {
+  const root = record(value);
+  if (!root || !exactKeys(root, ["outcome", "resource", "id", "version", "entity"])
+    || root.outcome !== "success" || root.resource !== "approval") return null;
+  const entity = record(root.entity);
+  const lastAction = record(entity?.lastAction);
+  const id = canonicalUuid(root.id);
+  const version = root.version;
+  const status = entity?.status;
+  const currentStep = entity?.currentStep;
+  const currentStepOrder = entity?.currentStepOrder;
+  const ownerEmployeeId = entity?.ownerEmployeeId === null
+    ? null : canonicalUuid(entity?.ownerEmployeeId);
+  const completedAt = entity?.completedAt === null ? null : timestamp(entity?.completedAt);
+  const actionComment = lastAction?.comment === null ? null : boundedText(lastAction?.comment, 500);
+  if (!entity || !lastAction
+    || !exactKeys(entity, [
+      "id", "version", "status", "currentStep", "currentStepOrder", "ownerEmployeeId",
+      "completedAt", "lastAction",
+    ])
+    || !exactKeys(lastAction, ["type", "comment", "actedAt"])
+    || id !== expectedId || canonicalUuid(entity.id) !== id
+    || !Number.isSafeInteger(version) || Number(version) !== expectedVersion + 1
+    || entity.version !== version
+    || typeof status !== "string" || !ACTION_STATUSES.has(status)
+    || lastAction.type !== expectedCommand
+    || (lastAction.comment !== null && !actionComment)
+    || lastAction.comment !== expectedComment
+    || !timestamp(lastAction.actedAt)) return null;
+  const expectedStatuses = expectedCommand === "approve"
+    ? new Set(["pending", "approved"])
+    : new Set([expectedCommand === "reject" ? "rejected"
+      : expectedCommand === "return" ? "returned" : "cancelled"]);
+  if (!expectedStatuses.has(status)) return null;
+  const pending = status === "pending";
+  if (pending) {
+    if (!boundedText(currentStep, 120) || !Number.isSafeInteger(currentStepOrder)
+      || Number(currentStepOrder) < 1 || !ownerEmployeeId || completedAt !== null) return null;
+  } else if (currentStep !== null || currentStepOrder !== null || entity.ownerEmployeeId !== null
+    || !completedAt || Date.parse(completedAt) !== Date.parse(String(lastAction.actedAt))) return null;
+  return {
+    id, version: Number(version), status,
+    currentStep: pending ? String(currentStep) : null,
+    currentStepOrder: pending ? Number(currentStepOrder) : null,
+    ownerEmployeeId: pending ? ownerEmployeeId : null,
+    completedAt,
+    lastAction: {
+      type: expectedCommand,
+      comment: actionComment,
+      actedAt: String(lastAction.actedAt),
+    },
+  };
 }
 
 function canonicalApproval(value: unknown, expectedTemplateId: string) {
@@ -141,6 +204,58 @@ export async function handleApprovalSubmission(
   }
   const approval = canonicalApproval(rpcResult.data, templateId);
   return approval ? json({ outcome: "success", resource: "approval", approval }, 201)
+    : json({ error: "approval_command_unavailable" }, 503);
+}
+
+export async function handleApprovalAction(
+  request: Request,
+  approvalIdInput: string,
+  dependencies: ApprovalCommandDependencies,
+) {
+  if (!dependencies.session) return json({ error: "unauthorized" }, 401);
+  if (dependencies.session.member.status !== "active") return json({ error: "forbidden" }, 403);
+  const approvalId = canonicalUuid(approvalIdInput);
+  const parsed = await strictBody(request);
+  if (!parsed.ok) return parsed.response;
+  if (!approvalId || !exactKeys(parsed.value, ["command", "expectedVersion", "comment"])) {
+    return json({ error: "invalid_request" }, 400);
+  }
+  const command = typeof parsed.value.command === "string" ? parsed.value.command : "";
+  const expectedVersion = parsed.value.expectedVersion;
+  const rawComment = parsed.value.comment;
+  const comment = rawComment === null ? null : boundedText(rawComment, 500);
+  const idempotencyKey = canonicalUuid(request.headers.get("Idempotency-Key"));
+  if (!ACTION_COMMANDS.has(command) || !Number.isSafeInteger(expectedVersion)
+    || Number(expectedVersion) < 1 || Number(expectedVersion) > 2_147_483_647 || !idempotencyKey
+    || (rawComment !== null && !comment)
+    || (command !== "approve" && !comment)) {
+    return json({ error: "invalid_request" }, 400);
+  }
+  let rpcResult: RpcResult;
+  try {
+    rpcResult = await dependencies.rpc("act_on_current_approval", {
+      approval_public_id: approvalId,
+      command,
+      expected_version: Number(expectedVersion),
+      comment,
+      request_id: idempotencyKey,
+    });
+  } catch {
+    return json({ error: "approval_command_unavailable" }, 503);
+  }
+  if (rpcResult.error) {
+    return rpcResult.error.code === "42501" ? json({ error: "forbidden" }, 403)
+      : json({ error: "approval_command_unavailable" }, 503);
+  }
+  const failure = record(rpcResult.data);
+  if (failure?.outcome === "failure" && exactKeys(failure, ["outcome", "error"])
+    && typeof failure.error === "string" && PUBLIC_FAILURES.has(failure.error)) {
+    return json({ error: failure.error }, failureStatus(failure.error));
+  }
+  const approval = canonicalApprovalAction(
+    rpcResult.data, approvalId, Number(expectedVersion), command, comment,
+  );
+  return approval ? json({ outcome: "success", resource: "approval", approval })
     : json({ error: "approval_command_unavailable" }, 503);
 }
 
