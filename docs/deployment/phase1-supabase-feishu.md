@@ -226,7 +226,11 @@ npm run phase1:provision
 - [ ] 使用最终部署 origin 重新构建应用，并从指定测试员工浏览器确认任务深链可访问；不要把本地地址当作生产 origin。
 - [ ] 确认 App ID 只在服务器运行时使用，App Secret 和 `service_role` 只存在于服务器运行时秘密配置中。
 
-当前阶段只支持单个 Next.js 实例、低并发的请求内通知投递，不支持多实例并行消费或自动重试。`task_notifications` 记录投递状态，但当前还不是带跨实例 claim/lease 的完整 outbox worker；飞书已接收消息而数据库回写失败时会留下 `delivery_unconfirmed`，盲目重试可能产生重复消息。遇到该状态时先由管理员在飞书侧确认，再决定是否手动重试。扩大为多实例生产部署前，需要单独评审并补齐 outbox 并发领取、幂等和恢复机制；本阶段不扩展这些实现。
+`task_notifications` 与 `task_notification_delivery_attempts` 现在共同组成数据库权威 outbox：多实例通过 claim/lease 互斥领取，稳定的 attempt token 同时作为飞书消息 `uuid`，每次超时恢复都会轮换独立的 lease token 和 generation，旧工作进程不能再写失败或终态。若飞书已接收但响应或数据库回写丢失，重试必须等待当前两分钟 lease 到期，然后复用原 attempt token；不得创建新的通知或绕过 `claim_task_notification_delivery_v2` 直接发送。若 provider message ID 已落库但终态未完成，重试只执行 finalize，不再次调用飞书。
+
+批量创建任务会为每条通知分别发送一张可独立恢复的幂等卡片，即使接收人相同也不临时合并。跨任务聚合只有在后续具备持久化 batch 实体、完整成员绑定和崩溃恢复协议后才可启用。手工“重试通知”除 `task.manage` 外还必须通过任务所属项目的 `can_manage_project` 授权，失败统一返回不可枚举的 `not_found`。
+
+当前没有独立的后台自动重试调度器；任务创建请求和受控“重试通知”入口会驱动恢复。生产监控必须告警持续的 `delivery_unconfirmed`、过期 `claimed` 和 `provider_accepted` 状态，并由同一受控入口恢复，禁止直接改表。
 
 ## 7. 五岗位和拒绝场景验收
 
@@ -262,5 +266,6 @@ npm run phase1:provision
 ## 当前尚未完成的外部验证
 
 - 当前本机没有 Docker/Podman，因此 `supabase db reset` 和 pgTAP 数据库测试是 **NOT RUN — ENVIRONMENT BLOCKED**，不能写成已通过。
+- 通知 lease fencing 的顺序场景已有静态和 pgTAP 用例；真实两个数据库会话同时 claim/recover 的并发验证仍必须在具备 PostgreSQL/Supabase 运行时的 clean reset 环境执行。
 - 真实 Supabase 云项目、飞书 App 凭据和公司确认后的员工名单尚未提供；云端迁移、真实名单导入和五岗位飞书联调均待企业资料到位后按本手册执行。
 - 本手册和代码不包含任何真实 Secret、Token 或真实员工数据。

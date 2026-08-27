@@ -281,7 +281,7 @@ git commit -m "feat: add verified business file uploads"
 **Files:**
 - Modify: `package.json`
 - Modify: `package-lock.json`
-- Create: `supabase/migrations/202608260017_notification_outbox_v2.sql`
+- Create: `supabase/migrations/202608270008_notification_outbox_v2.sql`
 - Create: `supabase/tests/notification_outbox.sql`
 - Create: `src/features/feishu/feishu-transport.ts`
 - Create: `src/features/feishu/feishu-transport.test.ts`
@@ -289,13 +289,16 @@ git commit -m "feat: add verified business file uploads"
 - Modify: `src/features/workstation/task-notification.ts`
 - Modify: `src/features/workstation/task-notification-batch.test.ts`
 - Modify: `src/features/workstation/task-notification-batch.ts`
+- Modify: `src/app/api/workstation/tasks/[taskId]/notify/handler.test.ts`
+- Modify: `src/app/api/workstation/tasks/[taskId]/notify/handler.ts`
 
 **Interfaces:**
-- Produces claim/complete/fail RPCs keyed by notification ID and attempt token.
+- Produces claim/accept/complete/fail RPCs keyed by notification ID, stable attempt token, and rotating lease token.
 - Removes process-local `unconfirmedDeliveries` as source of reconciliation truth.
 - Produces a narrow `FeishuTransport` adapter backed by the pinned official `@larksuiteoapi/node-sdk`; business services never call the SDK directly.
+- Authorizes manual retries against `can_manage_project`; global `task.manage` alone is insufficient.
 
-- [ ] **Step 1: Write failing restart and duplicate-delivery tests**
+- [x] **Step 1: Write failing restart and duplicate-delivery tests**
 
 ```ts
 expect(await recoverAfterProcessRestart(notificationId)).toEqual({ action: "reconcile", messageId });
@@ -303,25 +306,29 @@ expect(await concurrentClaims(notificationId)).toHaveLength(1);
 expect(await sdkLostResponseRetry(notificationId)).toHaveLength(1);
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `npx vitest run src/features/feishu/feishu-transport.test.ts src/features/workstation/task-notification.test.ts src/features/workstation/task-notification-batch.test.ts`
 Expected: restart loses the in-memory delivery record and no SDK transport adapter exists.
 
-- [ ] **Step 3: Implement database-backed attempts and reconciliation**
+- [x] **Step 3: Implement database-backed attempts and reconciliation**
 
-Persist attempt token before send, message ID immediately after send, and final state in a separate transaction. Retry reads DB state and never relies on an in-process Map. Pin and wrap the official Lark Node SDK for token lifecycle and typed message/card calls; preserve current timeout, safe error mapping, tenant scope, recipient dedupe, request evidence, and lost-response reconciliation.
+Persist attempt token before send, message ID immediately after send, and final state in a separate transaction. Retry reads DB state and never relies on an in-process Map. Rotate a fenced lease owner on recovery while preserving the Feishu UUID. Pin and wrap the official Lark Node SDK for token lifecycle and typed message/card calls; preserve bounded timeouts, safe error mapping, tenant scope, task-scope dedupe, request evidence, and lost-response reconciliation. Batch-created tasks send one independently recoverable provider message per notification; cross-task aggregation is deferred until a durable batch entity exists.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `npx vitest run src/features/feishu/feishu-transport.test.ts src/features/workstation/task-notification.test.ts src/features/workstation/task-notification-batch.test.ts`
 Run: `npm run db:test`
-Expected: one claim wins; restart recovery and duplicate protection pass.
+Expected: one claim wins; stale lease owners are rejected; restart recovery, project authorization, and duplicate protection pass. When no local PostgreSQL/Supabase runtime exists, only application/static checks may be recorded as passed; clean reset, live pgTAP, and real two-session concurrency remain external release gates.
 
-- [ ] **Step 5: Commit**
+Verified locally on 2026-08-27: focused notification/API tests 71/71; complete unit suite 163 files and 1123/1123 tests; workstation HTML suite 151/151; TypeScript, production build, coverage gate, security gate, and high-severity dependency audit passed. ESLint reported 0 errors and one pre-existing generated coverage warning. Independent API review returned CLEAN; independent SQL static review returned CLEAN with a pgTAP plan/assertion count of 59/59.
+
+Not executed locally: clean Supabase reset, live pgTAP, and true two-session PostgreSQL concurrency, because this workstation has no PostgreSQL, Supabase CLI, or Docker runtime. They remain mandatory external release gates; the 59/59 count is static and is not a database execution result.
+
+- [x] **Step 5: Commit**
 
 ```bash
-git add package.json package-lock.json supabase/migrations/202608260017_notification_outbox_v2.sql supabase/tests/notification_outbox.sql src/features/feishu/feishu-transport.ts src/features/feishu/feishu-transport.test.ts src/features/workstation/task-notification.test.ts src/features/workstation/task-notification.ts src/features/workstation/task-notification-batch.test.ts src/features/workstation/task-notification-batch.ts
+git add package.json package-lock.json THIRD_PARTY_NOTICES.md docs/audits/2026-08-27-open-source-backend-reuse-audit.md docs/deployment/phase1-supabase-feishu.md docs/superpowers/plans/2026-08-26-quantxy-03-project-task-delivery.md supabase/migrations/202608270008_notification_outbox_v2.sql supabase/tests/notification_outbox.sql src/features/feishu/feishu-transport.ts src/features/feishu/feishu-transport.test.ts src/features/feishu/task-notification.ts src/features/feishu/task-notification.test.ts src/features/workstation/task-notification-v2-migration.test.ts src/features/workstation/task-notification.test.ts src/features/workstation/task-notification.ts src/features/workstation/task-notification-batch.test.ts src/features/workstation/task-notification-batch.ts src/app/api/workstation/tasks/[taskId]/notify/handler.test.ts src/app/api/workstation/tasks/[taskId]/notify/handler.ts
 git commit -m "feat: persist Feishu notification delivery state"
 ```
 

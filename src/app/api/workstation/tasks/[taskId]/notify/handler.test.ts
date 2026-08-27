@@ -1,6 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createWorkstationTaskNotifyHandler } from "@/app/api/workstation/tasks/[taskId]/notify/handler";
+const external = vi.hoisted(() => ({
+  getSupabaseServerClient: vi.fn(),
+  rpc: vi.fn(),
+}));
+
+vi.mock("@/lib/supabase/server", () => ({
+  getSupabaseServerClient: external.getSupabaseServerClient,
+}));
+
+import {
+  createWorkstationTaskNotifyHandler,
+  defaultWorkstationTaskNotifyDependencies,
+} from "@/app/api/workstation/tasks/[taskId]/notify/handler";
 import * as notifyRoute from "@/app/api/workstation/tasks/[taskId]/notify/route";
 
 const taskId = "44444444-4444-4444-8444-444444444444";
@@ -11,6 +23,12 @@ const managerSession = {
   member: { id: 7 },
   permissionCodes: ["task.manage"],
 };
+
+beforeEach(() => {
+  external.rpc.mockReset();
+  external.getSupabaseServerClient.mockReset();
+  external.getSupabaseServerClient.mockResolvedValue({ rpc: external.rpc });
+});
 
 function notifyRequest() {
   return new Request(
@@ -32,10 +50,38 @@ function routeContext(value = taskId) {
 }
 
 describe("workstation task notification retry", () => {
+  it("uses the authenticated database project ACL for the default authorization", async () => {
+    external.rpc.mockResolvedValue({
+      data: { outcome: "success", taskId }, error: null,
+    });
+
+    await expect(defaultWorkstationTaskNotifyDependencies.authorizeTask(taskId))
+      .resolves.toBe(true);
+    expect(external.rpc).toHaveBeenCalledWith(
+      "authorize_current_task_notification_retry",
+      { p_task_public_id: taskId },
+    );
+  });
+
+  it("fails closed on denied or malformed default authorization results", async () => {
+    external.rpc.mockResolvedValueOnce({
+      data: { outcome: "failure", error: "not_found" }, error: null,
+    });
+    await expect(defaultWorkstationTaskNotifyDependencies.authorizeTask(taskId))
+      .resolves.toBe(false);
+
+    external.rpc.mockResolvedValueOnce({
+      data: [{ outcome: "success", taskId }], error: null,
+    });
+    await expect(defaultWorkstationTaskNotifyDependencies.authorizeTask(taskId))
+      .rejects.toThrow(/^notification_authorization_unavailable$/);
+  });
+
   it("returns 401 without a workspace session", async () => {
     const notifyTask = vi.fn();
     const handler = createWorkstationTaskNotifyHandler({
       loadSession: async () => null,
+      authorizeTask: vi.fn().mockResolvedValue(true),
       notifyTask,
     });
 
@@ -53,6 +99,7 @@ describe("workstation task notification retry", () => {
         ...managerSession,
         permissionCodes: ["task.execute"],
       }),
+      authorizeTask: vi.fn().mockResolvedValue(true),
       notifyTask,
     });
 
@@ -67,6 +114,7 @@ describe("workstation task notification retry", () => {
     const notifyTask = vi.fn();
     const handler = createWorkstationTaskNotifyHandler({
       loadSession: async () => managerSession,
+      authorizeTask: vi.fn().mockResolvedValue(true),
       notifyTask,
     });
 
@@ -81,6 +129,7 @@ describe("workstation task notification retry", () => {
     const notifyTask = vi.fn().mockResolvedValue({ status: "sent" as const });
     const handler = createWorkstationTaskNotifyHandler({
       loadSession: async () => managerSession,
+      authorizeTask: vi.fn().mockResolvedValue(true),
       notifyTask,
     });
 
@@ -106,6 +155,7 @@ describe("workstation task notification retry", () => {
     async (notification) => {
       const handler = createWorkstationTaskNotifyHandler({
         loadSession: async () => managerSession,
+        authorizeTask: vi.fn().mockResolvedValue(true),
         notifyTask: vi.fn().mockResolvedValue(notification),
       });
 
@@ -121,6 +171,7 @@ describe("workstation task notification retry", () => {
     const sensitiveMessage = "Feishu rejected open_id ou_secret with token abc123";
     const handler = createWorkstationTaskNotifyHandler({
       loadSession: async () => managerSession,
+      authorizeTask: vi.fn().mockResolvedValue(true),
       notifyTask: vi.fn().mockRejectedValue(new Error(sensitiveMessage)),
     });
 
@@ -136,6 +187,7 @@ describe("workstation task notification retry", () => {
   it("normalizes synchronous retry failures", async () => {
     const handler = createWorkstationTaskNotifyHandler({
       loadSession: async () => managerSession,
+      authorizeTask: vi.fn().mockResolvedValue(true),
       notifyTask: vi.fn().mockImplementation(() => {
         throw new Error("sensitive synchronous provider failure");
       }),
@@ -155,5 +207,38 @@ describe("workstation task notification retry", () => {
     for (const method of ["GET", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]) {
       expect(notifyRoute).not.toHaveProperty(method);
     }
+  });
+
+  it("returns 404 when a globally permitted employee cannot manage the task project", async () => {
+    const notifyTask = vi.fn();
+    const authorizeTask = vi.fn().mockResolvedValue(false);
+    const handler = createWorkstationTaskNotifyHandler({
+      loadSession: async () => managerSession,
+      authorizeTask,
+      notifyTask,
+    });
+
+    const response = await handler(notifyRequest(), routeContext());
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "not_found" });
+    expect(authorizeTask).toHaveBeenCalledWith(taskId);
+    expect(notifyTask).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when project authorization cannot be verified", async () => {
+    const notifyTask = vi.fn();
+    const handler = createWorkstationTaskNotifyHandler({
+      loadSession: async () => managerSession,
+      authorizeTask: vi.fn().mockRejectedValue(new Error("database unavailable")),
+      notifyTask,
+    });
+
+    const response = await handler(notifyRequest(), routeContext());
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({ error: "notification_authorization_unavailable" });
+    expect(notifyTask).not.toHaveBeenCalled();
   });
 });

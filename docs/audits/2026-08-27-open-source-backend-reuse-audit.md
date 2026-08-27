@@ -83,3 +83,9 @@ The repository's current license adds terms beyond Apache-2.0. It restricts bran
 - all external calls have bounded timeouts, safe error mapping, idempotency/reconciliation, durable audit, and testable retry behavior;
 - every dependency is pinned, license-recorded, vulnerability-scanned, and covered by unit plus integration tests;
 - an integration is rejected if it requires a second source of truth for identity, RBAC, projects, tasks, Agents, workflows, or audit.
+
+## Task 5 implementation record
+
+The approved Lark/Feishu SDK integration was implemented behind `src/features/feishu/feishu-transport.ts` with the exact package version `1.73.0`. QuantXY passes each durable notification attempt token to the SDK as the message `uuid`; ambiguous network/provider responses keep that attempt retryable so a restarted process reuses the same provider UUID. Recovery rotates a separate fenced lease token/generation, provider acceptance and terminal completion remain separate PostgreSQL transitions, and manual retries require the existing project-manager ACL. Batch-created tasks retain one independent provider identity per notification; transient cross-task aggregation was rejected until a durable batch entity exists. `EventDispatcher`, `CardActionHandler`, and `WSClient` were not adopted in this task.
+
+License attribution is recorded in `THIRD_PARTY_NOTICES.md`. The dependency vulnerability audit and local adapter/state-machine tests are release gates; a clean Supabase reset plus live pgTAP remains an external gate when no database runtime is available locally.

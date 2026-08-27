@@ -1,3 +1,8 @@
+import {
+  createFeishuTransport,
+  type FeishuTransport,
+} from "@/features/feishu/feishu-transport";
+
 export type FeishuTaskNotificationEnv = {
   appId: string;
   appSecret: string;
@@ -25,16 +30,13 @@ export type FeishuTaskBatchNotificationInput = {
 };
 
 type EnvSource = Readonly<Record<string, string | undefined>>;
-type FetchLike = (
-  input: RequestInfo | URL,
-  init?: RequestInit,
-) => Promise<Response>;
-type JsonRecord = Record<string, unknown>;
-
-const FEISHU_API_ORIGIN = "https://open.feishu.cn";
-const REQUEST_TIMEOUT_MS = 8_000;
 const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export type FeishuDeliveryOptions = {
+  idempotencyKey: string;
+  transport?: FeishuTransport;
+};
 
 function configurationUnavailable(): never {
   throw new Error("configuration_unavailable");
@@ -42,12 +44,6 @@ function configurationUnavailable(): never {
 
 function nonEmptyText(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function jsonRecord(value: unknown): JsonRecord | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as JsonRecord
-    : null;
 }
 
 function rootAppUrl(value: unknown) {
@@ -80,68 +76,6 @@ function validatedEnv(env: FeishuTaskNotificationEnv) {
   const appSecret = nonEmptyText(env.appSecret);
   if (!appId || !appSecret) return configurationUnavailable();
   return { appId, appSecret, appUrl: rootAppUrl(env.appUrl) };
-}
-
-async function fetchJsonWithTimeout(
-  fetchImpl: FetchLike,
-  input: RequestInfo | URL,
-  init: RequestInit,
-) {
-  const controller = new AbortController();
-  let timeoutId: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timeoutId = setTimeout(() => {
-      controller.abort();
-      reject(new Error("request_timeout"));
-    }, REQUEST_TIMEOUT_MS);
-  });
-
-  try {
-    const request = (async () => {
-      const response = await fetchImpl(input, {
-        ...init,
-        signal: controller.signal,
-      });
-      const body = await responseBody(response);
-      return { response, body };
-    })();
-    return await Promise.race([
-      request,
-      timeout,
-    ]);
-  } finally {
-    clearTimeout(timeoutId!);
-  }
-}
-
-async function responseBody(response: Response) {
-  return jsonRecord(await response.json().catch(() => null));
-}
-
-async function tenantAccessToken(
-  env: FeishuTaskNotificationEnv,
-  fetchImpl: FetchLike,
-) {
-  try {
-    const { response, body } = await fetchJsonWithTimeout(
-      fetchImpl,
-      `${FEISHU_API_ORIGIN}/open-apis/auth/v3/tenant_access_token/internal`,
-      {
-        method: "POST",
-        headers: new Headers({
-          "content-type": "application/json; charset=utf-8",
-        }),
-        body: JSON.stringify({ app_id: env.appId, app_secret: env.appSecret }),
-      },
-    );
-    const token = nonEmptyText(body?.tenant_access_token);
-    if (!response.ok || body?.code !== 0 || !token) {
-      throw new Error("token_unavailable");
-    }
-    return token;
-  } catch {
-    throw new Error("token_unavailable");
-  }
 }
 
 function notificationCard(
@@ -239,7 +173,7 @@ export function buildTaskNotificationLink(appUrl: string, taskId: string) {
 export async function sendFeishuTaskNotification(
   input: FeishuTaskNotificationInput,
   env: FeishuTaskNotificationEnv,
-  fetchImpl: FetchLike = fetch,
+  options: FeishuDeliveryOptions,
 ): Promise<{ messageId: string }> {
   const notificationEnv = validatedEnv(env);
   const taskUrl = buildTaskNotificationLink(notificationEnv.appUrl, input.taskId);
@@ -247,14 +181,14 @@ export async function sendFeishuTaskNotification(
     input.recipientOpenId,
     notificationCard(input, taskUrl),
     notificationEnv,
-    fetchImpl,
+    options,
   );
 }
 
 export async function sendFeishuTaskBatchNotification(
   input: FeishuTaskBatchNotificationInput,
   env: FeishuTaskNotificationEnv,
-  fetchImpl: FetchLike = fetch,
+  options: FeishuDeliveryOptions,
 ): Promise<{ messageId: string }> {
   const notificationEnv = validatedEnv(env);
   const recipientOpenId = nonEmptyText(input.recipientOpenId);
@@ -269,42 +203,40 @@ export async function sendFeishuTaskBatchNotification(
     recipientOpenId,
     batchNotificationCard(input, taskUrl),
     notificationEnv,
-    fetchImpl,
+    options,
   );
+}
+
+let cachedTransport: {
+  appId: string;
+  appSecret: string;
+  transport: FeishuTransport;
+} | null = null;
+
+function defaultTransport(notificationEnv: FeishuTaskNotificationEnv) {
+  if (cachedTransport?.appId === notificationEnv.appId
+      && cachedTransport.appSecret === notificationEnv.appSecret) {
+    return cachedTransport.transport;
+  }
+  const transport = createFeishuTransport(notificationEnv);
+  cachedTransport = {
+    appId: notificationEnv.appId,
+    appSecret: notificationEnv.appSecret,
+    transport,
+  };
+  return transport;
 }
 
 async function sendInteractiveCard(
   recipientOpenId: string,
   card: ReturnType<typeof notificationCard>,
   notificationEnv: FeishuTaskNotificationEnv,
-  fetchImpl: FetchLike,
+  options: FeishuDeliveryOptions,
 ) {
-  const token = await tenantAccessToken(notificationEnv, fetchImpl);
-
-  try {
-    const { response, body } = await fetchJsonWithTimeout(
-      fetchImpl,
-      `${FEISHU_API_ORIGIN}/open-apis/im/v1/messages?receive_id_type=open_id`,
-      {
-        method: "POST",
-        headers: new Headers({
-          authorization: `Bearer ${token}`,
-          "content-type": "application/json; charset=utf-8",
-        }),
-        body: JSON.stringify({
-          receive_id: recipientOpenId,
-          msg_type: "interactive",
-          content: JSON.stringify(card),
-        }),
-      },
-    );
-    const data = jsonRecord(body?.data);
-    const messageId = nonEmptyText(data?.message_id);
-    if (!response.ok || body?.code !== 0 || !messageId) {
-      throw new Error("send_failed");
-    }
-    return { messageId };
-  } catch {
-    throw new Error("send_failed");
-  }
+  const transport = options.transport ?? defaultTransport(notificationEnv);
+  return transport.sendInteractiveCard({
+    recipientOpenId,
+    card,
+    idempotencyKey: options.idempotencyKey,
+  });
 }
