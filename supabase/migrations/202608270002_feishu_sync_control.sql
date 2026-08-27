@@ -1989,7 +1989,7 @@ begin
       ) into v_locked_eligible;
       if v_locked_eligible then
         return jsonb_build_object(
-          'acquired', false, 'runId', null, 'cursor', p_cursor, 'attempt', 0,
+          'acquired', false, 'runId', null, 'cursor', null, 'attempt', 0,
           'reason', 'locked',
           'retryAfter', clock_timestamp() + interval '250 milliseconds'
         );

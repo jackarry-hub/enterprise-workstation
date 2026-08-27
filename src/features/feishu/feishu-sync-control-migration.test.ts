@@ -224,6 +224,25 @@ describe("Feishu synchronization control migration", () => {
     expect(lockedReturn).toContain("interval '250 milliseconds'");
   });
 
+  it("sanitizes the ready-but-connection-locked early return and rejects a stale-cursor mutation", () => {
+    const sql = migration();
+    const claimStart = sql.lastIndexOf("create function public.claim_feishu_sync_work(");
+    const claim = sql.slice(claimStart, sql.indexOf("create or replace function public.heartbeat_feishu_sync_work", claimStart));
+    const fallbackStart = claim.indexOf("-- diagnose skipped ready work");
+    const lockedEligibleStart = claim.indexOf("if v_locked_eligible then", fallbackStart);
+    const blockedDiagnosticStart = claim.indexOf("select connection.id, connection.tenant_id", lockedEligibleStart);
+    const lockedEligibleReturn = claim.slice(lockedEligibleStart, blockedDiagnosticStart);
+    const isSanitizedLockedResult = (block: string) => /if v_locked_eligible then\s+return jsonb_build_object\(\s*'acquired', false, 'runid', null, 'cursor', null, 'attempt', 0,\s*'reason', 'locked',\s*'retryafter', clock_timestamp\(\) \+ interval '250 milliseconds'\s*\);\s*end if;/.test(block);
+
+    expect(lockedEligibleStart).toBeGreaterThan(fallbackStart);
+    expect(blockedDiagnosticStart).toBeGreaterThan(lockedEligibleStart);
+    expect(isSanitizedLockedResult(lockedEligibleReturn)).toBe(true);
+
+    const cursorEchoMutation = lockedEligibleReturn.replace("'cursor', null", "'cursor', p_cursor");
+    expect(cursorEchoMutation).not.toBe(lockedEligibleReturn);
+    expect(isSanitizedLockedResult(cursorEchoMutation)).toBe(false);
+  });
+
   it("uses connection then lease then run locking for claim, apply and finish", () => {
     const sql = migration();
     const claimStart = sql.lastIndexOf("create function public.claim_feishu_sync_work(");
@@ -344,5 +363,34 @@ describe("Feishu synchronization control migration", () => {
     expect(pgTap).toContain("post-lock role revocation denies active lease metadata");
     expect(pgTap).toContain("post-lock provider disablement denies a new claim");
     expect(pgTap).toContain("provider disablement race creates no run");
+  });
+
+  it("terminalizes valid-fairness B through fenced apply before completing its lease", () => {
+    const pgTap = pgTapSource();
+    const validFairnessAssignment = "perform set_config('test.feishu_valid_locked_fairness', v_valid_claim_b::text, true)";
+    const validFairness = pgTap.indexOf(validFairnessAssignment);
+    const disableActorA = pgTap.indexOf("update public.roles set is_enabled = false", validFairness);
+    const lifecycle = pgTap.slice(validFairness, disableActorA);
+    const hasSupportedLifecycle = (block: string) => {
+      const apply = block.indexOf("select public.apply_feishu_directory_sync_fenced(");
+      const finish = block.indexOf("select public.finish_feishu_sync_work(");
+      if (apply < 0 || finish < 0 || apply >= finish) return false;
+      const applyInvocation = block.slice(apply, finish);
+      return applyInvocation.includes("v_valid_claim_b ->> 'runid'")
+        && applyInvocation.includes("'99000000-0000-4000-8000-000000000012'")
+        && applyInvocation.includes("'99000000-0000-4000-8000-000000000002'")
+        && applyInvocation.includes("'{\"complete\":true,\"departments\":[],\"positions\":[],\"employees\":[]}'::jsonb");
+    };
+
+    expect(validFairness).toBeGreaterThan(-1);
+    expect(disableActorA).toBeGreaterThan(validFairness);
+    expect(hasSupportedLifecycle(lifecycle)).toBe(true);
+
+    const missingApplyMutation = lifecycle.replace(
+      "select public.apply_feishu_directory_sync_fenced(",
+      "select public.apply_feishu_directory_sync_fenced_removed(",
+    );
+    expect(missingApplyMutation).not.toBe(lifecycle);
+    expect(hasSupportedLifecycle(missingApplyMutation)).toBe(false);
   });
 });
