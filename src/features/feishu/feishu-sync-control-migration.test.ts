@@ -187,6 +187,26 @@ describe("Feishu synchronization control migration", () => {
     expect(claim).toContain("interval '250 milliseconds'");
   });
 
+  it("never returns blocked lease metadata before the common post-lock authorization boundary", () => {
+    const sql = migration();
+    const claimStart = sql.lastIndexOf("create function public.claim_feishu_sync_work(");
+    const claim = sql.slice(claimStart, sql.indexOf("create or replace function public.heartbeat_feishu_sync_work", claimStart));
+    const fallbackStart = claim.indexOf("-- diagnose skipped ready work");
+    const commonLeaseLock = claim.indexOf("select * into v_lease", fallbackStart);
+    const fallback = claim.slice(fallbackStart, commonLeaseLock);
+    const fallbackLeaseLock = claim.slice(commonLeaseLock, claim.indexOf("join public.identity_providers provider", commonLeaseLock));
+
+    expect(fallback).not.toContain("'runid', v_blocked.run_id");
+    expect(fallback).not.toContain("'cursor', v_blocked.cursor");
+    expect(fallback).not.toContain("'attempt', v_blocked.attempt");
+    expect(fallback).not.toContain("'retryafter', v_blocked.retry_after");
+    expect(fallback).toContain("for update of connection skip locked");
+    expect(fallback).toContain("v_from_blocked_diagnostic := true");
+    expect(fallbackLeaseLock).toContain("if v_from_blocked_diagnostic then");
+    expect(fallbackLeaseLock).toContain("for update of lease skip locked");
+    expect(fallbackLeaseLock).toContain("'reason', 'locked'");
+  });
+
   it("uses connection then lease then run locking for claim, apply and finish", () => {
     const sql = migration();
     const claimStart = sql.lastIndexOf("create function public.claim_feishu_sync_work(");
@@ -292,11 +312,14 @@ describe("Feishu synchronization control migration", () => {
 
   it("keeps valid-lock fairness independent from actorless fairness and exercises post-lock authorization races", () => {
     const pgTap = pgTapSource();
-    const validFairness = pgTap.indexOf("test.feishu_valid_locked_fairness");
+    const validFairnessAssignment = "perform set_config('test.feishu_valid_locked_fairness', v_valid_claim_b::text, true)";
+    const findValidFairnessBehavior = (source: string) => source.indexOf(validFairnessAssignment);
+    const validFairness = findValidFairnessBehavior(pgTap);
     const disableActorA = pgTap.indexOf("update public.roles set is_enabled = false", validFairness);
 
     expect(validFairness).toBeGreaterThan(-1);
     expect(disableActorA).toBeGreaterThan(validFairness);
+    expect(findValidFairnessBehavior(pgTap.replace(validFairnessAssignment, ""))).toBe(-1);
     expect(pgTap).toContain("test.feishu_actorless_locked_fairness");
     expect(pgTap).toContain("test.feishu_revoked_metadata_sqlstate");
     expect(pgTap).toContain("test.feishu_disabled_provider_sqlstate");

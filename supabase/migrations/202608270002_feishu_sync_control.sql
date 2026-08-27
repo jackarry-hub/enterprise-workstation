@@ -1745,7 +1745,6 @@ declare
   v_connection record;
   v_lease public.feishu_sync_leases%rowtype;
   v_superseded_run public.directory_sync_runs%rowtype;
-  v_blocked record;
   v_run_id uuid;
   v_attempt integer := 1;
   v_actor uuid;
@@ -1757,6 +1756,7 @@ declare
   v_matching_connections bigint := 0;
   v_actor_eligible_connections bigint := 0;
   v_locked_eligible boolean := false;
+  v_from_blocked_diagnostic boolean := false;
 begin
   if p_mode not in ('full', 'incremental', 'reconcile')
      or p_lease_seconds not between 30 and 600
@@ -1995,10 +1995,11 @@ begin
         );
       end if;
 
-      select lease.run_id, lease.cursor, lease.attempt,
-             case when lease.status = 'running' then 'active_lease' else 'backoff' end as reason,
-             case when lease.status = 'running' then lease.lease_expires_at else lease.retry_after end as retry_after
-        into v_blocked
+      select connection.id, connection.tenant_id, connection.organization_id,
+             connection.identity_provider_id,
+             tenant.public_id as tenant_public_id,
+             organization.public_id as organization_public_id
+        into v_connection
         from public.directory_connections connection
         join public.identity_providers provider
           on provider.tenant_id = connection.tenant_id
@@ -2054,17 +2055,13 @@ begin
            )
          )
        order by case when lease.status = 'running' then 0 else 1 end,
-                coalesce(lease.lease_expires_at, lease.retry_after), connection.id
-       limit 1;
+                 coalesce(lease.lease_expires_at, lease.retry_after), connection.id
+       for update of connection skip locked limit 1;
       if found then
-        return jsonb_build_object(
-          'acquired', false, 'runId', v_blocked.run_id, 'cursor', v_blocked.cursor,
-          'attempt', v_blocked.attempt, 'reason', v_blocked.reason,
-          'retryAfter', v_blocked.retry_after
-        );
-      end if;
+        v_from_blocked_diagnostic := true;
+      else
 
-      select count(*) into v_matching_connections
+        select count(*) into v_matching_connections
         from public.directory_connections connection
         join public.identity_providers provider
           on provider.tenant_id = connection.tenant_id
@@ -2078,8 +2075,8 @@ begin
          and provider.provider_tenant_key = p_provider_tenant_key
          and connection.external_tenant_key = p_provider_tenant_key
          and (p_organization_public_id is null or organization.public_id = p_organization_public_id);
-      if p_organization_public_id is null then
-        select count(*) into v_actor_eligible_connections
+        if p_organization_public_id is null then
+          select count(*) into v_actor_eligible_connections
           from public.directory_connections connection
           join public.identity_providers provider
             on provider.tenant_id = connection.tenant_id
@@ -2122,35 +2119,52 @@ begin
                 and (candidate_role.organization_id is null or candidate_role.organization_id = connection.organization_id)
                 and candidate_permission.code = 'organization.manage'
            );
-        if v_matching_connections > 0 and v_actor_eligible_connections = 0 then
+          if v_matching_connections > 0 and v_actor_eligible_connections = 0 then
+            return jsonb_build_object(
+              'acquired', false, 'runId', null, 'cursor', p_cursor, 'attempt', 0,
+              'reason', 'actorless', 'retryAfter', null
+            );
+          end if;
+        end if;
+        if v_matching_connections > 0 then
           return jsonb_build_object(
             'acquired', false, 'runId', null, 'cursor', p_cursor, 'attempt', 0,
-            'reason', 'actorless', 'retryAfter', null
+            'reason', 'locked',
+            'retryAfter', clock_timestamp() + interval '250 milliseconds'
           );
         end if;
-      end if;
-      if v_matching_connections > 0 then
         return jsonb_build_object(
           'acquired', false, 'runId', null, 'cursor', p_cursor, 'attempt', 0,
-          'reason', 'locked',
-          'retryAfter', clock_timestamp() + interval '250 milliseconds'
+          'reason', 'no_connection', 'retryAfter', null
         );
       end if;
-      return jsonb_build_object(
-        'acquired', false, 'runId', null, 'cursor', p_cursor, 'attempt', 0,
-        'reason', 'no_connection', 'retryAfter', null
-      );
     end if;
   end if;
 
   -- Every control path acquires mutable rows in the same order:
   -- directory connection -> lease -> claimed run.
-  select * into v_lease from public.feishu_sync_leases lease
-   where lease.connection_id = v_connection.id
-     and lease.tenant_id = v_connection.tenant_id
-     and lease.organization_id = v_connection.organization_id
-   for update of lease;
+  if not v_from_blocked_diagnostic then
+    select * into v_lease from public.feishu_sync_leases lease
+     where lease.connection_id = v_connection.id
+       and lease.tenant_id = v_connection.tenant_id
+       and lease.organization_id = v_connection.organization_id
+     for update of lease;
+  end if;
+  if v_from_blocked_diagnostic then
+    select * into v_lease from public.feishu_sync_leases lease
+     where lease.connection_id = v_connection.id
+       and lease.tenant_id = v_connection.tenant_id
+       and lease.organization_id = v_connection.organization_id
+     for update of lease skip locked;
+  end if;
   v_has_lease := found;
+  if v_from_blocked_diagnostic and not v_has_lease then
+    return jsonb_build_object(
+      'acquired', false, 'runId', null, 'cursor', null, 'attempt', 0,
+      'reason', 'locked',
+      'retryAfter', clock_timestamp() + interval '250 milliseconds'
+    );
+  end if;
 
   -- The connection and lease are now stable. Revalidate the exact provider,
   -- identity and organization.manage graph under row locks before disclosing

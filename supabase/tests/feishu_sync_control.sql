@@ -1,6 +1,6 @@
 begin;
 
-select plan(127);
+select plan(129);
 
 select has_table('public', 'feishu_oauth_attempts', 'OAuth attempts are durable');
 select has_table('public', 'feishu_webhook_events', 'provider events are durable');
@@ -813,6 +813,8 @@ select set_config('test.feishu_dblink_available', 'false', true);
 select set_config('test.feishu_fair_busy', '-1', true);
 select set_config('test.feishu_valid_locked_fairness', '{}'::jsonb::text, true);
 select set_config('test.feishu_actorless_locked_fairness', '{}'::jsonb::text, true);
+select set_config('test.feishu_blocked_full_claim', '{}'::jsonb::text, true);
+select set_config('test.feishu_blocked_reconcile_claim', '{}'::jsonb::text, true);
 select set_config('test.feishu_revoked_metadata_sqlstate', 'unobserved', true);
 select set_config('test.feishu_disabled_provider_sqlstate', 'unobserved', true);
 select set_config('test.feishu_disabled_provider_new_runs', '-1', true);
@@ -835,6 +837,8 @@ declare
   v_claim_a jsonb;
   v_claim_b jsonb;
   v_valid_claim_b jsonb;
+  v_blocked_full jsonb;
+  v_blocked_reconcile jsonb;
   v_apply jsonb;
   v_finish jsonb;
   v_takeover jsonb;
@@ -1168,6 +1172,81 @@ begin
     perform set_config('test.feishu_lock_a', v_claim_a::text, true);
     execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
       into v_status using 'feishu_lock_a', 'commit';
+
+    -- An active exact lease must never bypass the common post-lock boundary.
+    -- While A's connection is unavailable, full and reconcile diagnostics are
+    -- sanitized immediate locked results, never durable active-lease metadata.
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_a', 'begin';
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_a', $lock$
+        do $remote$
+        begin
+          perform 1 from public.directory_connections connection
+           where connection.organization_id = (
+             select id from public.organizations
+              where public_id = '99000000-0000-4000-8000-000000000011'
+           )
+           for update of connection;
+        end
+        $remote$
+      $lock$;
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_b', 'begin';
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_b', 'set local role service_role';
+    execute format('select %I.dblink_send_query($1, $2)', v_extension_schema)
+      into v_integer using 'feishu_lock_b', $query$
+        select public.claim_feishu_sync_work(
+          'full', null, 'feishu-lock-provider', 120,
+          '99000000-0000-4000-8000-000000000011',
+          '99000000-0000-4000-8000-000000000001'
+        )
+      $query$;
+    perform pg_sleep(0.05);
+    execute format('select %I.dblink_is_busy($1)', v_extension_schema)
+      into v_integer using 'feishu_lock_b';
+    if v_integer <> 0 then
+      raise exception 'feishu_blocked_full_claim_did_not_fail_closed_immediately' using errcode = '55000';
+    end if;
+    execute format(
+      'select result from %I.dblink_get_result($1) as remote(result jsonb)',
+      v_extension_schema
+    ) into v_blocked_full using 'feishu_lock_b';
+    v_blocked_full := v_blocked_full || jsonb_build_object(
+      'boundedRetryAfter',
+      (v_blocked_full ->> 'retryAfter')::timestamptz between
+        clock_timestamp() - interval '1 second' and clock_timestamp() + interval '2 seconds'
+    );
+    perform set_config('test.feishu_blocked_full_claim', v_blocked_full::text, true);
+    execute format('select %I.dblink_send_query($1, $2)', v_extension_schema)
+      into v_integer using 'feishu_lock_b', $query$
+        select public.claim_feishu_sync_work(
+          'reconcile', null, 'feishu-lock-provider', 120,
+          '99000000-0000-4000-8000-000000000011',
+          '99000000-0000-4000-8000-000000000001'
+        )
+      $query$;
+    perform pg_sleep(0.05);
+    execute format('select %I.dblink_is_busy($1)', v_extension_schema)
+      into v_integer using 'feishu_lock_b';
+    if v_integer <> 0 then
+      raise exception 'feishu_blocked_reconcile_claim_did_not_fail_closed_immediately' using errcode = '55000';
+    end if;
+    execute format(
+      'select result from %I.dblink_get_result($1) as remote(result jsonb)',
+      v_extension_schema
+    ) into v_blocked_reconcile using 'feishu_lock_b';
+    v_blocked_reconcile := v_blocked_reconcile || jsonb_build_object(
+      'boundedRetryAfter',
+      (v_blocked_reconcile ->> 'retryAfter')::timestamptz between
+        clock_timestamp() - interval '1 second' and clock_timestamp() + interval '2 seconds'
+    );
+    perform set_config('test.feishu_blocked_reconcile_claim', v_blocked_reconcile::text, true);
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_b', 'commit';
+    execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
+      into v_status using 'feishu_lock_a', 'rollback';
 
     -- Capture SQLSTATE inside the claiming backend. Its exact call passes the
     -- optimistic authorization check, then waits on the connection while C
@@ -1694,6 +1773,28 @@ begin
   end;
 end;
 $concurrency$;
+select case when current_setting('test.feishu_dblink_available') = 'true'
+  then ok(
+    current_setting('test.feishu_blocked_full_claim')::jsonb ->> 'reason' = 'locked'
+    and current_setting('test.feishu_blocked_full_claim')::jsonb ->> 'runId' is null
+    and current_setting('test.feishu_blocked_full_claim')::jsonb ->> 'cursor' is null
+    and (current_setting('test.feishu_blocked_full_claim')::jsonb ->> 'attempt')::integer = 0
+    and (current_setting('test.feishu_blocked_full_claim')::jsonb ->> 'boundedRetryAfter')::boolean,
+    'locked exact full diagnostic exposes no durable active lease metadata'
+  )
+  else ok(true, 'locked exact full diagnostic proof # SKIP dblink extension or local connection unavailable')
+end;
+select case when current_setting('test.feishu_dblink_available') = 'true'
+  then ok(
+    current_setting('test.feishu_blocked_reconcile_claim')::jsonb ->> 'reason' = 'locked'
+    and current_setting('test.feishu_blocked_reconcile_claim')::jsonb ->> 'runId' is null
+    and current_setting('test.feishu_blocked_reconcile_claim')::jsonb ->> 'cursor' is null
+    and (current_setting('test.feishu_blocked_reconcile_claim')::jsonb ->> 'attempt')::integer = 0
+    and (current_setting('test.feishu_blocked_reconcile_claim')::jsonb ->> 'boundedRetryAfter')::boolean,
+    'locked exact reconcile diagnostic exposes no durable active lease metadata'
+  )
+  else ok(true, 'locked exact reconcile diagnostic proof # SKIP dblink extension or local connection unavailable')
+end;
 select case when current_setting('test.feishu_dblink_available') = 'true'
   then is(
     current_setting('test.feishu_valid_locked_fairness')::jsonb ->> 'organizationId',
