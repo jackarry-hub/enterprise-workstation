@@ -1,5 +1,5 @@
 begin;
-select plan(58);
+select plan(91);
 
 select ok(has_table('public','customers'),'customers table exists');
 select ok(has_table('public','customer_contacts'),'customer contacts table exists');
@@ -36,6 +36,20 @@ select ok(
   and not has_table_privilege('authenticated','public.crm_command_idempotency','INSERT')
   and not has_table_privilege('service_role','public.crm_command_idempotency','SELECT'),
   'command ledger is unreachable outside security-definer commands'
+);
+select ok(
+  has_function_privilege('authenticated','public.create_current_opportunity(uuid,text,uuid,numeric,text,date,bigint,text,uuid,uuid)','EXECUTE')
+  and has_function_privilege('authenticated','public.transition_current_opportunity_stage(uuid,text,text,bigint,text,uuid,uuid)','EXECUTE')
+  and has_function_privilege('authenticated','public.create_current_customer_follow_up(uuid,uuid,text,text,timestamptz,bigint,text,uuid,uuid)','EXECUTE')
+  and has_function_privilege('authenticated','public.convert_current_opportunity_to_project(uuid,text,text,text,text,text,date,date,bigint,text,uuid,uuid)','EXECUTE')
+  and not has_function_privilege('anon','public.create_current_opportunity(uuid,text,uuid,numeric,text,date,bigint,text,uuid,uuid)','EXECUTE')
+  and not has_function_privilege('service_role','public.convert_current_opportunity_to_project(uuid,text,text,text,text,text,date,date,bigint,text,uuid,uuid)','EXECUTE'),
+  'only authenticated sessions can enter opportunity workflow commands'
+);
+select ok(
+  exists(select 1 from pg_indexes where schemaname='public'
+    and indexname='customer_project_links_one_active_opportunity_uidx'),
+  'one active delivery project is allowed per opportunity'
 );
 select ok(
   (select bool_and(relforcerowsecurity) from pg_class
@@ -127,7 +141,7 @@ where tenant.slug='crm-schema-a';
 insert into public.role_permissions(tenant_id,role_id,permission_id)
 select role.tenant_id,role.id,permission.id
 from public.roles role
-join public.permissions permission on permission.code='customer.manage'
+join public.permissions permission on permission.code in ('customer.manage','project.manage')
 where role.code='crm_schema_manager';
 insert into public.member_roles(tenant_id,member_id,role_id)
 select member.tenant_id,member.id,role.id
@@ -439,6 +453,220 @@ select ok(
   and not has_function_privilege('anon','public.can_read_current_customer(bigint,bigint,bigint)','EXECUTE'),
   'only authenticated sessions can evaluate customer RLS scope'
 );
+
+insert into public.opportunities(
+  public_id,tenant_id,organization_id,customer_id,owner_member_id,
+  created_by_member_id,updated_by_member_id,name,stage,amount,currency,expected_close_on,version
+)
+select 'a4900000-0000-4000-8000-000000000001',customer.tenant_id,customer.organization_id,
+  customer.id,customer.owner_member_id,customer.owner_member_id,customer.owner_member_id,
+  '回滚验证商机','won',660000.00,'CNY','2026-11-30',1
+from public.customers customer where customer.name_normalized='b 客户升级';
+
+select set_config('test.crm.historical_owner_employee',(
+  select profile.public_id::text from public.employee_profiles profile
+  join public.organization_members member on member.tenant_id=profile.tenant_id
+    and member.organization_id=profile.organization_id and member.id=profile.organization_member_id
+  where member.user_id='a4000000-0000-4000-8000-000000000003'
+),true);
+insert into public.opportunities(
+  public_id,tenant_id,organization_id,customer_id,owner_member_id,
+  created_by_member_id,updated_by_member_id,name,stage,amount,currency,expected_close_on,version
+)
+select 'a4900000-0000-4000-8000-000000000002',customer.tenant_id,customer.organization_id,
+  customer.id,owner_member.id,customer.owner_member_id,customer.owner_member_id,
+  '历史负责人商机','lead',120000.00,'CNY','2026-12-31',1
+from public.customers customer
+join public.organization_members owner_member on owner_member.tenant_id=customer.tenant_id
+  and owner_member.organization_id=customer.organization_id
+  and owner_member.user_id='a4000000-0000-4000-8000-000000000003'
+where customer.name_normalized='b 客户升级';
+update public.employee_profiles profile set deleted_at=clock_timestamp()
+where profile.public_id=current_setting('test.crm.historical_owner_employee')::uuid;
+
+create or replace function public.test_crm_reject_project_link()
+returns trigger
+language plpgsql
+set search_path=''
+as $$
+begin
+  if current_setting('test.crm.inject_link_failure',true)='on' then
+    raise exception 'injected customer project link failure';
+  end if;
+  return new;
+end;
+$$;
+create trigger test_crm_reject_project_link
+before insert on public.customer_project_links
+for each row execute function public.test_crm_reject_project_link();
+
+select set_config('request.jwt.claim.sub','a4000000-0000-4000-8000-000000000002',true);
+set local role authenticated;
+select throws_ok(
+  $$ select public.create_current_opportunity(
+    (current_setting('test.crm.created')::jsonb->>'id')::uuid,'无限日期商机',
+    current_setting('test.crm.owner_employee')::uuid,1.00,'CNY','infinity'::date,0,'拒绝无限日期',
+    'a4800000-0000-4000-8000-000000000021','a4800000-0000-4000-8000-000000000022'
+  ) $$,
+  '22023','CRM command is invalid','opportunity close date rejects PostgreSQL infinity'
+);
+select throws_ok(
+  $$ select public.create_current_customer_follow_up(
+    (current_setting('test.crm.created')::jsonb->>'id')::uuid,null,'note','无限时间跟进',
+    'infinity'::timestamptz,0,'拒绝无限时间',
+    'a4800000-0000-4000-8000-000000000023','a4800000-0000-4000-8000-000000000024'
+  ) $$,
+  '22023','CRM command is invalid','follow-up next action rejects PostgreSQL infinity'
+);
+select throws_ok(
+  $$ select public.convert_current_opportunity_to_project(
+    'a4900000-0000-4000-8000-000000000001','无限日期项目','拒绝无限日期','客户交付',
+    'planning','medium','infinity'::date,'infinity'::date,1,'拒绝无限日期',
+    'a4800000-0000-4000-8000-000000000025','a4800000-0000-4000-8000-000000000026'
+  ) $$,
+  '22023','CRM command is invalid','opportunity conversion rejects PostgreSQL infinite project dates'
+);
+select set_config('test.crm.historical_transition',public.transition_current_opportunity_stage(
+  'a4900000-0000-4000-8000-000000000002','qualified',null,1,'推进历史负责人商机',
+  'a4800000-0000-4000-8000-000000000027','a4800000-0000-4000-8000-000000000028'
+)::text,true);
+select set_config('test.crm.opportunity',public.create_current_opportunity(
+  (current_setting('test.crm.created')::jsonb->>'id')::uuid,'智能工厂二期',
+  current_setting('test.crm.owner_employee')::uuid,880000.00,'CNY',current_date+60,0,
+  '登记真实商机','a4800000-0000-4000-8000-000000000001','a4800000-0000-4000-8000-000000000002'
+)::text,true);
+select set_config('test.crm.opportunity_replay',public.create_current_opportunity(
+  (current_setting('test.crm.created')::jsonb->>'id')::uuid,'智能工厂二期',
+  current_setting('test.crm.owner_employee')::uuid,880000.00,'CNY',current_date+60,0,
+  '登记真实商机','a4800000-0000-4000-8000-000000000001','a4800000-0000-4000-8000-000000000002'
+)::text,true);
+select set_config('test.crm.opportunity_invalid',public.transition_current_opportunity_stage(
+  (current_setting('test.crm.opportunity')::jsonb->>'id')::uuid,'won',null,1,'禁止跳级',
+  'a4800000-0000-4000-8000-000000000003','a4800000-0000-4000-8000-000000000004'
+)::text,true);
+select set_config('test.crm.opportunity_qualified',public.transition_current_opportunity_stage(
+  (current_setting('test.crm.opportunity')::jsonb->>'id')::uuid,'qualified',null,1,'完成资格确认',
+  'a4800000-0000-4000-8000-000000000005','a4800000-0000-4000-8000-000000000006'
+)::text,true);
+select set_config('test.crm.opportunity_proposal',public.transition_current_opportunity_stage(
+  (current_setting('test.crm.opportunity')::jsonb->>'id')::uuid,'proposal',null,2,'提交正式方案',
+  'a4800000-0000-4000-8000-000000000007','a4800000-0000-4000-8000-000000000008'
+)::text,true);
+select set_config('test.crm.opportunity_won',public.transition_current_opportunity_stage(
+  (current_setting('test.crm.opportunity')::jsonb->>'id')::uuid,'won',null,3,'客户正式签约',
+  'a4800000-0000-4000-8000-000000000009','a4800000-0000-4000-8000-000000000010'
+)::text,true);
+select set_config('test.crm.opportunity_stale',public.transition_current_opportunity_stage(
+  (current_setting('test.crm.opportunity')::jsonb->>'id')::uuid,'lost','过期请求',3,'过期版本',
+  'a4800000-0000-4000-8000-000000000011','a4800000-0000-4000-8000-000000000012'
+)::text,true);
+select set_config('test.crm.follow_up',public.create_current_customer_follow_up(
+  (current_setting('test.crm.created')::jsonb->>'id')::uuid,
+  (current_setting('test.crm.opportunity')::jsonb->>'id')::uuid,
+  'meeting','确认正式交付范围',clock_timestamp()+interval '1 day',0,
+  '客户 13600000000 delivery@example.test',
+  'a4800000-0000-4000-8000-000000000013','a4800000-0000-4000-8000-000000000014'
+)::text,true);
+select set_config('test.crm.converted',public.convert_current_opportunity_to_project(
+  (current_setting('test.crm.opportunity')::jsonb->>'id')::uuid,
+  '智能工厂二期交付','正式交付项目','客户交付','planning','high',
+  '2026-09-01','2026-10-31',4,'赢单转交付项目',
+  'a4800000-0000-4000-8000-000000000015','a4800000-0000-4000-8000-000000000016'
+)::text,true);
+select set_config('test.crm.converted_replay',public.convert_current_opportunity_to_project(
+  (current_setting('test.crm.opportunity')::jsonb->>'id')::uuid,
+  '智能工厂二期交付','正式交付项目','客户交付','planning','high',
+  '2026-09-01','2026-10-31',4,'赢单转交付项目',
+  'a4800000-0000-4000-8000-000000000015','a4800000-0000-4000-8000-000000000016'
+)::text,true);
+select set_config('test.crm.converted_again',public.convert_current_opportunity_to_project(
+  (current_setting('test.crm.opportunity')::jsonb->>'id')::uuid,
+  '重复交付','不应创建','客户交付','planning','high',
+  '2026-09-01','2026-10-31',5,'重复转换检查',
+  'a4800000-0000-4000-8000-000000000017','a4800000-0000-4000-8000-000000000018'
+)::text,true);
+reset role;
+select set_config('test.crm.project_count_before_failure',(select count(*)::text from public.projects),true);
+set local role authenticated;
+select set_config('test.crm.inject_link_failure','on',true);
+select set_config('test.crm.conversion_rollback',public.convert_current_opportunity_to_project(
+  'a4900000-0000-4000-8000-000000000001','回滚验证项目','应整体回滚','客户交付',
+  'planning','medium','2026-09-01','2026-11-30',1,'注入关联失败',
+  'a4800000-0000-4000-8000-000000000019','a4800000-0000-4000-8000-000000000020'
+)::text,true);
+select set_config('test.crm.inject_link_failure','off',true);
+select set_config('test.crm.conversion_rollback_replay',public.convert_current_opportunity_to_project(
+  'a4900000-0000-4000-8000-000000000001','回滚验证项目','应整体回滚','客户交付',
+  'planning','medium','2026-09-01','2026-11-30',1,'注入关联失败',
+  'a4800000-0000-4000-8000-000000000019','a4800000-0000-4000-8000-000000000020'
+)::text,true);
+reset role;
+
+select is(current_setting('test.crm.opportunity')::jsonb->>'outcome','success','manager creates a lead opportunity');
+select is(current_setting('test.crm.historical_transition')::jsonb->>'outcome','success',
+  'opportunity remains transitionable after its historical owner profile is soft deleted');
+select is(current_setting('test.crm.historical_transition')::jsonb#>>'{entity,ownerEmployeePublicId}',
+  current_setting('test.crm.historical_owner_employee'),
+  'stage response preserves the soft-deleted historical owner public id');
+select is(current_setting('test.crm.opportunity_replay')::jsonb,current_setting('test.crm.opportunity')::jsonb,'opportunity create replays exactly');
+select is((select count(*) from public.opportunities where name='智能工厂二期'),1::bigint,'opportunity create is idempotent');
+select is(current_setting('test.crm.opportunity_invalid')::jsonb->>'error','invalid_stage','lead cannot jump directly to won');
+select is((current_setting('test.crm.opportunity_qualified')::jsonb->>'version')::bigint,2::bigint,'lead advances to qualified');
+select is((current_setting('test.crm.opportunity_proposal')::jsonb->>'version')::bigint,3::bigint,'qualified advances to proposal');
+select is((current_setting('test.crm.opportunity_won')::jsonb->>'version')::bigint,4::bigint,'proposal advances to won');
+select is(current_setting('test.crm.opportunity_stale')::jsonb->>'error','stale_version','stale stage transition is rejected');
+select is(current_setting('test.crm.follow_up')::jsonb->>'outcome','success','manager records a customer follow-up');
+select is((select follow_up.actor_member_id from public.customer_follow_ups follow_up
+  where follow_up.public_id=(current_setting('test.crm.follow_up')::jsonb->>'id')::uuid),
+  (select member.id from public.organization_members member where member.user_id='a4000000-0000-4000-8000-000000000002'),
+  'follow-up actor is derived from the authenticated member');
+select ok((select follow_up.occurred_at<=follow_up.next_follow_up_at
+  from public.customer_follow_ups follow_up
+  where follow_up.public_id=(current_setting('test.crm.follow_up')::jsonb->>'id')::uuid),
+  'follow-up occurrence uses server time before its next action');
+select ok(not exists(select 1 from public.audit_logs
+  where request_id='a4800000-0000-4000-8000-000000000013'
+    and (metadata::text like '%13600000000%' or metadata::text like '%delivery@example.test%')),
+  'follow-up audit excludes raw PII repeated in the caller reason');
+select is(current_setting('test.crm.converted')::jsonb->>'outcome','success','won opportunity converts to a project');
+select is(current_setting('test.crm.converted_replay')::jsonb,current_setting('test.crm.converted')::jsonb,'conversion replays both canonical ids');
+select ok(exists(select 1 from public.projects project
+  where project.public_id=(current_setting('test.crm.converted')::jsonb#>>'{entity,projectId}')::uuid
+    and project.budget_amount=880000.00),'converted project uses the authoritative opportunity amount');
+select ok(exists(select 1 from public.customer_project_links link
+  where link.public_id=(current_setting('test.crm.converted')::jsonb#>>'{entity,customerProjectLinkId}')::uuid
+    and link.opportunity_id=(select id from public.opportunities
+      where public_id=(current_setting('test.crm.opportunity')::jsonb->>'id')::uuid)),
+  'conversion writes the exact opportunity-project delivery link');
+select is((select version from public.opportunities
+  where public_id=(current_setting('test.crm.opportunity')::jsonb->>'id')::uuid),5::bigint,
+  'conversion versions the won opportunity');
+select is(current_setting('test.crm.converted_again')::jsonb->>'error','already_converted','one opportunity cannot create a second active project');
+select is(current_setting('test.crm.conversion_rollback')::jsonb->>'error','command_failed','injected link failure returns a durable command failure');
+select is(current_setting('test.crm.conversion_rollback_replay')::jsonb,
+  current_setting('test.crm.conversion_rollback')::jsonb,
+  'failed conversion replays the durable outer command result without creating a project');
+select is((select result->>'error' from public.crm_command_idempotency
+  where operation='convert_current_opportunity_to_project'
+    and idempotency_key='a4800000-0000-4000-8000-000000000020'),
+  'command_failed','outer CRM ledger persists the failed conversion result');
+select ok(exists(select 1 from public.audit_logs
+  where request_id='a4800000-0000-4000-8000-000000000019'
+    and action='customer.command_failed' and metadata->>'failure'='command_failed'),
+  'outer CRM failure audit persists after nested rollback');
+select ok(not exists(select 1 from public.project_command_idempotency
+  where request_id='a4800000-0000-4000-8000-000000000019'),
+  'nested project idempotency ledger rolls back with the failed delivery link');
+select is((select count(*) from public.projects),current_setting('test.crm.project_count_before_failure')::bigint,
+  'link failure rolls back the nested project creation');
+select ok(not exists(select 1 from public.projects where name='回滚验证项目')
+  and not exists(select 1 from public.customer_project_links link
+    join public.opportunities opportunity on opportunity.id=link.opportunity_id
+    where opportunity.public_id='a4900000-0000-4000-8000-000000000001'),
+  'failed conversion leaves neither project nor delivery link');
+select ok(not exists(select 1 from public.audit_logs
+  where request_id='a4800000-0000-4000-8000-000000000019' and action='project.created'),
+  'rolled-back nested project audit is not persisted');
 
 select * from finish();
 rollback;

@@ -138,15 +138,16 @@ git commit -m "feat: add customer and contact commands"
 - Create: `src/features/customers/opportunity-command-handler.test.ts`
 - Create: `src/app/api/workstation/customers/[customerId]/opportunities/route.ts`
 - Create: `src/app/api/workstation/customers/[customerId]/follow-ups/route.ts`
+- Create: `src/app/api/workstation/opportunities/[opportunityId]/route.ts`
 - Create: `src/app/api/workstation/opportunities/[opportunityId]/convert/route.ts`
-- Create: `supabase/migrations/202608260020_opportunity_commands.sql`
+- Create: `supabase/migrations/202608280003_opportunity_commands.sql`
 - Modify: `supabase/tests/customer_crm.sql`
 
 **Interfaces:**
 - Produces stage transition RPC with allowed sequence lead -> qualified -> proposal -> won/lost.
 - Produces transactional opportunity-to-project conversion returning both public IDs.
 
-- [ ] **Step 1: Write failing stage, actor, and conversion rollback tests**
+- [x] **Step 1: Write failing stage, actor, and conversion rollback tests**
 
 ```ts
 expect((await moveOpportunity("lead", "won")).status).toBe(422);
@@ -154,25 +155,40 @@ expect(savedFollowUp.actorId).toBe(session.member.publicId);
 expect(projectAfterInjectedLinkFailure).toBeNull();
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `npx vitest run src/features/customers/opportunity-command-handler.test.ts`
 Expected: commands do not exist.
 
-- [ ] **Step 3: Implement state machine and conversion transaction**
+RED was executed on 2026-08-28: Vitest failed to resolve the absent `opportunity-command-handler` module before implementation.
+
+- [x] **Step 3: Implement state machine and conversion transaction**
 
 Follow-up timestamps use database time. Conversion calls the project lifecycle RPC inside one transaction and creates `customer_project_links` plus audit.
 
-- [ ] **Step 4: Verify GREEN**
+The implementation also rejects PostgreSQL infinite dates/timestamps, preserves historical owner projection after profile soft deletion, hardens the reused project command identity binding, and keeps nested project/ledger/audit/link changes in one rollback scope while persisting the outer CRM failure result and audit.
+
+- [x] **Step 4: Verify GREEN**
 
 Run: `npx vitest run src/features/customers/opportunity-command-handler.test.ts`
 Run: `npm run db:test`
 Expected: invalid jumps fail, actor spoof is ignored, failed linking rolls back the project.
 
-- [ ] **Step 5: Commit**
+Task 3 local verification (2026-08-28):
+
+- Focused opportunity command/migration Vitest — 2 files / 23 tests passed.
+- Full unit regression — 179 files / 1235 tests passed; HTML contract suite — 152/152 passed.
+- `npm run typecheck`, production `npm run build`, and `git diff --check` — passed.
+- `npm run lint` — passed with 0 errors and one pre-existing generated coverage warning.
+- `npm run test:security` — passed with 0 vulnerabilities.
+- `customer_crm.sql` static pgTAP plan/assertion count — 91/91.
+- Independent API review and independent SQL/RLS/concurrency/rollback review — CLEAN with no remaining P0-P3 findings.
+- Live migration and pgTAP execution remain mandatory external gates because this workstation has no PostgreSQL, `psql`, Supabase CLI or Docker runtime.
+
+- [x] **Step 5: Commit**
 
 ```bash
-git add src/features/customers/opportunity-command-handler.ts src/features/customers/opportunity-command-handler.test.ts src/app/api/workstation/customers/[customerId]/opportunities/route.ts src/app/api/workstation/customers/[customerId]/follow-ups/route.ts src/app/api/workstation/opportunities/[opportunityId]/convert/route.ts supabase/migrations/202608260020_opportunity_commands.sql supabase/tests/customer_crm.sql
+git add src/features/customers/opportunity-command-handler.ts src/features/customers/opportunity-command-handler.test.ts src/features/customers/customer-crm-migration.test.ts src/app/api/workstation/customers/[customerId]/opportunities/route.ts src/app/api/workstation/customers/[customerId]/follow-ups/route.ts src/app/api/workstation/opportunities/[opportunityId]/route.ts src/app/api/workstation/opportunities/[opportunityId]/convert/route.ts supabase/migrations/202608280003_opportunity_commands.sql supabase/tests/customer_crm.sql docs/superpowers/plans/2026-08-26-quantxy-04-customer-crm.md
 git commit -m "feat: add opportunity and customer delivery workflow"
 ```
 

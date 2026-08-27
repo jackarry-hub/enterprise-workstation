@@ -96,3 +96,66 @@ describe("customer CRM command migration", () => {
     expect(sql).toContain("version=contact.version+1");
   });
 });
+
+describe("opportunity workflow migration", () => {
+  const sql = readFileSync(
+    join(process.cwd(), "supabase/migrations/202608280003_opportunity_commands.sql"),
+    "utf8",
+  ).toLowerCase();
+
+  it("adds the four authenticated workflow commands and closes every helper", () => {
+    for (const signature of [
+      "create_current_opportunity(uuid,text,uuid,numeric,text,date,bigint,text,uuid,uuid)",
+      "transition_current_opportunity_stage(uuid,text,text,bigint,text,uuid,uuid)",
+      "create_current_customer_follow_up(uuid,uuid,text,text,timestamptz,bigint,text,uuid,uuid)",
+      "convert_current_opportunity_to_project(uuid,text,text,text,text,text,date,date,bigint,text,uuid,uuid)",
+    ]) {
+      expect(sql).toContain(`revoke all on function public.${signature}`);
+      expect(sql).toContain(`grant execute on function public.${signature}`);
+    }
+    expect(sql).toContain("revoke all on function public.current_project_command_context()");
+    expect(sql).toContain("member.user_id=(select auth.uid()) and member.status='active'");
+  });
+
+  it("enforces the one-way stage machine under an optimistic row lock", () => {
+    expect(sql).toContain("not isfinite(p_expected_close_on)");
+    expect(sql).toContain("v_opportunity.stage='lead' and p_stage='qualified'");
+    expect(sql).toContain("v_opportunity.stage='qualified' and p_stage='proposal'");
+    expect(sql).toContain("v_opportunity.stage='proposal' and p_stage in ('won','lost')");
+    expect(sql).toContain("for update;");
+    expect(sql).toContain("'failure','invalid_stage'");
+    expect(sql).toContain("v_opportunity.version<>p_expected_version");
+    expect(sql).toContain("order by (profile.deleted_at is null) desc,profile.updated_at desc,profile.id desc");
+    expect(sql).toContain("and profile.organization_member_id=v_opportunity.owner_member_id");
+    expect(sql).toContain("limit 1;");
+    expect(sql).not.toContain("and profile.organization_member_id=v_opportunity.owner_member_id and profile.deleted_at is null");
+  });
+
+  it("derives follow-up actor and occurrence time inside the database", () => {
+    const start = sql.indexOf("create or replace function public.create_current_customer_follow_up");
+    const end = sql.indexOf("$$;", start);
+    const block = sql.slice(start, end);
+    expect(block).toContain("v_now timestamptz:=clock_timestamp()");
+    expect(block).toContain("v_opportunity_id,v_actor");
+    expect(block).toContain("'actoremployeepublicid',v_actor_employee");
+    expect(block).not.toContain("p_actor_member_id bigint,");
+    expect(block).not.toContain("p_occurred_at");
+    expect(sql).toContain("p_resource in ('customer_contact','customer_follow_up')");
+    expect(block).toContain("not isfinite(p_next_follow_up_at)");
+  });
+
+  it("converts through the existing project RPC and rolls back project plus link together", () => {
+    const start = sql.indexOf("create or replace function public.convert_current_opportunity_to_project");
+    const end = sql.indexOf("$$;", start);
+    const block = sql.slice(start, end);
+    expect(block).toContain("v_project_result:=public.create_current_project_v2(");
+    expect(block).toContain("insert into public.customer_project_links");
+    expect(block).toContain("exception when unique_violation then v_failure:='already_converted'");
+    expect(block).toContain("when others then v_failure:=coalesce(v_failure,'command_failed')");
+    expect(block).toContain("v_opportunity.stage<>'won'");
+    expect(block).toContain("not isfinite(p_starts_on)");
+    expect(block).toContain("not isfinite(p_due_on)");
+    expect(sql).toContain("customer_project_links_one_active_opportunity_uidx");
+    expect(block).not.toContain("service_role");
+  });
+});
