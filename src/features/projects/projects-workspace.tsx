@@ -20,6 +20,7 @@ import {
   PROJECTS_CHANGED_EVENT,
   readLocalProjects,
 } from "@/features/projects/data/mock-project-repository";
+import { createBusinessProject } from "@/features/projects/data/business-command-client";
 import {
   mergePortfolioStats,
   mergeProjectList,
@@ -27,6 +28,7 @@ import {
 import { filterProjectList } from "@/features/projects/mock-data";
 import type {
   CreateMockProjectInput,
+  MemberSummary,
   ProjectListFilters,
   ProjectListItem,
   ProjectMilestoneReminder,
@@ -46,28 +48,33 @@ type ProjectsWorkspaceProps = {
   projects: readonly ProjectListItem[];
   stats: readonly ProjectPortfolioStat[];
   reminders: readonly ProjectMilestoneReminder[];
+  members: readonly MemberSummary[];
+  source: "supabase" | "mock";
 };
 
-export function ProjectsWorkspace({ projects, stats, reminders }: ProjectsWorkspaceProps) {
+export function ProjectsWorkspace({ projects, stats, reminders, members, source }: ProjectsWorkspaceProps) {
   const session = useWorkspaceSession();
   const { context, actor, isFixtureBound } = useOperations(session);
   const router = useRouter();
   const [filters, setFilters] = useState<ProjectListFilters>(defaultFilters);
-  const [visibleProjects, setVisibleProjects] = useState<ProjectListItem[]>(isFixtureBound ? [...projects] : []);
+  const [visibleProjects, setVisibleProjects] = useState<ProjectListItem[]>(source === "supabase" || isFixtureBound ? [...projects] : []);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const refreshLocalProjects = useCallback(() => {
-    setVisibleProjects(isFixtureBound ? mergeProjectList(projects, readLocalProjects(context)) : []);
-  }, [context, isFixtureBound, projects]);
+    setVisibleProjects(source === "mock"
+      ? isFixtureBound ? mergeProjectList(projects, readLocalProjects(context)) : []
+      : [...projects]);
+  }, [context, isFixtureBound, projects, source]);
 
   useEffect(() => {
     refreshLocalProjects();
+    if (source !== "mock") return;
     window.addEventListener(PROJECTS_CHANGED_EVENT, refreshLocalProjects);
     return () => window.removeEventListener(PROJECTS_CHANGED_EVENT, refreshLocalProjects);
-  }, [refreshLocalProjects]);
+  }, [refreshLocalProjects, source]);
 
   const scopedProjects = useMemo(
-    () => actor.role === "executive" ? visibleProjects : visibleProjects.filter(({ owner, members }) => owner.id === actor.memberId || members.some(({ id }) => id === actor.memberId)),
-    [actor.memberId, actor.role, visibleProjects],
+    () => source === "supabase" || actor.role === "executive" ? visibleProjects : visibleProjects.filter(({ owner, members: projectMembers }) => owner.id === actor.memberId || projectMembers.some(({ id }) => id === actor.memberId)),
+    [actor.memberId, actor.role, source, visibleProjects],
   );
   const filteredProjects = useMemo(
     () => filterProjectList(scopedProjects, filters),
@@ -82,11 +89,35 @@ export function ProjectsWorkspace({ projects, stats, reminders }: ProjectsWorksp
     [projects, scopedProjects, stats],
   );
 
-  function handleCreateProject(input: CreateMockProjectInput) {
-    if (!isFixtureBound) throw new Error("当前真实身份未绑定本地业务夹具");
-    const detail = createLocalProject(context, input, session.actor);
-    refreshLocalProjects();
-    router.push(`/projects/${detail.project.id}`);
+  const canCreate = source === "mock"
+    ? isFixtureBound
+    : session.permissionCodes.some((permission) => permission === "project.create" || permission === "project.manage" || permission === "organization.manage")
+      && members.some(({ employeePublicId }) => Boolean(employeePublicId));
+
+  async function handleCreateProject(input: CreateMockProjectInput, idempotencyKey: string) {
+    if (source === "mock") {
+      if (!isFixtureBound) throw new Error("当前演示身份未绑定本地业务数据");
+      const detail = createLocalProject(context, input, session.actor);
+      refreshLocalProjects();
+      router.push(`/projects/${detail.project.id}`);
+      return;
+    }
+    const owner = members.find(({ id }) => id === input.ownerId);
+    if (!owner?.employeePublicId) throw new Error("所选负责人缺少有效员工身份，请先完成组织同步");
+    const created = await createBusinessProject({
+      ownerPublicId: owner.employeePublicId,
+      name: input.name,
+      category: input.category ?? "企业项目",
+      description: input.description,
+      startsOn: input.startDate,
+      dueOn: input.dueDate,
+      budgetAmount: input.budgetAmount ?? "0.00",
+      priority: input.priority,
+      status: input.status,
+      reason: "从项目管理中心创建项目",
+    }, idempotencyKey);
+    router.push(`/projects/${created.id}`);
+    router.refresh();
   }
 
   return (
@@ -95,7 +126,7 @@ export function ProjectsWorkspace({ projects, stats, reminders }: ProjectsWorksp
         title="项目管理中心"
         description="全面掌控项目进展，确保每个项目按时高质量交付"
         actions={(
-          <Button type="button" size="lg" disabled={!isFixtureBound} onClick={() => setIsCreateOpen(true)} className="h-10 rounded-xl px-4 shadow-[0_10px_24px_rgba(47,125,246,0.24)]">
+          <Button type="button" size="lg" disabled={!canCreate} onClick={() => setIsCreateOpen(true)} className="h-10 rounded-xl px-4 shadow-[0_10px_24px_rgba(47,125,246,0.24)]">
             <Plus data-icon="inline-start" aria-hidden="true" />
             新建项目
           </Button>
@@ -123,6 +154,8 @@ export function ProjectsWorkspace({ projects, stats, reminders }: ProjectsWorksp
         open={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
         onCreate={handleCreateProject}
+        members={members}
+        allowMemberSelection={source === "mock"}
       />
 
       <ProjectMobileNav />

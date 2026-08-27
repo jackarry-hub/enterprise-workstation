@@ -19,9 +19,13 @@ vi.mock("@/components/shell/workspace-shell", () => ({
   WorkspaceShell: ({ children }: { children: React.ReactNode }) => children,
 }));
 
-import WorkspaceLayout from "@/app/(workspace)/layout";
+import WorkspaceLayout, { dynamic } from "@/app/(workspace)/layout";
 
 describe("workspace server layout", () => {
+  it("defers authenticated workspace data access to request time", () => {
+    expect(dynamic).toBe("force-dynamic");
+  });
+
   it("rejects a direct workspace URL the verified session cannot access", async () => {
     dependencies.requireWorkspaceSession.mockResolvedValue({
       ...executiveWorkspaceSession,

@@ -14,7 +14,10 @@ function createQuery(response: { data: unknown; error: null }) {
     is: () => query,
     order: () => query,
     limit: () => query,
-    maybeSingle: async () => response,
+    maybeSingle: async () => ({
+      data: Array.isArray(response.data) ? response.data[0] ?? null : response.data,
+      error: response.error,
+    }),
     then: (
       resolve: (value: typeof response) => unknown,
       reject?: (reason: unknown) => unknown,
@@ -30,6 +33,7 @@ describe("loadProjectDetail", () => {
   });
 
   it("falls back to the matching mock project when Supabase is unavailable", async () => {
+    vi.stubEnv("WORKSTATION_ALLOW_MOCK_DATA", "true");
     const result = await loadProjectDetail(
       mockProjects[0].id,
       async () => {
@@ -44,6 +48,7 @@ describe("loadProjectDetail", () => {
   });
 
   it("does not substitute another mock project for an unknown id", async () => {
+    vi.stubEnv("WORKSTATION_ALLOW_MOCK_DATA", "true");
     const result = await loadProjectDetail(
       "unknown-project",
       async () => {
@@ -55,16 +60,13 @@ describe("loadProjectDetail", () => {
     expect(result).toBeUndefined();
   });
 
-  it("falls back to mock data when a configured Supabase request fails", async () => {
-    const result = await loadProjectDetail(
+  it("does not fall back to mock data unless preview data is explicitly enabled", async () => {
+    await expect(loadProjectDetail(
       mockProjects[0].id,
       async () => {
         throw new Error("permission denied");
       },
-    );
-
-    expect(result?.source).toBe("mock");
-    expect(result?.detail.project.id).toBe(mockProjects[0].id);
+    )).rejects.toThrow("permission denied");
   });
 
   it("does not silently fall back to mock data in production", async () => {
@@ -89,6 +91,8 @@ describe("loadProjectDetail", () => {
           code: "PRJ-REAL-001",
           name: "真实项目",
           description: "来自 Supabase 的项目数据",
+          category: "企业项目",
+          budget_amount: "120000.00",
           owner_member_id: 902,
           created_by_member_id: 902,
           status: "active",
@@ -98,11 +102,19 @@ describe("loadProjectDetail", () => {
           due_date: "2026-09-01",
           actual_end_date: null,
           progress: 20,
+          version: 3,
           created_at: "2026-08-01T00:00:00.000Z",
           updated_at: "2026-08-01T00:00:00.000Z",
         },
         error: null,
       },
+      external_identities: {
+        data: { tenant_id: 1, organization_id: 1, organization_member_id: 902, identity_provider_id: 71 },
+        error: null,
+      },
+      tenants: { data: { status: "active" }, error: null },
+      identity_providers: { data: { status: "active" }, error: null },
+      organizations: { data: { public_id: "10000000-0000-4000-8000-000000000001", status: "active" }, error: null },
       project_members: {
         data: [{
           id: 7,
@@ -122,6 +134,7 @@ describe("loadProjectDetail", () => {
           id: 902,
           public_id: "member-real-owner",
           user_id: "user-real-owner",
+          status: "active",
         }],
         error: null,
       },
@@ -132,14 +145,35 @@ describe("loadProjectDetail", () => {
           display_name: "周岚",
           avatar_url: "https://example.com/avatar.png",
           job_title: "项目总监",
+          employment_status: "active",
           department: { name: "技术研发部" },
         }],
         error: null,
       },
       milestones: { data: [], error: null },
       tasks: { data: [], error: null },
-      project_activities: { data: [], error: null },
-      project_risks: { data: [], error: null },
+      task_comments: { data: [], error: null },
+      daily_reports: { data: [], error: null },
+      project_activities: { data: [{
+        public_id: "42200000-0000-4000-8000-000000000001",
+        organization_id: 1,
+        actor_member_id: 902,
+        user_id: "user-real-owner",
+        action_type: "project_note_added",
+        content: "补充客户验收说明",
+        created_at: "2026-08-27T02:30:00.000Z",
+      }], error: null },
+      project_risks: { data: [{
+        public_id: "42300000-0000-4000-8000-000000000001",
+        organization_id: 1,
+        title: "客户验收延期",
+        level: "high",
+        owner_member_id: 902,
+        status: "monitoring",
+        deadline: "2026-09-01",
+        created_at: "2026-08-27T02:00:00.000Z",
+        updated_at: "2026-08-27T02:00:00.000Z",
+      }], error: null },
       files: { data: [{
         id: 81,
         public_id: "42000000-0000-4000-8000-000000000001",
@@ -172,6 +206,8 @@ describe("loadProjectDetail", () => {
       }], error: null },
     };
     const factory = (async () => ({
+      auth: { getUser: async () => ({ data: { user: { id: "user-real-owner" } }, error: null }) },
+      rpc: async () => ({ data: true, error: null }),
       from: (table: string) => createQuery(responses[table]),
     })) as unknown as ProjectDetailClientFactory;
 
@@ -185,12 +221,14 @@ describe("loadProjectDetail", () => {
     expect(result?.detail.owner).toEqual({
       id: "member-real-owner",
       employeePublicId: "employee-real-owner",
+      commandId: "m902",
       displayName: "周岚",
       department: "技术研发部",
       title: "项目总监",
       avatarUrl: "https://example.com/avatar.png",
     });
     expect(result?.detail.objective).toBeUndefined();
+    expect(result?.access).toEqual({ canManage: true, viewerMemberId: "member-real-owner" });
     expect(result?.detail.files).toEqual([expect.objectContaining({
       id: "42000000-0000-4000-8000-000000000001",
       originalName: "验收材料.pdf",
@@ -200,6 +238,15 @@ describe("loadProjectDetail", () => {
     expect(result?.detail.fileRelations).toEqual([expect.objectContaining({
       fileId: "42000000-0000-4000-8000-000000000001",
       relationType: "project",
+    })]);
+    expect(result?.detail.project.createdById).toBe("member-real-owner");
+    expect(result?.detail.project.organizationId).toBe("10000000-0000-4000-8000-000000000001");
+    expect(result?.detail.activities).toEqual([expect.objectContaining({
+      actionType: "project_note_added",
+      userId: "member-real-owner",
+    })]);
+    expect(result?.detail.risks).toEqual([expect.objectContaining({
+      ownerId: "member-real-owner",
     })]);
   });
 });

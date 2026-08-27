@@ -1,7 +1,7 @@
-import { screen, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { executiveWorkspaceSession, renderWithWorkspaceSession as render } from "@/test/workspace-session-test-utils";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getProjectsStorageKey, saveLocalProject } from "@/features/projects/data/mock-project-repository";
 import { createOperationFixtureContext } from "@/features/operations/operation-actor-compat";
@@ -18,6 +18,156 @@ if (!detail) {
 describe("ProjectDetailPage", () => {
   beforeEach(() => {
     window.localStorage.clear();
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("creates a Supabase task through the real command and never writes local project state", async () => {
+    const user = userEvent.setup();
+    const realDetail = {
+      ...detail,
+      members: detail.members.map((membership, index) => ({
+        ...membership,
+        member: { ...membership.member, commandId: `m${index + 10}` },
+      })),
+    };
+    const createdTaskId = "a4000000-0000-4000-8000-000000000001";
+    const fetch = vi.fn().mockResolvedValue(Response.json({ task: { id: createdTaskId, p: detail.project.id }, notification: { status: "queued" } }, { status: 201 }));
+    vi.stubGlobal("fetch", fetch);
+    render(<ProjectDetailPage projectId={detail.project.id} initialResult={{ detail: realDetail, source: "supabase", access: { canManage: true, viewerMemberId: realDetail.owner.id } }} />);
+
+    await user.click(screen.getByRole("button", { name: "添加任务" }));
+    const dialog = screen.getByRole("dialog", { name: "新建任务" });
+    await user.type(within(dialog).getByLabelText("任务名称"), "真实接口联调");
+    await user.type(within(dialog).getByLabelText("任务描述"), "验证服务端持久化");
+    await user.type(within(dialog).getByLabelText("验收标准"), "刷新后任务仍存在");
+    await user.click(within(dialog).getByRole("button", { name: "创建任务" }));
+
+    expect(fetch).toHaveBeenCalledWith("/api/workstation/tasks", expect.objectContaining({ method: "POST" }));
+    expect(window.localStorage.getItem(getProjectsStorageKey(context)!)).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "新建任务" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the formal task dialog locked while the create command is pending", async () => {
+    const user = userEvent.setup();
+    const realDetail = {
+      ...detail,
+      members: detail.members.map((membership, index) => ({
+        ...membership,
+        member: { ...membership.member, commandId: `m${index + 10}` },
+      })),
+    };
+    let resolveFetch!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => new Promise<Response>((resolve) => { resolveFetch = resolve; })));
+    render(<ProjectDetailPage projectId={detail.project.id} initialResult={{ detail: realDetail, source: "supabase", access: { canManage: true, viewerMemberId: realDetail.owner.id } }} />);
+
+    await user.click(screen.getByRole("button", { name: "添加任务" }));
+    const dialog = screen.getByRole("dialog", { name: "新建任务" });
+    await user.type(within(dialog).getByLabelText("任务名称"), "锁定提交状态");
+    await user.type(within(dialog).getByLabelText("验收标准"), "刷新后可查询");
+    await user.click(within(dialog).getByRole("button", { name: "创建任务" }));
+    expect(within(dialog).getByRole("button", { name: "正在创建…" })).toBeDisabled();
+
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "新建任务" })).toBeVisible();
+
+    await act(async () => {
+      resolveFetch(Response.json({ task: { id: "a4000000-0000-4000-8000-000000000008", p: detail.project.id } }, { status: 201 }));
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "新建任务" })).not.toBeInTheDocument());
+  });
+
+  it("keeps formal retrospective and risk controls read-only until durable commands exist", async () => {
+    const user = userEvent.setup();
+    render(<ProjectDetailPage projectId={detail.project.id} initialResult={{ detail, source: "supabase", access: { canManage: true, viewerMemberId: detail.owner.id } }} />);
+
+    await user.click(screen.getByRole("tab", { name: "复盘" }));
+
+    expect(screen.getByText("正式项目复盘与风险维护接口尚未接入，当前仅展示已存数据。")).toBeVisible();
+    expect(screen.getByRole("button", { name: "保存复盘" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "标记缓解" })).not.toBeInTheDocument();
+  });
+
+  it("maps returned comment authors and refreshes after a confirmed report", async () => {
+    const user = userEvent.setup();
+    const employeePublicId = "a4000000-0000-4000-8000-000000000010";
+    const realDetail = {
+      ...detail,
+      owner: { ...detail.owner, employeePublicId },
+      members: detail.members.map((membership, index) => ({
+        ...membership,
+        member: {
+          ...membership.member,
+          employeePublicId: index === 0 ? employeePublicId : `a4000000-0000-4000-8000-${String(index + 11).padStart(12, "0")}`,
+          commandId: `m${index + 10}`,
+        },
+      })),
+    };
+    const task = realDetail.tasks[0];
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({ resource: "comment", entity: {
+        id: "a4000000-0000-4000-8000-000000000020",
+        taskId: task.id,
+        projectId: realDetail.project.id,
+        authorPublicId: employeePublicId,
+        body: "正式评论已保存",
+        version: 1,
+        createdAt: "2026-08-27T10:01:00.000Z",
+        updatedAt: "2026-08-27T10:01:00.000Z",
+      } }, { status: 201 }))
+      .mockResolvedValueOnce(Response.json({ resource: "report", entity: {
+        id: "a4000000-0000-4000-8000-000000000021",
+        projectId: realDetail.project.id,
+        authorPublicId: employeePublicId,
+        reportDate: "2026-08-27",
+        status: "submitted",
+        summary: "完成真实接口联调",
+        nextPlan: "执行客户验收",
+        blockers: "",
+        supportNeeded: "",
+        version: 1,
+        updatedAt: "2026-08-27T10:02:00.000Z",
+      } }, { status: 201 }));
+    vi.stubGlobal("fetch", fetch);
+    render(<ProjectDetailPage projectId={realDetail.project.id} initialResult={{ detail: realDetail, source: "supabase", access: { canManage: true, viewerMemberId: realDetail.owner.id } }} />);
+
+    await user.click(screen.getByRole("tab", { name: "任务" }));
+    await user.click(screen.getByRole("button", { name: new RegExp(`查看任务详情：${task.title}`) }));
+    const taskDialog = screen.getByRole("dialog");
+    await user.type(within(taskDialog).getByLabelText("任务评论内容"), "正式评论已保存");
+    await user.click(within(taskDialog).getByRole("button", { name: "添加评论" }));
+    expect(await within(taskDialog).findByText("正式评论已保存")).toBeVisible();
+    expect(within(taskDialog).getAllByText(realDetail.owner.displayName).length).toBeGreaterThan(0);
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("tab", { name: "日报" }));
+    await user.type(screen.getByLabelText("今日完成"), "完成真实接口联调");
+    await user.type(screen.getByLabelText("下一步计划"), "执行客户验收");
+    await user.click(screen.getByRole("button", { name: "提交日报" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("日报已提交并写入项目动态");
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("announces formal comment and report failures with error semantics", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(Response.json({ error: "forbidden" }, { status: 403 }))
+      .mockResolvedValueOnce(Response.json({ error: "forbidden" }, { status: 403 })));
+    render(<ProjectDetailPage projectId={detail.project.id} initialResult={{ detail, source: "supabase", access: { canManage: true, viewerMemberId: detail.owner.id } }} />);
+
+    await user.click(screen.getByRole("tab", { name: "任务" }));
+    await user.click(screen.getByRole("button", { name: /查看任务详情：搭建官网前端工程/ }));
+    const taskDialog = screen.getByRole("dialog");
+    await user.type(within(taskDialog).getByLabelText("任务评论内容"), "需要正式保存");
+    await user.click(within(taskDialog).getByRole("button", { name: "添加评论" }));
+    expect(await within(taskDialog).findByRole("alert")).toHaveTextContent("没有执行该操作的权限");
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("tab", { name: "日报" }));
+    await user.type(screen.getByLabelText("今日完成"), "完成联调");
+    await user.type(screen.getByLabelText("下一步计划"), "继续验收");
+    await user.click(screen.getByRole("button", { name: "提交日报" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("没有执行该操作的权限");
   });
 
   it("renders the project command header and overview information", () => {

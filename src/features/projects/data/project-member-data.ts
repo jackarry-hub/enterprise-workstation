@@ -1,12 +1,14 @@
 import type { MemberSummary, ProjectMemberRole } from "@/features/projects/types";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import type { ActiveWorkspaceScope } from "@/features/projects/data/active-workspace-data";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof getSupabaseServerClient>>;
 
 type OrganizationMemberRow = {
   id: number;
   public_id: string;
-  user_id: string;
+  user_id: string | null;
+  status?: string;
 };
 
 type DepartmentRelation = { name: string } | readonly { name: string }[] | null;
@@ -22,7 +24,7 @@ type EmployeeProfileRow = {
 
 export type ProjectMemberDirectoryEntry = {
   summary: MemberSummary;
-  userId: string;
+  userId: string | null;
 };
 
 function departmentName(relation: DepartmentRelation) {
@@ -45,6 +47,7 @@ export function fallbackProjectMember(
 
   return {
     id: String(memberId),
+    commandId: `m${memberId}`,
     displayName: isOwner ? "项目负责人" : "项目成员",
     department: "项目团队",
     title: isOwner ? "项目负责人" : "项目成员",
@@ -54,6 +57,7 @@ export function fallbackProjectMember(
 export async function loadProjectMemberDirectory(
   client: SupabaseServerClient,
   memberIds: readonly number[],
+  scope?: Pick<ActiveWorkspaceScope, "tenantId" | "organizationId">,
 ) {
   const uniqueMemberIds = [...new Set(memberIds)];
   const directory = new Map<number, ProjectMemberDirectoryEntry>();
@@ -62,17 +66,20 @@ export async function loadProjectMemberDirectory(
     return directory;
   }
 
-  const [memberResponse, profileResponse] = await Promise.all([
-    client
+  let memberQuery = client
       .from("organization_members")
       .select("id, public_id, user_id")
-      .in("id", uniqueMemberIds),
-    client
+      .in("id", uniqueMemberIds);
+  let profileQuery = client
       .from("employee_profiles")
       .select("public_id, organization_member_id, display_name, avatar_url, job_title, department:departments!employee_profiles_department_id_fkey(name)")
       .in("organization_member_id", uniqueMemberIds)
-      .is("deleted_at", null),
-  ]);
+      .is("deleted_at", null);
+  if (scope) {
+    memberQuery = memberQuery.eq("tenant_id", scope.tenantId).eq("organization_id", scope.organizationId);
+    profileQuery = profileQuery.eq("tenant_id", scope.tenantId).eq("organization_id", scope.organizationId);
+  }
+  const [memberResponse, profileResponse] = await Promise.all([memberQuery, profileQuery]);
 
   if (memberResponse.error) {
     throw memberResponse.error;
@@ -96,6 +103,7 @@ export async function loadProjectMemberDirectory(
         ? {
           id: member.public_id,
           employeePublicId: profile.public_id,
+          commandId: `m${member.id}`,
           displayName: profile.display_name,
           department: departmentName(profile.department),
           title: profile.job_title,
@@ -109,4 +117,26 @@ export async function loadProjectMemberDirectory(
   }
 
   return directory;
+}
+
+export async function loadAvailableProjectMembers(
+  client: SupabaseServerClient,
+  scope: Pick<ActiveWorkspaceScope, "tenantId" | "organizationId">,
+) {
+  const memberResponse = await client
+    .from("organization_members")
+    .select("id, public_id, user_id, status")
+    .eq("tenant_id", scope.tenantId)
+    .eq("organization_id", scope.organizationId)
+    .eq("status", "active")
+    .order("id");
+
+  if (memberResponse.error) throw memberResponse.error;
+  const rows = (memberResponse.data ?? []) as OrganizationMemberRow[];
+  const directory = await loadProjectMemberDirectory(client, rows.map(({ id }) => id), scope);
+
+  return rows.flatMap((row) => {
+    const member = directory.get(row.id)?.summary;
+    return member?.employeePublicId ? [member] : [];
+  });
 }

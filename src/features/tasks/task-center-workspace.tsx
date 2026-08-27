@@ -15,6 +15,7 @@ import { useWorkspaceSession } from "@/features/auth/workspace-session-provider"
 import { useOperations } from "@/features/operations/use-operations";
 import { PROJECTS_CHANGED_EVENT, readLocalProjects } from "@/features/projects/data/mock-project-repository";
 import type { ProjectDetailData } from "@/features/projects/types";
+import type { ProjectCollectionResult } from "@/features/projects/data/project-collection-data";
 import { createTaskCenterItems, filterTaskCenterItems, getAssigneeDistribution, getTaskCenterSummary, getUpcomingTaskDeadlines, scopeTaskCenterItems } from "@/features/tasks/task-center-selectors";
 import { getTaskCenterAction } from "@/features/tasks/task-center-action";
 import type { TaskCenterFilters, TaskCenterItem, TaskCenterTab } from "@/features/tasks/task-center-types";
@@ -34,34 +35,38 @@ const shortcutItems = [
   { tab: "done", label: "已完成", description: "回顾交付成果", icon: CheckCircle2, tone: "text-success bg-success-soft" },
 ] as const;
 
-export function TaskCenterWorkspace() {
+export function TaskCenterWorkspace({ result }: { result: ProjectCollectionResult }) {
   const session = useWorkspaceSession();
   const { context, actor, isFixtureBound } = useOperations(session);
-  const [projects, setProjects] = useState<ProjectDetailData[]>(() => isFixtureBound ? getEffectiveProjectDetails([]) : []);
+  const [projects, setProjects] = useState<ProjectDetailData[]>(() => result.source === "supabase" || isFixtureBound ? [...result.details] : []);
   const [filters, setFilters] = useState<TaskCenterFilters>(defaultFilters);
   const [selectedItem, setSelectedItem] = useState<TaskCenterItem | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
 
   const refreshProjects = useCallback(() => {
-    setProjects(isFixtureBound ? getEffectiveProjectDetails(readLocalProjects(context)) : []);
-  }, [context, isFixtureBound]);
+    setProjects(result.source === "mock"
+      ? isFixtureBound ? getEffectiveProjectDetails(readLocalProjects(context)) : []
+      : [...result.details]);
+  }, [context, isFixtureBound, result.details, result.source]);
 
   useEffect(() => {
     refreshProjects();
+    if (result.source !== "mock") return;
     window.addEventListener(PROJECTS_CHANGED_EVENT, refreshProjects);
     return () => window.removeEventListener(PROJECTS_CHANGED_EVENT, refreshProjects);
-  }, [refreshProjects]);
+  }, [refreshProjects, result.source]);
 
+  const viewerMemberId = result.viewer.memberId ?? actor.memberId;
   const items = useMemo(
-    () => scopeTaskCenterItems(createTaskCenterItems(projects), actor).sort((left, right) => (
+    () => (result.source === "supabase" ? createTaskCenterItems(projects) : scopeTaskCenterItems(createTaskCenterItems(projects), actor)).sort((left, right) => (
       right.task.createdAt.localeCompare(left.task.createdAt)
     )),
-    [actor, projects],
+    [actor, projects, result.source],
   );
-  const summary = useMemo(() => getTaskCenterSummary(items, actor.memberId), [actor.memberId, items]);
+  const summary = useMemo(() => getTaskCenterSummary(items, viewerMemberId), [items, viewerMemberId]);
   const filteredItems = useMemo(
-    () => filterTaskCenterItems(items, filters, actor.memberId),
-    [actor.memberId, filters, items],
+    () => filterTaskCenterItems(items, filters, viewerMemberId),
+    [filters, items, viewerMemberId],
   );
   const assignees = useMemo(
     () => Array.from(new Map(items.flatMap(({ assignee }) => assignee ? [[assignee.id, assignee] as const] : [])).values()),
@@ -102,7 +107,7 @@ export function TaskCenterWorkspace() {
       <section className={actor.role === "department_head" ? "grid min-w-0 gap-3 xl:grid-cols-3" : "grid min-w-0 gap-3 xl:grid-cols-2"}>
         {actor.role === "department_head" ? <TeamCollaborationCard distribution={getAssigneeDistribution(items)} /> : null}
         <TaskScheduleCard items={getUpcomingTaskDeadlines(items)} />
-        <RecentTaskActivityCard activities={actor.role === "department_head" ? activities : activities.filter((activity) => activity.userId === actor.memberId || activity.userId === actor.id)} />
+        <RecentTaskActivityCard activities={result.source === "supabase" || actor.role === "department_head" ? activities : activities.filter((activity) => activity.userId === actor.memberId || activity.userId === actor.id)} />
       </section>
 
       <GlassCard className="p-3 sm:p-4">

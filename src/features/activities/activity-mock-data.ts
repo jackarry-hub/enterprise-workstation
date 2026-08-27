@@ -68,13 +68,16 @@ export const activityProjectViews: readonly ActivityProjectView[] = activityProj
   };
 });
 
-export function buildActivityProjectViews(details: readonly ProjectDetailData[]): ActivityProjectView[] {
+export function buildActivityProjectViews(
+  details: readonly ProjectDetailData[],
+  options: { syntheticStages?: boolean } = { syntheticStages: true },
+): ActivityProjectView[] {
   return details.map((detail) => ({
     project: detail.project,
     objective: detail.objective,
     owner: detail.owner,
     members: detail.members,
-    stages: buildStages(detail.project),
+    stages: options.syntheticStages ? buildStages(detail.project) : detail.milestones,
     tasks: detail.tasks,
   }));
 }

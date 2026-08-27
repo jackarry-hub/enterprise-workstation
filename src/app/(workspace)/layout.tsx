@@ -9,6 +9,8 @@ import {
   WORKSPACE_PATH_HEADER,
 } from "@/features/auth/server-route-access";
 
+export const dynamic = "force-dynamic";
+
 export default async function WorkspaceLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {

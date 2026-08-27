@@ -34,6 +34,14 @@ describe("workstation runtime mode", () => {
     }))).toBe(false);
     expect(shouldAllowMockBusinessData(env({
       NODE_ENV: "development",
+    }))).toBe(false);
+    expect(shouldAllowMockBusinessData(env({
+      NODE_ENV: "development",
+      WORKSTATION_ALLOW_MOCK_DATA: "true",
+    }))).toBe(true);
+    expect(shouldAllowMockBusinessData(env({
+      NODE_ENV: "test",
+      NEXT_PUBLIC_WORKSTATION_ALLOW_MOCK_DATA: "1",
     }))).toBe(true);
   });
 });

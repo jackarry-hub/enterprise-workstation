@@ -42,9 +42,9 @@ function taskOwner(activity: ActivityProjectView, task: ProjectTask) {
   );
 }
 
-export function ActivityDetail({ activity }: { activity: ActivityProjectView }) {
+export function ActivityDetail({ activity, className }: { activity: ActivityProjectView; className?: string }) {
   return (
-    <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_17rem] xl:col-span-8">
+    <div className={cn("grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_17rem] xl:col-span-8", className)}>
       <GlassCard className="min-w-0 p-5 sm:p-6">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">

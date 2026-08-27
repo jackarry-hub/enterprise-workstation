@@ -25,11 +25,8 @@ export function shouldAllowMockBusinessData(
   env: NodeJS.ProcessEnv = process.env,
 ) {
   if (env.NODE_ENV === "production") return false;
-  if (
+  return (
     envFlag(env.WORKSTATION_ALLOW_MOCK_DATA)
     || envFlag(env.NEXT_PUBLIC_WORKSTATION_ALLOW_MOCK_DATA)
-  ) {
-    return true;
-  }
-  return true;
+  );
 }

@@ -25,13 +25,16 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { mockMembers } from "@/features/projects/mock-data";
 import type {
   CreateMockProjectInput,
+  MemberSummary,
   ProjectPriority,
 } from "@/features/projects/types";
 
 type CreateProjectDialogProps = {
   open: boolean;
   onClose: () => void;
-  onCreate: (input: CreateMockProjectInput) => void;
+  onCreate: (input: CreateMockProjectInput, idempotencyKey: string) => void | Promise<void>;
+  members?: readonly MemberSummary[];
+  allowMemberSelection?: boolean;
 };
 
 type ProjectFormErrors = Partial<Record<"name" | "description" | "startDate" | "dueDate", string>>;
@@ -47,24 +50,33 @@ function initials(name: string) {
   return name.slice(-2);
 }
 
-export function CreateProjectDialog({ open, onClose, onCreate }: CreateProjectDialogProps) {
-  const [ownerId, setOwnerId] = useState(mockMembers[0].id);
-  const [memberIds, setMemberIds] = useState<string[]>([mockMembers[0].id]);
+export function CreateProjectDialog({ open, onClose, onCreate, members = mockMembers, allowMemberSelection = true }: CreateProjectDialogProps) {
+  const defaultOwnerId = members[0]?.id ?? "";
+  const [ownerId, setOwnerId] = useState(defaultOwnerId);
+  const [memberIds, setMemberIds] = useState<string[]>(defaultOwnerId ? [defaultOwnerId] : []);
   const [priority, setPriority] = useState<ProjectPriority>("high");
   const [status, setStatus] = useState<CreateMockProjectInput["status"]>("planning");
   const [errors, setErrors] = useState<ProjectFormErrors>({});
   const [message, setMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const attemptRef = useRef<{ signature: string; key: string } | null>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const wasOpenRef = useRef(false);
 
   useEffect(() => {
-    if (open && document.activeElement instanceof HTMLElement) {
-      restoreFocusRef.current = document.activeElement;
+    if (open && !wasOpenRef.current) {
+      if (document.activeElement instanceof HTMLElement) restoreFocusRef.current = document.activeElement;
       setErrors({});
       setMessage("");
+      setOwnerId(defaultOwnerId);
+      setMemberIds(defaultOwnerId ? [defaultOwnerId] : []);
+      attemptRef.current = null;
     }
-  }, [open]);
+    wasOpenRef.current = open;
+  }, [defaultOwnerId, open]);
 
-  function closeDialog() {
+  function closeDialog(force = false) {
+    if (isSubmitting && !force) return;
     const restoreTarget = restoreFocusRef.current;
     onClose();
     queueMicrotask(() => restoreTarget?.focus());
@@ -75,13 +87,16 @@ export function CreateProjectDialog({ open, onClose, onCreate }: CreateProjectDi
     setMemberIds((current) => [...new Set([nextOwnerId, ...current])]);
   }
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmitting) return;
     const formData = new FormData(event.currentTarget);
     const name = String(formData.get("name") ?? "").trim();
     const description = String(formData.get("description") ?? "").trim();
     const startDate = String(formData.get("startDate") ?? "");
     const dueDate = String(formData.get("dueDate") ?? "");
+    const category = String(formData.get("category") ?? "企业项目").trim();
+    const budgetAmount = String(formData.get("budgetAmount") ?? "0").trim();
     const nextErrors: ProjectFormErrors = {
       ...(!name ? { name: "请输入项目名称" } : {}),
       ...(!description ? { description: "请输入项目描述" } : {}),
@@ -98,26 +113,38 @@ export function CreateProjectDialog({ open, onClose, onCreate }: CreateProjectDi
       return;
     }
 
-    try {
-      onCreate({
+    const input = {
         name,
         description,
+        category,
+        budgetAmount,
         ownerId,
         memberIds,
         startDate,
         dueDate,
         priority,
         status,
-      });
-      closeDialog();
+      } satisfies CreateMockProjectInput;
+    const signature = JSON.stringify(input);
+    if (attemptRef.current?.signature !== signature) {
+      attemptRef.current = { signature, key: crypto.randomUUID() };
+    }
+
+    try {
+      setIsSubmitting(true);
+      await onCreate(input, attemptRef.current.key);
+      attemptRef.current = null;
+      closeDialog(true);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "项目创建失败，请稍后重试");
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && closeDialog()}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
+    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && !isSubmitting && closeDialog()}>
+      <DialogContent className="h-[100dvh] w-screen max-w-none overflow-y-auto rounded-none sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:max-w-2xl sm:rounded-2xl">
         <div className="flex items-start gap-3 pr-10">
           <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
             <FolderPlus aria-hidden="true" className="size-5" />
@@ -131,6 +158,11 @@ export function CreateProjectDialog({ open, onClose, onCreate }: CreateProjectDi
         </div>
 
         <form onSubmit={handleSubmit} className="mt-1 grid gap-4" noValidate>
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_12rem]">
+            <label className="grid gap-1.5 text-sm font-medium text-foreground">项目分类<Input name="category" defaultValue="企业项目" maxLength={80} className="h-10 rounded-xl bg-white/75" /></label>
+            <label className="grid gap-1.5 text-sm font-medium text-foreground">预算（元）<Input name="budgetAmount" inputMode="decimal" defaultValue="0.00" pattern="[0-9]+([.][0-9]{1,2})?" className="h-10 rounded-xl bg-white/75" /></label>
+          </div>
+
           <div className="grid gap-1.5">
             <label htmlFor="project-name" className="text-sm font-medium text-foreground">项目名称</label>
             <Input
@@ -165,7 +197,7 @@ export function CreateProjectDialog({ open, onClose, onCreate }: CreateProjectDi
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
-                    {mockMembers.map((member) => (
+                    {members.map((member) => (
                       <SelectItem key={member.id} value={member.id}>{member.displayName} · {member.title}</SelectItem>
                     ))}
                   </SelectGroup>
@@ -190,7 +222,7 @@ export function CreateProjectDialog({ open, onClose, onCreate }: CreateProjectDi
             </div>
           </div>
 
-          <fieldset className="grid gap-2">
+          {allowMemberSelection ? <fieldset className="grid gap-2">
             <legend className="text-sm font-medium text-foreground">项目成员</legend>
             <ToggleGroup
               type="multiple"
@@ -198,7 +230,7 @@ export function CreateProjectDialog({ open, onClose, onCreate }: CreateProjectDi
               onValueChange={(values) => setMemberIds([...new Set([ownerId, ...values])])}
               className="grid w-full grid-cols-2 gap-2 sm:grid-cols-3"
             >
-              {mockMembers.map((member) => (
+              {members.map((member) => (
                 <ToggleGroupItem
                   key={member.id}
                   value={member.id}
@@ -217,7 +249,7 @@ export function CreateProjectDialog({ open, onClose, onCreate }: CreateProjectDi
                 </ToggleGroupItem>
               ))}
             </ToggleGroup>
-          </fieldset>
+          </fieldset> : <p className="rounded-xl bg-muted/60 px-3 py-2 text-xs text-muted-foreground">项目创建后，可在项目成员管理中继续配置参与人。</p>}
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid gap-1.5">
@@ -250,8 +282,8 @@ export function CreateProjectDialog({ open, onClose, onCreate }: CreateProjectDi
           {message ? <p role="alert" className="rounded-xl bg-danger-soft px-3 py-2 text-xs text-destructive">{message}</p> : null}
 
           <DialogFooter className="mt-1">
-            <Button type="button" variant="outline" onClick={closeDialog} className="h-9 rounded-xl">取消</Button>
-            <Button type="submit" className="h-9 rounded-xl px-4">创建项目</Button>
+            <Button type="button" variant="outline" disabled={isSubmitting} onClick={() => closeDialog()} className="h-9 rounded-xl">取消</Button>
+            <Button type="submit" disabled={isSubmitting || !ownerId} className="h-9 rounded-xl px-4">{isSubmitting ? "正在创建…" : "创建项目"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

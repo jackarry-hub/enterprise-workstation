@@ -22,10 +22,14 @@ export function ProjectDetailPage({ projectId, initialResult }: ProjectDetailPag
   const context = useOperationFixtureContext(session);
   const isFixtureBound = context.actor !== null;
   const [result, setResult] = useState<ProjectDetailResult | undefined>(
-    isFixtureBound ? initialResult : undefined,
+    initialResult?.source === "supabase" || isFixtureBound ? initialResult : undefined,
   );
 
   useEffect(() => {
+    if (initialResult?.source === "supabase") {
+      setResult(initialResult);
+      return;
+    }
     if (!isFixtureBound) {
       setResult(undefined);
       return;
@@ -43,7 +47,7 @@ export function ProjectDetailPage({ projectId, initialResult }: ProjectDetailPag
           </span>
           <div>
             <h1 className="text-xl font-semibold text-foreground">未找到项目</h1>
-            <p className="mt-2 text-sm text-muted-foreground">该项目可能已被移除，或当前浏览器中没有对应的本地项目数据。</p>
+            <p className="mt-2 text-sm text-muted-foreground">该项目可能已归档、已移除，或当前账号没有查看权限。</p>
           </div>
           <Button asChild className="rounded-xl">
             <Link href="/projects">返回项目中心</Link>

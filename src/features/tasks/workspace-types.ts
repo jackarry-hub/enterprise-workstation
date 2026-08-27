@@ -18,6 +18,7 @@ export type WorkspaceTodo = {
   title: string;
   meta: string;
   time: string;
+  href?: string;
 };
 
 export type WorkspaceActivity = {
@@ -33,6 +34,7 @@ export type WorkspaceDailyReport = {
   todayCompleted: string;
   blockers: string;
   tomorrowPlan: string;
+  submitted?: boolean;
 };
 
 export type WorkspaceData = {
@@ -49,6 +51,8 @@ export type WorkspaceData = {
   dailyReport: WorkspaceDailyReport;
   projects: readonly { id: string; name: string }[];
   loadError?: string;
+  approvalLoadError?: string;
+  dailyReportLoadError?: string;
 };
 
 export type WorkspaceResult = {

@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 };
 
 export default async function WorkspaceRoute() {
-  const result = await loadWorkspaceData(undefined, { allowMockFallback: true });
+  const result = await loadWorkspaceData();
 
   return <WorkspacePage result={result} />;
 }

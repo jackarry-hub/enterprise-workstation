@@ -97,6 +97,11 @@ export function TaskCenterList({ items, summary, tab, onTabChange, onOpenTask, o
                       {isAiDispatched ? <Badge variant="info" className="shrink-0"><Sparkles aria-hidden="true" />AI 下发</Badge> : null}
                     </div>
                     <p className="mt-1 truncate text-xs text-muted-foreground">{item.project.name} · {item.assignee?.displayName ?? "待分配"}</p>
+                    <div className="mt-2 flex items-center gap-2 sm:hidden">
+                      <StatusBadge status={statusTones[status]}>{statusLabels[status]}</StatusBadge>
+                      <Badge variant="outline">{priorityLabels[item.task.priority]}</Badge>
+                      <span className="text-[11px] text-muted-foreground">{item.task.progress}%</span>
+                    </div>
                   </div>
                 </div>
                 <div className="hidden sm:block">

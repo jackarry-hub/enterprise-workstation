@@ -1,5 +1,6 @@
 import {
   getProjectListMock,
+  mockMembers,
   mockProjectMilestoneReminders,
   mockProjectPortfolioStats,
 } from "@/features/projects/mock-data";
@@ -10,6 +11,7 @@ const defaultResult: ProjectListResult = {
   projects: getProjectListMock(),
   stats: mockProjectPortfolioStats,
   reminders: mockProjectMilestoneReminders,
+  availableMembers: mockMembers,
   source: "mock",
 };
 
@@ -19,6 +21,8 @@ export function ProjectsPage({ result = defaultResult }: { result?: ProjectListR
       projects={result.projects}
       stats={result.stats}
       reminders={result.reminders}
+      members={result.availableMembers}
+      source={result.source}
     />
   );
 }

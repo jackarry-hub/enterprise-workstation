@@ -27,7 +27,8 @@ type CreateTaskDialogProps = {
   detail: ProjectDetailData;
   open: boolean;
   onClose: () => void;
-  onCreated: (input: CreateMockTaskInput) => void;
+  onCreated: (input: CreateMockTaskInput & { acceptanceCriteria: string }, idempotencyKey: string) => void | Promise<void>;
+  requireAcceptanceCriteria?: boolean;
 };
 
 const priorityOptions: Array<{ value: TaskPriority; label: string }> = [
@@ -37,35 +38,43 @@ const priorityOptions: Array<{ value: TaskPriority; label: string }> = [
   { value: "low", label: "低" },
 ];
 
-export function CreateTaskDialog({ detail, open, onClose, onCreated }: CreateTaskDialogProps) {
+export function CreateTaskDialog({ detail, open, onClose, onCreated, requireAcceptanceCriteria = false }: CreateTaskDialogProps) {
   const defaultAssigneeId = detail.members.find(({ role }) => role === "owner")?.member.id
     ?? detail.members[0]?.member.id
     ?? "";
   const [assigneeId, setAssigneeId] = useState(defaultAssigneeId);
   const [priority, setPriority] = useState<TaskPriority>("high");
   const [message, setMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const attemptRef = useRef<{ signature: string; key: string } | null>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const wasOpenRef = useRef(false);
 
   useEffect(() => {
-    if (open && document.activeElement instanceof HTMLElement) {
-      restoreFocusRef.current = document.activeElement;
+    if (open && !wasOpenRef.current) {
+      if (document.activeElement instanceof HTMLElement) restoreFocusRef.current = document.activeElement;
       setMessage("");
       setAssigneeId(defaultAssigneeId);
       setPriority("high");
+      attemptRef.current = null;
     }
+    wasOpenRef.current = open;
   }, [defaultAssigneeId, open]);
 
-  function closeDialog() {
+  function closeDialog(force = false) {
+    if (isSubmitting && !force) return;
     const restoreTarget = restoreFocusRef.current;
     onClose();
     queueMicrotask(() => restoreTarget?.focus());
   }
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmitting) return;
     const formData = new FormData(event.currentTarget);
     const title = String(formData.get("title") ?? "").trim();
     const description = String(formData.get("description") ?? "").trim();
+    const acceptanceCriteriaInput = String(formData.get("acceptanceCriteria") ?? "").trim();
     const dueDate = String(formData.get("dueDate") ?? "");
 
     if (!title) {
@@ -80,18 +89,33 @@ export function CreateTaskDialog({ detail, open, onClose, onCreated }: CreateTas
       setMessage("请选择任务截止日期");
       return;
     }
+    if (requireAcceptanceCriteria && !acceptanceCriteriaInput) {
+      setMessage("请填写可验证的验收标准");
+      return;
+    }
+
+    const acceptanceCriteria = acceptanceCriteriaInput || description || title;
+    const input = { title, description, acceptanceCriteria, assigneeId, dueDate, priority };
+    const signature = JSON.stringify(input);
+    if (attemptRef.current?.signature !== signature) {
+      attemptRef.current = { signature, key: crypto.randomUUID() };
+    }
 
     try {
-      onCreated({ title, description, assigneeId, dueDate, priority });
-      closeDialog();
+      setIsSubmitting(true);
+      await onCreated(input, attemptRef.current.key);
+      attemptRef.current = null;
+      closeDialog(true);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "任务创建失败，请稍后重试");
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && closeDialog()}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
+    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && !isSubmitting && closeDialog()}>
+      <DialogContent className="h-[100dvh] w-screen max-w-none overflow-y-auto rounded-none sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:max-w-xl sm:rounded-2xl">
         <div className="flex items-start gap-3 pr-10">
           <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
             <ClipboardPlus aria-hidden="true" className="size-5" />
@@ -112,7 +136,12 @@ export function CreateTaskDialog({ detail, open, onClose, onCreated }: CreateTas
 
           <div className="grid gap-1.5">
             <label htmlFor="task-description" className="text-sm font-medium text-foreground">任务描述</label>
-            <Textarea id="task-description" name="description" placeholder="补充交付范围与验收标准" className="min-h-22 rounded-xl bg-white/75" />
+            <Textarea id="task-description" name="description" placeholder="补充任务范围和执行要求" className="min-h-22 rounded-xl bg-white/75" />
+          </div>
+
+          <div className="grid gap-1.5">
+            <label htmlFor="task-acceptance" className="text-sm font-medium text-foreground">验收标准</label>
+            <Textarea id="task-acceptance" name="acceptanceCriteria" placeholder="例如：核心流程通过评审且无阻断缺陷" className="min-h-20 rounded-xl bg-white/75" />
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -164,8 +193,8 @@ export function CreateTaskDialog({ detail, open, onClose, onCreated }: CreateTas
           {message ? <p role="alert" className="rounded-xl bg-danger-soft px-3 py-2 text-xs text-destructive">{message}</p> : null}
 
           <DialogFooter className="mt-1">
-            <Button type="button" variant="outline" onClick={closeDialog} className="h-9 rounded-xl">取消</Button>
-            <Button type="submit" className="h-9 rounded-xl px-4">创建任务</Button>
+            <Button type="button" variant="outline" disabled={isSubmitting} onClick={() => closeDialog()} className="h-9 rounded-xl">取消</Button>
+            <Button type="submit" disabled={isSubmitting} className="h-9 rounded-xl px-4">{isSubmitting ? "正在创建…" : "创建任务"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

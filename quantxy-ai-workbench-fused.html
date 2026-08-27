@@ -563,7 +563,7 @@ function saveTaskRevision(input,revision,actorId){
   if(input.n!=null){ var name=String(input.n).trim(); if(!name) throw new Error('task_name_required'); changes.n=name; }
   if(input.description!=null) changes.description=String(input.description).trim();
   if(input.ac!=null) changes.ac=String(input.ac).trim();
-  if(input.pri!=null){ if(['P0','P1','P2'].indexOf(input.pri)<0) throw new Error('invalid_priority'); changes.pri=input.pri; }
+  if(input.pri!=null){ if(['P0','P1','P2','P3'].indexOf(input.pri)<0) throw new Error('invalid_priority'); changes.pri=input.pri; }
   if(input.s!=null) changes.s=String(input.s).trim();
   if(input.e!=null) changes.e=String(input.e).trim();
   Object.keys(changes).forEach(function(key){ task[key]=changes[key]; });
@@ -1010,7 +1010,7 @@ var SALARY_GRADE_MATRIX={
   '行政部':{1:9000,2:12000,3:16000,4:22000,5:30000}
 };
 var DEFAULT_SALARY_GRADE={1:12000,2:16000,3:22000,4:30000,5:42000};
-var BONUS_POOL_POLICY={projectPoolRate:0.08,priority:{P0:1.5,P1:1.2,P2:1},roleLead:1.15};
+var BONUS_POOL_POLICY={projectPoolRate:0.08,priority:{P0:1.5,P1:1.2,P2:1,P3:0.85},roleLead:1.15};
 function moneyFixed(value){
   return Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2,useGrouping:false});
 }
@@ -1622,7 +1622,7 @@ function aiDecompose(goal, deadline, budget, must){
   var sys='你是企业级项目调度专家。把战略目标拆解为可执行的任务清单（WBS），只输出 JSON，不要任何解释、前缀或代码块标记。'+
     '严格格式：{"tasks":[{"id":"W1","ph":"阶段名","n":"任务名","role":"角色","skills":["关键技能"],"days":3,"dep":["W0"],"pri":"P0","ac":"验收标准"}]}。'+
     '要求：12-16 个任务；分 4-6 个阶段；role 必须从以下取值：'+ROLES.join('、')+'；'+
-    'dep 只能引用更早的 id；days 为整数人天；pri 取 P0/P1/P2；ac 为一句可判定的验收标准；全部中文。';
+    'dep 只能引用更早的 id；days 为整数人天；pri 取 P0/P1/P2/P3；ac 为一句可判定的验收标准；全部中文。';
   var pmt='战略目标：'+goal+'\n硬性截止：'+deadline+'\n预算上限：'+budget+' 万元\n关键约束：'+(must||'无')+'\n请输出任务拆解 JSON。';
   return aiCall({model:S.cfg.model, max_tokens:2400, structured_output:true, system:sys, messages:[{role:'user',content:pmt}]})
     .then(function(d){
@@ -1634,7 +1634,7 @@ function aiDecompose(goal, deadline, budget, must){
         return { id:x.id||('W'+(i+1)), ph:x.ph||'执行阶段', n:x.n||('任务'+(i+1)), role:ROLES.indexOf(x.role)>=0?x.role:'产品经理',
           skills:(Array.isArray(x.skills)?x.skills:[]).filter(function(skill){ return typeof skill==='string'&&skill.trim(); }).slice(0,8).map(function(skill){ return skill.trim().slice(0,40); }),
           days:Math.max(1,parseInt(x.days,10)||3), dep:(x.dep||[]).filter(function(d){ return ids[d] && d!==x.id; }),
-          pri:['P0','P1','P2'].indexOf(x.pri)>=0?x.pri:'P1', ac:x.ac||'达成任务目标并通过评审' };
+          pri:['P0','P1','P2','P3'].indexOf(x.pri)>=0?x.pri:'P1', ac:x.ac||'达成任务目标并通过评审' };
       });
     });
 }
@@ -1832,7 +1832,7 @@ function stTag(st){
   var safe=Object.prototype.hasOwnProperty.call(m,st)?st:'状态未知';
   return '<span class="tag '+(m[safe]||'t-n')+'">'+esc(safe)+'</span>';
 }
-function priTag(p){ return '<span class="tag '+(p==='P0'?'t-r':p==='P1'?'t-o':'t-n')+'">'+(p==='P0'?'高优先级':p==='P1'?'中优先级':'低优先级')+'</span>'; }
+function priTag(p){ return '<span class="tag '+(p==='P0'?'t-r':p==='P1'?'t-o':'t-n')+'">'+(p==='P0'?'紧急':p==='P1'?'高优先级':p==='P2'?'中优先级':'低优先级')+'</span>'; }
 
 /* ---------------- 页面：决策驾驶舱 ---------------- */
 function viewDash(){
@@ -2251,7 +2251,7 @@ function viewTask(){
     '<div class="search" style="width:auto;flex:1">'+ic('search',15)+'<input data-q="taskQ" value="'+esc(S.f.taskQ||'')+'" placeholder="搜索任务标题或关键词"></div>',
     '<select class="sel" style="width:140px" data-q="taskOwn"><option value="all">全部负责人</option>'+MEMBERS.map(function(m){
       return '<option value="'+attr(m.id)+'"'+(S.f.taskOwn===m.id?' selected':'')+'>'+esc(m.n)+'</option>'; }).join('')+'</select>',
-    '<select class="sel" style="width:120px" data-q="taskPri">'+['all','P0','P1','P2'].map(function(v){
+    '<select class="sel" style="width:120px" data-q="taskPri">'+['all','P0','P1','P2','P3'].map(function(v){
       return '<option value="'+v+'"'+(S.f.taskPri===v?' selected':'')+'>'+(v==='all'?'全部优先级':v)+'</option>'; }).join('')+'</select>',
     '<button class="btn soft" data-act="go" data-page="sched">'+ic('ai',15)+'AI 调度</button>',
     '<button class="btn" data-act="go" data-page="new-task">'+ic('plus',15)+'新建任务</button>',
@@ -3355,7 +3355,7 @@ function viewNewTask(){
       '<div>',fld('负责人',fsel('own',f.own,memOpts())),'</div>',
     '</div>',
     '<div class="frow">',
-      '<div>',fld('优先级',fsel('pri',f.pri,[{v:'P0',l:'P0 高优先级'},{v:'P1',l:'P1 中优先级'},{v:'P2',l:'P2 低优先级'}])),'</div>',
+      '<div>',fld('优先级',fsel('pri',f.pri,[{v:'P0',l:'P0 紧急'},{v:'P1',l:'P1 高优先级'},{v:'P2',l:'P2 中优先级'},{v:'P3',l:'P3 低优先级'}])),'</div>',
       '<div>',fld('开始日期',finp('s',f.s,'','date')),'</div>',
     '</div>',
     fld('截止日期',finp('e',f.e,'','date')),
@@ -3556,7 +3556,7 @@ function seedAgents(){ return [
   f:[{k:'jd',l:'岗位 JD',t:'ta',ph:'岗位职责与任职要求'},{k:'cv',l:'候选人简历',t:'ta',ph:'粘贴简历要点'}]},
  {id:'ag6',n:'工单分类回复 Agent',dept:'客服部',ic:'bot',model:'',on:1,runs:432,ok:99.3,scope:'all',minLv:1,grant:[],depts:[],
   d:'对客户工单自动分类、判定优先级，并起草一版可直接发送的回复。',
-  sys:'你是客户成功专员。输出：工单分类、紧急程度（P0/P1/P2）、根因初判、给客户的回复草稿（礼貌、具体、给出时间承诺）。全部中文。',
+  sys:'你是客户成功专员。输出：工单分类、紧急程度（P0/P1/P2/P3）、根因初判、给客户的回复草稿（礼貌、具体、给出时间承诺）。全部中文。',
   f:[{k:'tk',l:'工单内容',t:'ta',ph:'客户描述的问题'},{k:'ctx',l:'客户背景（可选）',t:'in',ph:'如：企业版客户，年费 20 万'}]},
  {id:'ag7',n:'技术方案评审 Agent',dept:'研发中心',ic:'ai',model:'',on:1,runs:64,ok:95.8,scope:'list',minLv:2,grant:[],depts:['研发中心', '产品中心', '数据中心'],
   d:'评审架构与技术选型，指出风险点、扩展性问题与替代方案。',

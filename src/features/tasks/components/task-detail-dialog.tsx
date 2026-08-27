@@ -24,7 +24,7 @@ export function TaskDetailDialog({ item, open, feedback, onOpenChange, actionHre
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="h-[100dvh] w-screen max-w-none overflow-y-auto rounded-none sm:h-auto sm:max-h-[88vh] sm:max-w-2xl sm:rounded-2xl">
         <DialogHeader>
           <div className="flex items-center gap-2 pr-10">
             <Badge variant="info">{item.project.code}</Badge>

@@ -74,6 +74,7 @@ describe("employee directory data", () => {
   });
 
   it("uses the complete mock directory only when fallback is allowed", async () => {
+    vi.stubEnv("WORKSTATION_ALLOW_MOCK_DATA", "true");
     const result = await loadEmployeeDirectory(
       organizationPublicId,
       async () => {

@@ -33,7 +33,7 @@ type ProjectTasksTabProps = {
   detail: ProjectDetailData;
   onCreate: () => void;
   onStatusChange: (taskId: string, status: TaskExecutionStatus) => void;
-  onComment: (taskId: string, body: string) => void;
+  onComment: (taskId: string, body: string, idempotencyKey: string) => void | Promise<void>;
   initialTaskId?: string;
   canManage?: boolean;
   workflowManaged?: boolean;

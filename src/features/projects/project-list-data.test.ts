@@ -16,6 +16,10 @@ function createQuery(response: QueryResponse) {
     is: () => query,
     order: () => query,
     limit: () => query,
+    maybeSingle: async () => ({
+      data: Array.isArray(response.data) ? response.data[0] ?? null : response.data,
+      error: response.error,
+    }),
     then: (
       resolve: (value: QueryResponse) => unknown,
       reject?: (reason: unknown) => unknown,
@@ -31,9 +35,10 @@ describe("loadProjectList", () => {
   });
 
   it("falls back to the complete mock portfolio when Supabase is unavailable", async () => {
+    vi.stubEnv("WORKSTATION_ALLOW_MOCK_DATA", "true");
     const result = await loadProjectList(async () => {
       throw new Error("offline");
-    });
+    }, { allowMockFallback: true });
 
     expect(result.source).toBe("mock");
     expect(result.projects).toHaveLength(mockProjects.length);
@@ -85,6 +90,13 @@ describe("loadProjectList", () => {
         ],
         error: null,
       },
+      external_identities: {
+        data: { tenant_id: 1, organization_id: 1, organization_member_id: 101, identity_provider_id: 71 },
+        error: null,
+      },
+      tenants: { data: { status: "active" }, error: null },
+      identity_providers: { data: { status: "active" }, error: null },
+      organizations: { data: { public_id: "10000000-0000-4000-8000-000000000001", status: "active" }, error: null },
       project_members: {
         data: [
           { public_id: "membership-1", project_id: 11, member_id: 101, role: "owner", left_at: null },
@@ -106,14 +118,14 @@ describe("loadProjectList", () => {
       },
       organization_members: {
         data: [
-          { id: 101, public_id: "member-101", user_id: "user-101" },
-          { id: 102, public_id: "member-102", user_id: "user-102" },
+          { id: 101, public_id: "member-101", user_id: "user-101", status: "active" },
+          { id: 102, public_id: "member-102", user_id: "user-102", status: "active" },
         ],
         error: null,
       },
       employee_profiles: {
         data: [
-          { public_id: "employee-101", organization_member_id: 101, display_name: "林远", avatar_url: null, job_title: "项目总监", department: { name: "总经办" } },
+          { public_id: "employee-101", organization_member_id: 101, display_name: "林远", avatar_url: null, job_title: "项目总监", employment_status: "active", department: { name: "总经办" } },
           { public_id: "employee-102", organization_member_id: 102, display_name: "王芳", avatar_url: null, job_title: "产品经理", department: { name: "产品研发部" } },
         ],
         error: null,

@@ -38,9 +38,19 @@ import {
   type CreateMockTaskInput,
   type TaskExecutionStatus,
 } from "@/features/projects/data/project-task-operations";
+import {
+  createBusinessTask,
+  createBusinessTaskComment,
+  publicTaskPriority,
+  submitBusinessProjectReport,
+  updateBusinessProject,
+} from "@/features/projects/data/business-command-client";
+import { formatDateInputInTimeZone } from "@/lib/date";
+import { useWorkspaceRouter } from "@/lib/navigation/use-workspace-router";
 import type { DailyReport, FileRelation, Milestone, ProjectActivity, ProjectDetailData, ProjectDetailResult, ProjectFile, ProjectRetrospective, ProjectRiskStatus } from "@/features/projects/types";
 
 export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult }) {
+  const router = useWorkspaceRouter();
   const session = useWorkspaceSession();
   const auditActor = session.actor;
   const {
@@ -59,15 +69,18 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
     () => detail.milestones.reduce((maximum, milestone) => Math.max(maximum, milestone.sortOrder), -1) + 1,
     [detail.milestones],
   );
-  const canViewProject = isFixtureBound && (actor.role === "executive" || detail.project.ownerId === actor.memberId || detail.members.some(({ member }) => member.id === actor.memberId));
+  const canViewProject = result.source === "supabase" || isFixtureBound && (actor.role === "executive" || detail.project.ownerId === actor.memberId || detail.members.some(({ member }) => member.id === actor.memberId));
   const actorProjectRole = detail.members.find(({ member }) => member.id === actor.memberId)?.role;
-  const canManageProject = isFixtureBound && (
+  const localCanManage = isFixtureBound && (
     actor.role === "executive"
     || detail.project.ownerId === actor.memberId
     || actorProjectRole === "owner"
     || actorProjectRole === "manager"
   );
-  const workflowManaged = operationsState.command.projectId === detail.project.id;
+  const canManageProject = result.source === "supabase"
+    ? result.access?.canManage ?? localCanManage
+    : localCanManage;
+  const workflowManaged = result.source === "supabase" || operationsState.command.projectId === detail.project.id;
 
   useEffect(() => {
     if (result.source === "mock") {
@@ -106,6 +119,7 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
   }
 
   function persistDetail(next: ProjectDetailData) {
+    if (result.source !== "mock") throw new Error("正式数据必须通过服务端业务接口更新");
     saveLocalProject(context, next);
     setDetail(next);
   }
@@ -115,8 +129,23 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
     setIsTaskOpen(true);
   }
 
-  function addTask(input: CreateMockTaskInput) {
+  async function addTask(input: CreateMockTaskInput & { acceptanceCriteria: string }, idempotencyKey: string) {
     if (!canManageProject) throw new Error("只有项目负责人可以新建任务");
+    if (result.source === "supabase") {
+      const assignee = detail.members.find(({ member }) => member.id === input.assigneeId)?.member;
+      if (!assignee?.commandId) throw new Error("所选负责人缺少有效成员身份，请刷新组织数据后重试");
+      await createBusinessTask({
+        projectId: detail.project.id,
+        assigneeMemberId: assignee.commandId,
+        title: input.title,
+        description: input.description,
+        acceptanceCriteria: input.acceptanceCriteria,
+        dueDate: input.dueDate,
+        priority: publicTaskPriority(input.priority),
+      }, idempotencyKey);
+      router.refresh();
+      return;
+    }
     const next = createMockTask(detail, input, auditActor);
     persistDetail(next);
     syncProjectTasksToOperations(context, next, actor.id, auditActor);
@@ -130,12 +159,57 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
     syncProjectTasksToOperations(context, next, actor.id, auditActor);
   }
 
-  function addTaskComment(taskId: string, body: string) {
+  async function addTaskComment(taskId: string, body: string, idempotencyKey: string) {
+    if (result.source === "supabase") {
+      const task = detail.tasks.find(({ id }) => id === taskId);
+      if (!task) throw new Error("任务不存在或已被移除");
+      const comment = await createBusinessTaskComment(task, body, idempotencyKey);
+      setDetail((current) => {
+        const authorId = current.members.find(({ member }) => member.employeePublicId === comment.authorEmployeePublicId)?.member.id
+          ?? result.access?.viewerMemberId
+          ?? auditActor.memberId;
+        return {
+          ...current,
+          comments: [...current.comments, { ...comment, authorId, organizationId: current.project.organizationId }],
+        };
+      });
+      return;
+    }
     persistDetail(addMockTaskComment(detail, taskId, body, auditActor));
   }
 
-  function editProject(input: EditProjectInput) {
+  async function editProject(input: EditProjectInput, idempotencyKey: string) {
     if (!canManageProject) throw new Error("只有项目负责人可以编辑项目");
+    if (result.source === "supabase") {
+      const ownerPublicId = detail.owner.employeePublicId;
+      const version = detail.project.version;
+      if (!ownerPublicId || !version) throw new Error("项目版本或负责人身份缺失，请刷新后重试");
+      const updated = await updateBusinessProject(detail.project.id, {
+        version,
+        reason: "从项目详情更新项目资料",
+        name: input.name,
+        description: input.description,
+        category: detail.project.category ?? "企业项目",
+        ownerPublicId,
+        budgetAmount: detail.project.budgetAmount ?? "0.00",
+        priority: detail.project.priority,
+        startsOn: detail.project.startDate,
+        dueOn: input.dueDate,
+      }, idempotencyKey);
+      setDetail((current) => ({
+        ...current,
+        project: {
+          ...current.project,
+          name: input.name,
+          description: input.description,
+          dueDate: input.dueDate,
+          version: updated.version,
+          updatedAt: new Date().toISOString(),
+        },
+      }));
+      router.refresh();
+      return;
+    }
     const now = new Date().toISOString();
     persistDetail({ ...detail, project: { ...detail.project, ...input, updatedAt: now }, activities: [{ id: `activity-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, userId: auditActor.id, actionType: "project_updated", content: `${auditActor.name}更新了项目基本信息。`, createdAt: now }, ...detail.activities] });
   }
@@ -177,7 +251,16 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
     await downloadProjectFileBlob(context, file.objectPath, file.originalName);
   }
 
-  function submitDailyReport(input: DailyReportInput) {
+  async function submitDailyReport(input: DailyReportInput, idempotencyKey: string) {
+    if (result.source === "supabase") {
+      await submitBusinessProjectReport(detail.project.id, {
+        reportDate: formatDateInputInTimeZone(),
+        ...input,
+        reason: "从项目详情提交项目日报",
+      }, idempotencyKey);
+      router.refresh();
+      return;
+    }
     const now = new Date().toISOString();
     const report: DailyReport = { id: `report-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, authorId: auditActor.memberId, reportDate: now.slice(0, 10), status: "submitted", summary: input.summary, nextPlan: input.nextPlan, blockers: input.blockers || undefined, supportNeeded: input.supportNeeded || undefined, submittedAt: now, createdAt: now, updatedAt: now };
     const activity: ProjectActivity = { id: `activity-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, userId: auditActor.id, actionType: "daily_report_submitted", content: `${auditActor.name}提交了 ${report.reportDate} 项目日报。`, createdAt: now };
@@ -219,10 +302,10 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
         {activeTab === "gantt" ? <ProjectGanttTab detail={detail} /> : null}
         {activeTab === "files" ? <ProjectFilesTab detail={detail} formal={result.source === "supabase"} onUpload={uploadFile} onDownload={downloadFile} /> : null}
         {activeTab === "reports" ? <ProjectReportsTab detail={detail} canSubmit={canViewProject} onSubmit={submitDailyReport} /> : null}
-        {activeTab === "retrospective" ? <ProjectRetrospectiveTab detail={detail} canManage={canManageProject} onSave={saveRetrospective} onRiskStatusChange={updateRiskStatus} /> : null}
+        {activeTab === "retrospective" ? <ProjectRetrospectiveTab detail={detail} canManage={canManageProject && result.source === "mock"} readOnlyReason={result.source === "supabase" ? "正式项目复盘与风险维护接口尚未接入，当前仅展示已存数据。" : undefined} onSave={saveRetrospective} onRiskStatusChange={updateRiskStatus} /> : null}
       </Tabs>
 
-      <EditProjectDialog detail={detail} open={isEditOpen} onOpenChange={setIsEditOpen} onSave={editProject} />
+      <EditProjectDialog detail={detail} open={isEditOpen} onOpenChange={setIsEditOpen} onSave={editProject} allowStatusChange={result.source === "mock"} />
 
       <CreateMilestoneDialog
         detail={detail}
@@ -237,6 +320,7 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
         open={isTaskOpen}
         onClose={() => setIsTaskOpen(false)}
         onCreated={addTask}
+        requireAcceptanceCriteria={result.source === "supabase"}
       />
       <ProjectMobileNav />
     </main>

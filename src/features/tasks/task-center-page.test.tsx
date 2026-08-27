@@ -1,13 +1,28 @@
 import { screen, within } from "@testing-library/react";
 import { renderWithWorkspaceSession as render } from "@/test/workspace-session-test-utils";
+import { renderWithSpecificWorkspaceSession, unboundExecutiveWorkspaceSession } from "@/test/workspace-session-test-utils";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { TaskCenterPage } from "@/features/tasks/task-center-page";
+import { getProjectDetailMock, mockMembers, mockProjects } from "@/features/projects/mock-data";
 
 describe("TaskCenterPage", () => {
   beforeEach(() => {
     window.localStorage.clear();
+  });
+
+  it("uses RLS-scoped Supabase tasks without requiring a local actor fixture", () => {
+    const detail = getProjectDetailMock(mockProjects[0].id)!;
+    renderWithSpecificWorkspaceSession(<TaskCenterPage result={{
+      details: [detail],
+      source: "supabase",
+      viewer: { memberId: detail.owner.id, member: detail.owner },
+      availableMembers: mockMembers,
+    }} />, unboundExecutiveWorkspaceSession);
+
+    expect(screen.getAllByText(detail.tasks[0].title)[0]).toBeVisible();
+    expect(screen.getByRole("tab", { name: /我的任务/ })).toHaveTextContent(String(detail.tasks.filter(({ assigneeId, reporterId }) => assigneeId === detail.owner.id || reporterId === detail.owner.id).length));
   });
 
   it("renders the approved task center structure", () => {

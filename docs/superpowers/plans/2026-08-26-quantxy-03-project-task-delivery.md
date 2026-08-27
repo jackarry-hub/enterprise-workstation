@@ -344,6 +344,12 @@ git commit -m "feat: persist Feishu notification delivery state"
 - Modify: `src/features/tasks/task-center-workspace.tsx`
 - Modify: `src/features/tasks/task-center-page.test.tsx`
 - Modify: `src/features/tasks/components/workspace-daily-report.tsx`
+- Create: `src/features/projects/data/active-workspace-data.ts`
+- Create: `src/features/projects/data/business-command-client.ts`
+- Create: `src/features/projects/data/project-collection-data.ts`
+- Create: `supabase/migrations/202608270009_workspace_inbox_rpc.sql`
+- Create: `supabase/migrations/202608270010_exact_workspace_approval_scope.sql`
+- Modify: `src/app/(workspace)/layout.tsx`
 - Modify: `tests/e2e/projects-closure.spec.ts`
 - Create: `tests/e2e/task-workflow.spec.ts`
 
@@ -351,7 +357,7 @@ git commit -m "feat: persist Feishu notification delivery state"
 - Consumes Tasks 1-5 APIs and repositories.
 - Produces desktop table/detail UI and mobile list/full-screen-detail UI with no fixture gating.
 
-- [ ] **Step 1: Write failing real-session and refresh-persistence tests**
+- [x] **Step 1: Write failing real-session and refresh-persistence tests**
 
 ```tsx
 expect(screen.getByText(realProject.name)).toBeInTheDocument();
@@ -360,22 +366,35 @@ await user.click(screen.getByRole("button", { name: "保存日报" }));
 expect(api.createReport).toHaveBeenCalledWith(expect.objectContaining({ projectId, taskIds }));
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `npx vitest run src/features/projects/projects-page.test.tsx src/features/projects/project-detail-page.test.tsx src/features/activities/activities-page.test.tsx src/features/tasks/task-center-page.test.tsx`
 Expected: non-fixture project/task data is cleared and report save is local-only.
 
-- [ ] **Step 3: Connect real repositories and responsive mutation dialogs**
+- [x] **Step 3: Connect real repositories and responsive mutation dialogs**
 
 Remove fixture/local repository branches. After every mutation, revalidate or reload server data. Mobile uses cards and full-screen sheets; desktop keeps tables and side panels.
 
-- [ ] **Step 4: Verify GREEN and full project chain**
+- [x] **Step 4: Verify GREEN and full project chain**
 
 Run: `npx vitest run src/features/projects src/features/activities src/features/tasks`
 Run: `npx playwright test tests/e2e/projects-closure.spec.ts tests/e2e/task-workflow.spec.ts --project=chrome`
 Expected: project -> milestone -> task -> report -> submit -> review survives refresh and uses real DB rows.
 
-- [ ] **Step 5: Commit**
+Task 6 local verification (2026-08-28):
+
+- `npm run typecheck` — passed.
+- `npm test` — 167 Vitest files / 1,157 tests and 152 HTML contract tests passed.
+- `npx playwright test tests/e2e/projects-closure.spec.ts tests/e2e/task-workflow.spec.ts --project=chrome --list` — 5 real-command tests discovered.
+- `npm run lint` — passed with no errors; one pre-existing generated coverage warning remains.
+- `npm run build` — passed without placeholder business data; the authenticated workspace layout is request-time dynamic.
+- `npm run test:security` and `npm audit --omit=dev --audit-level=high` — passed with zero vulnerabilities.
+- Independent API/UI review and independent SQL/data-boundary static review both returned CLEAN with no remaining P1/P2/P3 findings.
+- Formal loaders resolve one exact active external identity and scope all project/member reads to its tenant and organization. Client DTOs use public UUIDs; core/optional failures render explicit unavailable states rather than synthetic zeroes.
+- Actual Playwright execution was intentionally stopped before any business write because this workstation has no `NEXT_PUBLIC_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. The suite is local-Supabase-only and does not connect to a remote database. Clean database migration, true refresh persistence, cross-role reads and real mobile browser execution remain mandatory external release gates.
+- Migrations `202608270009/010` received static contract and independent SQL review only. They were not live-executed because this workstation has no PostgreSQL/Supabase runtime; live migration and pgTAP remain mandatory before release.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/features/projects src/features/activities src/features/tasks tests/e2e/projects-closure.spec.ts tests/e2e/task-workflow.spec.ts

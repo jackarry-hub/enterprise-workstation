@@ -26,13 +26,25 @@ describe("Phase 1 real-session E2E contract", () => {
     expect(source).not.toContain("page.route(");
   });
 
-  it("does not restore local fixture workflows in the project closure suite", () => {
+  it("keeps the project closure suite on real commands without browser fixtures", () => {
     const source = e2e("projects-closure.spec.ts");
 
     expect(source).not.toContain("localStorage");
     expect(source).not.toContain("setInputFiles");
-    expect(source).not.toContain("创建项目");
+    expect(source).toContain("authorized user creates a real project that survives refresh");
+    expect(source).toContain("创建项目");
+    expect(source).toContain("page.reload");
     expect(source).toContain("未找到项目");
+  });
+
+  it("requires the task and report chain to survive refresh on desktop and mobile", () => {
+    const source = e2e("task-workflow.spec.ts");
+
+    expect(source).not.toContain("localStorage");
+    expect(source).not.toContain("page.route(");
+    expect(source).toContain("刷新后项目详情和任务中心均可查询");
+    expect(source).toContain("日报已提交并写入项目动态");
+    expect(source).toContain("width: 390");
   });
 
   it("covers the intentionally denied knowledge route with visible guidance", () => {

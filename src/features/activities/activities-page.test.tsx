@@ -5,8 +5,24 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { ActivitiesPage } from "@/features/activities/activities-page";
+import { getProjectDetailMock, mockMembers, mockProjects } from "@/features/projects/mock-data";
 
 describe("ActivitiesPage", () => {
+  it("renders Supabase activity data for an identity without a local fixture", () => {
+    const detail = getProjectDetailMock(mockProjects[0].id)!;
+    renderWithSpecificWorkspaceSession(<ActivitiesPage result={{
+      details: [detail],
+      source: "supabase",
+      viewer: { memberId: detail.owner.id, member: detail.owner },
+      availableMembers: [{ ...mockMembers[0], employeePublicId: "a3000000-0000-4000-8000-000000000001", commandId: "m10" }],
+    }} />, unboundExecutiveWorkspaceSession);
+
+    expect(screen.getByRole("heading", { name: detail.project.name, level: 2 })).toBeVisible();
+    expect(screen.getAllByText(detail.milestones[0].name)[0]).toBeVisible();
+    expect(screen.queryByText("当前账号没有可显示的真实活动数据。")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "创建活动" })).toBeEnabled();
+  });
+
   it("shows a disabled empty state to an unbound real identity", () => {
     renderWithSpecificWorkspaceSession(
       <ActivitiesPage />,

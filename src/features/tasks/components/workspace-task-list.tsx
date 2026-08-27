@@ -32,8 +32,6 @@ const statusMeta: Record<TaskStatus, { label: string; tone: "active" | "success"
 
 function formatDueDate(date?: string) {
   if (!date) return "未设置";
-  if (date === "2026-08-04") return "今天";
-  if (date === "2026-08-05") return "明天";
   return date.slice(5).replace("-", "/");
 }
 

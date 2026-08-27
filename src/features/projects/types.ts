@@ -54,6 +54,7 @@ export const projectActivityActionTypes = [
   "file_uploaded",
   "daily_report_submitted",
   "risk_updated",
+  "project_note_added",
 ] as const;
 export type ProjectActivityActionType =
   (typeof projectActivityActionTypes)[number];
@@ -94,6 +95,8 @@ export type ProjectListPriorityFilter = ProjectPriority | "all";
 export interface MemberSummary {
   id: string;
   employeePublicId?: string;
+  /** Browser-safe command identifier used by task endpoints (for example, m42). */
+  commandId?: string;
   displayName: string;
   department: string;
   title: string;
@@ -124,6 +127,8 @@ export interface Project {
   code: string;
   name: string;
   description: string;
+  category?: string;
+  budgetAmount?: string;
   ownerId: string;
   createdById: string;
   status: ProjectStatus;
@@ -133,6 +138,7 @@ export interface Project {
   dueDate: string;
   actualEndDate?: string;
   progress: number;
+  version?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -173,6 +179,7 @@ export interface ProjectTask {
   parentTaskId?: string;
   title: string;
   description: string;
+  acceptanceCriteria?: string;
   assigneeId?: string;
   reporterId: string;
   status: TaskStatus;
@@ -183,6 +190,7 @@ export interface ProjectTask {
   progress: number;
   estimatedHours?: number;
   sortOrder: number;
+  version?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -229,6 +237,7 @@ export interface DailyReport {
   submittedAt?: string;
   createdAt: string;
   updatedAt: string;
+  version?: number;
 }
 
 export interface ProjectActivity {
@@ -340,11 +349,17 @@ export interface ProjectDetailData {
 export interface ProjectDetailResult {
   detail: ProjectDetailData;
   source: "supabase" | "mock";
+  access?: {
+    canManage: boolean;
+    viewerMemberId?: string;
+  };
 }
 
 export type CreateMockProjectInput = {
   name: string;
   description: string;
+  category?: string;
+  budgetAmount?: string;
   ownerId: string;
   memberIds: readonly string[];
   startDate: string;

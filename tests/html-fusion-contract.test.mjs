@@ -457,3 +457,12 @@ test("formal task creation explains authorization failures without blaming Feish
     /\.catch\(function\(\)\{ toast\('任务创建失败，请确认负责人已同步到飞书组织'\)/,
   );
 });
+
+test("keeps P3 low priority compatible across task editing, filtering, and creation", async () => {
+  const html = await readFusionHtml();
+
+  assert.match(html, /\['P0','P1','P2','P3'\]\.indexOf\(input\.pri\)/);
+  assert.match(html, /\['all','P0','P1','P2','P3'\]/);
+  assert.match(html, /P3 低优先级/);
+  assert.match(html, /pri 取 P0\/P1\/P2\/P3/);
+});

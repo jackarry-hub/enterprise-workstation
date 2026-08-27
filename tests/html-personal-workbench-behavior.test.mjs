@@ -975,7 +975,7 @@ test("saves only whitelisted task fields with actor authorization and optimistic
     };
 
     const saved = gateway.saveTask(
-      { id: task.id, n: "安全更新后的任务", description: "更新任务说明", ac: "更新验收标准", pri: "P2" },
+      { id: task.id, n: "安全更新后的任务", description: "更新任务说明", ac: "更新验收标准", pri: "P3" },
       before.revision,
     );
     assert.equal(saved.revision, before.revision + 1);
@@ -983,7 +983,7 @@ test("saves only whitelisted task fields with actor authorization and optimistic
     assert.equal(task.n, "安全更新后的任务");
     assert.equal(task.description, "更新任务说明");
     assert.equal(task.ac, "更新验收标准");
-    assert.equal(task.pri, "P2");
+    assert.equal(task.pri, "P3");
     assert.equal(task.st, before.status);
     assert.equal(task.own, before.owner);
     assert.equal(task.reviewer, before.reviewer);

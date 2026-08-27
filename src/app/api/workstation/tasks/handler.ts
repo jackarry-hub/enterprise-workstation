@@ -13,8 +13,8 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MEMBER_PATTERN = /^[1-9]\d*$/;
 const MAX_BODY_BYTES = 32 * 1024;
-const PRIORITIES = { P0: "urgent", P1: "high", P2: "medium" } as const;
-const PUBLIC_PRIORITIES = { urgent: "P0", high: "P1", medium: "P2", low: "P2" } as const;
+const PRIORITIES = { P0: "urgent", P1: "high", P2: "medium", P3: "low" } as const;
+const PUBLIC_PRIORITIES = { urgent: "P0", high: "P1", medium: "P2", low: "P3" } as const;
 const PUBLIC_STATUSES = {
   backlog: "待处理", todo: "待处理", in_progress: "进行中",
   in_review: "待验收", done: "已完成", cancelled: "已取消",
@@ -38,7 +38,7 @@ export type TaskCreateItem = {
   description: string;
   acceptanceCriteria: string;
   dueDate: string;
-  priority: "urgent" | "high" | "medium";
+  priority: "urgent" | "high" | "medium" | "low";
 };
 
 export type TaskCreateInput = TaskCreateItem & {

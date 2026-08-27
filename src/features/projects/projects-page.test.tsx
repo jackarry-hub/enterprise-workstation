@@ -1,10 +1,10 @@
-import { screen, within } from "@testing-library/react";
-import { executiveWorkspaceSession, renderWithWorkspaceSession as render } from "@/test/workspace-session-test-utils";
+import { act, screen, waitFor, within } from "@testing-library/react";
+import { executiveWorkspaceSession, renderWithSpecificWorkspaceSession, renderWithWorkspaceSession as render, unboundExecutiveWorkspaceSession } from "@/test/workspace-session-test-utils";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProjectsPage } from "@/features/projects/projects-page";
-import { mockProjects } from "@/features/projects/mock-data";
+import { getProjectListMock, mockMembers, mockProjectMilestoneReminders, mockProjectPortfolioStats, mockProjects } from "@/features/projects/mock-data";
 import { createOperationFixtureContext } from "@/features/operations/operation-actor-compat";
 import { getProjectsStorageKey } from "@/features/projects/data/mock-project-repository";
 
@@ -12,16 +12,52 @@ const context = createOperationFixtureContext(executiveWorkspaceSession);
 
 const navigation = vi.hoisted(() => ({
   push: vi.fn(),
+  refresh: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: navigation.push }),
+  useRouter: () => ({ push: navigation.push, refresh: navigation.refresh }),
 }));
 
 describe("ProjectsPage", () => {
   beforeEach(() => {
     window.localStorage.clear();
     navigation.push.mockReset();
+    navigation.refresh.mockReset();
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("renders and creates Supabase projects for a real identity without fixture binding", async () => {
+    const user = userEvent.setup();
+    const owner = { ...mockMembers[0], employeePublicId: "a2000000-0000-4000-8000-000000000001", commandId: "m10" };
+    const project = { ...getProjectListMock()[0], owner, members: [owner] };
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({ error: "project_command_unavailable" }, { status: 503 }))
+      .mockResolvedValueOnce(Response.json({ project: { id: "a2000000-0000-4000-8000-000000000002", version: 1 } }, { status: 201 }));
+    vi.stubGlobal("fetch", fetch);
+    renderWithSpecificWorkspaceSession(<ProjectsPage result={{
+      projects: [project],
+      stats: mockProjectPortfolioStats,
+      reminders: mockProjectMilestoneReminders,
+      availableMembers: [owner],
+      source: "supabase",
+    }} />, unboundExecutiveWorkspaceSession);
+
+    expect(screen.getAllByText(project.name).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: "新建项目" }));
+    const dialog = screen.getByRole("dialog", { name: "新建项目" });
+    await user.type(within(dialog).getByLabelText("项目名称"), "真实客户项目");
+    await user.type(within(dialog).getByLabelText("项目描述"), "通过服务端事务创建");
+    await user.type(within(dialog).getByLabelText("开始日期"), "2026-08-27");
+    await user.type(within(dialog).getByLabelText("截止日期"), "2026-09-30");
+    await user.click(within(dialog).getByRole("button", { name: "创建项目" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("服务暂时不可用");
+    await user.click(within(dialog).getByRole("button", { name: "创建项目" }));
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[0]?.[1]?.headers["Idempotency-Key"]).toBe(fetch.mock.calls[1]?.[1]?.headers["Idempotency-Key"]);
+    expect(navigation.push).toHaveBeenCalledWith("/projects/a2000000-0000-4000-8000-000000000002");
   });
 
   it("renders the approved project management center surface", () => {
@@ -40,6 +76,37 @@ describe("ProjectsPage", () => {
     expect(screen.queryByRole("button", { name: "看板" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "下一页" })).not.toBeInTheDocument();
     expect(screen.getByText("当前显示 4 个项目")).toBeVisible();
+  });
+
+  it("keeps the formal project dialog locked while the create command is pending", async () => {
+    const user = userEvent.setup();
+    const owner = { ...mockMembers[0], employeePublicId: "a2000000-0000-4000-8000-000000000011", commandId: "m10" };
+    let resolveFetch!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => new Promise<Response>((resolve) => { resolveFetch = resolve; })));
+    renderWithSpecificWorkspaceSession(<ProjectsPage result={{
+      projects: [],
+      stats: mockProjectPortfolioStats,
+      reminders: [],
+      availableMembers: [owner],
+      source: "supabase",
+    }} />, unboundExecutiveWorkspaceSession);
+
+    await user.click(screen.getByRole("button", { name: "新建项目" }));
+    const dialog = screen.getByRole("dialog", { name: "新建项目" });
+    await user.type(within(dialog).getByLabelText("项目名称"), "提交锁定项目");
+    await user.type(within(dialog).getByLabelText("项目描述"), "验证提交期间禁止关闭");
+    await user.type(within(dialog).getByLabelText("开始日期"), "2026-08-27");
+    await user.type(within(dialog).getByLabelText("截止日期"), "2026-09-30");
+    await user.click(within(dialog).getByRole("button", { name: "创建项目" }));
+    expect(within(dialog).getByRole("button", { name: "正在创建…" })).toBeDisabled();
+
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "新建项目" })).toBeVisible();
+
+    await act(async () => {
+      resolveFetch(Response.json({ project: { id: "a2000000-0000-4000-8000-000000000012", version: 1 } }, { status: 201 }));
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "新建项目" })).not.toBeInTheDocument());
   });
 
   it("filters projects by keyword and restores the list", async () => {

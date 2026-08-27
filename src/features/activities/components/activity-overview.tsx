@@ -1,5 +1,4 @@
 import {
-  ArrowRight,
   CalendarRange,
   CheckCircle2,
   CircleDot,
@@ -104,20 +103,19 @@ export function ActivityOverview({ activity }: { activity: ActivityProjectView }
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="font-semibold text-foreground">阶段推进</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">策划、执行、推广、复盘全流程跟踪</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">按项目里程碑跟踪关键交付阶段</p>
             </div>
             <span className="hidden text-xs text-muted-foreground sm:block">同步项目里程碑</span>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr] xl:items-center">
+          {activity.stages.length > 0 ? <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-4 xl:items-stretch">
             {activity.stages.map((stage, index) => {
               const completed = stage.status === "completed";
               const active = stage.status === "in_progress";
               const Icon = stageIcons[index] ?? CircleDot;
 
               return (
-                <div key={stage.id} className="contents">
-                  <article className="flex min-w-0 flex-col items-center rounded-2xl bg-background/45 px-2 py-3 text-center">
+                <article key={stage.id} className="flex min-w-0 flex-col items-center rounded-2xl bg-background/45 px-2 py-3 text-center">
                     <span
                       className={cn(
                         "grid size-10 place-items-center rounded-full",
@@ -154,17 +152,10 @@ export function ActivityOverview({ activity }: { activity: ActivityProjectView }
                           ? `当前进度 ${stage.progress}%`
                           : `计划 ${stage.dueDate.slice(5).replace("-", "/")}`}
                     </p>
-                  </article>
-                  {index < activity.stages.length - 1 ? (
-                    <ArrowRight
-                      aria-hidden="true"
-                      className="mx-auto hidden size-4 text-primary/45 xl:block"
-                    />
-                  ) : null}
-                </div>
+                </article>
               );
             })}
-          </div>
+          </div> : <div className="mt-4 rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">尚未配置里程碑，可进入项目详情添加。</div>}
         </div>
       </div>
     </GlassCard>

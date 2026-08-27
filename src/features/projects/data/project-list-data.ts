@@ -1,10 +1,12 @@
 import {
   getProjectListMock,
+  mockMembers,
   mockProjectMilestoneReminders,
   mockProjectPortfolioStats,
 } from "@/features/projects/mock-data";
 import {
   fallbackProjectMember,
+  loadAvailableProjectMembers,
   loadProjectMemberDirectory,
 } from "@/features/projects/data/project-member-data";
 import type {
@@ -15,6 +17,7 @@ import type {
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { formatDateInputInTimeZone } from "@/lib/date";
 import { shouldAllowMockBusinessData } from "@/lib/runtime/workstation-mode";
+import { loadActiveWorkspaceScope } from "@/features/projects/data/active-workspace-data";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof getSupabaseServerClient>>;
 export type ProjectListClientFactory = () => Promise<SupabaseServerClient>;
@@ -23,6 +26,7 @@ export type ProjectListResult = {
   projects: readonly ProjectListItem[];
   stats: readonly ProjectPortfolioStat[];
   reminders: readonly ProjectMilestoneReminder[];
+  availableMembers: readonly import("@/features/projects/types").MemberSummary[];
   source: "supabase" | "mock";
 };
 
@@ -81,6 +85,7 @@ function mockResult(): ProjectListResult {
     projects: getProjectListMock(),
     stats: mockProjectPortfolioStats,
     reminders: mockProjectMilestoneReminders,
+    availableMembers: mockMembers,
     source: "mock",
   };
 }
@@ -142,18 +147,19 @@ export async function loadProjectList(
   clientFactory: ProjectListClientFactory = getSupabaseServerClient,
   options: { allowMockFallback?: boolean } = {},
 ): Promise<ProjectListResult> {
-  const allowMockFallback = options.allowMockFallback ?? shouldAllowMockBusinessData();
+  const runtimeAllowsMock = shouldAllowMockBusinessData();
+  const allowMockFallback = (options.allowMockFallback ?? runtimeAllowsMock) && runtimeAllowsMock;
 
   try {
     const client = await clientFactory();
-    const [projectResponse, userResponse] = await Promise.all([
-      client
-        .from("projects")
-        .select("id, public_id, organization_id, objective_id, code, name, owner_member_id, status, health, priority, start_date, due_date, progress")
-        .is("deleted_at", null)
-        .order("due_date"),
-      client.auth.getUser().catch(() => ({ data: { user: null }, error: null })),
-    ]);
+    const scope = await loadActiveWorkspaceScope(client);
+    const projectResponse = await client
+      .from("projects")
+      .select("id, public_id, organization_id, objective_id, code, name, owner_member_id, status, health, priority, start_date, due_date, progress")
+      .eq("tenant_id", scope.tenantId)
+      .eq("organization_id", scope.organizationId)
+      .is("deleted_at", null)
+      .order("due_date");
 
     if (projectResponse.error) {
       throw projectResponse.error;
@@ -161,7 +167,13 @@ export async function loadProjectList(
 
     const projectRows = (projectResponse.data ?? []) as ProjectRow[];
     if (projectRows.length === 0) {
-      return { projects: [], stats: buildPortfolioStats([]), reminders: [], source: "supabase" };
+      return {
+        projects: [],
+        stats: buildPortfolioStats([]),
+        reminders: [],
+        availableMembers: await loadAvailableProjectMembers(client, scope),
+        source: "supabase",
+      };
     }
 
     const projectIds = projectRows.map(({ id }) => id);
@@ -173,7 +185,7 @@ export async function loadProjectList(
         .select("id, title")
         .in("id", [...new Set(objectiveIds)])
         .is("deleted_at", null);
-    const [membershipResponse, milestoneResponse, objectiveResponse] = await Promise.all([
+    const [membershipResponse, milestoneResponse, objectiveResponse, availableMembers] = await Promise.all([
       client
         .from("project_members")
         .select("public_id, project_id, member_id, role, left_at")
@@ -186,6 +198,7 @@ export async function loadProjectList(
         .is("deleted_at", null)
         .order("due_date"),
       objectivePromise,
+      loadAvailableProjectMembers(client, scope),
     ]);
     const relatedError = [membershipResponse, milestoneResponse, objectiveResponse]
       .find(({ error }) => error)?.error;
@@ -198,8 +211,7 @@ export async function loadProjectList(
       ...projectRows.map(({ owner_member_id }) => owner_member_id),
       ...membershipRows.map(({ member_id }) => member_id),
     ];
-    const memberDirectory = await loadProjectMemberDirectory(client, memberIds);
-    const currentUserId = userResponse.data.user?.id;
+    const memberDirectory = await loadProjectMemberDirectory(client, memberIds, scope);
     const objectives = new Map(
       ((objectiveResponse.data ?? []) as ObjectiveRow[]).map((objective) => [objective.id, objective.title]),
     );
@@ -223,9 +235,7 @@ export async function loadProjectList(
         ));
         const owner = memberDirectory.get(project.owner_member_id)?.summary
           ?? fallbackProjectMember(project.owner_member_id, "owner");
-        const viewerMembership = currentUserId
-          ? memberships.find(({ member_id }) => memberDirectory.get(member_id)?.userId === currentUserId)
-          : undefined;
+        const viewerMembership = memberships.find(({ member_id }) => member_id === scope.memberId);
         const members = summaries.some(({ id }) => id === owner.id)
           ? summaries
           : [owner, ...summaries];
@@ -264,6 +274,7 @@ export async function loadProjectList(
       projects,
       stats: buildPortfolioStats(projects),
       reminders,
+      availableMembers,
       source: "supabase",
     };
   } catch (error) {

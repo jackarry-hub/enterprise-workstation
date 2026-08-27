@@ -210,7 +210,7 @@ const taskPriorities: Record<string, string> = {
   urgent: "P0",
   high: "P1",
   medium: "P2",
-  low: "P2",
+  low: "P3",
 };
 
 const notificationErrorCodes = new Set([

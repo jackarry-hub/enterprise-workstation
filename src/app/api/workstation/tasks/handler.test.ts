@@ -129,6 +129,17 @@ describe("formal workstation idempotent single task creation", () => {
     });
   });
 
+  it("preserves low priority through the P3 public protocol", async () => {
+    const createTask = vi.fn().mockResolvedValue({
+      ...commandResult,
+      tasks: [{ ...canonicalTask, priority: "low" }],
+    });
+    const response = await handler({ createTask })(request({ ...validBody, priority: "P3" }));
+    expect(response.status).toBe(201);
+    expect(createTask).toHaveBeenCalledWith(expect.objectContaining({ priority: "low" }));
+    expect((await response.json()).task.pri).toBe("P3");
+  });
+
   it.each([
     { status: "failed", errorCode: "send_failed" },
     { status: "unavailable", errorCode: "recipient_unavailable" },

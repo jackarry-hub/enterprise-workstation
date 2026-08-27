@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { CalendarDays, MessageSquareText, Send, UserRound } from "lucide-react";
+import { useRef, useState } from "react";
+import { AlertCircle, CalendarDays, CheckCircle2, MessageSquareText, Send, UserRound } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -15,24 +15,38 @@ import type { WorkspaceActor } from "@/features/auth/workspace-session-types";
 const statusLabels = { backlog: "待开始", todo: "待开始", in_progress: "进行中", blocked: "已阻塞", in_review: "评审中", done: "已完成", cancelled: "已取消" } as const;
 const statusTones = { backlog: "neutral", todo: "active", in_progress: "active", blocked: "warning", in_review: "warning", done: "success", cancelled: "neutral" } as const;
 
-export function ProjectTaskDetailDialog({ actor, task, detail, open, onOpenChange, onComment }: { actor: WorkspaceActor; task: ProjectTask | null; detail: ProjectDetailData; open: boolean; onOpenChange: (open: boolean) => void; onComment: (taskId: string, body: string) => void }) {
+export function ProjectTaskDetailDialog({ actor, task, detail, open, onOpenChange, onComment }: { actor: WorkspaceActor; task: ProjectTask | null; detail: ProjectDetailData; open: boolean; onOpenChange: (open: boolean) => void; onComment: (taskId: string, body: string, idempotencyKey: string) => void | Promise<void> }) {
   const [body, setBody] = useState("");
-  const [message, setMessage] = useState("");
+  const [feedback, setFeedback] = useState<{ tone: "error" | "success"; message: string } | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const attemptRef = useRef<{ signature: string; key: string } | null>(null);
   if (!task) return null;
   const assignee = detail.members.find(({ member }) => member.id === task.assigneeId)?.member;
   const comments = detail.comments.filter(({ taskId }) => taskId === task.id);
 
-  function submit(event: React.FormEvent<HTMLFormElement>) {
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!body.trim()) { setMessage("请输入评论内容"); return; }
-    onComment(task!.id, body);
-    setBody("");
-    setMessage("评论已添加，并同步到项目动态");
+    if (isSubmitting) return;
+    if (!body.trim()) { setFeedback({ tone: "error", message: "请输入评论内容" }); return; }
+    const content = body.trim();
+    if (attemptRef.current?.signature !== content) attemptRef.current = { signature: content, key: crypto.randomUUID() };
+    try {
+      setIsSubmitting(true);
+      setFeedback(null);
+      await onComment(task!.id, content, attemptRef.current.key);
+      attemptRef.current = null;
+      setBody("");
+      setFeedback({ tone: "success", message: "评论已添加，并同步到项目动态" });
+    } catch (error) {
+      setFeedback({ tone: "error", message: error instanceof Error ? error.message : "评论提交失败，请稍后重试" });
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-2xl">
+    <Dialog open={open} onOpenChange={(nextOpen) => !isSubmitting && onOpenChange(nextOpen)}>
+      <DialogContent className="h-[100dvh] w-screen max-w-none overflow-y-auto rounded-none sm:h-auto sm:max-h-[88vh] sm:max-w-2xl sm:rounded-2xl">
         <DialogHeader>
           <div className="flex items-center gap-2 pr-10"><StatusBadge status={statusTones[task.status]}>{statusLabels[task.status]}</StatusBadge><Badge variant={task.priority === "urgent" ? "destructive" : "outline"}>{task.priority}</Badge></div>
           <DialogTitle className="pt-1 text-xl">{task.title}</DialogTitle>
@@ -42,6 +56,7 @@ export function ProjectTaskDetailDialog({ actor, task, detail, open, onOpenChang
           <div className="rounded-2xl bg-muted/55 p-3"><p className="flex items-center gap-1.5 text-xs text-muted-foreground"><UserRound className="size-3.5" />负责人</p><p className="mt-1.5 font-medium">{assignee?.displayName ?? "待分配"}</p></div>
           <div className="rounded-2xl bg-muted/55 p-3"><p className="flex items-center gap-1.5 text-xs text-muted-foreground"><CalendarDays className="size-3.5" />截止时间</p><p className="mt-1.5 font-medium">{task.dueDate ?? "待定"}</p></div>
         </div>
+        {task.acceptanceCriteria ? <section className="rounded-2xl border border-glass-border bg-background/55 p-4"><h3 className="text-sm font-semibold">验收标准</h3><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{task.acceptanceCriteria}</p></section> : null}
         <section aria-labelledby="task-comments-title" className="rounded-2xl border border-glass-border bg-background/55 p-4">
           <div className="flex items-center gap-2"><MessageSquareText className="size-4 text-primary" /><h3 id="task-comments-title" className="font-semibold">任务评论</h3><Badge variant="outline" className="ml-auto">{comments.length}</Badge></div>
           <div className="mt-3 grid max-h-52 gap-3 overflow-y-auto">
@@ -53,7 +68,7 @@ export function ProjectTaskDetailDialog({ actor, task, detail, open, onOpenChang
           </div>
           <form className="mt-4 grid gap-2" onSubmit={submit}>
             <Textarea aria-label="任务评论内容" value={body} onChange={(event) => setBody(event.target.value)} placeholder="补充进展、问题或验收反馈..." />
-            <div className="flex items-center justify-between gap-3">{message ? <p role="status" className="text-xs font-medium text-success">{message}</p> : <span /> }<Button type="submit" size="sm"><Send data-icon="inline-start" />添加评论</Button></div>
+            <div className="flex items-center justify-between gap-3">{feedback ? <p role={feedback.tone === "error" ? "alert" : "status"} className={feedback.tone === "error" ? "flex items-center gap-1.5 text-xs font-medium text-destructive" : "flex items-center gap-1.5 text-xs font-medium text-success"}>{feedback.tone === "error" ? <AlertCircle aria-hidden="true" className="size-4" /> : <CheckCircle2 aria-hidden="true" className="size-4" />}{feedback.message}</p> : <span /> }<Button type="submit" size="sm" disabled={isSubmitting}><Send data-icon="inline-start" />{isSubmitting ? "提交中…" : "添加评论"}</Button></div>
           </form>
         </section>
       </DialogContent>
