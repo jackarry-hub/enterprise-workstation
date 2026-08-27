@@ -34,6 +34,7 @@ const session: WorkspaceSession = {
   },
   roleCodes: ["employee"],
   customRoleCodes: [],
+  supervisorScopeEmployeeIds: [],
   permissionCodes: ["task.manage"],
   primaryRole: "employee",
   landingPath: "/execution",

@@ -35,3 +35,59 @@ test("ordinary employee sees only a safe peer detail on mobile", async ({ browse
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
   await context.close();
 });
+
+test("department head protected scope includes only the exact active department", async ({ browser }) => {
+  const context = await browser.newContext({ storageState: authStatePath("department_head") });
+  const page = await context.newPage();
+
+  await page.goto("/people", { waitUntil: "networkidle" });
+  const employeeHref = await page.getByRole("link", {
+    name: `查看${roleFixtures.employee.displayName}的员工档案`,
+  }).first().getAttribute("href");
+  const financeHref = await page.getByRole("link", {
+    name: `查看${roleFixtures.finance.displayName}的员工档案`,
+  }).first().getAttribute("href");
+  expect(employeeHref).toMatch(/^\/people\/[0-9a-f-]{36}$/i);
+  expect(financeHref).toMatch(/^\/people\/[0-9a-f-]{36}$/i);
+
+  const employeeId = employeeHref!.split("/").at(-1)!;
+  const financeId = financeHref!.split("/").at(-1)!;
+  const directDepartment = await page.request.get(
+    `/api/workstation/organization/members/${employeeId}/manager`,
+  );
+  const otherDepartment = await page.request.get(
+    `/api/workstation/organization/members/${financeId}/manager`,
+  );
+
+  expect(directDepartment.status()).toBe(200);
+  expect(otherDepartment.status()).toBe(404);
+  await context.close();
+});
+
+test("organization manager assigns a real responsive manager relationship and refreshes", async ({ browser }) => {
+  const context = await browser.newContext({ storageState: authStatePath("executive") });
+  const page = await context.newPage();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/people", { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "分配直属主管" }).click();
+  const employeeOption = page.getByRole("combobox", { name: "选择员工" })
+    .locator("option")
+    .filter({ hasText: roleFixtures.employee.displayName });
+  await page.getByRole("combobox", { name: "选择员工" }).selectOption(
+    (await employeeOption.getAttribute("value"))!,
+  );
+  const managerOption = page.getByRole("combobox", { name: "选择主管" })
+    .locator("option")
+    .filter({ hasText: roleFixtures.department_head.displayName });
+  await page.getByRole("combobox", { name: "选择主管" }).selectOption(
+    (await managerOption.getAttribute("value"))!,
+  );
+  await page.getByRole("textbox", { name: "主管调整理由" }).fill("E2E 验证直属汇报关系");
+  await page.getByRole("button", { name: "提交主管变更" }).click();
+
+  await expect(page.getByText("直属主管已更新，正在刷新服务器数据。")).toBeVisible();
+  await page.reload({ waitUntil: "networkidle" });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
+  await context.close();
+});

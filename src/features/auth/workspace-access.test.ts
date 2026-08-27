@@ -14,6 +14,7 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("next/navigation", () => ({ redirect: dependencies.redirect }));
 
 import {
+  canReadSupervisorScope,
   getSafeReturnPath,
   hasWorkspacePermission,
   parseWorkspaceAccess,
@@ -42,6 +43,7 @@ const base = {
   providerSubject: "subject-employee-001",
   customRoleCodes: [],
   permissionCodes: ["task.manage"],
+  supervisorScopeEmployeeIds: [],
 };
 
 describe("parseWorkspaceAccess", () => {
@@ -86,6 +88,7 @@ describe("parseWorkspaceAccess", () => {
     ["owner", "executive", "CEO", "/dashboard"],
     ["department_head", "department_head", "管理层", "/department"],
     ["employee", "employee", "普通员工", "/execution"],
+    ["supervisor", "employee", "主管", "/execution"],
     ["finance", "finance", "财务", "/finance"],
     ["hr", "hr", "人事", "/hr"],
   ] as const)(
@@ -121,7 +124,7 @@ describe("parseWorkspaceAccess", () => {
   it("uses the documented business-role priority and treats admin as a flag", () => {
     const session = parseWorkspaceAccess({
       ...base,
-      roleCodes: ["employee", "admin", "hr", "finance", "department_head", "owner"],
+      roleCodes: ["employee", "supervisor", "admin", "hr", "finance", "department_head", "owner"],
     });
 
     expect(session).toMatchObject({ primaryRole: "executive", isAdmin: true });
@@ -334,6 +337,53 @@ describe("parseWorkspaceAccess", () => {
         customRoleCodes: ["admin"],
       }),
     ).toBeNull();
+  });
+
+  it("keeps the database-issued supervisor public-id scope exact and fail-closed", () => {
+    const directReportId = "10000000-0000-4000-8000-000000000013";
+    const otherDepartmentId = "10000000-0000-4000-8000-000000000014";
+    const session = parseWorkspaceAccess({
+      ...base,
+      roleCodes: ["supervisor"],
+      permissionCodes: ["employee.supervisor.read"],
+      supervisorScopeEmployeeIds: [directReportId],
+    });
+
+    expect(session).not.toBeNull();
+    expect(session?.roleCodes).toEqual(["supervisor"]);
+    expect(session?.supervisorScopeEmployeeIds).toEqual([directReportId]);
+    expect(canReadSupervisorScope(session!, directReportId)).toBe(true);
+    expect(canReadSupervisorScope(session!, otherDepartmentId)).toBe(false);
+  });
+
+  it.each([
+    ["not an array", "10000000-0000-4000-8000-000000000013"],
+    ["malformed", ["not-a-uuid"]],
+    ["duplicate", [
+      "10000000-0000-4000-8000-000000000013",
+      "10000000-0000-4000-8000-000000000013",
+    ]],
+  ])("rejects a %s supervisor scope", (_label, supervisorScopeEmployeeIds) => {
+    expect(parseWorkspaceAccess({
+      ...base,
+      roleCodes: ["supervisor"],
+      supervisorScopeEmployeeIds,
+    })).toBeNull();
+  });
+
+  it("treats a pre-migration missing scope as empty without granting access", () => {
+    const session = parseWorkspaceAccess({
+      ...base,
+      roleCodes: ["supervisor"],
+      permissionCodes: ["employee.supervisor.read"],
+      supervisorScopeEmployeeIds: undefined,
+    });
+
+    expect(session?.supervisorScopeEmployeeIds).toEqual([]);
+    expect(canReadSupervisorScope(
+      session!,
+      "10000000-0000-4000-8000-000000000013",
+    )).toBe(false);
   });
 
   it.each([

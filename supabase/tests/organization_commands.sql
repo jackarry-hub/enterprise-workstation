@@ -1,5 +1,5 @@
 begin;
-select plan(63);
+select plan(108);
 
 insert into public.tenants (name,slug,status) values ('Organization command A','organization-command-a','active'),('Organization command B','organization-command-b','active');
 insert into public.organizations (tenant_id,name,slug)
@@ -11,7 +11,7 @@ select tenant.id, seed.name, seed.slug from public.tenants tenant join (values
 insert into public.identity_providers (tenant_id,provider_code,auth_provider,provider_tenant_key,display_name)
 select id,'organizationcommand','custom:organizationcommand',slug||'-key','Organization command auth' from public.tenants where slug like 'organization-command-%';
 insert into public.roles (tenant_id,organization_id,code,name,description,is_system,is_enabled)
-select tenant.id,null,seed.code,seed.name,seed.name,true,true from public.tenants tenant cross join (values ('owner','Owner'),('admin','Admin'),('employee','Employee'),('hr','HR')) seed(code,name) where tenant.slug like 'organization-command-%';
+select tenant.id,null,seed.code,seed.name,seed.name,true,true from public.tenants tenant cross join (values ('owner','Owner'),('admin','Admin'),('department_head','Department head'),('employee','Employee'),('hr','HR')) seed(code,name) where tenant.slug like 'organization-command-%';
 insert into auth.users (instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at) values
  ('00000000-0000-0000-0000-000000000000','97000000-0000-4000-8000-000000000001','authenticated','authenticated','organization-employee@example.test',crypt('local-e2e-password',gen_salt('bf')),now(),'{}','{}',now(),now()),
  ('00000000-0000-0000-0000-000000000000','97000000-0000-4000-8000-000000000002','authenticated','authenticated','organization-admin@example.test',crypt('local-e2e-password',gen_salt('bf')),now(),'{}','{}',now(),now()),
@@ -32,7 +32,7 @@ select tenant.id,organization.id,seed.user_id,'active' from (values
 insert into public.member_roles (tenant_id,member_id,role_id,assignment_source)
 select member.tenant_id,member.id,role.id,case when member.user_id='97000000-0000-4000-8000-000000000003'::uuid then 'directory' else 'manual' end
 from public.organization_members member join public.roles role on role.tenant_id=member.tenant_id join (values
- ('97000000-0000-4000-8000-000000000001'::uuid,'employee'),('97000000-0000-4000-8000-000000000002'::uuid,'admin'),('97000000-0000-4000-8000-000000000003'::uuid,'employee')
+ ('97000000-0000-4000-8000-000000000001'::uuid,'employee'),('97000000-0000-4000-8000-000000000002'::uuid,'admin'),('97000000-0000-4000-8000-000000000003'::uuid,'department_head')
  ,('97000000-0000-4000-8000-000000000004'::uuid,'admin'),
  ('97000000-0000-4000-8000-000000000005'::uuid,'hr'),
  ('97000000-0000-4000-8000-000000000006'::uuid,'employee')
@@ -48,6 +48,39 @@ select member.tenant_id,member.organization_id,member.id,'ORG-'||member.id,'Orga
  '97000000-0000-4000-8000-000000000003'::uuid, '97000000-0000-4000-8000-000000000004'::uuid,
  '97000000-0000-4000-8000-000000000005'::uuid, '97000000-0000-4000-8000-000000000006'::uuid
 );
+insert into public.departments (tenant_id,organization_id,code,name,description,sort_order)
+select tenant.id,organization.id,seed.code,seed.name,'Task 8 manager scope',seed.sort_order
+from public.tenants tenant join public.organizations organization on organization.tenant_id=tenant.id
+cross join (values ('ENGINEERING','Engineering',10),('SALES','Sales',20)) seed(code,name,sort_order)
+where tenant.slug='organization-command-a' and organization.slug='organization-command-org-a';
+update public.employee_profiles profile set department_id=case
+  when member.user_id='97000000-0000-4000-8000-000000000005'::uuid
+    then (select id from public.departments where tenant_id=profile.tenant_id and organization_id=profile.organization_id and code='SALES')
+  else (select id from public.departments where tenant_id=profile.tenant_id and organization_id=profile.organization_id and code='ENGINEERING')
+end
+from public.organization_members member
+where member.id=profile.organization_member_id and member.organization_id=profile.organization_id
+  and member.user_id in (
+    '97000000-0000-4000-8000-000000000001'::uuid,
+    '97000000-0000-4000-8000-000000000002'::uuid,
+    '97000000-0000-4000-8000-000000000003'::uuid,
+    '97000000-0000-4000-8000-000000000005'::uuid
+  );
+insert into public.member_roles (tenant_id,member_id,role_id,assignment_source)
+select member.tenant_id,member.id,role.id,'manual'
+from public.organization_members member join public.roles role on role.tenant_id=member.tenant_id
+where member.user_id='97000000-0000-4000-8000-000000000002'::uuid
+  and role.code='supervisor' and role.organization_id is null and role.is_system and role.is_enabled;
+update public.departments department set leader_member_id=(
+  select member.id from public.organization_members member
+  where member.tenant_id=department.tenant_id and member.organization_id=department.organization_id
+    and member.user_id='97000000-0000-4000-8000-000000000002'::uuid
+)
+where department.code='ENGINEERING' and department.organization_id=(select id from public.organizations where slug='organization-command-org-a');
+select set_config('test.organization.manager_target',(select profile.public_id::text from public.employee_profiles profile join public.organization_members member on member.id=profile.organization_member_id where member.user_id='97000000-0000-4000-8000-000000000001'::uuid),true);
+select set_config('test.organization.supervisor_profile',(select profile.public_id::text from public.employee_profiles profile join public.organization_members member on member.id=profile.organization_member_id where member.user_id='97000000-0000-4000-8000-000000000002'::uuid),true);
+select set_config('test.organization.department_head_profile',(select profile.public_id::text from public.employee_profiles profile join public.organization_members member on member.id=profile.organization_member_id where member.user_id='97000000-0000-4000-8000-000000000003'::uuid),true);
+select set_config('test.organization.sales_profile',(select profile.public_id::text from public.employee_profiles profile join public.organization_members member on member.id=profile.organization_member_id where member.user_id='97000000-0000-4000-8000-000000000005'::uuid),true);
 insert into public.external_identities (tenant_id,organization_id,organization_member_id,identity_provider_id,provider_subject,provider_tenant_key,auth_user_id,status)
 select member.tenant_id,member.organization_id,member.id,provider.id,member.user_id::text,provider.provider_tenant_key,member.user_id,'active' from public.organization_members member join public.identity_providers provider on provider.tenant_id=member.tenant_id and provider.provider_code='organizationcommand';
 insert into public.departments (tenant_id,organization_id,code,name,description)
@@ -173,4 +206,99 @@ reset role;
 select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000002',true); set local role authenticated;
 select ok(exists(select 1 from public.audit_logs where request_id='97000000-0000-4000-8000-000000000106'::uuid and action='employee_skill.verification_failed' and metadata->>'failure'='not_found' and metadata->>'outcome'='failure'),'foreign not-found commits a safe durable failure audit');
 reset role;
+
+-- Task 8: canonical supervisor, protected projection and manager command behavior.
+select ok(exists(select 1 from public.roles role join public.tenants tenant on tenant.id=role.tenant_id where tenant.slug='organization-command-a' and role.code='supervisor' and role.name='主管' and role.is_system and role.is_enabled and role.organization_id is null),'new tenants receive the distinct canonical supervisor role');
+select ok(exists(select 1 from public.roles role join public.role_permissions grant_row on grant_row.tenant_id=role.tenant_id and grant_row.role_id=role.id join public.permissions permission on permission.id=grant_row.permission_id join public.tenants tenant on tenant.id=role.tenant_id where tenant.slug='organization-command-a' and role.code='supervisor' and permission.code='employee.supervisor.read') and not exists(select 1 from public.roles role join public.role_permissions grant_row on grant_row.tenant_id=role.tenant_id and grant_row.role_id=role.id join public.permissions permission on permission.id=grant_row.permission_id join public.tenants tenant on tenant.id=role.tenant_id where tenant.slug='organization-command-a' and role.code='supervisor' and permission.code in ('organization.manage','role.manage')),'supervisor receives only its narrow scope permission, never organization administration');
+select ok(has_function('public','current_supervisor_employee_projection',array['uuid']::name[]),'protected supervisor projection exists');
+select ok(has_function_privilege('authenticated','public.current_supervisor_employee_projection(uuid)','EXECUTE') and not has_function_privilege('anon','public.current_supervisor_employee_projection(uuid)','EXECUTE'),'protected supervisor projection is authenticated-only');
+select ok(has_function('public','assign_current_member_manager',array['uuid','uuid','bigint','text','uuid','uuid']::name[]),'manager command carries exact public IDs, version, reason, request and idempotency');
+select ok(exists(select 1 from pg_constraint where conrelid='public.employee_profiles'::regclass and conname='employee_profiles_exact_manager_fkey' and pg_get_constraintdef(oid) like '%FOREIGN KEY (tenant_id, organization_id, manager_employee_id) REFERENCES employee_profiles(tenant_id, organization_id, id)%'),'manager foreign key enforces exact tenant and organization');
+select ok(not has_column_privilege('authenticated','public.employee_profiles','manager_employee_id','UPDATE') and not has_column_privilege('authenticated','public.employee_profiles','manager_source','UPDATE') and not has_column_privilege('authenticated','public.employee_profiles','manager_version','UPDATE'),'browser roles cannot directly write manager authority or version');
+select throws_ok($$ insert into public.roles (tenant_id,organization_id,code,name,description,is_system,is_enabled) select tenant.id,organization.id,'supervisor','Scoped supervisor','Must fail',false,true from public.tenants tenant join public.organizations organization on organization.tenant_id=tenant.id where organization.slug='organization-command-org-a' $$,'23514','Canonical workspace role codes require a global system role','custom scoped supervisor lookalike is rejected');
+
+select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000001',true); set local role authenticated;
+select throws_ok($$ select public.assign_current_member_manager(current_setting('test.organization.manager_target')::uuid,current_setting('test.organization.supervisor_profile')::uuid,1,'Employee override','97000000-0000-4000-8000-000000000201'::uuid,'97000000-0000-4000-8000-000000000202'::uuid) $$,'42501','Organization command permission required','ordinary employee cannot assign a manager');
+reset role;
+select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000002',true); set local role authenticated;
+select is((select public.assign_current_member_manager(current_setting('test.organization.manager_target')::uuid,current_setting('test.organization.supervisor_profile')::uuid,1,'Establish direct reporting','97000000-0000-4000-8000-000000000211'::uuid,'97000000-0000-4000-8000-000000000212'::uuid)->>'outcome'),'success','authorized manager assignment succeeds');
+reset role;
+select is((select manager.public_id from public.employee_profiles target join public.employee_profiles manager on manager.id=target.manager_employee_id where target.public_id=current_setting('test.organization.manager_target')::uuid),current_setting('test.organization.supervisor_profile')::uuid,'manager assignment stores the exact selected public manager');
+select is((select manager_source from public.employee_profiles where public_id=current_setting('test.organization.manager_target')::uuid),'manual','audited manager assignment records manual authority');
+select is((select manager_version from public.employee_profiles where public_id=current_setting('test.organization.manager_target')::uuid),2::bigint,'manager assignment increments its independent optimistic version');
+select ok(exists(select 1 from public.audit_logs where request_id='97000000-0000-4000-8000-000000000211'::uuid and action='organization.manager_assigned' and metadata->>'outcome'='success' and metadata->>'businessReason'='Establish direct reporting' and metadata->'before'->>'version'='1' and metadata->'after'->>'version'='2' and metadata->'after'->>'managerSource'='manual'),'manager assignment audit stores safe before, after, reason and version evidence');
+select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000002',true); set local role authenticated;
+select is((select public.assign_current_member_manager(current_setting('test.organization.manager_target')::uuid,current_setting('test.organization.supervisor_profile')::uuid,1,'Lost response replay','97000000-0000-4000-8000-000000000213'::uuid,'97000000-0000-4000-8000-000000000212'::uuid)->>'outcome'),'success','manager assignment lost-response retry replays its stored result');
+reset role;
+select is((select manager_version from public.employee_profiles where public_id=current_setting('test.organization.manager_target')::uuid),2::bigint,'manager assignment replay does not mutate the version twice');
+select is((select count(*) from public.audit_logs where request_id='97000000-0000-4000-8000-000000000211'::uuid and action='organization.manager_assigned'),1::bigint,'manager assignment replay does not duplicate its audit');
+select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000002',true); set local role authenticated;
+select is((select public.assign_current_member_manager(current_setting('test.organization.manager_target')::uuid,current_setting('test.organization.supervisor_profile')::uuid,1,'Stale edit','97000000-0000-4000-8000-000000000221'::uuid,'97000000-0000-4000-8000-000000000222'::uuid)->>'error'),'stale_version','manager assignment rejects a stale manager version');
+select is((select public.assign_current_member_manager(current_setting('test.organization.foreign_employee_profile')::uuid,current_setting('test.organization.supervisor_profile')::uuid,1,'Foreign target','97000000-0000-4000-8000-000000000223'::uuid,'97000000-0000-4000-8000-000000000224'::uuid)->>'error'),'not_found','manager assignment hides a cross-organization target');
+select is((select public.assign_current_member_manager(current_setting('test.organization.department_head_profile')::uuid,current_setting('test.organization.sales_profile')::uuid,1,'Cross department','97000000-0000-4000-8000-000000000225'::uuid,'97000000-0000-4000-8000-000000000226'::uuid)->>'error'),'forbidden','manager assignment rejects a forbidden cross-department manager');
+select is((select public.assign_current_member_manager(current_setting('test.organization.manager_target')::uuid,current_setting('test.organization.manager_target')::uuid,2,'Self manager','97000000-0000-4000-8000-000000000227'::uuid,'97000000-0000-4000-8000-000000000228'::uuid)->>'error'),'manager_cycle','manager assignment rejects a direct reporting cycle');
+select is((select public.assign_current_member_manager(current_setting('test.organization.supervisor_profile')::uuid,current_setting('test.organization.manager_target')::uuid,1,'Reverse reporting','97000000-0000-4000-8000-000000000229'::uuid,'97000000-0000-4000-8000-000000000230'::uuid)->>'error'),'manager_cycle','manager assignment rejects a transitive reporting cycle');
+reset role;
+
+select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000002',true); set local role authenticated;
+select ok((public.current_workspace_access()->'roleCodes') ? 'supervisor','workspace access preserves the exact supervisor role code');
+select ok((public.current_workspace_access()->'supervisorScopeEmployeeIds') ? current_setting('test.organization.manager_target'),'supervisor workspace scope contains the exact active direct report');
+select ok(not ((public.current_workspace_access()->'supervisorScopeEmployeeIds') ? current_setting('test.organization.department_head_profile')),'supervisor workspace scope excludes an active peer who is not a direct report');
+select is((select count(*) from public.current_supervisor_employee_projection(current_setting('test.organization.manager_target')::uuid)),1::bigint,'supervisor protected projection reads an exact direct report');
+select is((select count(*) from public.current_supervisor_employee_projection(current_setting('test.organization.department_head_profile')::uuid)),0::bigint,'supervisor protected projection hides an active peer outside direct-report scope');
+select is((select count(*) from public.current_supervisor_employee_projection(current_setting('test.organization.foreign_employee_profile')::uuid)),0::bigint,'cross-organization protected projection returns no row');
+reset role;
+select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000003',true); set local role authenticated;
+select ok((public.current_workspace_access()->'supervisorScopeEmployeeIds') ? current_setting('test.organization.manager_target'),'department head workspace scope includes the exact active department');
+select is((select count(*) from public.current_supervisor_employee_projection(current_setting('test.organization.manager_target')::uuid)),1::bigint,'department head projection includes the exact active department');
+select is((select count(*) from public.current_supervisor_employee_projection(current_setting('test.organization.sales_profile')::uuid)),0::bigint,'department head projection rejects another department');
+reset role;
+select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000005',true); set local role authenticated;
+select is(jsonb_array_length(public.current_workspace_access()->'supervisorScopeEmployeeIds'),0,'HR receives no implicit supervisor scope from its separate HR authority');
+select ok(exists(select 1 from public.current_employee_directory((select public_id from public.organizations where slug='organization-command-org-a')) where employee_public_id=current_setting('test.organization.manager_target')::uuid),'safe company-wide public directory remains visible across department scope');
+reset role;
+update public.roles set is_enabled=false where tenant_id=(select id from public.tenants where slug='organization-command-a') and code='supervisor' and organization_id is null;
+select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000002',true); set local role authenticated;
+select is(jsonb_array_length(public.current_workspace_access()->'supervisorScopeEmployeeIds'),0,'disabled supervisor role never authorizes direct-report scope');
+reset role;
+update public.roles set is_enabled=true where tenant_id=(select id from public.tenants where slug='organization-command-a') and code='supervisor' and organization_id is null;
+
+select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000002',true); set local role authenticated;
+select is((select public.assign_current_member_manager(current_setting('test.organization.manager_target')::uuid,current_setting('test.organization.department_head_profile')::uuid,2,'Temporary manual manager before directory sync','97000000-0000-4000-8000-000000000231'::uuid,'97000000-0000-4000-8000-000000000232'::uuid)->>'outcome'),'success','manual relationship can be assigned before directory authority exists');
+reset role;
+
+insert into public.identity_providers (tenant_id,provider_code,auth_provider,provider_tenant_key,display_name)
+select id,'feishu','custom:feishu','organization-command-feishu-key','Task 8 Feishu' from public.tenants where slug='organization-command-a';
+insert into public.directory_connections (tenant_id,organization_id,identity_provider_id,provider_type,external_tenant_key,sync_mode,status)
+select tenant.id,organization.id,provider.id,'feishu',provider.provider_tenant_key,'manual','active'
+from public.tenants tenant join public.organizations organization on organization.tenant_id=tenant.id join public.identity_providers provider on provider.tenant_id=tenant.id and provider.provider_code='feishu'
+where tenant.slug='organization-command-a' and organization.slug='organization-command-org-a';
+insert into public.directory_entity_links (tenant_id,organization_id,connection_id,entity_type,external_id,department_id)
+select department.tenant_id,department.organization_id,connection.id,'department','od-engineering',department.id
+from public.departments department join public.directory_connections connection on connection.tenant_id=department.tenant_id and connection.organization_id=department.organization_id and connection.provider_type='feishu'
+where department.code='ENGINEERING';
+insert into public.directory_entity_links (tenant_id,organization_id,connection_id,entity_type,external_id,employee_profile_id)
+select profile.tenant_id,profile.organization_id,connection.id,'employee','open-'||profile.employee_no,profile.id
+from public.employee_profiles profile join public.directory_connections connection on connection.tenant_id=profile.tenant_id and connection.organization_id=profile.organization_id and connection.provider_type='feishu'
+where profile.public_id in (current_setting('test.organization.manager_target')::uuid,current_setting('test.organization.supervisor_profile')::uuid,current_setting('test.organization.department_head_profile')::uuid);
+insert into public.directory_sync_runs (public_id,tenant_id,organization_id,connection_id,actor_member_id,status,request_id)
+select '97000000-0000-4000-8000-000000000240'::uuid,connection.tenant_id,connection.organization_id,connection.id,member.id,'running','97000000-0000-4000-8000-000000000240'::uuid
+from public.directory_connections connection join public.organization_members member on member.tenant_id=connection.tenant_id and member.organization_id=connection.organization_id and member.user_id='97000000-0000-4000-8000-000000000002'::uuid
+where connection.provider_type='feishu';
+update public.directory_sync_runs set status='completed',completed_at=clock_timestamp() where public_id='97000000-0000-4000-8000-000000000240'::uuid;
+select is((select manager.public_id from public.employee_profiles target join public.employee_profiles manager on manager.id=target.manager_employee_id where target.public_id=current_setting('test.organization.manager_target')::uuid),current_setting('test.organization.supervisor_profile')::uuid,'directory completion maps the synchronized department leader as manager');
+select is((select manager_source from public.employee_profiles where public_id=current_setting('test.organization.manager_target')::uuid),'directory','directory completion records authoritative manager source');
+select is((select manager_version from public.employee_profiles where public_id=current_setting('test.organization.manager_target')::uuid),4::bigint,'directory manager replacement increments the optimistic version');
+select ok(exists(select 1 from public.feishu_sync_conflicts where organization_id=(select id from public.organizations where slug='organization-command-org-a') and code='RECONCILIATION_DIFFERENCE' and entity_type='user' and status='open'),'directory authority conflict is durable instead of silently overwritten');
+select ok(exists(select 1 from public.audit_logs where request_id='97000000-0000-4000-8000-000000000240'::uuid and action='directory.manager_mapped' and metadata->>'outcome'='success'),'directory manager mapping is audited in the completed sync transaction');
+select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000002',true); set local role authenticated;
+select is((select public.assign_current_member_manager(current_setting('test.organization.manager_target')::uuid,current_setting('test.organization.department_head_profile')::uuid,4,'Attempt directory overwrite','97000000-0000-4000-8000-000000000241'::uuid,'97000000-0000-4000-8000-000000000242'::uuid)->>'error'),'directory_manager_owned','manual command cannot silently overwrite directory authority');
+reset role;
+select is((select manager.public_id from public.employee_profiles target join public.employee_profiles manager on manager.id=target.manager_employee_id where target.public_id=current_setting('test.organization.manager_target')::uuid),current_setting('test.organization.supervisor_profile')::uuid,'directory-owned manager remains unchanged after rejected manual override');
+select set_config('request.jwt.claim.sub','97000000-0000-4000-8000-000000000001',true); set local role authenticated;
+select throws_ok($$ update public.employee_profiles set manager_employee_id=(select id from public.employee_profiles where public_id=current_setting('test.organization.department_head_profile')::uuid),manager_source='manual' where public_id=current_setting('test.organization.manager_target')::uuid $$,'42501',null,'authenticated browser cannot bypass the manager command with a direct update');
+reset role;
+select throws_ok($$ update public.employee_profiles set manager_employee_id=(select id from public.employee_profiles where public_id=current_setting('test.organization.manager_target')::uuid),manager_source='manual' where public_id=current_setting('test.organization.supervisor_profile')::uuid $$,'23514','manager_cycle','manager guard rejects a transitive direct-table reporting cycle');
+select throws_ok($$ update public.employee_profiles set manager_employee_id=(select id from public.employee_profiles where public_id=current_setting('test.organization.foreign_employee_profile')::uuid),manager_source='manual' where public_id=current_setting('test.organization.department_head_profile')::uuid $$,'23514','Manager must be an active employee in the same tenant and organization','manager guard rejects cross-organization linkage before the exact manager foreign key');
+
 select * from finish(); rollback;

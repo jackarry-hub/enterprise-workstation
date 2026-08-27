@@ -88,6 +88,7 @@ export function createDemoWorkspaceSession(
     },
     roleCodes: ["owner", "admin"],
     customRoleCodes: [],
+    supervisorScopeEmployeeIds: [],
     permissionCodes: ["dashboard.read", "organization.manage"],
     primaryRole: "executive",
     landingPath: "/dashboard",

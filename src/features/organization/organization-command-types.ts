@@ -42,8 +42,16 @@ export type UpsertPositionCommand = CommandBase & {
 export type AssignMemberRoleCommand = CommandBase & {
   type: "assign_member_role";
   memberId: number;
-  roleCode: "admin" | "department_head" | "employee" | "finance" | "hr";
+  roleCode: "admin" | "department_head" | "supervisor" | "employee" | "finance" | "hr";
   version: number;
+};
+
+export type AssignMemberManagerCommand = {
+  targetEmployeeId: string;
+  managerEmployeeId: string;
+  expectedVersion: number;
+  reason: string;
+  idempotencyKey: string;
 };
 
 export type OrganizationCommand =

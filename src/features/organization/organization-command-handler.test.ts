@@ -118,6 +118,31 @@ describe("organization command handler", () => {
     expect(await conflict.json()).toEqual({ error: "stale_version" });
   });
 
+  it("assigns the distinct canonical supervisor role without aliasing it to employee or department head", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: { outcome: "success", id: "11", version: 3 },
+      error: null,
+    });
+    const response = await handleOrganizationCommand(
+      request({
+        type: "assign_member_role",
+        memberId: 11,
+        roleCode: "supervisor",
+        version: 2,
+        reason: "负责直属员工日常管理",
+      }),
+      { session: adminSession, rpc, createRequestId: () => requestId },
+    );
+
+    expect(response.status).toBe(200);
+    expect(rpc).toHaveBeenCalledWith("assign_current_member_role", expect.objectContaining({
+      p_member_id: 11,
+      p_role_name: "supervisor",
+      p_version: 2,
+      p_reason: "负责直属员工日常管理",
+    }));
+  });
+
   it("maps a cross-organization idempotency collision to a stable conflict", async () => {
     const response = await handleOrganizationCommand(
       request({ type: "create_department", code: "OPS", name: "Operations", version: 0, reason: "Operational structure" }),

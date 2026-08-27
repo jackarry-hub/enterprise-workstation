@@ -2,6 +2,7 @@ export type DatabaseRoleCode =
   | "owner"
   | "admin"
   | "department_head"
+  | "supervisor"
   | "employee"
   | "finance"
   | "hr";
@@ -49,7 +50,8 @@ export type WorkspacePermissionCode =
   | "agent.manage"
   | "agent.orchestrate"
   | "analytics.read"
-  | "settings.manage";
+  | "settings.manage"
+  | "employee.supervisor.read";
 
 export type WorkspaceActor = {
   id: string;
@@ -92,6 +94,7 @@ export type WorkspaceSession = {
   roleCodes: DatabaseRoleCode[];
   customRoleCodes: CustomWorkspaceRoleCode[];
   permissionCodes: WorkspacePermissionCode[];
+  supervisorScopeEmployeeIds: string[];
   primaryRole: WorkspaceRole;
   landingPath: string;
   isAdmin: boolean;

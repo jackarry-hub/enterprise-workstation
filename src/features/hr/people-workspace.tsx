@@ -13,7 +13,10 @@ import { EmployeeList } from "@/features/hr/components/employee-list";
 import { EmployeeStats } from "@/features/hr/components/employee-stats";
 import { filterEmployees } from "@/features/hr/employee-selectors";
 import { OrganizationDialogs } from "@/features/organization/organization-dialogs";
-import type { RoleCommandTarget } from "@/features/organization/organization-command-data";
+import type {
+  ManagerCommandTargetsResult,
+  RoleCommandTarget,
+} from "@/features/organization/organization-command-data";
 import type {
   EmployeeDirectoryFilters,
   EmployeeDirectoryResult,
@@ -28,9 +31,11 @@ const defaultFilters: EmployeeDirectoryFilters = {
 export function PeopleWorkspace({
   result,
   roleTargets,
+  managerTargets,
 }: {
   result: EmployeeDirectoryResult;
   roleTargets: readonly RoleCommandTarget[];
+  managerTargets: ManagerCommandTargetsResult;
 }) {
   const session = useWorkspaceSession();
   const [filters, setFilters] = useState(defaultFilters);
@@ -62,6 +67,7 @@ export function PeopleWorkspace({
                   canManageOrganization={canManageOrganization}
                   canManageRoles={canManageRoles}
                   roleTargets={roleTargets}
+                  managerTargets={managerTargets}
                 />
               </div>
             )}

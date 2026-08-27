@@ -42,6 +42,7 @@ const executiveSession: WorkspaceSession = {
   },
   roleCodes: ["owner"],
   customRoleCodes: [],
+  supervisorScopeEmployeeIds: [],
   permissionCodes: [
     "dashboard.read",
     "organization.manage",

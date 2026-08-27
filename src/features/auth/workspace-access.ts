@@ -13,6 +13,7 @@ export const FORMAL_WORKSTATION_PATH =
 const roleMapping: Record<Exclude<DatabaseRoleCode, "admin">, WorkspaceRole> = {
   owner: "executive",
   department_head: "department_head",
+  supervisor: "employee",
   employee: "employee",
   finance: "finance",
   hr: "hr",
@@ -23,12 +24,14 @@ const rolePriority: Exclude<DatabaseRoleCode, "admin">[] = [
   "department_head",
   "finance",
   "hr",
+  "supervisor",
   "employee",
 ];
 
-const roleLabels: Record<WorkspaceRole, string> = {
-  executive: "CEO",
+const databaseRoleLabels: Record<Exclude<DatabaseRoleCode, "admin">, string> = {
+  owner: "CEO",
   department_head: "管理层",
+  supervisor: "主管",
   employee: "普通员工",
   finance: "财务",
   hr: "人事",
@@ -46,6 +49,7 @@ const databaseRoles = new Set<DatabaseRoleCode>([
   "owner",
   "admin",
   "department_head",
+  "supervisor",
   "employee",
   "finance",
   "hr",
@@ -82,6 +86,7 @@ const workspacePermissions = new Set<WorkspacePermissionCode>([
   "agent.orchestrate",
   "analytics.read",
   "settings.manage",
+  "employee.supervisor.read",
 ]);
 
 const UUID_PATTERN =
@@ -167,6 +172,19 @@ function skillArray(value: unknown): string[] | null {
   return skills;
 }
 
+function uuidArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+
+  const parsed: string[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!uuid(item) || seen.has(item)) return null;
+    seen.add(item);
+    parsed.push(item);
+  }
+  return parsed;
+}
+
 function optionalSalaryGradeCode(value: unknown): string | undefined | null {
   if (value === undefined || value === null) return undefined;
   if (
@@ -217,10 +235,13 @@ export function parseWorkspaceAccess(value: unknown): WorkspaceSession | null {
   const roleCodes = enumArray(raw.roleCodes, databaseRoles);
   const customRoleCodes = customRoleCodeArray(raw.customRoleCodes);
   const permissionCodes = enumArray(raw.permissionCodes, workspacePermissions);
+  const supervisorScopeEmployeeIds = raw.supervisorScopeEmployeeIds === undefined
+    ? []
+    : uuidArray(raw.supervisorScopeEmployeeIds);
   const skills = skillArray(raw.skills);
   const salaryGradeCode = optionalSalaryGradeCode(raw.salaryGradeCode);
   const jobLevel = optionalJobLevel(raw.jobLevel);
-  if (!roleCodes || !customRoleCodes || !permissionCodes || !skills || salaryGradeCode === null || jobLevel === null) return null;
+  if (!roleCodes || !customRoleCodes || !permissionCodes || !supervisorScopeEmployeeIds || !skills || salaryGradeCode === null || jobLevel === null) return null;
 
   const databaseRole = rolePriority.find((role) => roleCodes.includes(role));
   if (!databaseRole) return null;
@@ -232,7 +253,7 @@ export function parseWorkspaceAccess(value: unknown): WorkspaceSession | null {
     memberId: String(raw.memberId),
     name: raw.displayName,
     role: primaryRole,
-    roleLabel: roleLabels[primaryRole],
+    roleLabel: databaseRoleLabels[databaseRole],
     department: raw.departmentName,
     title: raw.jobTitle,
     salaryGradeCode,
@@ -266,6 +287,7 @@ export function parseWorkspaceAccess(value: unknown): WorkspaceSession | null {
     roleCodes,
     customRoleCodes,
     permissionCodes,
+    supervisorScopeEmployeeIds,
     primaryRole,
     landingPath,
     isAdmin: roleCodes.includes("admin"),
@@ -278,6 +300,14 @@ export function hasWorkspacePermission(
   permission: WorkspacePermissionCode,
 ) {
   return session.permissionCodes.includes(permission);
+}
+
+export function canReadSupervisorScope(
+  session: WorkspaceSession,
+  memberPublicId: string,
+) {
+  return UUID_PATTERN.test(memberPublicId)
+    && session.supervisorScopeEmployeeIds.includes(memberPublicId);
 }
 
 export type WorkspaceAccessFailureReason =

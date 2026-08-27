@@ -7,7 +7,7 @@ const FEISHU_OWNED_FIELDS = new Set([
   "source", "externalId", "externalIdentifiers", "openDepartmentId", "jobTitleId",
   "leaderOpenId", "parentExternalId", "providerTenantKey",
 ]);
-const ROLE_CODES = new Set(["admin", "department_head", "employee", "finance", "hr"]);
+const ROLE_CODES = new Set(["admin", "department_head", "supervisor", "employee", "finance", "hr"]);
 
 export type OrganizationRpc = (
   functionName: string,
@@ -161,7 +161,7 @@ function parseCommand(body: Record<string, unknown>, idempotencyKey: string): Or
   if (type === "assign_member_role") {
     const memberId = positiveInteger(body.memberId);
     const roleCode = typeof body.roleCode === "string" && ROLE_CODES.has(body.roleCode)
-      ? body.roleCode as "admin" | "department_head" | "employee" | "finance" | "hr"
+      ? body.roleCode as "admin" | "department_head" | "supervisor" | "employee" | "finance" | "hr"
       : null;
     const version = positiveInteger(body.version);
     const reason = text(body.reason, 500, true);

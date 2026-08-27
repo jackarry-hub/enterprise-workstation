@@ -181,6 +181,7 @@ describe("PeoplePage", () => {
           memberId: 31,
           roleVersion: 4,
         }]}
+        managerTargets={{ status: "ready", targets: [] }}
       />,
     );
 
@@ -189,5 +190,52 @@ describe("PeoplePage", () => {
     expect(screen.getByRole("combobox", { name: "选择员工" })).toHaveTextContent("陈工");
     expect(screen.queryByRole("spinbutton", { name: "成员编号" })).not.toBeInTheDocument();
     expect(screen.queryByRole("spinbutton", { name: "当前版本" })).not.toBeInTheDocument();
+  });
+
+  it("shows a usable manager action only with server-loaded public targets and organization.manage", async () => {
+    const user = userEvent.setup();
+    render(
+      <PeoplePage
+        result={realDirectoryResult}
+        managerTargets={{
+          status: "ready",
+          targets: [{
+            employeeId: "71000000-0000-4000-8000-000000000001",
+            displayLabel: "陈工 · QXY-2101 · 后端工程师",
+            departmentPublicId: "73000000-0000-4000-8000-000000000001",
+            departmentName: "工程部",
+            currentManagerEmployeeId: null,
+            managerVersion: 3,
+            managerSource: "unassigned",
+          }, {
+            employeeId: "71000000-0000-4000-8000-000000000002",
+            displayLabel: "王主管 · QXY-2001 · 研发主管",
+            departmentPublicId: "73000000-0000-4000-8000-000000000001",
+            departmentName: "工程部",
+            currentManagerEmployeeId: null,
+            managerVersion: 2,
+            managerSource: "unassigned",
+          }],
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "分配直属主管" }));
+
+    expect(screen.getByRole("dialog", { name: "分配直属主管" })).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "选择员工" })).toHaveTextContent("陈工");
+    expect(screen.queryByText(/内部成员编号|手动版本/)).not.toBeInTheDocument();
+  });
+
+  it("does not expose manager administration to an ordinary employee", () => {
+    renderWithSpecificWorkspaceSession(
+      <PeoplePage
+        result={realDirectoryResult}
+        managerTargets={{ status: "ready", targets: [] }}
+      />,
+      employeeWorkspaceSession,
+    );
+
+    expect(screen.queryByRole("button", { name: "分配直属主管" })).not.toBeInTheDocument();
   });
 });
