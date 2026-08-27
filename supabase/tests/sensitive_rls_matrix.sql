@@ -556,28 +556,28 @@ where member.user_id = '93000000-0000-4000-8000-000000000001'::uuid
   and member.tenant_id = (select id from public.tenants where slug = 'salary-privacy-b');
 
 insert into public.approvals (
-  organization_id, applicant_employee_id, owner_employee_id, approval_code,
+  tenant_id, organization_id, applicant_employee_id, owner_employee_id, approval_code,
   approval_type, title, status, submitted_at
 )
-select organization.id,
-  (select profile.id from public.employee_profiles profile join public.organization_members member on member.id = profile.organization_member_id where member.user_id = '93000000-0000-4000-8000-000000000001'::uuid),
-  (select profile.id from public.employee_profiles profile join public.organization_members member on member.id = profile.organization_member_id where member.user_id = '93000000-0000-4000-8000-000000000002'::uuid),
+select tenant.id, organization.id,
+  (select profile.id from public.employee_profiles profile join public.organization_members member on member.id = profile.organization_member_id where member.user_id = '93000000-0000-4000-8000-000000000001'::uuid and member.tenant_id=tenant.id and member.organization_id=organization.id),
+  (select profile.id from public.employee_profiles profile join public.organization_members member on member.id = profile.organization_member_id where member.user_id = '93000000-0000-4000-8000-000000000002'::uuid and member.tenant_id=tenant.id and member.organization_id=organization.id),
   'APR-PRIVACY-001', 'reimbursement', 'Participant-only approval', 'pending', now()
 from public.organizations organization
 join public.tenants tenant on tenant.id = organization.tenant_id
 where tenant.slug = 'salary-privacy-a' and organization.slug = 'salary-privacy-org';
 
-insert into public.approval_steps (organization_id, approval_id, step_order, name, approver_employee_id)
-select approval.organization_id, approval.id, 1, 'Assigned approver',
+insert into public.approval_steps (tenant_id, organization_id, approval_id, step_order, name, approver_employee_id)
+select approval.tenant_id, approval.organization_id, approval.id, 1, 'Assigned approver',
   (select profile.id from public.employee_profiles profile join public.organization_members member on member.id = profile.organization_member_id where member.user_id = '93000000-0000-4000-8000-000000000005'::uuid)
 from public.approvals approval
 where approval.approval_code = 'APR-PRIVACY-001';
 
 insert into public.approvals (
-  organization_id, applicant_employee_id, owner_employee_id, approval_code,
+  tenant_id, organization_id, applicant_employee_id, owner_employee_id, approval_code,
   approval_type, title, status, submitted_at
 )
-select organization.id,
+select tenant.id, organization.id,
   (select profile.id from public.employee_profiles profile join public.organization_members member on member.id = profile.organization_member_id where member.user_id = '93000000-0000-4000-8000-000000000001'::uuid and member.tenant_id = tenant.id),
   (select profile.id from public.employee_profiles profile join public.organization_members member on member.id = profile.organization_member_id where member.user_id = '93000000-0000-4000-8000-000000000003'::uuid and member.tenant_id = tenant.id),
   'APR-PRIVACY-CROSS-TENANT', 'reimbursement', 'Same JWT cross-tenant approval', 'pending', now()
@@ -585,18 +585,18 @@ from public.organizations organization
 join public.tenants tenant on tenant.id = organization.tenant_id
 where tenant.slug = 'salary-privacy-b' and organization.slug = 'salary-privacy-org';
 
-insert into public.approval_steps (organization_id, approval_id, step_order, name, approver_employee_id)
-select approval.organization_id, approval.id, 1, 'Same JWT assigned approver', approval.applicant_employee_id
+insert into public.approval_steps (tenant_id, organization_id, approval_id, step_order, name, approver_employee_id)
+select approval.tenant_id, approval.organization_id, approval.id, 1, 'Same JWT assigned approver', approval.applicant_employee_id
 from public.approvals approval
 where approval.approval_code = 'APR-PRIVACY-CROSS-TENANT';
 
-insert into public.approval_actions (organization_id, approval_id, actor_employee_id, action_type, content)
-select approval.organization_id, approval.id, approval.applicant_employee_id, 'comment', 'same JWT in another tenant'
+insert into public.approval_actions (tenant_id, organization_id, approval_id, actor_employee_id, action_type, content)
+select approval.tenant_id, approval.organization_id, approval.id, approval.applicant_employee_id, 'comment', 'same JWT in another tenant'
 from public.approvals approval
 where approval.approval_code = 'APR-PRIVACY-CROSS-TENANT';
 
-insert into public.approval_actions (organization_id, approval_id, actor_employee_id, action_type, content)
-select approval.organization_id, approval.id,
+insert into public.approval_actions (tenant_id, organization_id, approval_id, actor_employee_id, action_type, content)
+select approval.tenant_id, approval.organization_id, approval.id,
   (select profile.id from public.employee_profiles profile join public.organization_members member on member.id = profile.organization_member_id where member.user_id = '93000000-0000-4000-8000-000000000006'::uuid),
   'comment', 'ordinary actor must not become a participant'
 from public.approvals approval

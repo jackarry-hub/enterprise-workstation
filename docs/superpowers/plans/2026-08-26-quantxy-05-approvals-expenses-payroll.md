@@ -23,17 +23,19 @@
 ### Task 1: Add approval templates and transactional submission
 
 **Files:**
-- Create: `supabase/migrations/202608260021_approval_workflow_commands.sql`
+- Create: `supabase/migrations/202608280006_approval_workflow_commands.sql`
 - Create: `supabase/tests/approval_workflow.sql`
+- Modify: `supabase/tests/sensitive_rls_matrix.sql`
 - Create: `src/features/approvals/approval-command-handler.ts`
 - Create: `src/features/approvals/approval-command-handler.test.ts`
+- Create: `src/features/approvals/approval-workflow-migration.test.ts`
 - Create: `src/app/api/workstation/approvals/route.ts`
 
 **Interfaces:**
 - Produces table `approval_templates` with versioned step definitions.
 - Produces RPC `submit_current_approval(template_public_id uuid, form_data jsonb, idempotency_key uuid, request_id uuid)`.
 
-- [ ] **Step 1: Write failing template, participant, and idempotency tests**
+- [x] **Step 1: Write failing template, participant, and idempotency tests**
 
 ```ts
 expect((await submitApproval(employeeSession, validForm)).status).toBe(201);
@@ -41,25 +43,29 @@ expect((await submitApproval(employeeSession, invalidForm)).status).toBe(422);
 expect((await repeatSubmission(sameKey)).approvalId).toBe(firstApprovalId);
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `npx vitest run src/features/approvals/approval-command-handler.test.ts`
 Expected: command handler and template model are absent.
 
-- [ ] **Step 3: Implement versioned templates and submission RPC**
+Verified RED: Vitest failed on the absent `approval-command-handler` import before implementation.
+
+- [x] **Step 3: Implement versioned templates and submission RPC**
 
 Validate form fields against the stored template version, resolve approvers from server-owned rules, and atomically create approval, steps, first pending action state, idempotency result and audit.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `npx vitest run src/features/approvals/approval-command-handler.test.ts`
 Run: `npm run db:test`
 Expected: valid submission persists, invalid form fails, unrelated employee cannot read it, repeated key returns one instance.
 
-- [ ] **Step 5: Commit**
+Verified GREEN: approval Vitest 16/16, full Vitest 186 files / 1297 tests, HTML contracts 152/152, typecheck and production build passed. The pgTAP plan is statically synchronized at 54 assertions; live `npm run db:test` is explicitly blocked because local Supabase PostgreSQL refused the connection and is not represented as executed.
+
+- [x] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260021_approval_workflow_commands.sql supabase/tests/approval_workflow.sql src/features/approvals/approval-command-handler.ts src/features/approvals/approval-command-handler.test.ts src/app/api/workstation/approvals/route.ts
+git add supabase/migrations/202608280006_approval_workflow_commands.sql supabase/tests/approval_workflow.sql supabase/tests/sensitive_rls_matrix.sql src/features/approvals/approval-command-handler.ts src/features/approvals/approval-command-handler.test.ts src/features/approvals/approval-workflow-migration.test.ts src/app/api/workstation/approvals/route.ts
 git commit -m "feat: add transactional approval submission"
 ```
 
