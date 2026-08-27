@@ -207,6 +207,23 @@ describe("Feishu synchronization control migration", () => {
     expect(fallbackLeaseLock).toContain("'reason', 'locked'");
   });
 
+  it("sanitizes the exact connection-lock fallback instead of echoing a stale cursor", () => {
+    const sql = migration();
+    const claimStart = sql.lastIndexOf("create function public.claim_feishu_sync_work(");
+    const claim = sql.slice(claimStart, sql.indexOf("create or replace function public.heartbeat_feishu_sync_work", claimStart));
+    const fallbackStart = claim.indexOf("-- diagnose skipped ready work");
+    const lockedFallbackStart = claim.indexOf("if v_matching_connections > 0 then", fallbackStart);
+    const lockedReturnStart = claim.indexOf("return jsonb_build_object(", lockedFallbackStart);
+    const lockedReturn = claim.slice(lockedReturnStart, claim.indexOf("end if;", lockedReturnStart));
+
+    expect(lockedFallbackStart).toBeGreaterThan(fallbackStart);
+    expect(lockedReturn).toContain("'runid', null");
+    expect(lockedReturn).toContain("'cursor', null");
+    expect(lockedReturn).toContain("'attempt', 0");
+    expect(lockedReturn).toContain("'reason', 'locked'");
+    expect(lockedReturn).toContain("interval '250 milliseconds'");
+  });
+
   it("uses connection then lease then run locking for claim, apply and finish", () => {
     const sql = migration();
     const claimStart = sql.lastIndexOf("create function public.claim_feishu_sync_work(");

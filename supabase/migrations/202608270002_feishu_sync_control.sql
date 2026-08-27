@@ -2128,7 +2128,7 @@ begin
         end if;
         if v_matching_connections > 0 then
           return jsonb_build_object(
-            'acquired', false, 'runId', null, 'cursor', p_cursor, 'attempt', 0,
+            'acquired', false, 'runId', null, 'cursor', null, 'attempt', 0,
             'reason', 'locked',
             'retryAfter', clock_timestamp() + interval '250 milliseconds'
           );

@@ -1175,7 +1175,8 @@ begin
 
     -- An active exact lease must never bypass the common post-lock boundary.
     -- While A's connection is unavailable, full and reconcile diagnostics are
-    -- sanitized immediate locked results, never durable active-lease metadata.
+    -- sanitized immediate locked results, never durable active-lease metadata,
+    -- including any optimistic cursor supplied by the caller.
     execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
       into v_status using 'feishu_lock_a', 'begin';
     execute format('select %I.dblink_exec($1, $2)', v_extension_schema)
@@ -1198,7 +1199,7 @@ begin
     execute format('select %I.dblink_send_query($1, $2)', v_extension_schema)
       into v_integer using 'feishu_lock_b', $query$
         select public.claim_feishu_sync_work(
-          'full', null, 'feishu-lock-provider', 120,
+          'full', 'opaque-stale-cursor', 'feishu-lock-provider', 120,
           '99000000-0000-4000-8000-000000000011',
           '99000000-0000-4000-8000-000000000001'
         )
@@ -1222,7 +1223,7 @@ begin
     execute format('select %I.dblink_send_query($1, $2)', v_extension_schema)
       into v_integer using 'feishu_lock_b', $query$
         select public.claim_feishu_sync_work(
-          'reconcile', null, 'feishu-lock-provider', 120,
+          'reconcile', 'opaque-stale-cursor', 'feishu-lock-provider', 120,
           '99000000-0000-4000-8000-000000000011',
           '99000000-0000-4000-8000-000000000001'
         )
