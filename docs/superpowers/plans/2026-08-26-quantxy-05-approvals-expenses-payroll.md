@@ -120,19 +120,23 @@ git commit -m "feat: add secure approval decisions"
 ### Task 3: Complete expense submission, approval, and payment
 
 **Files:**
-- Create: `supabase/migrations/202608260023_expense_workflow_commands.sql`
+- Create: `supabase/migrations/202608280008_expense_workflow_commands.sql`
+- Modify: `supabase/tests/approval_workflow.sql`
 - Create: `supabase/tests/expense_workflow.sql`
+- Create: `supabase/tests/expense_workflow_concurrency.sql`
 - Create: `src/features/expenses/expense-command-handler.ts`
 - Create: `src/features/expenses/expense-command-handler.test.ts`
+- Create: `src/features/expenses/expense-workflow-migration.test.ts`
 - Create: `src/app/api/workstation/expenses/route.ts`
 - Create: `src/app/api/workstation/expenses/[expenseId]/submit/route.ts`
 - Create: `src/app/api/workstation/expenses/[expenseId]/payment/route.ts`
+- Create: `src/app/api/workstation/expenses/[expenseId]/cancel/route.ts`
 
 **Interfaces:**
 - Produces commands create draft, update draft, submit, mark paid, cancel.
 - Ownership fields are immutable after create; submission links to an approval instance.
 
-- [ ] **Step 1: Write failing ownership, decimal, attachment, and payment tests**
+- [x] **Step 1: Write failing ownership, decimal, attachment, and payment tests**
 
 ```ts
 expect((await updateExpense({ requesterId: otherMember })).status).toBe(422);
@@ -141,12 +145,14 @@ expect((await markPaid(employeeSession)).status).toBe(403);
 expect((await markPaid(financeSession)).status).toBe(200);
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `npx vitest run src/features/expenses/expense-command-handler.test.ts`
 Expected: expense command module is absent.
 
-- [ ] **Step 3: Implement expense RPCs and approval linkage**
+Verified RED: Vitest failed on the absent `expense-command-handler` import before implementation; the migration contract also targets the not-yet-created forward migration.
+
+- [x] **Step 3: Implement expense RPCs and approval linkage**
 
 Use decimal amount validation, verified file relations, immutable requester/project fields, a transactional approval submission on submit, and finance-only payment metadata/audit.
 
@@ -156,10 +162,12 @@ Run: `npx vitest run src/features/expenses/expense-command-handler.test.ts`
 Run: `npm run db:test`
 Expected: ownership rewrite fails, unverified files fail, approval link exists, finance payment is audited.
 
-- [ ] **Step 5: Commit**
+Verified GREEN: final focused approval/expense contract Vitest 40/40, full Vitest 188 files / 1339 tests, HTML contracts 152/152, typecheck and production build passed, and lint has 0 errors with only the existing generated coverage warning. The approval, expense, and expense concurrency pgTAP plans are statically synchronized at 86/86, 86/86, and 6/6; independent API and SQL reviews are CLEAN. Live `npm run db:test` remains explicitly blocked because local Supabase PostgreSQL refused the connection and is not represented as executed.
+
+- [x] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/202608260023_expense_workflow_commands.sql supabase/tests/expense_workflow.sql src/features/expenses/expense-command-handler.ts src/features/expenses/expense-command-handler.test.ts src/app/api/workstation/expenses/route.ts src/app/api/workstation/expenses/[expenseId]/submit/route.ts src/app/api/workstation/expenses/[expenseId]/payment/route.ts
+git add supabase/migrations/202608280008_expense_workflow_commands.sql supabase/tests/approval_workflow.sql supabase/tests/expense_workflow.sql supabase/tests/expense_workflow_concurrency.sql src/features/expenses/expense-command-handler.ts src/features/expenses/expense-command-handler.test.ts src/features/expenses/expense-workflow-migration.test.ts src/app/api/workstation/expenses/route.ts src/app/api/workstation/expenses/[expenseId]/submit/route.ts src/app/api/workstation/expenses/[expenseId]/payment/route.ts src/app/api/workstation/expenses/[expenseId]/cancel/route.ts
 git commit -m "feat: complete expense reimbursement workflow"
 ```
 
@@ -311,7 +319,7 @@ expect(await invokeApprovalExceptionCron({ scheduleId: "2026-08-26T10:00Z" })).t
 expect(await concurrentApprovalExceptionClaims()).toMatchObject({ singleClaim: true });
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `npx vitest run src/features/approvals src/features/expenses src/features/salary/payroll-batch-handler.test.ts`
 Run: `npx vitest run src/app/api/cron/approval-exceptions/route.test.ts`
@@ -323,7 +331,7 @@ Expected: template snapshots/edge transitions and formally controlled payroll ba
 
 Evaluate server-owned basic conditions, snapshot template/form/approver data at submission, and transition transfer, withdrawal, timeout and departed approver cases transactionally. Expense states include draft, submitted, approved/rejected, finance-review and paid. Lock batches before publish, allow audited unpublish under policy, encrypt protected payroll data and emit watermarked authorized exports. Do not build a general visual approval designer or a full salary-calculation engine.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `npx vitest run src/features/approvals src/features/expenses src/features/salary`
 Run: `npx vitest run src/app/api/cron/approval-exceptions/route.test.ts`

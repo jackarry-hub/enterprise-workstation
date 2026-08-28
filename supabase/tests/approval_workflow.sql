@@ -105,6 +105,16 @@ select ok(not public.is_valid_approval_template_definition(
 insert into public.tenants(name,slug,status) values
   ('Approval tenant A','approval-workflow-a','active'),
   ('Approval tenant B','approval-workflow-b','active');
+insert into public.roles(tenant_id,organization_id,code,name,description,is_system,is_enabled)
+select tenant.id,null,seed.code,seed.name,seed.description,true,true
+from public.tenants tenant
+cross join (values
+  ('employee','员工','审批流程员工测试角色'),
+  ('finance','财务','审批流程财务测试角色')
+) seed(code,name,description)
+where tenant.slug in ('approval-workflow-a','approval-workflow-b')
+on conflict(tenant_id,code) where organization_id is null do update set
+  name=excluded.name,description=excluded.description,is_system=true,is_enabled=true;
 insert into public.organizations(tenant_id,name,slug)
 select tenant.id,seed.name,seed.slug from public.tenants tenant
 join (values
