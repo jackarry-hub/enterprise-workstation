@@ -22,29 +22,29 @@ export async function loadNotificationInbox(
   if (shouldAllowMockBusinessData()) return { items: [], source: "mock" };
   try {
     const client = await clientFactory();
-    const { data, error } = await client.rpc("current_task_notification_inbox");
+    const { data, error } = await client.rpc("current_notification_center");
     if (error) throw error;
     if (!Array.isArray(data)) throw new Error("notification_inbox_invalid");
     const items = data.map((raw) => {
       const row = raw as Record<string, unknown>;
       const id = uuid(row.notification_public_id);
       const eventId = uuid(row.event_public_id);
-      const taskId = uuid(row.task_public_id);
-      const projectId = uuid(row.project_public_id);
+      const entityId = uuid(row.entity_public_id);
       const createdAt = time(row.created_at);
-      const eventType = typeof row.event_type === "string" && ["task.assigned", "task.submitted", "task.review_passed", "task.review_rejected", "task.reopened"].includes(row.event_type)
-        ? row.event_type as NotificationInboxItem["eventType"] : null;
+      const eventType = typeof row.event_type === "string" && /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/.test(row.event_type) ? row.event_type : null;
+      const category = typeof row.category === "string" && ["task","approval","expense","customer","knowledge","agent"].includes(row.category) ? row.category as NotificationInboxItem["category"] : null;
       const status = typeof row.effective_status === "string" && states.has(row.effective_status)
         ? row.effective_status as NotificationInboxItem["status"] : null;
-      if (!id || !eventId || !taskId || !projectId || !createdAt || !eventType || !status
-        || typeof row.task_title !== "string" || typeof row.project_name !== "string"
+      if (!id || !eventId || !entityId || !createdAt || !eventType || !category || !status
+        || typeof row.entity_type !== "string" || typeof row.title !== "string" || typeof row.summary !== "string"
+        || typeof row.target_path !== "string" || !/^\/(projects|approvals|finance|customers|knowledge|agents)(\/|\?|$)/.test(row.target_path)
         || typeof row.version !== "number" || !Number.isSafeInteger(row.version) || row.version < 1
         || typeof row.can_retry !== "boolean") {
         throw new Error("notification_inbox_invalid");
       }
       return {
-        id, eventId, eventType, status, taskId, taskTitle: row.task_title,
-        projectId, projectName: row.project_name, createdAt,
+        id, eventId, eventType, category, status, entityType: row.entity_type,
+        entityId, title: row.title, summary: row.summary, targetPath: row.target_path, createdAt,
         sentAt: time(row.sent_at) ?? undefined,
         readAt: time(row.read_at) ?? undefined,
         nextRetryAt: time(row.next_retry_at) ?? undefined,

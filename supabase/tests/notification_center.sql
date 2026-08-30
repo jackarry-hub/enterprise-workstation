@@ -1,0 +1,10 @@
+begin;
+select plan(6);
+select has_table('public','commercial_notifications','commercial notification store exists');
+select has_function('public','current_notification_center',array[]::text[],'notification center projection exists');
+select has_function('public','mark_current_notification_read',array['uuid','uuid'],'recipient read command exists');
+select has_function('public','enqueue_commercial_notification',array['uuid','uuid','bigint','uuid','text','text','text','uuid','text','text','text','text','text'],'service enqueue command exists');
+select function_privs_are('public','current_notification_center',array[]::text[],'authenticated',array['EXECUTE'],'authenticated users can read their inbox');
+select function_privs_are('public','enqueue_commercial_notification',array['uuid','uuid','bigint','uuid','text','text','text','uuid','text','text','text','text','text'],'authenticated',array[]::text[],'members cannot forge notifications');
+select * from finish();
+rollback;

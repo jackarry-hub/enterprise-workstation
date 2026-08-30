@@ -13,12 +13,23 @@ import { getOperationNotifications, markAllOperationNotificationsRead, markOpera
 import { markBusinessNotificationRead, retryBusinessNotification, type NotificationInboxItem, type NotificationInboxResult } from "@/features/operations/notification-data";
 import { useOperations } from "@/features/operations/use-operations";
 
-const eventLabels: Record<NotificationInboxItem["eventType"], { title: string; description: string }> = {
+const eventLabels: Record<string, { title: string; description: string }> = {
   "task.assigned": { title: "收到新任务", description: "任务已分配给你，请确认范围与截止时间。" },
   "task.submitted": { title: "任务待验收", description: "执行人已提交交付结果，等待你验收。" },
   "task.review_passed": { title: "任务已通过验收", description: "负责人已确认交付结果符合验收标准。" },
   "task.review_rejected": { title: "任务被退回修改", description: "验收未通过，请查看意见并重新提交。" },
   "task.reopened": { title: "任务已重新打开", description: "已完成任务被重新打开，请查看最新要求。" },
+  "approval.submitted": { title: "审批待处理", description: "有新的审批进入你的处理队列。" },
+  "approval.approved": { title: "审批已通过", description: "你发起的审批已经通过。" },
+  "approval.rejected": { title: "审批被驳回", description: "你发起的审批需要修改后重新提交。" },
+  "expense.approved": { title: "费用已批准", description: "费用申请已通过审核。" },
+  "expense.rejected": { title: "费用被驳回", description: "费用申请未通过，请查看处理意见。" },
+  "expense.paid": { title: "费用已支付", description: "费用款项已完成支付。" },
+  "customer.opportunity_updated": { title: "商机状态更新", description: "你负责的客户商机状态发生变化。" },
+  "knowledge.processing_completed": { title: "知识处理完成", description: "知识文档已完成安全处理并可使用。" },
+  "knowledge.processing_failed": { title: "知识处理失败", description: "知识文档处理失败，请进入知识库查看。" },
+  "agent.run_completed": { title: "Agent 运行完成", description: "Agent 已完成本次运行。" },
+  "agent.run_failed": { title: "Agent 运行失败", description: "Agent 运行失败，请查看执行记录。" },
 };
 
 const stateLabels = {
@@ -120,14 +131,14 @@ export function NotificationCenter({ result }: { result: NotificationInboxResult
           <div className="grid min-h-56 place-items-center text-center"><div><AlertTriangle className="mx-auto size-8 text-destructive" /><h2 className="mt-3 font-semibold">通知服务暂不可用</h2><p className="mt-1 text-sm text-muted-foreground">{result.error}</p></div></div>
         ) : isFormal && visibleFormal.length ? (
           <div className="grid gap-2">{visibleFormal.map((item) => {
-            const meta = eventLabels[item.eventType];
+            const meta = eventLabels[item.eventType] ?? { title: item.title, description: item.summary };
             const stateMeta = stateLabels[item.status];
             return (
               <article key={item.id} className={`rounded-2xl border p-4 ${item.readAt || item.status === "read" ? "border-border/60 bg-white/35" : "border-primary/20 bg-white/75"}`}>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
                   <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand-soft text-primary">{item.status === "sending" ? <LoaderCircle className="size-4 animate-spin" /> : <BellRing className="size-4" />}</span>
-                  <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="text-sm font-semibold">{meta.title} · {item.taskTitle}</h2>{!item.readAt && item.status !== "read" ? <CircleDot className="size-3.5 text-primary" /> : null}<Badge variant={stateMeta.variant}>{stateMeta.label}</Badge>{item.status === "failed" && item.readAt ? <Badge variant="outline">已确认</Badge> : null}<Badge variant="outline">{item.projectName}</Badge></div><p className="mt-1 text-xs leading-5 text-muted-foreground">{meta.description}</p><p className="mt-2 text-[11px] text-muted-foreground">{displayTime(item.createdAt)}{item.nextRetryAt ? ` · 建议重试 ${displayTime(item.nextRetryAt)}` : ""}</p>{item.status === "failed" ? <p className="mt-1 text-xs text-destructive">{item.canRetry ? "投递失败，可在此安全重试。" : "投递失败，请联系项目负责人处理。"}</p> : null}</div>
-                  <div className="grid shrink-0 grid-cols-2 gap-1 sm:flex sm:items-center">{item.status === "failed" && item.canRetry ? <Button type="button" size="sm" variant="outline" disabled={busyId !== null} onClick={() => void retryFormal(item)}>重试</Button> : null}{!item.readAt && (item.status === "sent" || item.status === "failed") ? <Button type="button" size="sm" variant="ghost" disabled={busyId !== null} onClick={() => void markFormalRead(item)}>{item.status === "failed" ? "确认" : "已读"}</Button> : null}<Button asChild size="sm" variant="ghost"><Link href={`/projects/${item.projectId}?tab=tasks&task=${item.taskId}`} onClick={() => { if (item.status === "sent" && !item.readAt) void markFormalRead(item); }}>处理<ChevronRight /></Link></Button></div>
+                  <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="text-sm font-semibold">{meta.title}{item.title && item.title !== meta.title ? ` · ${item.title}` : ""}</h2>{!item.readAt && item.status !== "read" ? <CircleDot className="size-3.5 text-primary" /> : null}<Badge variant={stateMeta.variant}>{stateMeta.label}</Badge>{item.status === "failed" && item.readAt ? <Badge variant="outline">已确认</Badge> : null}<Badge variant="outline">{item.category.toUpperCase()}</Badge></div><p className="mt-1 text-xs leading-5 text-muted-foreground">{item.summary || meta.description}</p><p className="mt-2 text-[11px] text-muted-foreground">{displayTime(item.createdAt)}{item.nextRetryAt ? ` · 建议重试 ${displayTime(item.nextRetryAt)}` : ""}</p>{item.status === "failed" ? <p className="mt-1 text-xs text-destructive">{item.canRetry ? "投递失败，可在此安全重试。" : "投递失败，请联系业务管理员处理。"}</p> : null}</div>
+                  <div className="grid shrink-0 grid-cols-2 gap-1 sm:flex sm:items-center">{item.category === "task" && item.status === "failed" && item.canRetry ? <Button type="button" size="sm" variant="outline" disabled={busyId !== null} onClick={() => void retryFormal(item)}>重试</Button> : null}{!item.readAt && (item.status === "sent" || item.status === "failed") ? <Button type="button" size="sm" variant="ghost" disabled={busyId !== null} onClick={() => void markFormalRead(item)}>{item.status === "failed" ? "确认" : "已读"}</Button> : null}<Button asChild size="sm" variant="ghost"><Link href={item.targetPath} onClick={() => { if (item.status === "sent" && !item.readAt) void markFormalRead(item); }}>处理<ChevronRight /></Link></Button></div>
                 </div>
               </article>
             );
@@ -137,7 +148,7 @@ export function NotificationCenter({ result }: { result: NotificationInboxResult
             <article key={item.id} className={`rounded-2xl border p-4 ${item.read ? "border-border/60 bg-white/35" : "border-primary/20 bg-white/75"}`}><div className="flex items-start gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand-soft text-primary"><Clock3 className="size-4" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="text-sm font-semibold">{item.title}</h2>{!item.read ? <CircleDot className="size-3.5 text-primary" /> : null}</div><p className="mt-1 text-xs leading-5 text-muted-foreground">{item.description}</p><p className="mt-2 text-[11px] text-muted-foreground">{displayTime(item.createdAt)}</p></div><div className="flex shrink-0 items-center gap-1">{!item.read ? <Button type="button" size="sm" variant="ghost" onClick={() => markOperationNotificationRead(context, item.id, actor.id)}>已读</Button> : null}<Button asChild size="sm" variant="ghost"><Link href={item.href} onClick={() => markOperationNotificationRead(context, item.id, actor.id)}>处理<ChevronRight /></Link></Button></div></div></article>
           ))}</div>
         ) : (
-          <div className="grid min-h-56 place-items-center text-center"><div><span className="mx-auto grid size-12 place-items-center rounded-2xl bg-success-soft text-success"><CheckCheck /></span><h2 className="mt-3 font-semibold">{filter === "unread" ? "未读通知已清零" : "当前没有通知"}</h2><p className="mt-1 text-sm text-muted-foreground">新的任务分配、提交或验收结果会进入这里。</p></div></div>
+          <div className="grid min-h-56 place-items-center text-center"><div><span className="mx-auto grid size-12 place-items-center rounded-2xl bg-success-soft text-success"><CheckCheck /></span><h2 className="mt-3 font-semibold">{filter === "unread" ? "未读通知已清零" : "当前没有通知"}</h2><p className="mt-1 text-sm text-muted-foreground">任务、审批、费用、客户、知识库和 Agent 事件会进入这里。</p></div></div>
         )}
       </GlassCard>
     </main>

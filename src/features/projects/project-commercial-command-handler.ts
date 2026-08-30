@@ -238,7 +238,7 @@ export async function handleNotificationReadCommand(
   const parsed = await strictBody(request);
   if (!parsed.ok) return parsed.response;
   if (!exactKeys(parsed.value, [])) return json({ error: "invalid_request" }, 400);
-  const result = await invoke("mark_current_task_notification_read", {
+  const result = await invoke("mark_current_notification_read", {
     p_notification_public_id: notificationId, p_request_id: requestId,
   }, dependencies);
   if (result instanceof Response) return result;

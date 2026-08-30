@@ -27,10 +27,10 @@ describe("role access policy", () => {
     }
   });
 
-  it("keeps help available but notifications unavailable for every role", () => {
+  it("keeps help and the recipient-isolated notification center available for every authenticated role", () => {
     for (const role of [["owner"], ["department_head"], ["employee"], ["finance"], ["hr"]] as const) {
       expect(canRoleAccessPath(session([...role], []), "/help")).toBe(true);
-      expect(canRoleAccessPath(session([...role], []), "/notifications")).toBe(false);
+      expect(canRoleAccessPath(session([...role], []), "/notifications")).toBe(true);
     }
   });
 

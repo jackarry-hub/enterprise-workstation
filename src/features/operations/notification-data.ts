@@ -3,12 +3,14 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 export type NotificationInboxItem = {
   id: string;
   eventId: string;
-  eventType: "task.assigned" | "task.submitted" | "task.review_passed" | "task.review_rejected" | "task.reopened";
+  eventType: string;
+  category: "task" | "approval" | "expense" | "customer" | "knowledge" | "agent";
   status: "pending" | "sending" | "sent" | "failed" | "read";
-  taskId: string;
-  taskTitle: string;
-  projectId: string;
-  projectName: string;
+  entityType: string;
+  entityId: string;
+  title: string;
+  summary: string;
+  targetPath: string;
   createdAt: string;
   sentAt?: string;
   readAt?: string;

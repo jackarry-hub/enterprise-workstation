@@ -49,7 +49,7 @@ export const commercialModuleRegistry: Readonly<Record<CommercialModule, Commerc
   customers: { routes: ["/customers"], requiredPermissions: ["customer.manage"], commercialReady: false },
   analytics: { routes: ["/analytics"], requiredPermissions: ["analytics.read"], commercialReady: true },
   settings: { routes: ["/settings"], requiredPermissions: [], commercialReady: true },
-  notifications: { routes: ["/notifications"], requiredPermissions: [], commercialReady: false },
+  notifications: { routes: ["/notifications"], requiredPermissions: [], commercialReady: true },
   help: { routes: ["/help"], requiredPermissions: [], commercialReady: true },
   knowledge: { routes: ["/knowledge"], requiredPermissions: ["knowledge.read", "knowledge.manage"], commercialReady: true },
   assistant: { routes: ["/assistant"], requiredPermissions: [], commercialReady: true },

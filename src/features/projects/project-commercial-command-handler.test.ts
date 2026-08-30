@@ -137,7 +137,7 @@ describe("project commercial command handlers", () => {
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ outcome: "success", id: notificationId, state: "read", readAt, version: 3 });
-    expect(rpc).toHaveBeenCalledWith("mark_current_task_notification_read", {
+    expect(rpc).toHaveBeenCalledWith("mark_current_notification_read", {
       p_notification_public_id: notificationId, p_request_id: key,
     });
   });

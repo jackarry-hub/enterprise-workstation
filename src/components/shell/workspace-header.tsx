@@ -16,13 +16,17 @@ import { signOut } from "@/features/auth/actions";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { getModuleCapabilities } from "@/features/commercial/module-capabilities";
 
+type HeaderNotification = { id: string; title: string; summary: string; targetPath: string; status: string; readAt?: string };
+
 export function WorkspaceHeader() {
   const session = useWorkspaceSession();
   const { actor: workspaceActor, profile } = session;
   const capabilities = getModuleCapabilities(session);
   const [searchOpen, setSearchOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const unreadCount = 0;
+  const [notifications, setNotifications] = useState<readonly HeaderNotification[]>([]);
+  const unreadNotifications = notifications.filter((item) => !item.readAt && item.status !== "read");
+  const unreadCount = unreadNotifications.length;
   const helpLinks = getVisibleNavigationItems(session).slice(0, 3);
 
   useEffect(() => {
@@ -35,6 +39,16 @@ export function WorkspaceHeader() {
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
   }, []);
+
+  useEffect(() => {
+    if (!capabilities.notifications || typeof fetch !== "function") return;
+    const controller = new AbortController();
+    void fetch("/api/workstation/notifications", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => response.ok ? response.json() as Promise<{ items?: HeaderNotification[] }> : null)
+      .then((result) => setNotifications(Array.isArray(result?.items) ? result.items : []))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [capabilities.notifications]);
 
   return (
     <>
@@ -62,7 +76,7 @@ export function WorkspaceHeader() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-80 rounded-2xl p-2">
               <DropdownMenuLabel className="flex items-center justify-between"><span>最新通知</span><span className="text-xs font-normal text-muted-foreground">{unreadCount} 条未读</span></DropdownMenuLabel><DropdownMenuSeparator />
-              <p className="px-3 py-5 text-center text-sm text-muted-foreground">当前没有新通知</p>
+              {unreadNotifications.length ? <div className="grid gap-1">{unreadNotifications.slice(0, 3).map((item) => <DropdownMenuItem key={item.id} asChild className="rounded-xl"><Link href={item.targetPath} className="block"><span className="block truncate text-sm font-medium">{item.title}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.summary}</span></Link></DropdownMenuItem>)}</div> : <p className="px-3 py-5 text-center text-sm text-muted-foreground">当前没有新通知</p>}
               {capabilities.notifications ? <><DropdownMenuSeparator /><DropdownMenuItem asChild className="rounded-xl"><Link href="/notifications" className="justify-center text-primary">查看全部通知</Link></DropdownMenuItem></> : null}
             </DropdownMenuContent>
           </DropdownMenu>

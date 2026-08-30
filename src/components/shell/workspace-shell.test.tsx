@@ -174,7 +174,7 @@ describe("WorkspaceShell", () => {
     expect(screen.queryByRole("link", { name: "任务管理" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "知识库" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "客户管理" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "数据分析" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "数据分析" })).toBeVisible();
     expect(screen.getByRole("button", { name: "全局搜索" })).toBeVisible();
     expect(screen.getByRole("button", { name: "查看通知" })).toBeVisible();
     expect(screen.getByRole("link", { name: "查看消息" })).toHaveAttribute("href", "/approvals");
@@ -193,12 +193,12 @@ describe("WorkspaceShell", () => {
 
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "查看通知" }));
-    expect(screen.queryByRole("menuitem", { name: /查看全部通知/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /查看全部通知/ })).toBeVisible();
 
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "打开用户菜单" }));
-    expect(screen.queryByRole("menuitem", { name: /个人资料/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("menuitem", { name: /偏好设置/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /个人资料/ })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: /偏好设置/ })).toBeVisible();
   });
 
   it("does not render the project overview submenu before projects are ready", () => {
