@@ -30,6 +30,13 @@ describe("workspace search readiness", () => {
         href: "/people",
         kind: "模块",
       },
+      {
+        id: "module-/settings",
+        label: "系统设置",
+        meta: "企业工作站模块",
+        href: "/settings",
+        kind: "模块",
+      },
     ]);
   });
 });

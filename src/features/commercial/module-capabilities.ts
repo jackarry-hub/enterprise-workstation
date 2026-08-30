@@ -48,7 +48,7 @@ export const commercialModuleRegistry: Readonly<Record<CommercialModule, Commerc
   approvals: { routes: ["/approvals"], requiredPermissions: ["approval.self", "approval.manage", "approval.submit", "approval.act", "expense.submit", "expense.manage"], commercialReady: true },
   customers: { routes: ["/customers"], requiredPermissions: ["customer.manage"], commercialReady: false },
   analytics: { routes: ["/analytics"], requiredPermissions: ["analytics.read"], commercialReady: false },
-  settings: { routes: ["/settings"], requiredPermissions: ["settings.manage", "organization.manage", "role.manage", "ai.config.manage"], commercialReady: false },
+  settings: { routes: ["/settings"], requiredPermissions: [], commercialReady: true },
   notifications: { routes: ["/notifications"], requiredPermissions: [], commercialReady: false },
   help: { routes: ["/help"], requiredPermissions: [], commercialReady: true },
   knowledge: { routes: ["/knowledge"], requiredPermissions: ["knowledge.read", "knowledge.manage"], commercialReady: true },

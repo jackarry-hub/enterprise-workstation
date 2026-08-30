@@ -1,0 +1,12 @@
+begin;
+select plan(8);
+select has_table('public','workspace_settings');
+select has_column('public','workspace_settings','namespace');
+select has_column('public','workspace_settings','version');
+select has_function('public','current_workspace_settings',array[]::text[]);
+select has_function('public','update_current_workspace_settings',array['text','jsonb','bigint','uuid']);
+select policies_are('public','workspace_settings',array[]::text[]);
+select table_privs_are('public','workspace_settings','authenticated',array[]::text[]);
+select function_privs_are('public','update_current_workspace_settings',array['text','jsonb','bigint','uuid'],'authenticated',array['EXECUTE']);
+select * from finish();
+rollback;

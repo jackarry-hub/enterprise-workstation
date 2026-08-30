@@ -34,7 +34,7 @@ describe("commercial module capabilities", () => {
 
     expect(capabilities.execution).toBe(false);
     expect(commercialModuleRegistry.execution.requiredPermissions).toEqual(["task.manage"]);
-    expect(capabilities.settings).toBe(false);
+    expect(capabilities.settings).toBe(true);
     expect(capabilities.attendance).toBe(false);
     expect(capabilities.leave).toBe(false);
   });
@@ -49,7 +49,7 @@ describe("commercial module capabilities", () => {
     expect(Object.entries(commercialModuleRegistry)
       .filter(([, definition]) => definition.commercialReady)
       .map(([module]) => module))
-      .toEqual(["people", "approvals", "help", "knowledge", "assistant", "scheduler", "agents"]);
+      .toEqual(["people", "approvals", "settings", "help", "knowledge", "assistant", "scheduler", "agents"]);
 
     expect(commercialModuleRegistry.people.requiredPermissions).toEqual([]);
     expect(getModuleCapabilities(sessionWithPermissions([])).people).toBe(true);
