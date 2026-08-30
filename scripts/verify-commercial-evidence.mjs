@@ -50,7 +50,8 @@ function safeRelativeArtifact(value) {
 }
 
 function signaturePayload(manifest) {
-  const { signature: _signature, ...unsigned } = manifest;
+  const unsigned = { ...manifest };
+  delete unsigned.signature;
   return Buffer.from(canonicalJson(unsigned), "utf8");
 }
 
@@ -181,4 +182,3 @@ async function runFinalCli() {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href && process.argv.includes("--final")) {
   await runFinalCli();
 }
-
