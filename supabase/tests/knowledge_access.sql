@@ -1,0 +1,12 @@
+begin;
+select plan(8);
+select has_table('public','knowledge_directories','knowledge directories exist');
+select has_table('public','knowledge_document_versions','knowledge versions exist');
+select has_table('public','knowledge_permissions','knowledge grants exist');
+select has_table('public','knowledge_sources','knowledge citations exist');
+select is((select relrowsecurity from pg_class where oid='public.knowledge_document_versions'::regclass),true,'versions use RLS');
+select is((select relforcerowsecurity from pg_class where oid='public.knowledge_document_versions'::regclass),true,'versions force RLS');
+select has_function('public','can_access_knowledge_document',array['bigint','boolean'],'knowledge access is centralized');
+select has_trigger('public','knowledge_document_versions','knowledge_versions_immutable','published versions are immutable');
+select * from finish();
+rollback;
