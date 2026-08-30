@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  additionalRoleFixtures,
   assertLocalSupabaseUrl,
   authStatePath,
   getAuthHarnessEnvironment,
@@ -57,6 +58,14 @@ describe("Phase 1 Playwright auth-state contract", () => {
       path.resolve("playwright", ".auth", "executive.json"),
     );
     expect(new Set(Object.values(roleFixtures).map(({ state }) => state)).size).toBe(5);
+  });
+
+  it("keeps admin and direct supervisor as distinct deterministic identities", () => {
+    expect(Object.keys(additionalRoleFixtures)).toEqual(["admin", "supervisor"]);
+    expect(additionalRoleFixtures.admin.additionalRole).toBe("admin");
+    expect(additionalRoleFixtures.supervisor.additionalRole).toBe("supervisor");
+    expect(authStatePath("admin")).toBe(path.resolve("playwright", ".auth", "admin.json"));
+    expect(authStatePath("supervisor")).toBe(path.resolve("playwright", ".auth", "supervisor.json"));
   });
 
   it("uses provider-neutral typed identity claims for every role fixture", () => {

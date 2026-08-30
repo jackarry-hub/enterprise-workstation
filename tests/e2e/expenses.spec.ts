@@ -56,7 +56,12 @@ test.beforeAll(async ({ browser }) => {
     const assignment = await page.request.post(
       `/api/workstation/organization/members/${employee.public_id}/manager`,
       {
-        headers: { "Content-Type": "application/json", "Idempotency-Key": randomUUID() },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": randomUUID(),
+          origin: environment.appBaseUrl,
+          "sec-fetch-site": "same-origin",
+        },
         data: {
           managerEmployeeId: manager.public_id,
           expectedVersion: projection.managerVersion,

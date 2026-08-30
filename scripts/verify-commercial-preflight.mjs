@@ -27,6 +27,8 @@ const SCRIPT_INTEGRATION_TESTS = Object.freeze([
   "scripts/scan-formal-public-surface.test.mjs",
   "scripts/verify-database-reset.test.mjs",
   "scripts/verify-commercial-preflight.test.mjs",
+  "scripts/collect-commercial-evidence.test.mjs",
+  "scripts/validate-waf-evidence.test.mjs",
   "scripts/phase1/provision-roster.test.mjs",
   "scripts/phase2/migration-sql.test.mjs",
   "scripts/phase2/remote-config.test.mjs",

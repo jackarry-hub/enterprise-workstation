@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -16,7 +16,9 @@ type AuthStateName =
   | "unknown"
   | "suspended"
   | "departed"
-  | "second-provider";
+  | "second-provider"
+  | "admin"
+  | "supervisor";
 
 type RoleCode =
   | "owner"
@@ -34,6 +36,11 @@ type RoleFixture = {
   email: string;
   providerSubject: string;
   providerMatchKeys: readonly string[];
+};
+
+type AdditionalRoleFixture = Omit<RoleFixture, "state" | "roleCode"> & {
+  state: "admin" | "supervisor";
+  additionalRole: "admin" | "supervisor";
 };
 
 type StoredCookieOptions = {
@@ -164,6 +171,29 @@ export const roleFixtures: Readonly<Record<WorkspaceRole, RoleFixture>> = {
       "open_id:e2e-hr",
       "email:phase1-hr@example.test",
     ],
+  },
+};
+
+export const additionalRoleFixtures: Readonly<Record<"admin" | "supervisor", AdditionalRoleFixture>> = {
+  admin: {
+    state: "admin",
+    employeeNo: "E2E-ADMIN",
+    displayName: "E2E 系统管理员",
+    additionalRole: "admin",
+    departmentCode: "AI",
+    email: "phase1-admin@example.test",
+    providerSubject: "open_id:e2e-admin",
+    providerMatchKeys: ["open_id:e2e-admin", "email:phase1-admin@example.test"],
+  },
+  supervisor: {
+    state: "supervisor",
+    employeeNo: "E2E-SUPERVISOR",
+    displayName: "E2E 直属主管",
+    additionalRole: "supervisor",
+    departmentCode: "AI",
+    email: "phase1-supervisor@example.test",
+    providerSubject: "open_id:e2e-supervisor",
+    providerMatchKeys: ["open_id:e2e-supervisor", "email:phase1-supervisor@example.test"],
   },
 };
 
@@ -456,6 +486,47 @@ async function bindIdentity(
   if (bound.error) {
     failure(`绑定本地 E2E 员工 ${input.employeeNo}`, bound.error);
   }
+}
+
+async function assignAdditionalRole(
+  admin: SupabaseClient,
+  employeeNo: string,
+  roleCode: "admin" | "supervisor",
+) {
+  const profile = await admin
+    .from("employee_profiles")
+    .select("tenant_id, organization_member_id, public_id")
+    .eq("employee_no", employeeNo)
+    .is("deleted_at", null)
+    .single();
+  if (profile.error || !profile.data) failure(`读取附加岗位 ${employeeNo}`, profile.error);
+  const roles = await admin
+    .from("roles")
+    .select("id, code")
+    .eq("tenant_id", profile.data.tenant_id)
+    .in("code", ["employee", roleCode])
+    .is("organization_id", null);
+  if (roles.error) failure(`读取附加角色 ${roleCode}`, roles.error);
+  const target = (roles.data ?? []).find((role) => role.code === roleCode);
+  const employee = (roles.data ?? []).find((role) => role.code === "employee");
+  if (!target || !employee) throw new Error(`本地 E2E 附加角色不存在：${roleCode}`);
+  const assignment = await admin.from("member_roles").upsert({
+    tenant_id: profile.data.tenant_id,
+    member_id: profile.data.organization_member_id,
+    role_id: target.id,
+    assignment_source: "bootstrap",
+  }, { onConflict: "tenant_id,member_id,role_id" });
+  if (assignment.error) failure(`分配附加角色 ${roleCode}`, assignment.error);
+  if (roleCode === "supervisor") {
+    const removed = await admin
+      .from("member_roles")
+      .delete()
+      .eq("tenant_id", profile.data.tenant_id)
+      .eq("member_id", profile.data.organization_member_id)
+      .eq("role_id", employee.id);
+    if (removed.error) failure("移除主管的普通员工基线角色", removed.error);
+  }
+  return profile.data.public_id as string;
 }
 
 async function restoreEmployeeForSetup(
@@ -799,6 +870,84 @@ export async function prepareAuthStates(env: NodeJS.ProcessEnv = process.env) {
     signedInByRole.set(fixture.state, signedIn);
   }
 
+  const additionalProfiles = new Map<"admin" | "supervisor", string>();
+  for (const fixture of Object.values(additionalRoleFixtures)) {
+    await restoreEmployeeForSetup(admin, fixture.employeeNo);
+    const authUserId = await findOrCreateUser(admin, fixture.email, password);
+    await provisionIdentity(admin, {
+      tenantSlug: QUANTXY_TENANT_SLUG,
+      organizationSlug: QUANTXY_ORGANIZATION_SLUG,
+      employeeNo: fixture.employeeNo,
+      displayName: fixture.displayName,
+      departmentCode: fixture.departmentCode,
+      roleCode: "employee",
+      providerCode: "feishu",
+      providerTenantKey: quantxy.providerTenantKey,
+      providerSubject: fixture.providerSubject,
+      providerMatchKeys: fixture.providerMatchKeys,
+      email: fixture.email,
+    });
+    await bindIdentity(admin, {
+      tenantSlug: QUANTXY_TENANT_SLUG,
+      providerCode: "feishu",
+      providerTenantKey: quantxy.providerTenantKey,
+      providerSubject: fixture.providerSubject,
+      authUserId,
+      employeeNo: fixture.employeeNo,
+    });
+    additionalProfiles.set(
+      fixture.state,
+      await assignAdditionalRole(admin, fixture.employeeNo, fixture.additionalRole),
+    );
+    const signedIn = await signInAndWriteState(environment, fixture.state, fixture.email, password);
+    if (
+      !signedIn.session
+      || !signedIn.session.roleCodes.includes(fixture.additionalRole)
+      || signedIn.session.authUserId !== authUserId
+      || signedIn.session.tenantId !== quantxy.tenantPublicId
+      || (fixture.state === "admin" && !signedIn.session.isAdmin)
+      || (fixture.state === "supervisor" && signedIn.session.primaryRole !== "employee")
+    ) throw new Error(`本地 E2E 附加岗位会话不匹配：${fixture.state}`);
+  }
+
+  const executive = signedInByRole.get("executive");
+  const supervisorProfileId = additionalProfiles.get("supervisor");
+  if (!executive || !supervisorProfileId) throw new Error("缺少 E2E 企业负责人或直属主管会话");
+  const employeeProfile = await admin
+    .from("employee_profiles")
+    .select("public_id, manager_employee_id, manager_version")
+    .eq("employee_no", roleFixtures.employee.employeeNo)
+    .is("deleted_at", null)
+    .single();
+  if (employeeProfile.error || !employeeProfile.data) failure("读取 E2E 直属员工", employeeProfile.error);
+  const supervisorInternal = await admin
+    .from("employee_profiles")
+    .select("id")
+    .eq("public_id", supervisorProfileId)
+    .single();
+  if (supervisorInternal.error || !supervisorInternal.data) failure("读取 E2E 直属主管", supervisorInternal.error);
+  if (employeeProfile.data.manager_employee_id !== supervisorInternal.data.id) {
+    const assigned = await executive.client.rpc("assign_current_member_manager", {
+      p_target_employee_public_id: employeeProfile.data.public_id,
+      p_manager_employee_public_id: supervisorProfileId,
+      p_expected_manager_version: employeeProfile.data.manager_version,
+      p_reason: "本地商业验收固定直属主管范围",
+      request_id: randomUUID(),
+      idempotency_key: randomUUID(),
+    });
+    if (assigned.error) failure("配置 E2E 直属主管范围", assigned.error);
+  }
+  const supervisorFixture = additionalRoleFixtures.supervisor;
+  const supervisorSession = await signInAndWriteState(
+    environment,
+    "supervisor",
+    supervisorFixture.email,
+    password,
+  );
+  if (!supervisorSession.session?.supervisorScopeEmployeeIds.includes(employeeProfile.data.public_id)) {
+    throw new Error("E2E 直属主管范围未包含固定直属员工");
+  }
+
   const unknownUserId = await findOrCreateUser(admin, UNKNOWN_EMAIL, password);
   const unknownBinding = await admin
     .from("external_identities")
@@ -899,8 +1048,6 @@ export async function prepareAuthStates(env: NodeJS.ProcessEnv = process.env) {
     throw new Error("第二 Provider 未产生相同的 WorkspaceSession 合同");
   }
 
-  const executive = signedInByRole.get("executive");
-  if (!executive) throw new Error("缺少 E2E 企业负责人会话");
   await assertCrossTenantIsolation(
     executive.client,
     secondProvider.client,

@@ -100,8 +100,9 @@ test.describe("commercial Feishu directory source contracts", () => {
       .limit(1).single();
     expect(issue.error).toBeNull();
     const issueId = issue.data!.public_id;
-    const resolved = await request.post(`/api/workstation/feishu/sync-issues/${issueId}/resolve`);
-    const retried = await request.post(`/api/workstation/feishu/sync-issues/${issueId}/resolve`);
+    const browserHeaders = { origin: environment.appBaseUrl, "sec-fetch-site": "same-origin" };
+    const resolved = await request.post(`/api/workstation/feishu/sync-issues/${issueId}/resolve`, { headers: browserHeaders });
+    const retried = await request.post(`/api/workstation/feishu/sync-issues/${issueId}/resolve`, { headers: browserHeaders });
     expect(resolved.status()).toBe(200);
     expect(retried.status()).toBe(200);
     expect(await retried.json()).toEqual({ status: "resolved" });

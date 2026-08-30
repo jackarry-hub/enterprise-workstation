@@ -8,7 +8,11 @@ import { authStatePath } from "./tests/e2e/auth-state";
 export default defineConfig({
   testDir: "./tests/e2e",
   outputDir: path.join(tmpdir(), "enterprise-workstation-playwright"),
-  reporter: "list",
+  reporter: [
+    ["list"],
+    ["json", { outputFile: path.join(tmpdir(), "quantxy-commercial-playwright-results.json") }],
+  ],
+  workers: 1,
   globalSetup: "./tests/e2e/global-setup.ts",
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3000",
