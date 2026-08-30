@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
+  Boxes,
   BookOpen,
   Bot,
   CheckSquare2,
@@ -37,6 +38,7 @@ export const navigationItems: readonly NavigationItem[] = [
   { label: "AI 决策调度台", href: "/dashboard", icon: Gauge, module: "dashboard", available: true },
   { label: "AI 助手", href: "/assistant", icon: Bot, module: "assistant", available: true },
   { label: "智能排期", href: "/scheduler", icon: WandSparkles, module: "scheduler", available: true },
+  { label: "Agent 中心", href: "/agents", icon: Boxes, module: "agents", available: true },
   { label: "负责人推进台", href: "/department", icon: Workflow, module: "department", available: true },
   { label: "我的执行台", href: "/execution", icon: Grid3X3, module: "execution", available: true },
   { label: "财务执行中心", href: "/finance", icon: Landmark, module: "finance", available: true },

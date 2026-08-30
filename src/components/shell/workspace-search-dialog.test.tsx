@@ -17,6 +17,13 @@ describe("workspace search readiness", () => {
         kind: "模块",
       },
       {
+        id: "module-/agents",
+        label: "Agent 中心",
+        meta: "企业工作站模块",
+        href: "/agents",
+        kind: "模块",
+      },
+      {
         id: "module-/people",
         label: "组织人事",
         meta: "企业工作站模块",

@@ -49,13 +49,14 @@ describe("commercial module capabilities", () => {
     expect(Object.entries(commercialModuleRegistry)
       .filter(([, definition]) => definition.commercialReady)
       .map(([module]) => module))
-      .toEqual(["people", "approvals", "help", "knowledge", "assistant", "scheduler"]);
+      .toEqual(["people", "approvals", "help", "knowledge", "assistant", "scheduler", "agents"]);
 
     expect(commercialModuleRegistry.people.requiredPermissions).toEqual([]);
     expect(getModuleCapabilities(sessionWithPermissions([])).people).toBe(true);
     expect(getModuleCapabilities(sessionWithPermissions(["knowledge.read"])).knowledge).toBe(true);
     expect(getModuleCapabilities(sessionWithPermissions([])).assistant).toBe(true);
     expect(getModuleCapabilities(sessionWithPermissions(["agent.orchestrate"])).scheduler).toBe(true);
+    expect(getModuleCapabilities(sessionWithPermissions([])).agents).toBe(true);
   });
 
   it("aligns the execution requirement with the shipped employee role matrix", async () => {
@@ -78,5 +79,11 @@ describe("commercial module capabilities", () => {
 
     expect(getVisibleQuickWorkspaceActions(employeeSession, "/leave")).toEqual([]);
     expect(getVisibleQuickWorkspaceActions(employeeSession, "/attendance")).toEqual([]);
+  });
+
+  it("only exposes the Agent page create action to Agent managers", () => {
+    expect(getVisibleQuickWorkspaceActions(sessionWithPermissions([]), "/agents")).toEqual([]);
+    expect(getVisibleQuickWorkspaceActions(sessionWithPermissions(["agent.manage"]), "/agents"))
+      .toEqual([{ pathname: "/agents", module: "agents", requiredPermission: "agent.manage", label: "新建 Agent" }]);
   });
 });

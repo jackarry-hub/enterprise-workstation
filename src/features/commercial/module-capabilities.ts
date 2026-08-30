@@ -23,6 +23,7 @@ export type CommercialModule =
   | "knowledge"
   | "assistant"
   | "scheduler"
+  | "agents"
   | "attendance"
   | "leave"
   | "fused";
@@ -53,6 +54,7 @@ export const commercialModuleRegistry: Readonly<Record<CommercialModule, Commerc
   knowledge: { routes: ["/knowledge"], requiredPermissions: ["knowledge.read", "knowledge.manage"], commercialReady: true },
   assistant: { routes: ["/assistant"], requiredPermissions: [], commercialReady: true },
   scheduler: { routes: ["/scheduler"], requiredPermissions: ["agent.orchestrate"], commercialReady: true },
+  agents: { routes: ["/agents"], requiredPermissions: [], commercialReady: true },
   attendance: { routes: ["/attendance"], requiredPermissions: [], commercialReady: false },
   leave: { routes: ["/leave"], requiredPermissions: [], commercialReady: false },
   fused: { routes: ["/quantxy-ai-workbench-fused.html"], requiredPermissions: [], commercialReady: false },
@@ -66,7 +68,9 @@ export type ContextualCreateAction = {
 };
 
 // No create command is registered until its Route Handler and RPC are commercial-ready.
-export const contextualCreateActions: readonly ContextualCreateAction[] = [];
+export const contextualCreateActions: readonly ContextualCreateAction[] = [
+  { pathname: "/agents", module: "agents", requiredPermission: "agent.manage", label: "新建 Agent" },
+];
 
 export function getModuleCapabilities(
   session: WorkspaceSession,
