@@ -34,6 +34,8 @@ describe("standalone workstation middleware boundary", () => {
     expect(isStandaloneAuthorizedPath("/api/workstation/files/file-1/download-url")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/knowledge/search")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/knowledge/documents/document-1/publish")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/ai/conversations")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/ai/conversations/conversation-1/messages")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/tasks")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/tasks/task-1")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/payroll")).toBe(true);

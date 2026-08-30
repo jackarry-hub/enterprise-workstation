@@ -136,6 +136,7 @@ export function isStandaloneAuthorizedPath(pathname: string) {
     || pathname.startsWith("/api/workstation/notifications/")
     || pathname.startsWith("/api/workstation/files/")
     || pathname.startsWith("/api/workstation/knowledge/")
+    || pathname.startsWith("/api/workstation/ai/")
     || pathname === "/api/workstation/tasks"
     || pathname.startsWith("/api/workstation/tasks/")
     || pathname === "/api/workstation/payroll"
