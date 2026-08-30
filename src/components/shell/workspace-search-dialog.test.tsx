@@ -4,16 +4,25 @@ import { buildWorkspaceSearchItems } from "@/components/shell/workspace-search-d
 import { executiveWorkspaceSession } from "@/test/workspace-session-test-utils";
 
 describe("workspace search readiness", () => {
-  it("exposes only the commercially ready people module and no fixture business records", () => {
+  it("exposes only commercially ready authorized modules and no fixture business records", () => {
     const items = buildWorkspaceSearchItems(executiveWorkspaceSession);
 
     expect(items.filter(({ kind }) => kind !== "模块")).toEqual([]);
-    expect(items).toEqual([{
-      id: "module-/people",
-      label: "组织人事",
-      meta: "企业工作站模块",
-      href: "/people",
-      kind: "模块",
-    }]);
+    expect(items).toEqual([
+      {
+        id: "module-/assistant",
+        label: "AI 助手",
+        meta: "企业工作站模块",
+        href: "/assistant",
+        kind: "模块",
+      },
+      {
+        id: "module-/people",
+        label: "组织人事",
+        meta: "企业工作站模块",
+        href: "/people",
+        kind: "模块",
+      },
+    ]);
   });
 });
