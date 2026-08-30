@@ -2,7 +2,7 @@ import type {
   WorkspacePermissionCode,
   WorkspaceSession,
 } from "@/features/auth/workspace-session-types";
-import { getContextualCreateActions, type ContextualCreateAction } from "@/features/quick-create/contextual-create-actions";
+import { getContextualCreateActions } from "@/features/quick-create/contextual-create-actions";
 export type { ContextualCreateAction } from "@/features/quick-create/contextual-create-actions";
 
 export type CommercialModule =

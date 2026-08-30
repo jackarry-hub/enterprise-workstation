@@ -14,7 +14,6 @@ import { CreateProjectDialog } from "@/features/projects/components/create-proje
 import { ProjectAside } from "@/features/projects/components/project-aside";
 import { ProjectFilters } from "@/features/projects/components/project-filters";
 import { ProjectList } from "@/features/projects/components/project-list";
-import { ProjectMobileNav } from "@/features/projects/components/project-mobile-nav";
 import { ProjectStats } from "@/features/projects/components/project-stats";
 import {
   createLocalProject,
@@ -187,7 +186,6 @@ export function ProjectsWorkspace({ projects, stats, reminders, members, source,
         allowMemberSelection={source === "mock"}
       />
 
-      <ProjectMobileNav />
     </main>
   );
 }

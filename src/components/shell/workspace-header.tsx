@@ -110,7 +110,7 @@ export function WorkspaceHeader() {
                 {capabilities.payroll ? <DropdownMenuItem asChild><Link href="/payroll"><Settings aria-hidden="true" />薪资管理</Link></DropdownMenuItem> : null}
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
-              <form action={signOut}>
+              <form action={signOut} onSubmit={() => navigator.serviceWorker?.controller?.postMessage({ type: "PURGE_SENSITIVE_CACHES" })}>
                 <DropdownMenuItem asChild variant="destructive">
                   <button type="submit" className="w-full"><LogOut aria-hidden="true" />退出登录</button>
                 </DropdownMenuItem>

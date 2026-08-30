@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useRef, useState } from "react";
 import { ArrowLeft, Banknote, Check, CircleDot, Clock3, FileText, LoaderCircle, MessageSquareText, UserRoundCheck, X } from "lucide-react";
 
-import { MobileWorkspaceNav } from "@/components/shell/mobile-workspace-nav";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -382,7 +381,6 @@ export function ApprovalDetailPage({
         </DialogContent>
       </Dialog>
 
-      <MobileWorkspaceNav active="messages" />
     </main>
   );
 }

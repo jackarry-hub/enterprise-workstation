@@ -146,6 +146,8 @@
   body {
     @apply bg-background text-foreground;
     min-width: 320px;
+    overflow-x: clip;
+    padding-top: env(safe-area-inset-top);
   }
   html {
     @apply font-sans;
@@ -160,6 +162,17 @@
   button:not(:disabled),
   [role="button"]:not(:disabled) {
     cursor: pointer;
+  }
+  :focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--ring) 72%, transparent);
+    outline-offset: 2px;
+  }
+  @media (max-width: 767px) {
+    button, a, input, select, [role="button"], [role="menuitem"] { min-height: 44px; }
+  }
+  body[data-offline="true"] [data-network-write="true"] {
+    pointer-events: none;
+    opacity: .55;
   }
 }
 

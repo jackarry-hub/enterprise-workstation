@@ -20,7 +20,7 @@ const actions: readonly (ContextualCreateAction & { pathname: string })[] = [
 
 export function getContextualCreateActions({ pathname, session, capabilities }: { pathname: string; session: WorkspaceSession; capabilities: Readonly<Record<CommercialModule, boolean>> }) {
   const normalized = pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname;
-  return actions.filter((action) => action.pathname === normalized && capabilities[action.module] && (action.requiredPermission === null || session.permissionCodes.includes(action.requiredPermission))).map(({ pathname: _pathname, ...action }) => action);
+  return actions.filter((action) => action.pathname === normalized && capabilities[action.module] && (action.requiredPermission === null || session.permissionCodes.includes(action.requiredPermission))).map((action) => ({ id: action.id, label: action.label, icon: action.icon, requiredPermission: action.requiredPermission, module: action.module, target: action.target }));
 }
 
 export function dispatchContextualCreate(action: ContextualCreateAction) {

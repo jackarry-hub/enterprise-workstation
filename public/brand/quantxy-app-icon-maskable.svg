@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="QuantXY">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="512" y2="512"><stop stop-color="#62A3FF"/><stop offset=".55" stop-color="#2F7DF6"/><stop offset="1" stop-color="#6657E8"/></linearGradient></defs>
+  <rect width="512" height="512" fill="url(#g)"/>
+  <path d="M166 173c0-27 22-49 49-49h82c27 0 49 22 49 49v84c0 47-34 87-81 94l-14 2-32 33a16 16 0 0 1-27-11v-32c-17-7-26-23-26-42V173Zm58 19v91h32c31 0 51-18 51-46s-20-45-51-45h-32Zm32 39h-1v39h2c13 0 22-7 22-20 0-12-9-19-23-19Z" fill="white"/>
+</svg>

@@ -18,7 +18,6 @@ import { ProjectDetailHeader } from "@/features/projects/components/project-deta
 import { ProjectDetailTabs, projectDetailTabs, type ProjectDetailTab } from "@/features/projects/components/project-detail-tabs";
 import { ProjectMilestonesTab } from "@/features/projects/components/project-milestones-tab";
 import { ProjectMemberManagementDialog } from "@/features/projects/components/project-member-management-dialog";
-import { ProjectMobileNav } from "@/features/projects/components/project-mobile-nav";
 import { ProjectOverviewTab } from "@/features/projects/components/project-overview-tab";
 import { ProjectReportsTab, type DailyReportInput } from "@/features/projects/components/project-reports-tab";
 import { ProjectRetrospectiveTab } from "@/features/projects/components/project-retrospective-tab";
@@ -371,7 +370,6 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
         onCreated={addTask}
         requireAcceptanceCriteria={result.source === "supabase"}
       />
-      <ProjectMobileNav />
     </main>
   );
 }

@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { Database, Plus, Search, ShieldCheck } from "lucide-react";
 
-import { MobileWorkspaceNav } from "@/components/shell/mobile-workspace-nav";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -112,7 +111,6 @@ export function ApprovalsWorkspace({
       </section>
       ) : null}
       {expenseOptions ? <ExpenseDialog open={expenseOpen} onOpenChange={setExpenseOpen} options={expenseOptions} onReload={() => router.refresh()} /> : null}
-      <MobileWorkspaceNav active="messages" />
     </main>
   );
 }
