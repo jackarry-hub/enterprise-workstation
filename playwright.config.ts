@@ -19,9 +19,12 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "chrome",
+      name: "desktop-chrome",
       use: { ...devices["Desktop Chrome"] },
     },
+    { name: "iphone-13", use: { ...devices["iPhone 13"], channel: "chrome" } },
+    { name: "pixel-7", use: { ...devices["Pixel 7"], channel: "chrome" } },
+    { name: "ipad-mini", use: { ...devices["iPad Mini"], channel: "chrome" } },
   ],
   webServer: {
     command: "npm run dev -- --hostname 127.0.0.1",
