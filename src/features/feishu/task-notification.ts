@@ -172,10 +172,9 @@ export function getFeishuTaskNotificationEnv(
 export function buildTaskNotificationLink(appUrl: string, taskId: string) {
   if (!UUID_PATTERN.test(taskId)) return configurationUnavailable();
   const url = new URL(
-    "/quantxy-ai-workbench-fused.html",
+    "/tasks",
     rootAppUrl(appUrl),
   );
-  url.searchParams.set("formal", "1");
   url.searchParams.set("task", taskId);
   return url.toString();
 }

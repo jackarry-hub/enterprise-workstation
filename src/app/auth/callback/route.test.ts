@@ -73,7 +73,7 @@ describe("handleAuthCallback", () => {
     );
   });
 
-  it("exchanges one code and redirects an active identity to the formal fused workstation", async () => {
+  it("exchanges one code and redirects an active identity to the role workspace", async () => {
     const exchangeCode = vi.fn(async () => "auth-user-id");
     const response = await handleAuthCallback(
       callbackRequest(`${callbackOrigin}/auth/callback?code=one-time-code`),
@@ -83,7 +83,7 @@ describe("handleAuthCallback", () => {
     expect(exchangeCode).toHaveBeenCalledOnce();
     expect(exchangeCode).toHaveBeenCalledWith("one-time-code");
     expect(response.headers.get("location")).toBe(
-      `${callbackOrigin}/quantxy-ai-workbench-fused.html?formal=1`,
+      `${callbackOrigin}/execution`,
     );
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
@@ -100,7 +100,7 @@ describe("handleAuthCallback", () => {
     expect(loadSession).toHaveBeenCalledOnce();
     expect(loadSession).toHaveBeenCalledWith("auth-user-id");
     expect(response.headers.get("location")).toBe(
-      `${callbackOrigin}/quantxy-ai-workbench-fused.html?formal=1`,
+      `${callbackOrigin}/execution`,
     );
   });
 
@@ -206,7 +206,7 @@ describe("handleAuthCallback", () => {
       callbackRequest(`${callbackOrigin}/auth/callback?code=one-time-code&next=%2Ffinance`),
       dependencies({ consumeAttempt: async () => ({ valid: true, returnPath: null }) }),
     );
-    expect(response.headers.get("location")).toBe(`${callbackOrigin}/quantxy-ai-workbench-fused.html?formal=1`);
+    expect(response.headers.get("location")).toBe(`${callbackOrigin}/execution`);
   });
 
   it.each([
@@ -222,7 +222,7 @@ describe("handleAuthCallback", () => {
     );
 
     expect(response.headers.get("location")).toBe(
-      `${callbackOrigin}/quantxy-ai-workbench-fused.html?formal=1`,
+      `${callbackOrigin}/execution`,
     );
   });
 

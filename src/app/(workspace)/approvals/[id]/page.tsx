@@ -4,7 +4,6 @@ import { notFound } from "next/navigation";
 import { RealDataUnavailable } from "@/components/ui/real-data-boundary";
 import { ApprovalDetailPage } from "@/features/approvals/approval-detail-page";
 import { requireWorkspaceSession } from "@/features/auth/workspace-session";
-import { createOperationFixtureContext } from "@/features/operations/operation-actor-compat";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 
 export const metadata: Metadata = { title: "审批详情 | 企业工作站" };
@@ -12,8 +11,7 @@ export const metadata: Metadata = { title: "审批详情 | 企业工作站" };
 export default async function ApprovalDetailRoute({ params }: { params: Promise<{ id: string }> }) {
   const session = await requireWorkspaceSession();
   const { id } = await params;
-  const fixtureContext = createOperationFixtureContext(session);
-  if (!fixtureContext.actor && !hasSupabaseEnv()) {
+  if (!hasSupabaseEnv()) {
     return (
       <RealDataUnavailable
         title="审批数据暂不可用"
@@ -27,12 +25,10 @@ export default async function ApprovalDetailRoute({ params }: { params: Promise<
   const { loadApprovalDetail } = await import("@/features/approvals/approval-data");
   let approval: Awaited<ReturnType<typeof loadApprovalDetail>>;
   try {
-    approval = fixtureContext.actor
-      ? await loadApprovalDetail(id)
-      : await loadApprovalDetail(id, undefined, {
-        allowMockFallback: false,
-        viewerEmployeeProfileId: session.member.employeeProfileId,
-      });
+    approval = await loadApprovalDetail(id, undefined, {
+      allowMockFallback: false,
+      viewerEmployeeProfileId: session.member.employeeProfileId,
+    });
   } catch {
     return (
       <RealDataUnavailable
@@ -44,5 +40,5 @@ export default async function ApprovalDetailRoute({ params }: { params: Promise<
     );
   }
   if (!approval) notFound();
-  return <ApprovalDetailPage approval={approval} dataSource={fixtureContext.actor ? "mock" : "supabase"} />;
+  return <ApprovalDetailPage approval={approval} dataSource="supabase" />;
 }

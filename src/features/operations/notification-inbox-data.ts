@@ -1,7 +1,6 @@
 import "server-only";
 
 import type { NotificationInboxItem, NotificationInboxResult } from "@/features/operations/notification-data";
-import { shouldAllowMockBusinessData } from "@/lib/runtime/workstation-mode";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -19,7 +18,6 @@ function time(value: unknown) {
 export async function loadNotificationInbox(
   clientFactory: NotificationClientFactory = getSupabaseServerClient,
 ): Promise<NotificationInboxResult> {
-  if (shouldAllowMockBusinessData()) return { items: [], source: "mock" };
   try {
     const client = await clientFactory();
     const { data, error } = await client.rpc("current_notification_center");

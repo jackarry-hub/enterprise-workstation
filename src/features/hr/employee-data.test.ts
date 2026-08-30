@@ -69,11 +69,11 @@ describe("employee directory data", () => {
   it("resolves detail by public id and returns nothing for an unknown employee", () => {
     const employee = employeeDirectoryMockResult.data.employees[0];
 
-    expect(getEmployeeDetail(employee.profile.id)?.profile.employeeNo).toBe("QXY-1001");
-    expect(getEmployeeDetail("missing-employee")).toBeUndefined();
+    expect(getEmployeeDetail(employee.profile.id, employeeDirectoryMockResult)?.profile.employeeNo).toBe("QXY-1001");
+    expect(getEmployeeDetail("missing-employee", employeeDirectoryMockResult)).toBeUndefined();
   });
 
-  it("uses the complete mock directory only when fallback is allowed", async () => {
+  it("never disguises a missing server as fixture data", async () => {
     vi.stubEnv("WORKSTATION_ALLOW_MOCK_DATA", "true");
     const result = await loadEmployeeDirectory(
       organizationPublicId,
@@ -83,8 +83,8 @@ describe("employee directory data", () => {
       { allowMockFallback: true },
     );
 
-    expect(result.source).toBe("mock");
-    expect(result.data.employees.length).toBeGreaterThanOrEqual(8);
+    expect(result.source).toBe("supabase");
+    expect(result.data.employees).toEqual([]);
   });
 
   it("does not disguise a configured Supabase failure as mock data", async () => {

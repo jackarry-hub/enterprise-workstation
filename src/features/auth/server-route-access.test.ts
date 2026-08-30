@@ -26,7 +26,7 @@ describe("server route access", () => {
   it("rejects direct routes without a server-derived capability", () => {
     const employeeSession = sessionWithPermissions(["task.manage"]);
 
-    expect(() => assertServerRouteAccess(employeeSession, "/settings")).toThrow("route_forbidden");
+    expect(() => assertServerRouteAccess(employeeSession, "/analytics")).toThrow("route_forbidden");
   });
 
   it("denies hidden attendance and leave routes even when a legacy permission is present", () => {

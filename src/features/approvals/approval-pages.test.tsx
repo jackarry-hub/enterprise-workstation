@@ -23,7 +23,7 @@ describe("approval pages", () => {
 
   it("does not expose fixture approval detail to an unbound real identity", () => {
     renderWithSpecificWorkspaceSession(
-      <ApprovalDetailPage approval={approvalMockResult.data.approvals[1]} />,
+      <ApprovalDetailPage approval={approvalMockResult.data.approvals[0]} dataSource="mock" />,
       unboundExecutiveWorkspaceSession,
     );
 
@@ -96,8 +96,8 @@ describe("approval pages", () => {
       actor: { ...unboundExecutiveWorkspaceSession.actor, role: "employee" as const },
     };
     const approval = {
-      ...approvalMockResult.data.approvals[2],
-      owner: { ...approvalMockResult.data.approvals[2].owner, id: supervisor.member.employeeProfileId },
+      ...approvalMockResult.data.approvals[1],
+      owner: { ...approvalMockResult.data.approvals[1].owner, id: supervisor.member.employeeProfileId },
       actionableByViewer: true,
     };
     renderWithSpecificWorkspaceSession(
@@ -114,7 +114,7 @@ describe("approval pages", () => {
 
   it("renders and filters the approval queue", async () => {
     const user = userEvent.setup();
-    render(<ApprovalsPage result={approvalMockResult} />);
+    render(<ApprovalsPage result={{ ...approvalMockResult, source: "supabase" }} />);
 
     expect(screen.getByRole("heading", { name: "审批中心" })).toBeVisible();
     const stats = screen.getByRole("region", { name: "审批统计" });
@@ -129,14 +129,11 @@ describe("approval pages", () => {
     expect(within(list).queryByText("张伟")).not.toBeInTheDocument();
   });
 
-  it("keeps fixture approval detail read-only", () => {
-    const approval = approvalMockResult.data.approvals[1];
+  it("rejects fixture approval detail instead of rendering business data", () => {
+    const approval = approvalMockResult.data.approvals[0];
     render(<ApprovalDetailPage approval={approval} dataSource="mock" />);
 
-    expect(screen.getByRole("heading", { name: "报销申请" })).toBeVisible();
-    expect(screen.getByRole("region", { name: "审批流程" })).toBeVisible();
-    expect(screen.getByRole("region", { name: "审批记录" })).toBeVisible();
-    expect(screen.getAllByText("待审批").length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "审批数据暂不可用" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "同意申请" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "拒绝申请" })).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -151,10 +148,10 @@ describe("approval pages", () => {
       permissionCodes: ["approval.act" as const],
     };
     const approval = {
-      ...approvalMockResult.data.approvals[1],
+      ...approvalMockResult.data.approvals[0],
       id: "40000000-0000-4000-8000-000000000001",
       version: 3,
-      owner: { ...approvalMockResult.data.approvals[1].owner, id: currentApprover.member.employeeProfileId },
+      owner: { ...approvalMockResult.data.approvals[0].owner, id: currentApprover.member.employeeProfileId },
       status: "pending" as const,
     };
     const act = vi.fn().mockResolvedValue(new Response(JSON.stringify({
@@ -184,8 +181,8 @@ describe("approval pages", () => {
       permissionCodes: ["approval.act" as const],
     };
     const approval = {
-      ...approvalMockResult.data.approvals[1], id: "40000000-0000-4000-8000-000000000001",
-      version: 3, owner: { ...approvalMockResult.data.approvals[1].owner, id: currentApprover.member.employeeProfileId },
+      ...approvalMockResult.data.approvals[0], id: "40000000-0000-4000-8000-000000000001",
+      version: 3, owner: { ...approvalMockResult.data.approvals[0].owner, id: currentApprover.member.employeeProfileId },
       status: "pending" as const,
     };
     const act = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "conflict" }), {
@@ -205,8 +202,8 @@ describe("approval pages", () => {
 
   it("does not render decision controls for an unrelated real employee", () => {
     const approval = {
-      ...approvalMockResult.data.approvals[1], version: 3,
-      owner: { ...approvalMockResult.data.approvals[1].owner, id: "50000000-0000-4000-8000-000000000099" },
+      ...approvalMockResult.data.approvals[0], version: 3,
+      owner: { ...approvalMockResult.data.approvals[0].owner, id: "50000000-0000-4000-8000-000000000099" },
       status: "pending" as const,
     };
     const employee = {
@@ -229,8 +226,8 @@ describe("approval pages", () => {
       permissionCodes: [],
     };
     const approval = {
-      ...approvalMockResult.data.approvals[1],
-      owner: { ...approvalMockResult.data.approvals[1].owner, id: ownerWithoutPermission.member.employeeProfileId },
+      ...approvalMockResult.data.approvals[0],
+      owner: { ...approvalMockResult.data.approvals[0].owner, id: ownerWithoutPermission.member.employeeProfileId },
       status: "pending" as const,
     };
     renderWithSpecificWorkspaceSession(
@@ -249,7 +246,7 @@ describe("approval pages", () => {
       permissionCodes: ["expense.manage" as const],
     };
     const approval = {
-      ...approvalMockResult.data.approvals[1],
+      ...approvalMockResult.data.approvals[0],
       id: "40000000-0000-4000-8000-000000000001",
       version: 5,
       status: "approved" as const,
@@ -283,9 +280,9 @@ describe("approval pages", () => {
 
   it("renders an approval comment as read-only comment history instead of a rejection", () => {
     const approval = {
-      ...approvalMockResult.data.approvals[1],
+      ...approvalMockResult.data.approvals[0],
       actions: [{
-        ...approvalMockResult.data.approvals[1].actions[0],
+        ...approvalMockResult.data.approvals[0].actions[0],
         id: "approval-comment",
         actionType: "comment" as const,
         content: "请补充本次采购的合同编号。",

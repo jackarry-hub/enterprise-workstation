@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Banknote, CalendarClock, ChevronRight, FileSignature, Plane, SearchX, ShoppingCart } from "lucide-react";
+import { Banknote, CalendarClock, ChevronRight, FileSignature, SearchX, ShoppingCart } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
@@ -8,9 +8,8 @@ import { approvalPriorityMeta, approvalStatusMeta, approvalTypeMeta } from "@/fe
 import type { Approval, ApprovalType } from "@/features/approvals/approval-types";
 import { cn } from "@/lib/utils";
 
-const typeIcons = { leave: Plane, reimbursement: Banknote, purchase: ShoppingCart, contract: FileSignature } satisfies Record<ApprovalType, typeof Plane>;
+const typeIcons = { reimbursement: Banknote, purchase: ShoppingCart, contract: FileSignature } satisfies Record<ApprovalType, typeof Banknote>;
 const typeClasses: Record<ApprovalType, string> = {
-  leave: "from-primary to-chart-5",
   reimbursement: "from-success to-chart-2",
   purchase: "from-chart-3 to-primary",
   contract: "from-chart-5 to-primary",

@@ -18,8 +18,6 @@ import { approvalTypeMeta } from "@/features/approvals/approval-meta";
 import { filterApprovals } from "@/features/approvals/approval-selectors";
 import type { ApprovalFilters, ApprovalQueue, ApprovalResult, ApprovalType } from "@/features/approvals/approval-types";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
-import { OperationalApprovalQueue } from "@/features/operations/operational-approval-queue";
-import { useOperations } from "@/features/operations/use-operations";
 import { ExpenseDialog } from "@/features/expenses/expense-dialog";
 import type { ExpenseFormOptions } from "@/features/expenses/expense-data";
 import { useWorkspaceRouter } from "@/lib/navigation/use-workspace-router";
@@ -46,8 +44,6 @@ export function ApprovalsWorkspace({
 }) {
   const session = useWorkspaceSession();
   const router = useWorkspaceRouter();
-  const { actor } = session;
-  const { isFixtureBound } = useOperations(session);
   const [filters, setFilters] = useState(defaultFilters);
   const [expenseOpen, setExpenseOpen] = useState(false);
   const isSupabaseData = result.source === "supabase";
@@ -55,20 +51,10 @@ export function ApprovalsWorkspace({
     && Boolean(expenseOptions)
     && session.permissionCodes.includes("expense.submit");
   const visibleApprovals = useMemo(() => {
-    if (!isSupabaseData && !isFixtureBound) return [];
-    if (isSupabaseData) return result.data.approvals;
-    return actor.role === "employee"
-      ? result.data.approvals.filter((approval) =>
-        approval.applicant.displayName === actor.name,
-      )
-      : actor.role === "finance"
-        ? result.data.approvals.filter(({ type, applicant }) => type === "reimbursement" || type === "purchase" || applicant.displayName === actor.name)
-        : actor.role === "department_head"
-          ? result.data.approvals.filter(({ applicant, owner }) => applicant.department === actor.department || owner.displayName === actor.name)
-          : result.data.approvals;
-  }, [actor.department, actor.name, actor.role, isFixtureBound, isSupabaseData, result.data.approvals]);
+    return isSupabaseData ? result.data.approvals : [];
+  }, [isSupabaseData, result.data.approvals]);
   const approvals = useMemo(() => filterApprovals(visibleApprovals, filters), [filters, visibleApprovals]);
-  const stats = useMemo(() => isSupabaseData ? statsFromApprovals(visibleApprovals) : isFixtureBound ? result.data.stats : { pending: 0, initiated: 0, approved: 0, rejected: 0 }, [isFixtureBound, isSupabaseData, result.data.stats, visibleApprovals]);
+  const stats = useMemo(() => isSupabaseData ? statsFromApprovals(visibleApprovals) : { pending: 0, initiated: 0, approved: 0, rejected: 0 }, [isSupabaseData, visibleApprovals]);
 
   return (
     <main className="mx-auto flex w-full max-w-420 flex-col gap-4 px-3 pt-5 pb-26 sm:px-4 lg:px-5 lg:pt-9 lg:pb-6">
@@ -85,7 +71,7 @@ export function ApprovalsWorkspace({
           />
         </div>
       </section>
-      {result.data.loadError ? <RealDataNotice message={result.data.loadError} /> : isFixtureBound && !isSupabaseData ? <OperationalApprovalQueue /> : isSupabaseData ? <GlassCard className="p-4 text-sm text-muted-foreground"><strong className="text-foreground">真实审批模式：</strong>费用报销、采购与合同申请从 Supabase 读取；费用草稿、审批和付款状态全程留痕。</GlassCard> : <RealDataNotice message="当前账号没有可显示的真实审批数据。" />}
+      {result.data.loadError ? <RealDataNotice message={result.data.loadError} /> : isSupabaseData ? <GlassCard className="p-4 text-sm text-muted-foreground"><strong className="text-foreground">真实审批模式：</strong>费用报销、采购与合同申请从 Supabase 读取；费用草稿、审批和付款状态全程留痕。</GlassCard> : <RealDataNotice message="当前账号没有可显示的真实审批数据。" />}
       {!result.data.loadError ? <ApprovalStats stats={stats} /> : null}
       {!result.data.loadError ? (
       <section className="grid min-w-0 gap-4 xl:grid-cols-12">

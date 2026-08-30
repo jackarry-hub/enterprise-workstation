@@ -1,4 +1,3 @@
-import { employeeDirectoryMockResult } from "@/features/hr/employee-mock-data";
 import type {
   Department,
   EmployeeDirectoryItem,
@@ -10,7 +9,6 @@ import type {
   EmploymentType,
 } from "@/features/hr/employee-types";
 export { filterEmployees, getEmployeeDetail } from "@/features/hr/employee-selectors";
-import { shouldAllowMockBusinessData } from "@/lib/runtime/workstation-mode";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof getSupabaseServerClient>>;
@@ -143,12 +141,9 @@ function directoryFromRows(rows: EmployeeDirectoryRpcRow[]): EmployeeDirectoryRe
 export async function loadEmployeeDirectory(
   organizationPublicId: string,
   clientFactory: EmployeeDirectoryClientFactory = getSupabaseServerClient,
-  options: { allowMockFallback?: boolean } = {},
+  _options: { allowMockFallback?: boolean } = {},
 ): Promise<EmployeeDirectoryResult> {
-  const allowMockFallback = (options.allowMockFallback ?? shouldAllowMockBusinessData())
-    && shouldAllowMockBusinessData();
-  if (allowMockFallback) return employeeDirectoryMockResult;
-
+  void _options;
   try {
     const client = await clientFactory() as unknown as RpcClient;
     const response = await client.rpc("current_employee_directory", {

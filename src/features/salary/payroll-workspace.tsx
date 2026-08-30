@@ -82,7 +82,7 @@ export function PayrollWorkspace({ result }: { result: SalaryResult }) {
           <section aria-label="工资列表" className="mt-3 border-t border-border/60 pt-1"><PayrollList records={records} /></section>
           <footer className="flex items-center justify-between border-t border-border/60 px-2 pt-3 text-xs text-muted-foreground"><span>当前显示 {records.length} 条工资记录</span><span className="flex items-center gap-1"><Database aria-hidden="true" className="size-3.5" />{isSupabaseData ? "真实数据库记录" : "本地业务记录"}</span></footer>
         </GlassCard>
-        <GlassCard className="min-w-0 p-4 sm:p-5 xl:col-span-3"><PayrollAside /></GlassCard>
+        <GlassCard className="min-w-0 p-4 sm:p-5 xl:col-span-3"><PayrollAside records={visibleRecords} /></GlassCard>
       </section>
     </main>
   );

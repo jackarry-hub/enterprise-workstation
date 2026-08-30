@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { PwaRegistration } from "@/features/pwa/pwa-registration";
@@ -11,8 +11,9 @@ export const metadata: Metadata = {
   applicationName: "量子星河 AI企业大脑",
   keywords: ["企业工作台", "任务协同", "项目管理", "审批", "薪资"],
   manifest: "/manifest.webmanifest",
-  themeColor: "#2f7df6",
 };
+
+export const viewport: Viewport = { themeColor: "#2f7df6" };
 
 export default function RootLayout({
   children,

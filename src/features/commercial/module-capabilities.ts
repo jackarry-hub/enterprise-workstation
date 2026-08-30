@@ -25,10 +25,7 @@ export type CommercialModule =
   | "knowledge"
   | "assistant"
   | "scheduler"
-  | "agents"
-  | "attendance"
-  | "leave"
-  | "fused";
+  | "agents";
 
 export type CommercialModuleDefinition = {
   readonly routes: readonly string[];
@@ -57,9 +54,6 @@ export const commercialModuleRegistry: Readonly<Record<CommercialModule, Commerc
   assistant: { routes: ["/assistant"], requiredPermissions: [], commercialReady: true },
   scheduler: { routes: ["/scheduler"], requiredPermissions: ["agent.orchestrate"], commercialReady: true },
   agents: { routes: ["/agents"], requiredPermissions: [], commercialReady: true },
-  attendance: { routes: ["/attendance"], requiredPermissions: [], commercialReady: false },
-  leave: { routes: ["/leave"], requiredPermissions: [], commercialReady: false },
-  fused: { routes: ["/quantxy-ai-workbench-fused.html"], requiredPermissions: [], commercialReady: false },
 };
 
 export function getModuleCapabilities(

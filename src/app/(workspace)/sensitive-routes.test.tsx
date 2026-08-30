@@ -123,7 +123,7 @@ describe("sensitive workspace routes", () => {
     expect(payload).not.toContain("987654321");
   });
 
-  it("loads approval fixtures only for the exact explicit binding", async () => {
+  it("never loads approval fixtures for an explicit preview binding", async () => {
     dependencies.requireWorkspaceSession.mockResolvedValue(executiveWorkspaceSession);
 
     const list = await ApprovalsRoute({});
@@ -131,9 +131,9 @@ describe("sensitive workspace routes", () => {
       params: Promise.resolve({ id: "approval-sentinel" }),
     });
 
-    expect(dependencies.loadApprovals).toHaveBeenCalledOnce();
-    expect(dependencies.loadApprovalDetail).toHaveBeenCalledWith("approval-sentinel");
-    expect(serialized([list, detail])).toContain("审批夹具哨兵");
+    expect(dependencies.loadApprovals).not.toHaveBeenCalled();
+    expect(dependencies.loadApprovalDetail).not.toHaveBeenCalled();
+    expect(serialized([list, detail])).not.toContain("审批夹具哨兵");
   });
 
   it("loads payroll fixtures only for the exact explicit binding", async () => {

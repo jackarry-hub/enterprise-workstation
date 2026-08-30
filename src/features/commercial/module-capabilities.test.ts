@@ -35,8 +35,8 @@ describe("commercial module capabilities", () => {
     expect(capabilities.execution).toBe(false);
     expect(commercialModuleRegistry.execution.requiredPermissions).toEqual(["task.manage"]);
     expect(capabilities.settings).toBe(true);
-    expect(capabilities.attendance).toBe(false);
-    expect(capabilities.leave).toBe(false);
+    expect(commercialModuleRegistry).not.toHaveProperty("attendance");
+    expect(commercialModuleRegistry).not.toHaveProperty("leave");
   });
 
   it("tracks readiness explicitly for every registered production route", () => {

@@ -1,4 +1,3 @@
-import { approvalMockResult } from "@/features/approvals/approval-mock-data";
 import type {
   Approval,
   ApprovalAction,
@@ -9,7 +8,6 @@ import type {
   ApprovalStatus,
   ApprovalType,
 } from "@/features/approvals/approval-types";
-import { shouldAllowMockBusinessData } from "@/lib/runtime/workstation-mode";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof getSupabaseServerClient>>;
@@ -77,7 +75,8 @@ type DepartmentRow = {
 };
 
 type LoadApprovalsOptions = {
-  allowMockFallback?: boolean;
+  /** Compatibility flag retained for callers; formal loaders never return fixtures. */
+  allowMockFallback?: false;
   viewerEmployeeProfileId?: string;
 };
 
@@ -275,6 +274,7 @@ async function loadApprovalRows(client: SupabaseServerClient) {
     let query = client
       .from("approvals")
       .select("id, public_id, organization_id, applicant_employee_id, owner_employee_id, approval_code, approval_type, title, summary, form_data, current_step, status, submitted_at, completed_at, created_at, version")
+      .in("approval_type", ["reimbursement", "purchase", "contract"])
       .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .order("public_id", { ascending: false })
@@ -368,12 +368,6 @@ export async function loadApprovals(
   clientFactory: ApprovalClientFactory = getSupabaseServerClient,
   options: LoadApprovalsOptions = {},
 ): Promise<ApprovalResult> {
-  const allowMockFallback = options.allowMockFallback ?? shouldAllowMockBusinessData();
-
-  if (allowMockFallback) {
-    return approvalMockResult;
-  }
-
   try {
     const client = await clientFactory();
     const approvalRows = (await loadApprovalRows(client))
@@ -404,10 +398,6 @@ export async function loadApprovalDetail(
   clientFactory: ApprovalClientFactory = getSupabaseServerClient,
   options: LoadApprovalsOptions = {},
 ) {
-  const allowMockFallback = options.allowMockFallback ?? shouldAllowMockBusinessData();
-  if (allowMockFallback) {
-    return approvalMockResult.data.approvals.find((approval) => approval.id === publicId);
-  }
   if (!UUID_PATTERN.test(publicId)) return undefined;
   try {
     const client = await clientFactory();
@@ -415,6 +405,7 @@ export async function loadApprovalDetail(
       .from("approvals")
       .select("id, public_id, organization_id, applicant_employee_id, owner_employee_id, approval_code, approval_type, title, summary, form_data, current_step, status, submitted_at, completed_at, created_at, version")
       .eq("public_id", publicId)
+      .in("approval_type", ["reimbursement", "purchase", "contract"])
       .is("deleted_at", null)
       .maybeSingle();
     if (approvalResponse.error) throw approvalResponse.error;

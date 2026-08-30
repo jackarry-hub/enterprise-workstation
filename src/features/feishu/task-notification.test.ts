@@ -119,7 +119,7 @@ describe("Feishu task notification environment", () => {
 describe("Feishu task links", () => {
   it("contains only the formal task deep link", () => {
     const link = buildTaskNotificationLink("https://brain.example", taskId);
-    expect(link).toBe(`https://brain.example/quantxy-ai-workbench-fused.html?formal=1&task=${taskId}`);
+    expect(link).toBe(`https://brain.example/tasks?task=${taskId}`);
     expect(link).not.toContain("ou_employee");
     expect(link).not.toContain("app-secret");
   });
@@ -169,7 +169,7 @@ describe("Feishu task card delivery", () => {
               tag: "button",
               type: "primary",
               text: { tag: "plain_text", content: "查看并领取" },
-              url: `https://brain.example/quantxy-ai-workbench-fused.html?formal=1&task=${taskId}`,
+              url: `https://brain.example/tasks?task=${taskId}`,
             }],
           },
         ],

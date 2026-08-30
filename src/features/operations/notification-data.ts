@@ -22,7 +22,7 @@ export type NotificationInboxItem = {
 
 export type NotificationInboxResult = {
   items: readonly NotificationInboxItem[];
-  source: "supabase" | "mock" | "unavailable";
+  source: "supabase" | "unavailable";
   error?: string;
 };
 

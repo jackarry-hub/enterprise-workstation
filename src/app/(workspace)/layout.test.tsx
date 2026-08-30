@@ -40,7 +40,7 @@ describe("workspace server layout", () => {
       },
     });
     dependencies.headers.mockResolvedValue(new Headers({
-      "x-quantxy-workspace-path": "/settings",
+      "x-quantxy-workspace-path": "/analytics",
     }));
 
     await expect(WorkspaceLayout({ children: <p>private</p> })).rejects

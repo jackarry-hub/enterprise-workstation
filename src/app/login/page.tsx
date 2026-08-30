@@ -22,7 +22,7 @@ export default async function LoginPage({
   } catch {
     sessionLookupFailed = true;
   }
-  if (session) redirect(FORMAL_WORKSTATION_PATH);
+  if (session) redirect(session.landingPath || FORMAL_WORKSTATION_PATH);
 
   const { error, next } = await searchParams;
   const safeNext = typeof next === "string" ? getSafeReturnPath(next) : null;

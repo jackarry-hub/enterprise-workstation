@@ -141,6 +141,7 @@ async function handleAuthCallback(
       url,
       attemptReturnPath
         ?? (allowCallbackQueryReturnPath ? safeNextPath(url) : null)
+        ?? session.landingPath
         ?? FORMAL_WORKSTATION_PATH,
     );
   } catch {

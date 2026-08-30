@@ -1,4 +1,3 @@
-import { employeeDirectoryMockResult } from "@/features/hr/employee-mock-data";
 import type {
   EmployeeDirectoryFilters,
   EmployeeDirectoryItem,
@@ -29,7 +28,7 @@ export function filterEmployees(
 
 export function getEmployeeDetail(
   publicId: string,
-  directory: EmployeeDirectoryResult = employeeDirectoryMockResult,
+  directory: EmployeeDirectoryResult,
 ) {
   return directory.data.employees.find(({ profile }) => profile.id === publicId);
 }

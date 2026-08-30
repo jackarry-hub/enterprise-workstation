@@ -14,9 +14,7 @@ function person(index: number): ApprovalPerson {
 
 const viewer = person(0);
 const wangFang = person(1);
-const zhangWei = person(2);
 const liuYang = person(3);
-const zhouNing = person(4);
 const chenChen = person(5);
 const liQi = person(6);
 const zhaoMin = person(7);
@@ -41,10 +39,6 @@ function buildFlow(applicant: ApprovalPerson, owner: ApprovalPerson, status: App
 
 const seeds: Array<Omit<Approval, "steps" | "actions" | "actionableByViewer">> = [
   {
-    id: "81000000-0000-4000-8000-000000000001", version: 1, code: "LEAVE-20260804-001", type: "leave", title: "请假申请", summary: "年假 2.5 天", applicant: zhangWei, owner: viewer, submittedAt: "2026-08-04 09:18", status: "pending", currentStep: "部门负责人审批", priority: "medium", initiatedByViewer: false,
-    fields: [{ label: "请假类型", value: "年假" }, { label: "请假时间", value: "2026-08-06 09:00 — 2026-08-08 12:00" }, { label: "请假时长", value: "2.5 天" }, { label: "请假事由", value: "家庭事务安排，工作已完成交接" }],
-  },
-  {
     id: "81000000-0000-4000-8000-000000000002", version: 1, code: "EXP-20260804-002", type: "reimbursement", title: "报销申请", summary: "差旅报销 ¥1,260.00", applicant: wangFang, owner: zhaoMin, submittedAt: "2026-08-04 08:45", status: "pending", currentStep: "财务复核", priority: "high", initiatedByViewer: false,
     fields: [{ label: "报销类型", value: "差旅费" }, { label: "报销金额", value: "¥1,260.00" }, { label: "费用日期", value: "2026-08-01" }, { label: "费用说明", value: "客户现场沟通产生的交通及住宿费用" }],
   },
@@ -55,10 +49,6 @@ const seeds: Array<Omit<Approval, "steps" | "actions" | "actionableByViewer">> =
   {
     id: "81000000-0000-4000-8000-000000000004", version: 1, code: "CON-20260803-004", type: "contract", title: "合同申请", summary: "软件服务合同 ¥120,000.00", applicant: chenChen, owner: viewer, submittedAt: "2026-08-03 14:12", status: "rejected", currentStep: "法务复核", priority: "high", initiatedByViewer: false,
     fields: [{ label: "合同类型", value: "软件服务" }, { label: "合同金额", value: "¥120,000.00" }, { label: "合作方", value: "星云数字科技有限公司" }, { label: "合同期限", value: "12 个月" }],
-  },
-  {
-    id: "81000000-0000-4000-8000-000000000005", version: 1, code: "LEAVE-20260802-005", type: "leave", title: "请假申请", summary: "事假 1 天", applicant: zhouNing, owner: liuYang, submittedAt: "2026-08-02 16:40", status: "approved", currentStep: "流程完成", priority: "low", initiatedByViewer: false,
-    fields: [{ label: "请假类型", value: "事假" }, { label: "请假时长", value: "1 天" }],
   },
   {
     id: "81000000-0000-4000-8000-000000000006", version: 1, code: "EXP-20260801-006", type: "reimbursement", title: "报销申请", summary: "办公用品 ¥980.00", applicant: liQi, owner: zhaoMin, submittedAt: "2026-08-01 11:25", status: "approved", currentStep: "流程完成", priority: "low", initiatedByViewer: true,

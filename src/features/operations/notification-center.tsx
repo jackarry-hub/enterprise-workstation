@@ -2,16 +2,12 @@
 
 import Link from "next/link";
 import { useRef, useState } from "react";
-import { AlertCircle, AlertTriangle, BellRing, CheckCheck, ChevronRight, CircleDot, Clock3, LoaderCircle } from "lucide-react";
+import { AlertCircle, AlertTriangle, BellRing, CheckCheck, ChevronRight, CircleDot, LoaderCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
-import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
-import { getCommercialModuleForPath, getModuleCapabilities } from "@/features/commercial/module-capabilities";
-import { getOperationNotifications, markAllOperationNotificationsRead, markOperationNotificationRead } from "@/features/operations/operations-data";
 import { markBusinessNotificationRead, retryBusinessNotification, type NotificationInboxItem, type NotificationInboxResult } from "@/features/operations/notification-data";
-import { useOperations } from "@/features/operations/use-operations";
 
 const eventLabels: Record<string, { title: string; description: string }> = {
   "task.assigned": { title: "收到新任务", description: "任务已分配给你，请确认范围与截止时间。" },
@@ -47,25 +43,15 @@ function displayTime(value: string) {
 }
 
 export function NotificationCenter({ result }: { result: NotificationInboxResult }) {
-  const session = useWorkspaceSession();
-  const { state, context, actor } = useOperations(session);
-  const capabilities = getModuleCapabilities(session);
   const [filter, setFilter] = useState<"all" | "unread">("unread");
   const [formalItems, setFormalItems] = useState<readonly NotificationInboxItem[]>(result.items);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const retryAttemptRef = useRef<Map<string, { signature: string; key: string }>>(new Map());
 
-  const mockNotifications = getOperationNotifications(state, actor.id).filter((item) => {
-    const commercialModule = getCommercialModuleForPath(item.href);
-    return commercialModule === null || capabilities[commercialModule];
-  });
-  const isFormal = result.source === "supabase" || result.source === "unavailable";
   const formalUnread = formalItems.filter(({ status, readAt }) => status !== "read" && !readAt);
-  const mockUnread = mockNotifications.filter((item) => !item.read);
   const visibleFormal = filter === "unread" ? formalUnread : formalItems;
-  const visibleMock = filter === "unread" ? mockUnread : mockNotifications;
-  const unreadCount = isFormal ? formalUnread.length : mockUnread.length;
+  const unreadCount = formalUnread.length;
 
   async function markFormalRead(item: NotificationInboxItem) {
     if ((item.status !== "sent" && item.status !== "failed") || busyId) return;
@@ -115,13 +101,13 @@ export function NotificationCenter({ result }: { result: NotificationInboxResult
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="flex items-center gap-2"><BellRing className="size-5 text-primary" /><h1 className="text-2xl font-semibold tracking-tight">通知中心</h1></div>
-            <p className="mt-1.5 text-sm text-muted-foreground">{isFormal ? "按当前企业身份展示真实任务通知与投递状态。" : `只显示与${actor.name}当前职责相关的执行动态。`}</p>
+            <p className="mt-1.5 text-sm text-muted-foreground">按当前企业身份展示真实业务通知与投递状态。</p>
           </div>
-          <Button type="button" variant="outline" disabled={busyId !== null || (isFormal ? !formalItems.some(({ status, readAt }) => !readAt && (status === "sent" || status === "failed")) : !mockUnread.length)} onClick={() => isFormal ? void markAllFormalRead() : markAllOperationNotificationsRead(context, actor.id)}>{busyId ? <LoaderCircle className="animate-spin" /> : <CheckCheck />}全部标为已读</Button>
+          <Button type="button" variant="outline" disabled={busyId !== null || !formalItems.some(({ status, readAt }) => !readAt && (status === "sent" || status === "failed"))} onClick={() => void markAllFormalRead()}>{busyId ? <LoaderCircle className="animate-spin" /> : <CheckCheck />}全部标为已读</Button>
         </div>
         <div className="mt-5 flex items-center gap-2" role="tablist" aria-label="通知筛选">
           <Button type="button" size="sm" variant={filter === "unread" ? "default" : "outline"} role="tab" aria-selected={filter === "unread"} onClick={() => setFilter("unread")}>未读 {unreadCount}</Button>
-          <Button type="button" size="sm" variant={filter === "all" ? "default" : "outline"} role="tab" aria-selected={filter === "all"} onClick={() => setFilter("all")}>全部 {isFormal ? formalItems.length : mockNotifications.length}</Button>
+          <Button type="button" size="sm" variant={filter === "all" ? "default" : "outline"} role="tab" aria-selected={filter === "all"} onClick={() => setFilter("all")}>全部 {formalItems.length}</Button>
         </div>
         {feedback ? <p role="alert" className="mt-3 flex items-center gap-1.5 text-xs font-medium text-destructive"><AlertCircle className="size-4" />{feedback}</p> : null}
       </GlassCard>
@@ -129,7 +115,7 @@ export function NotificationCenter({ result }: { result: NotificationInboxResult
       <GlassCard className="p-3 sm:p-4">
         {result.source === "unavailable" ? (
           <div className="grid min-h-56 place-items-center text-center"><div><AlertTriangle className="mx-auto size-8 text-destructive" /><h2 className="mt-3 font-semibold">通知服务暂不可用</h2><p className="mt-1 text-sm text-muted-foreground">{result.error}</p></div></div>
-        ) : isFormal && visibleFormal.length ? (
+        ) : visibleFormal.length ? (
           <div className="grid gap-2">{visibleFormal.map((item) => {
             const meta = eventLabels[item.eventType] ?? { title: item.title, description: item.summary };
             const stateMeta = stateLabels[item.status];
@@ -143,10 +129,6 @@ export function NotificationCenter({ result }: { result: NotificationInboxResult
               </article>
             );
           })}</div>
-        ) : !isFormal && visibleMock.length ? (
-          <div className="grid gap-2">{visibleMock.map((item) => (
-            <article key={item.id} className={`rounded-2xl border p-4 ${item.read ? "border-border/60 bg-white/35" : "border-primary/20 bg-white/75"}`}><div className="flex items-start gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand-soft text-primary"><Clock3 className="size-4" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="text-sm font-semibold">{item.title}</h2>{!item.read ? <CircleDot className="size-3.5 text-primary" /> : null}</div><p className="mt-1 text-xs leading-5 text-muted-foreground">{item.description}</p><p className="mt-2 text-[11px] text-muted-foreground">{displayTime(item.createdAt)}</p></div><div className="flex shrink-0 items-center gap-1">{!item.read ? <Button type="button" size="sm" variant="ghost" onClick={() => markOperationNotificationRead(context, item.id, actor.id)}>已读</Button> : null}<Button asChild size="sm" variant="ghost"><Link href={item.href} onClick={() => markOperationNotificationRead(context, item.id, actor.id)}>处理<ChevronRight /></Link></Button></div></div></article>
-          ))}</div>
         ) : (
           <div className="grid min-h-56 place-items-center text-center"><div><span className="mx-auto grid size-12 place-items-center rounded-2xl bg-success-soft text-success"><CheckCheck /></span><h2 className="mt-3 font-semibold">{filter === "unread" ? "未读通知已清零" : "当前没有通知"}</h2><p className="mt-1 text-sm text-muted-foreground">任务、审批、费用、客户、知识库和 Agent 事件会进入这里。</p></div></div>
         )}

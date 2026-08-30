@@ -49,7 +49,7 @@ describe("LoginPage", () => {
     await expect(
       LoginPage({ searchParams: Promise.resolve({}) }),
     ).rejects.toThrow(
-      "NEXT_REDIRECT:/quantxy-ai-workbench-fused.html?formal=1",
+      "NEXT_REDIRECT:/finance",
     );
   });
 });

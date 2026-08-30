@@ -16,7 +16,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { approvalStatusMeta, approvalTypeMeta } from "@/features/approvals/approval-meta";
 import type { Approval, ApprovalAction } from "@/features/approvals/approval-types";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
-import { useOperations } from "@/features/operations/use-operations";
 import { useWorkspaceRouter } from "@/lib/navigation/use-workspace-router";
 import { cn } from "@/lib/utils";
 
@@ -129,7 +128,7 @@ async function confirmsServerState(
 
 export function ApprovalDetailPage({
   approval,
-  dataSource = "mock",
+  dataSource = "supabase",
   actionTransport = defaultActionTransport,
   paymentTransport = defaultPaymentTransport,
   onReload,
@@ -142,7 +141,6 @@ export function ApprovalDetailPage({
 }) {
   const session = useWorkspaceSession();
   const router = useWorkspaceRouter();
-  const { isFixtureBound } = useOperations(session);
   const [decision, setDecision] = useState<ApprovalDecision | null>(null);
   const [comment, setComment] = useState("");
   const [paymentOpen, setPaymentOpen] = useState(false);
@@ -246,7 +244,7 @@ export function ApprovalDetailPage({
     }
   }
 
-  if (!isSupabaseData && !isFixtureBound) {
+  if (!isSupabaseData) {
     return (
       <RealDataUnavailable
         title="审批数据暂不可用"

@@ -8,7 +8,7 @@ import type {
 } from "@/features/auth/workspace-session-types";
 
 export const FORMAL_WORKSTATION_PATH =
-  "/quantxy-ai-workbench-fused.html?formal=1";
+  "/dashboard";
 
 const roleMapping: Record<Exclude<DatabaseRoleCode, "admin">, WorkspaceRole> = {
   owner: "executive",

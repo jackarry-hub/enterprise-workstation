@@ -60,23 +60,6 @@ for (const [role, landingPath, forbiddenPath] of roleScenarios) {
   });
 }
 
-test("旧考勤地址只进入任务交付且不出现打卡入口", async ({ browser }) => {
-  const context = await browser.newContext({
-    storageState: authStatePath("employee"),
-  });
-  const page = await context.newPage();
-
-  await page.goto("/attendance");
-  await expect(page).toHaveURL(/\/tasks$/);
-  await expect(
-    page.getByRole("heading", { name: "任务管理", level: 1 }),
-  ).toBeVisible();
-  await expect(page.getByRole("link", { name: /考勤|打卡/ })).toHaveCount(0);
-  await expect(page.getByText(/上班打卡|下班打卡|开始打卡/)).toHaveCount(0);
-
-  await context.close();
-});
-
 test("退出登录后不能继续进入工作区", async ({ browser }) => {
   const context = await browser.newContext({
     storageState: authStatePath("employee"),

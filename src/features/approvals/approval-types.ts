@@ -1,4 +1,4 @@
-export type ApprovalType = "leave" | "reimbursement" | "purchase" | "contract";
+export type ApprovalType = "reimbursement" | "purchase" | "contract";
 export type ApprovalStatus = "draft" | "pending" | "approved" | "rejected" | "returned" | "cancelled";
 export type ApprovalPriority = "low" | "medium" | "high";
 export type ApprovalQueue = "all" | "pending" | "mine" | "completed";
