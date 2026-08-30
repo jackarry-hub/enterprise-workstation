@@ -6,6 +6,7 @@ import { Bell, ChevronDown, CircleHelp, LogOut, Mail, Menu, Search, Settings, Us
 
 import { WorkspaceSearchDialog } from "@/components/shell/workspace-search-dialog";
 import { WorkspaceSidebar } from "@/components/shell/workspace-sidebar";
+import { ContextualCreateMenu } from "@/components/shell/contextual-create-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -66,6 +67,7 @@ export function WorkspaceHeader() {
         </Button>
 
         <div className="ml-auto flex items-center gap-2 md:ml-6">
+          <ContextualCreateMenu />
           <Button type="button" variant="ghost" size="icon" className="md:hidden" aria-label="打开移动端搜索" onClick={() => setSearchOpen(true)}><Search aria-hidden="true" /></Button>
 
           <DropdownMenu>

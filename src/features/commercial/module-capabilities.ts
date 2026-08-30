@@ -2,6 +2,8 @@ import type {
   WorkspacePermissionCode,
   WorkspaceSession,
 } from "@/features/auth/workspace-session-types";
+import { getContextualCreateActions, type ContextualCreateAction } from "@/features/quick-create/contextual-create-actions";
+export type { ContextualCreateAction } from "@/features/quick-create/contextual-create-actions";
 
 export type CommercialModule =
   | "dashboard"
@@ -60,18 +62,6 @@ export const commercialModuleRegistry: Readonly<Record<CommercialModule, Commerc
   fused: { routes: ["/quantxy-ai-workbench-fused.html"], requiredPermissions: [], commercialReady: false },
 };
 
-export type ContextualCreateAction = {
-  readonly pathname: string;
-  readonly module: CommercialModule;
-  readonly requiredPermission: WorkspacePermissionCode;
-  readonly label: string;
-};
-
-// No create command is registered until its Route Handler and RPC are commercial-ready.
-export const contextualCreateActions: readonly ContextualCreateAction[] = [
-  { pathname: "/agents", module: "agents", requiredPermission: "agent.manage", label: "新建 Agent" },
-];
-
 export function getModuleCapabilities(
   session: WorkspaceSession,
 ): Readonly<Record<CommercialModule, boolean>> {
@@ -106,10 +96,5 @@ export function getVisibleQuickWorkspaceActions(
   session: WorkspaceSession,
   pathname: string,
 ) {
-  const capabilities = getModuleCapabilities(session);
-  return contextualCreateActions.filter((action) => (
-    action.pathname === pathname
-    && capabilities[action.module]
-    && session.permissionCodes.includes(action.requiredPermission)
-  ));
+  return getContextualCreateActions({ pathname, session, capabilities: getModuleCapabilities(session) });
 }

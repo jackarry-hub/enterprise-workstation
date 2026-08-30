@@ -84,6 +84,6 @@ describe("commercial module capabilities", () => {
   it("only exposes the Agent page create action to Agent managers", () => {
     expect(getVisibleQuickWorkspaceActions(sessionWithPermissions([]), "/agents")).toEqual([]);
     expect(getVisibleQuickWorkspaceActions(sessionWithPermissions(["agent.manage"]), "/agents"))
-      .toEqual([{ pathname: "/agents", module: "agents", requiredPermission: "agent.manage", label: "新建 Agent" }]);
+      .toEqual([{ id: "agent.create", label: "新建 Agent", icon: "bot", module: "agents", requiredPermission: "agent.manage", target: "agent-editor" }]);
   });
 });

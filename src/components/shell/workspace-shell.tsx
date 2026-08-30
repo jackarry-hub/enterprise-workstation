@@ -4,6 +4,7 @@ import { WorkspaceAccessNotice } from "@/components/shell/workspace-access-notic
 import { WorkspaceHeader } from "@/components/shell/workspace-header";
 import { RoleAccessGuard } from "@/components/shell/role-access-guard";
 import { WorkspaceSidebar } from "@/components/shell/workspace-sidebar";
+import { MobileCreateSheet } from "@/components/shell/mobile-create-sheet";
 import { WorkspaceSessionProvider } from "@/features/auth/workspace-session-provider";
 import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
 
@@ -28,6 +29,7 @@ export function WorkspaceShell({ children, session }: WorkspaceShellProps) {
               </Suspense>
               {children}
             </div>
+            <MobileCreateSheet />
           </div>
         </div>
       </RoleAccessGuard>

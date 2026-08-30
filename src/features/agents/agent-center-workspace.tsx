@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { AgentEditor, type AgentSummary } from "@/features/agents/agent-editor";
 import { OrchestrationEditor } from "@/features/agents/orchestration-editor";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
+import { QUICK_CREATE_EVENT } from "@/features/quick-create/contextual-create-actions";
 import { cn } from "@/lib/utils";
 
 type AgentRun = {
@@ -65,6 +66,19 @@ export function AgentCenterWorkspace() {
 
   useEffect(() => { void loadDirectory(); }, [loadDirectory]);
   useEffect(() => { if (selected) void loadRuns(selected.id); else setRuns([]); }, [loadRuns, selected]);
+  useEffect(() => {
+    function handleQuickCreate(event: Event) {
+      const id = (event as CustomEvent<{ id?: string }>).detail?.id;
+      if (id === "agent.create" && canManage) { setEditing(null); setEditorOpen(true); }
+      if (id === "agent.orchestration.create" && canOrchestrate) { setSection("orchestrations"); setOrchestrationOpen(true); }
+      if (id === "agent.permission.request" && canRequest) {
+        if (selected) void requestPermission();
+        else setFeedback("请先选择需要申请权限的 Agent。");
+      }
+    }
+    window.addEventListener(QUICK_CREATE_EVENT, handleQuickCreate);
+    return () => window.removeEventListener(QUICK_CREATE_EVENT, handleQuickCreate);
+  });
 
   const successfulRuns = useMemo(() => runs.filter(({ status }) => status === "succeeded").length, [runs]);
   const highRiskTools = selected?.tools.filter(({ highRisk }) => highRisk).length ?? 0;

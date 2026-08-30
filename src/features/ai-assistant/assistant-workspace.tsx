@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { QUICK_CREATE_EVENT } from "@/features/quick-create/contextual-create-actions";
 
 type Conversation = { id: string; title: string; version: number; lastMessageAt: string };
 type Message = { id: string; sequence: number; role: "user" | "assistant"; content: string; state: "pending" | "completed" | "failed"; createdAt: string };
@@ -53,6 +54,14 @@ export function AssistantWorkspace() {
       setConversations((current) => [conversation, ...current]); setSelected(conversation); setMessages([]); setFeedback("");
     } catch { setFeedback("新会话创建失败。"); } finally { setPending(false); }
   }
+
+  useEffect(() => {
+    function handleQuickCreate(event: Event) {
+      if ((event as CustomEvent<{ id?: string }>).detail?.id === "assistant.conversation.create") void createConversation();
+    }
+    window.addEventListener(QUICK_CREATE_EVENT, handleQuickCreate);
+    return () => window.removeEventListener(QUICK_CREATE_EVENT, handleQuickCreate);
+  });
 
   async function sendMessage() {
     if (!selected || !draft.trim() || pending) return;
