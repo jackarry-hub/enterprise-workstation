@@ -1,12 +1,12 @@
-import { ArrowRight, Eye, FileSpreadsheet, FileText, Presentation } from "lucide-react";
+import { ArrowRight, FileSpreadsheet, FileText, Presentation } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import type { KnowledgeActivity, KnowledgeDocument } from "@/features/knowledge/knowledge-types";
 
-const typeIcons = { pdf: FileText, docx: FileText, pptx: Presentation, xlsx: FileSpreadsheet } as const;
-const typeTones = { pdf: "bg-danger-soft text-destructive", docx: "bg-brand-soft text-primary", pptx: "bg-warning-soft text-warning", xlsx: "bg-success-soft text-success" } as const;
+const typeIcons = { pdf: FileText, docx: FileText, pptx: Presentation, xlsx: FileSpreadsheet, other: FileText } as const;
+const typeTones = { pdf: "bg-danger-soft text-destructive", docx: "bg-brand-soft text-primary", pptx: "bg-warning-soft text-warning", xlsx: "bg-success-soft text-success", other: "bg-muted text-muted-foreground" } as const;
 
 export function DocumentListCard({ title, documents, mode, onPreview, onShowAll }: { title: string; documents: readonly KnowledgeDocument[]; mode: "recent" | "popular"; onPreview: (document: KnowledgeDocument) => void; onShowAll: () => void }) {
   return (
@@ -19,7 +19,7 @@ export function DocumentListCard({ title, documents, mode, onPreview, onShowAll 
             <button key={document.id} type="button" aria-label={`预览文档：${document.title}`} onClick={() => onPreview(document)} className="group flex w-full items-center gap-3 py-2.5 text-left">
               <span className={`grid size-8 shrink-0 place-items-center rounded-lg ${typeTones[document.type]}`}><Icon aria-hidden="true" className="size-4" /></span>
               <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium group-hover:text-primary">{document.title}</p><p className="mt-0.5 truncate text-xs text-muted-foreground">{mode === "recent" ? document.updatedAt.slice(5, 16).replace("T", " ") : document.tags.join(" · ")}</p></div>
-              {mode === "recent" ? <Avatar size="sm"><AvatarFallback className="bg-brand-soft text-primary">{document.author.slice(0, 1)}</AvatarFallback></Avatar> : <span className="flex items-center gap-1 text-xs text-muted-foreground"><Eye className="size-3" />{document.views.toLocaleString()}</span>}
+              {mode === "recent" ? <Avatar size="sm"><AvatarFallback className="bg-brand-soft text-primary">{document.author.slice(0, 1)}</AvatarFallback></Avatar> : <span className="text-xs text-muted-foreground">{document.status === "published" ? "已发布" : "草稿"}</span>}
             </button>
           );
         })}
@@ -38,6 +38,7 @@ export function KnowledgeActivityCard({ activities }: { activities: readonly Kno
             <div><p className="text-sm leading-5"><strong>{activity.actor}</strong> {activity.content}</p><p className="mt-0.5 text-xs text-muted-foreground">{activity.createdAt}</p></div>
           </div>
         ))}
+        {activities.length === 0 ? <p className="rounded-xl border border-dashed border-border p-5 text-center text-sm text-muted-foreground">暂无当前账号可见的知识动态</p> : null}
       </div>
     </GlassCard>
   );

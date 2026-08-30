@@ -1,4 +1,4 @@
-export type KnowledgeDocumentType = "pdf" | "docx" | "pptx" | "xlsx";
+export type KnowledgeDocumentType = "pdf" | "docx" | "pptx" | "xlsx" | "other";
 
 export interface KnowledgeCategory {
   id: string;
@@ -17,6 +17,10 @@ export interface KnowledgeDocument {
   updatedAt: string;
   views: number;
   tags: string[];
+  status?: "draft" | "published" | "archived";
+  versionId?: string | null;
+  sourceId?: string | null;
+  sourceName?: string | null;
 }
 
 export interface KnowledgeActivity {
@@ -30,4 +34,21 @@ export interface KnowledgeFilters {
   query: string;
   categoryId: string;
   tag: string;
+}
+
+export interface KnowledgeFileOption {
+  id: string;
+  name: string;
+  mimeType: string;
+}
+
+export interface KnowledgeDataResult {
+  source: "supabase";
+  documents: KnowledgeDocument[];
+  categories: KnowledgeCategory[];
+  activities: KnowledgeActivity[];
+  files: KnowledgeFileOption[];
+  canManage: boolean;
+  loadError?: string;
+  requestId?: string;
 }
