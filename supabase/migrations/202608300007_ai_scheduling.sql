@@ -139,6 +139,7 @@ begin
   if p_project_public_id is null or length(btrim(coalesce(p_objective,''))) not between 1 and 1000 or p_constraints is null or jsonb_typeof(p_constraints)<>'object' or pg_column_size(p_constraints)>32768 or p_idempotency_key is null or p_request_id is null then raise exception 'invalid_request' using errcode='22023'; end if;
   select * into v_actor from public.current_scheduling_actor(); if not found then raise exception 'forbidden' using errcode='42501'; end if;
   select * into v_project from public.projects where tenant_id=v_actor.tenant_id and organization_id=v_actor.organization_id and public_id=p_project_public_id and deleted_at is null and status in ('planning','active','on_hold'); if not found then raise exception 'not_found' using errcode='P0002'; end if;
+  if (select access_state from public.lock_current_project_execution_access(v_actor.tenant_id,v_actor.organization_id,v_actor.member_id,p_project_public_id,'manage'))<>'allowed' then raise exception 'forbidden' using errcode='42501'; end if;
   perform pg_advisory_xact_lock(hashtextextended(v_actor.tenant_id::text||':'||v_actor.member_id::text||':goal:'||p_idempotency_key::text,0));
   select goal.* into v_goal from public.scheduling_goals goal join public.audit_logs audit on audit.tenant_id=goal.tenant_id and audit.resource_type='scheduling_goal' and audit.resource_id=goal.public_id::text and audit.request_id=p_idempotency_key where goal.tenant_id=v_actor.tenant_id and goal.created_by_member_id=v_actor.member_id limit 1;
   if not found then

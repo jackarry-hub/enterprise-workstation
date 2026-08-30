@@ -1,5 +1,5 @@
 begin;
-select plan(12);
+select plan(18);
 select has_table('public','scheduling_goals');
 select has_table('public','scheduling_plan_versions');
 select has_table('public','scheduling_assignments');
@@ -12,5 +12,11 @@ select has_function('public','save_scheduling_plan',array['uuid','uuid','bigint'
 select policies_are('public','scheduling_goals',array['scheduling_goals_manager_read']);
 select policies_are('public','scheduling_plan_versions',array['scheduling_plans_manager_read']);
 select policies_are('public','scheduling_assignments',array['scheduling_assignments_manager_read']);
+select has_table('public','scheduling_overrides');
+select has_table('public','scheduling_dispatch_tasks');
+select has_column('public','scheduling_plan_versions','dispatch_result');
+select has_function('public','override_scheduling_assignment',array['uuid','uuid','bigint','text','integer','uuid','uuid']);
+select has_function('public','dispatch_scheduling_plan',array['uuid','integer','uuid','uuid']);
+select policies_are('public','scheduling_overrides',array['scheduling_overrides_manager_read']);
 select * from finish();
 rollback;

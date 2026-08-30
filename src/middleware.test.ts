@@ -38,6 +38,8 @@ describe("standalone workstation middleware boundary", () => {
     expect(isStandaloneAuthorizedPath("/api/workstation/ai/conversations/conversation-1/messages")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/scheduling/goals")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/scheduling/goals/goal-1/plans")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/scheduling/plans/plan-1/overrides")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/scheduling/plans/plan-1/dispatch")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/tasks")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/tasks/task-1")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/payroll")).toBe(true);

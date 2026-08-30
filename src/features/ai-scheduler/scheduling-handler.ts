@@ -30,7 +30,7 @@ async function parseBody(request: Request) {
   try { return record(JSON.parse(raw)); } catch { return null; }
 }
 
-function errorStatus(error: { code?: string } | null) { return error?.code === "42501" ? 403 : error?.code === "P0002" ? 404 : error?.code === "23505" || error?.code === "40001" ? 409 : error?.code === "22023" ? 422 : 503; }
+function errorStatus(error: { code?: string } | null) { return error?.code === "42501" ? 403 : error?.code === "P0002" ? 404 : error?.code === "23505" || error?.code === "40001" || error?.code === "55000" ? 409 : error?.code === "22023" ? 422 : 503; }
 
 async function defaults(): Promise<SchedulingDependencies> {
   const client = await getSupabaseServerClient();
@@ -127,6 +127,35 @@ export async function handleSchedulingPlans(request: Request, goalId: string, pr
   });
   if (result.error) return json({ error: errorStatus(result.error) === 403 ? "forbidden" : errorStatus(result.error) === 409 ? "conflict" : "scheduling_unavailable" }, errorStatus(result.error));
   return json(record(result.data), 201);
+}
+
+export async function handleSchedulingOverride(request: Request, planId: string, provided?: SchedulingDependencies) {
+  if (!UUID_PATTERN.test(planId)) return json({ error: "not_found" }, 404);
+  const deps = provided ?? await defaults(); const session = await deps.loadSession();
+  if (!session) return json({ error: "unauthenticated" }, 401);
+  if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+  const value = await parseBody(request); const assignmentId = typeof value?.assignmentId === "string" ? value.assignmentId : "";
+  const replacementMemberId = Number(value?.replacementMemberId); const reason = typeof value?.reason === "string" ? value.reason.trim() : ""; const expectedRevision = Number(value?.expectedRevision);
+  const key = request.headers.get("idempotency-key")?.toLowerCase();
+  if (!UUID_PATTERN.test(assignmentId) || !Number.isSafeInteger(replacementMemberId) || replacementMemberId < 1 || reason.length < 5 || reason.length > 1000 || !Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || !key || !UUID_PATTERN.test(key)) return json({ error: "invalid_request" }, 400);
+  const requestId = deps.createRequestId?.() ?? randomUUID();
+  const result = await deps.rpc("override_scheduling_assignment", { p_plan_public_id: planId, p_assignment_public_id: assignmentId, p_replacement_member_id: replacementMemberId, p_reason: reason, p_expected_revision: expectedRevision, p_idempotency_key: key, p_request_id: requestId });
+  if (result.error) return json({ error: errorStatus(result.error) === 409 ? "version_conflict" : errorStatus(result.error) === 404 ? "not_found" : errorStatus(result.error) === 403 ? "forbidden" : "scheduling_unavailable", requestId }, errorStatus(result.error));
+  return json({ ...record(result.data), requestId }, 201);
+}
+
+export async function handleSchedulingDispatch(request: Request, planId: string, provided?: SchedulingDependencies) {
+  if (!UUID_PATTERN.test(planId)) return json({ error: "not_found" }, 404);
+  const deps = provided ?? await defaults(); const session = await deps.loadSession();
+  if (!session) return json({ error: "unauthenticated" }, 401);
+  if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+  const value = await parseBody(request); const expectedRevision = Number(value?.expectedRevision);
+  const key = request.headers.get("idempotency-key")?.toLowerCase();
+  if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || !key || !UUID_PATTERN.test(key)) return json({ error: "invalid_request" }, 400);
+  const requestId = deps.createRequestId?.() ?? randomUUID();
+  const result = await deps.rpc("dispatch_scheduling_plan", { p_plan_public_id: planId, p_expected_revision: expectedRevision, p_idempotency_key: key, p_request_id: requestId });
+  if (result.error) return json({ error: result.error.code === "55000" ? "dispatch_failed" : errorStatus(result.error) === 409 ? "version_conflict" : errorStatus(result.error) === 404 ? "not_found" : errorStatus(result.error) === 403 ? "forbidden" : "scheduling_unavailable", requestId }, errorStatus(result.error));
+  return json({ ...record(result.data), requestId }, 201);
 }
 
 export const schedulingInternals = { parseModelPlan, rulesPlan, evidenceMembers };

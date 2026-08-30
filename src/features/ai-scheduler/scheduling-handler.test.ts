@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-import { handleSchedulingPlans, schedulingInternals, type SchedulingDependencies } from "@/features/ai-scheduler/scheduling-handler";
+import { handleSchedulingDispatch, handleSchedulingOverride, handleSchedulingPlans, schedulingInternals, type SchedulingDependencies } from "@/features/ai-scheduler/scheduling-handler";
 import { executiveWorkspaceSession } from "@/test/workspace-session-test-utils";
 
 const goalId = "11111111-1111-4111-8111-111111111111";
@@ -23,6 +23,10 @@ describe("explainable AI scheduling", () => {
     expect(sql).toContain("cost_amount numeric(14,6)");
     expect(sql).toContain("scheduling_plan_immutable");
     expect(sql).toContain("taskids");
+    const dispatchSql = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/202608300008_ai_scheduling_dispatch.sql"), "utf8").toLowerCase();
+    expect(dispatchSql).toContain("create_current_task_batch_v3");
+    expect(dispatchSql).toContain("if v_plan.status='dispatched'");
+    expect(dispatchSql).toContain("scheduling_dispatch_tasks");
   });
 
   it("accepts a validated model plan but replaces its evidence with authorized database IDs", async () => {
@@ -40,5 +44,26 @@ describe("explainable AI scheduling", () => {
 
   it("rejects model assignments to members outside the real evidence set", () => {
     expect(schedulingInternals.parseModelPlan({ assignments: [{ memberId: 999, title: "越权", acceptanceCriteria: "完成", dueDate: "2026-09-09" }] }, evidence, schedulingInternals.evidenceMembers(evidence))).toBeNull();
+  });
+
+  it("requires a meaningful reason before an override command", async () => {
+    const { value } = dependencies();
+    const response = await handleSchedulingOverride(new Request("https://test/api", { method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify({ assignmentId: taskId, replacementMemberId: 9, reason: "短", expectedRevision: 1 }) }), goalId, value);
+    expect(response.status).toBe(400);
+  });
+
+  it("maps a stale override to a version conflict", async () => {
+    const { value } = dependencies();
+    value.rpc = vi.fn().mockResolvedValue({ data: null, error: { code: "40001" } }) as unknown as SchedulingDependencies["rpc"];
+    const response = await handleSchedulingOverride(new Request("https://test/api", { method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify({ assignmentId: taskId, replacementMemberId: 9, reason: "资源冲突需要改派", expectedRevision: 1 }) }), goalId, value);
+    expect(response.status).toBe(409);
+  });
+
+  it("dispatches through the locked database command boundary", async () => {
+    const { value } = dependencies();
+    value.rpc = vi.fn().mockResolvedValue({ data: { plan: { id: goalId, status: "dispatched", dispatch: { taskIds: [taskId] } } }, error: null }) as unknown as SchedulingDependencies["rpc"];
+    const response = await handleSchedulingDispatch(new Request("https://test/api", { method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify({ expectedRevision: 2 }) }), goalId, value);
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({ plan: { status: "dispatched", dispatch: { taskIds: [taskId] } } });
   });
 });
