@@ -61,6 +61,17 @@ function authorizationClient(overrides: Partial<Record<string, Row[]>> = {}) {
       min_job_level: 20,
       deleted_at: null,
     }],
+    agent_runtime_controls: [{ tenant_id: 2, organization_id: 3, kill_switch_enabled: false }],
+    agent_versions: [{
+      id: 82, tenant_id: 2, organization_id: 3, lifecycle: "published", data_scopes: [],
+      limits: { maxSteps: 20, maxDepth: 3, timeoutSeconds: 300, maxTokens: 2000, maxConcurrent: 5 },
+    }],
+    agent_runtime_tool_allowlists: [
+      { tool_code: "task.read", enabled: true, tenant_id: 2, organization_id: 3 },
+      { tool_code: "knowledge.search", enabled: true, tenant_id: 2, organization_id: 3 },
+    ],
+    agent_runtime_data_allowlists: [],
+    agent_invocations: [],
     ...overrides,
   };
   const calls: Array<{ table: string; filters: Array<[string, unknown]> }> = [];
@@ -114,6 +125,8 @@ describe("authorizeAgentInvocation", () => {
         systemPrompt: "Only the database prompt may be used.",
         model: "deepseek-chat",
         toolCodes: ["task.read", "knowledge.search"],
+        dataScopes: [],
+        limits: { maxSteps: 20, maxDepth: 3, timeoutSeconds: 300, maxTokens: 2000, maxConcurrent: 5 },
       });
 
     expect(client.calls).toEqual(expect.arrayContaining([
@@ -145,6 +158,18 @@ describe("authorizeAgentInvocation", () => {
     }] });
     await expect(authorizeAgentInvocation(revoked, executiveWorkspaceSession, agentPublicId))
       .rejects.toMatchObject({ code: "agent_forbidden" });
+  });
+
+  it("blocks the tenant kill switch, disabled tools and Agent concurrency before provider work", async () => {
+    await expect(authorizeAgentInvocation(authorizationClient({
+      agent_runtime_controls: [{ tenant_id: 2, organization_id: 3, kill_switch_enabled: true }],
+    }), executiveWorkspaceSession, agentPublicId)).rejects.toMatchObject({ code: "agent_kill_switch" });
+    await expect(authorizeAgentInvocation(authorizationClient({
+      agent_runtime_tool_allowlists: [{ tool_code: "task.read", enabled: true, tenant_id: 2, organization_id: 3 }],
+    }), executiveWorkspaceSession, agentPublicId)).rejects.toMatchObject({ code: "agent_forbidden" });
+    await expect(authorizeAgentInvocation(authorizationClient({
+      agent_invocations: Array.from({ length: 5 }, (_, id) => ({ id: id + 1, tenant_id: 2, organization_id: 3, agent_id: 81, status: "running" })),
+    }), executiveWorkspaceSession, agentPublicId)).rejects.toMatchObject({ code: "agent_concurrency_limit" });
   });
 
   it("hides a cross-organization leaked Agent UUID as not found", async () => {

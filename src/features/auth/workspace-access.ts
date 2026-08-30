@@ -89,6 +89,7 @@ const workspacePermissions = new Set<WorkspacePermissionCode>([
   "knowledge.manage",
   "agent.manage",
   "agent.orchestrate",
+  "agent.runtime.kill",
   "analytics.read",
   "settings.manage",
   "employee.supervisor.read",

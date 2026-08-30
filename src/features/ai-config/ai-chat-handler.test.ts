@@ -242,6 +242,7 @@ describe("handleAiChat", () => {
         systemPrompt: "database-controlled Agent prompt",
         model: "deepseek-reasoner",
         toolCodes: ["task.read"],
+        dataScopes: [], limits: { maxSteps: 20, maxDepth: 3, timeoutSeconds: 300, maxTokens: 700, maxConcurrent: 5 },
       }),
       startAgentInvocation: async (payload) => {
         headers.push(payload);
@@ -275,6 +276,7 @@ describe("handleAiChat", () => {
     ]);
     expect(providerBody).toMatchObject({
       model: "deepseek-reasoner",
+      max_tokens: 700,
       messages: [
         { role: "system", content: "database-controlled Agent prompt" },
         { role: "user", content: "把官网项目拆成任务" },
@@ -300,7 +302,7 @@ describe("handleAiChat", () => {
       consumeRateLimit: () => true,
       authorizeAgentInvocation: async () => ({
         definitionId: 81, versionDefinitionId: 82, tenantId: 2, organizationId: 3, version: "v1",
-        systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: ["task.read"],
+        systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: ["task.read"], dataScopes: [], limits: { maxSteps: 20, maxDepth: 3, timeoutSeconds: 300, maxTokens: 2000, maxConcurrent: 5 },
       }),
       startAgentInvocation: async (payload: { authorizedAgent: { definitionId: number }; status: string }) => {
         expect(payload).toMatchObject({ status: "running", authorizedAgent: { definitionId: 81 } });
@@ -337,7 +339,7 @@ describe("handleAiChat", () => {
       consumeRateLimit: () => true,
       authorizeAgentInvocation: async () => ({
         definitionId: 81, versionDefinitionId: 82, tenantId: 2, organizationId: 3, version: "v1",
-        systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: [],
+        systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: [], dataScopes: [], limits: { maxSteps: 20, maxDepth: 3, timeoutSeconds: 300, maxTokens: 2000, maxConcurrent: 5 },
       }),
       startAgentInvocation: async () => { throw new Error("ledger unavailable"); },
       finalizeAgentInvocation: async () => undefined,
@@ -390,7 +392,7 @@ describe("handleAiChat", () => {
       consumeRateLimit: () => true,
       authorizeAgentInvocation: async () => ({
         definitionId: 81, versionDefinitionId: 82, tenantId: 2, organizationId: 3, version: "v1",
-        systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: [],
+        systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: [], dataScopes: [], limits: { maxSteps: 20, maxDepth: 3, timeoutSeconds: 300, maxTokens: 2000, maxConcurrent: 5 },
       }),
       startAgentInvocation: async () => ({ invocationId: "44444444-4444-4444-8444-444444444444" }),
       finalizeAgentInvocation: async () => {
@@ -420,7 +422,7 @@ describe("handleAiChat", () => {
       consumeRateLimit: () => true,
       authorizeAgentInvocation: async () => ({
         definitionId: 81, versionDefinitionId: 82, tenantId: 2, organizationId: 3, version: "v1",
-        systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: [],
+        systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: [], dataScopes: [], limits: { maxSteps: 20, maxDepth: 3, timeoutSeconds: 300, maxTokens: 2000, maxConcurrent: 5 },
       }),
       startAgentInvocation: async (payload) => {
         headers.push(payload as unknown as Record<string, unknown>);
@@ -452,7 +454,7 @@ describe("handleAiChat", () => {
       consumeRateLimit: () => true,
       authorizeAgentInvocation: async () => ({
         definitionId: 81, versionDefinitionId: 82, tenantId: 2, organizationId: 3, version: "v1",
-        systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: [],
+        systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: [], dataScopes: [], limits: { maxSteps: 20, maxDepth: 3, timeoutSeconds: 300, maxTokens: 2000, maxConcurrent: 5 },
       }),
       startAgentInvocation: async () => ({ invocationId: "44444444-4444-4444-8444-444444444444" }),
       finalizeAgentInvocation: async (payload) => { finals.push(payload as unknown as Record<string, unknown>); },

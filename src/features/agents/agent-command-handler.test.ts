@@ -34,7 +34,7 @@ describe("versioned Agent commands",()=>{
 
   it("persists a version with model, prompt, contracts, limits and catalog tools",async()=>{
     const rpc=vi.fn().mockResolvedValue({data:{versionId,revision:1,lifecycle:"draft"},error:null});
-    const response=await handleAgentVersions(new Request("https://q.test",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({modelCode:"deepseek-chat",promptVersion:"legal-v1",systemPrompt:"仅根据授权合同给出风险建议。",inputSchema:{type:"object"},outputSchema:{type:"object"},dataScopes:["contracts.read"],secretRefs:["DEEPSEEK_API_KEY"],limits:{maxSteps:8,maxDepth:2,timeoutSeconds:120},tools:[{code:"knowledge.search",config:{collection:"legal"}}]})}),agentId,deps(rpc));
+    const response=await handleAgentVersions(new Request("https://q.test",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({modelCode:"deepseek-chat",promptVersion:"legal-v1",systemPrompt:"仅根据授权合同给出风险建议。",inputSchema:{type:"object"},outputSchema:{type:"object"},dataScopes:["contracts.read"],secretRefs:["DEEPSEEK_API_KEY"],limits:{maxSteps:8,maxDepth:2,timeoutSeconds:120,maxTokens:2000,maxConcurrent:3},tools:[{code:"knowledge.search",config:{collection:"legal"}}]})}),agentId,deps(rpc));
     expect(response.status).toBe(201);expect(rpc).toHaveBeenCalledWith("create_current_agent_version",expect.objectContaining({p_agent_public_id:agentId,p_secret_refs:["DEEPSEEK_API_KEY"]}));
   });
 

@@ -77,7 +77,7 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
       authorizedAgent = await deps.authorizeAgentInvocation(parsed.agentPublicId);
     } catch (error) {
       const code = authorizationErrorCode(error);
-      return json({ error: code }, code === "agent_not_found" ? 404 : 403);
+      return json({ error: code }, code === "agent_not_found" ? 404 : ["agent_kill_switch", "agent_concurrency_limit"].includes(code) ? 503 : 403);
     }
   }
 
@@ -157,10 +157,12 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
     return json({ error: "agent_invocation_start_failed" }, 500);
   }
   try {
+    const effectiveMaxTokens = authorizedAgent ? Math.min(parsed.maxTokens, authorizedAgent.limits.maxTokens) : parsed.maxTokens;
+    const effectiveTimeoutMs = authorizedAgent ? Math.min(45_000, authorizedAgent.limits.timeoutSeconds * 1_000) : 45_000;
     const upstreamBody = JSON.stringify({
       model: modelCode,
       messages: providerMessages,
-      max_tokens: parsed.maxTokens,
+      max_tokens: effectiveMaxTokens,
       ...(parsed.structuredOutput
         ? {
           response_format: { type: "json_object" },
@@ -179,7 +181,7 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
             Authorization: `Bearer ${apiKey}`,
           },
           body: upstreamBody,
-          signal: AbortSignal.timeout(45_000),
+          signal: AbortSignal.timeout(effectiveTimeoutMs),
         },
       );
 
@@ -502,9 +504,10 @@ async function finalizeInvocations(
   return agentRecorded && runtimeRecorded;
 }
 
-function authorizationErrorCode(error: unknown): "agent_not_found" | "agent_forbidden" {
-  return error && typeof error === "object" && (error as { code?: unknown }).code === "agent_not_found"
-    ? "agent_not_found"
+function authorizationErrorCode(error: unknown): "agent_not_found" | "agent_forbidden" | "agent_kill_switch" | "agent_concurrency_limit" {
+  const code = error && typeof error === "object" ? (error as { code?: unknown }).code : null;
+  return ["agent_not_found", "agent_kill_switch", "agent_concurrency_limit"].includes(String(code))
+    ? code as "agent_not_found" | "agent_kill_switch" | "agent_concurrency_limit"
     : "agent_forbidden";
 }
 

@@ -29,10 +29,12 @@ export type AuthorizedAgent = {
   systemPrompt: string;
   model: AiModel;
   toolCodes: string[];
+  dataScopes: string[];
+  limits: { maxSteps: number; maxDepth: number; timeoutSeconds: number; maxTokens: number; maxConcurrent: number };
 };
 
 export class AgentInvocationAuthorizationError extends Error {
-  constructor(public readonly code: "agent_not_found" | "agent_forbidden") {
+  constructor(public readonly code: "agent_not_found" | "agent_forbidden" | "agent_kill_switch" | "agent_concurrency_limit") {
     super(code);
   }
 }
@@ -53,6 +55,10 @@ function forbidden(): never {
 
 function notFound(): never {
   throw new AgentInvocationAuthorizationError("agent_not_found");
+}
+
+function unavailable(code: "agent_kill_switch" | "agent_concurrency_limit"): never {
+  throw new AgentInvocationAuthorizationError(code);
 }
 
 async function maybeSingle<T extends Record<string, unknown>>(
@@ -180,6 +186,44 @@ export async function authorizeAgentInvocation(
     || agent.deleted_at !== null || !agentMinimum || agentMinimum > 20 || jobLevel < agentMinimum
     || execution === null) forbidden();
 
+  const control = await maybeSingle(
+    client.from<ScopedRow>("agent_runtime_controls").select("tenant_id, organization_id, kill_switch_enabled")
+      .eq("tenant_id", tenantId).eq("organization_id", organizationId).maybeSingle(),
+    forbidden,
+  );
+  if (control.kill_switch_enabled !== false) unavailable("agent_kill_switch");
+
+  const version = await maybeSingle(
+    client.from<ScopedRow>("agent_versions").select("id, tenant_id, organization_id, lifecycle, data_scopes, limits")
+      .eq("tenant_id", tenantId).eq("organization_id", organizationId).eq("id", versionDefinitionId)
+      .eq("lifecycle", "published").maybeSingle(),
+    forbidden,
+  );
+  const limitsRecord = version.limits && typeof version.limits === "object" && !Array.isArray(version.limits)
+    ? version.limits as Record<string, unknown> : null;
+  const limits = {
+    maxSteps: Number(limitsRecord?.maxSteps), maxDepth: Number(limitsRecord?.maxDepth),
+    timeoutSeconds: Number(limitsRecord?.timeoutSeconds), maxTokens: Number(limitsRecord?.maxTokens),
+    maxConcurrent: Number(limitsRecord?.maxConcurrent),
+  };
+  const dataScopes = Array.isArray(version.data_scopes) && version.data_scopes.every((scope) => typeof scope === "string") ? version.data_scopes as string[] : null;
+  if (positiveInteger(version.id) !== versionDefinitionId || positiveInteger(version.tenant_id) !== tenantId
+    || positiveInteger(version.organization_id) !== organizationId || version.lifecycle !== "published" || !dataScopes
+    || !Object.values(limits).every((limit) => Number.isSafeInteger(limit) && limit > 0)) forbidden();
+
+  const allowedTools = execution.toolCodes.length ? await rows(client.from<ScopedRow>("agent_runtime_tool_allowlists")
+    .select("tool_code, enabled").eq("tenant_id", tenantId).eq("organization_id", organizationId)
+    .in("tool_code", execution.toolCodes).eq("enabled", true)) : [];
+  if (new Set(allowedTools.map((row) => row.tool_code)).size !== execution.toolCodes.length) forbidden();
+  const allowedScopes = dataScopes.length ? await rows(client.from<ScopedRow>("agent_runtime_data_allowlists")
+    .select("data_scope, enabled").eq("tenant_id", tenantId).eq("organization_id", organizationId)
+    .in("data_scope", dataScopes).eq("enabled", true)) : [];
+  if (new Set(allowedScopes.map((row) => row.data_scope)).size !== dataScopes.length) forbidden();
+  const running = await rows(client.from<ScopedRow>("agent_invocations").select("id,status")
+    .eq("tenant_id", tenantId).eq("organization_id", organizationId).eq("agent_id", definitionId)
+    .in("status", ["queued", "running"]));
+  if (running.length >= limits.maxConcurrent) unavailable("agent_concurrency_limit");
+
   const permissions = await rows(
     client.from<ScopedRow>("agent_permissions")
       .select("id, tenant_id, organization_id, agent_id, scope_type, department_id, role_code, member_id, min_job_level, expires_at, revoked_at, deleted_at")
@@ -219,5 +263,7 @@ export async function authorizeAgentInvocation(
     systemPrompt: execution.systemPrompt,
     model: execution.model,
     toolCodes: execution.toolCodes,
+    dataScopes,
+    limits,
   };
 }

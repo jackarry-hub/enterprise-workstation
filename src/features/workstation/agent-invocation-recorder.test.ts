@@ -17,6 +17,8 @@ const authorizedAgent = {
   systemPrompt: "server prompt",
   model: "deepseek-chat" as const,
   toolCodes: ["task.read"],
+  dataScopes: [],
+  limits: { maxSteps: 20, maxDepth: 3, timeoutSeconds: 300, maxTokens: 2000, maxConcurrent: 5 },
 };
 
 describe("createAgentInvocationRecorder", () => {
@@ -65,6 +67,12 @@ describe("createAgentInvocationRecorder", () => {
       tool_scope: { tools: ["task.read"] },
       started_at: "2026-08-26T01:00:00.000Z",
       completed_at: null,
+    }));
+    expect(rpc).toHaveBeenCalledWith("append_agent_invocation_step", expect.objectContaining({
+      p_invocation_public_id: "44444444-4444-4444-8444-444444444444",
+      p_node_key: "model_call",
+      p_event_type: "model.completed",
+      p_status: "succeeded",
     }));
     expect(rpc).toHaveBeenCalledWith("finalize_agent_invocation", expect.objectContaining({
       p_tenant_id: 2,

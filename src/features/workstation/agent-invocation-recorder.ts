@@ -44,6 +44,7 @@ function assertAuthorizedHeader(
 export function createAgentInvocationRecorder(client: unknown, session: WorkspaceSession) {
   const supabase = client as SupabaseLike;
   let activeHeader: { invocationId: string; tenantId: number; organizationId: number } | null = null;
+  let finalized = false;
 
   return {
     async startAgentInvocation(payload: AgentInvocationStartPayload): Promise<AgentInvocationHandle> {
@@ -77,6 +78,7 @@ export function createAgentInvocationRecorder(client: unknown, session: Workspac
         tenantId: agent.tenantId,
         organizationId: agent.organizationId,
       };
+      finalized = false;
       return { invocationId: result.data.public_id };
     },
 
@@ -85,6 +87,23 @@ export function createAgentInvocationRecorder(client: unknown, session: Workspac
         || !validPublicUuid(payload.invocationId) || !["succeeded", "failed"].includes(payload.status)) {
         throw new Error("agent_invocation_transition_invalid");
       }
+      if (finalized) return;
+      const step = await supabase.rpc("append_agent_invocation_step", {
+        p_tenant_id: activeHeader.tenantId,
+        p_organization_id: activeHeader.organizationId,
+        p_invocation_public_id: payload.invocationId,
+        p_node_key: "model_call",
+        p_event_type: "model.completed",
+        p_status: payload.status,
+        p_input_hash: null,
+        p_safe_summary: {
+          inputTokens: payload.inputTokens,
+          outputTokens: payload.outputTokens,
+          latencyMs: payload.latencyMs,
+          errorCode: payload.errorCode,
+        },
+      });
+      if (step.error || !step.data) throw new Error("agent_invocation_step_failed");
       const result = await supabase.rpc("finalize_agent_invocation", {
         p_tenant_id: activeHeader.tenantId,
         p_organization_id: activeHeader.organizationId,
@@ -100,6 +119,7 @@ export function createAgentInvocationRecorder(client: unknown, session: Workspac
       if (result.error || typeof result.data !== "boolean") {
         throw new Error("agent_invocation_finalize_failed");
       }
+      finalized = true;
     },
   };
 }

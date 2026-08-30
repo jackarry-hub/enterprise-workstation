@@ -1,0 +1,1 @@
+import{handleAgentKillSwitch}from"@/features/agents/agent-kill-switch";export async function GET(request:Request){return handleAgentKillSwitch(request);}export async function POST(request:Request){return handleAgentKillSwitch(request);}
