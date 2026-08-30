@@ -1,0 +1,16 @@
+begin;
+select plan(12);
+select has_table('public','ai_rate_limit_windows');
+select has_table('public','ai_rate_limit_receipts');
+select has_table('public','ai_runtime_invocations');
+select has_column('public','ai_runtime_invocations','request_id');
+select has_column('public','ai_runtime_invocations','cost_amount');
+select has_function('public','consume_ai_rate_limit',array['uuid','uuid','bigint','uuid','text','integer','integer','uuid']);
+select has_function('public','start_ai_runtime_invocation',array['uuid','uuid','bigint','uuid','uuid','text','text','timestamp with time zone']);
+select has_function('public','finalize_ai_runtime_invocation',array['uuid','uuid','bigint','uuid','uuid','text','integer','integer','numeric','text','timestamp with time zone']);
+select policies_are('public','ai_rate_limit_windows',array[]::text[]);
+select policies_are('public','ai_rate_limit_receipts',array[]::text[]);
+select policies_are('public','ai_runtime_invocations',array['ai_runtime_self_select']);
+select col_is_unique('public','ai_runtime_invocations',array['tenant_id','actor_member_id','request_id']);
+select * from finish();
+rollback;

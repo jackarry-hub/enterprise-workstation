@@ -6,6 +6,7 @@ import { createAiConfigStore } from "@/features/ai-config/ai-config-store";
 import { getWorkspaceApiSession } from "@/features/ai-config/workspace-api-session";
 import { authorizeAgentInvocation } from "@/features/agents/authorize-agent-invocation";
 import { createAgentInvocationRecorder } from "@/features/workstation/agent-invocation-recorder";
+import { createAiRuntimeStore } from "@/features/ai-runtime/rate-limit-store";
 import { getSupabaseEnv } from "@/lib/supabase/env";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +27,7 @@ export async function POST(request: Request) {
       encryptionKey,
       store: createAiConfigStore(admin),
       ...(session ? {
+        runtime: createAiRuntimeStore(admin, session),
         authorizeAgentInvocation: (agentPublicId: string) =>
           authorizeAgentInvocation(admin, session, agentPublicId),
         startAgentInvocation: invocationLifecycle?.startAgentInvocation,

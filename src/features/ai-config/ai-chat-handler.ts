@@ -1,15 +1,19 @@
+import { randomUUID } from "node:crypto";
+
 import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
 import type { AiConfigStore } from "@/features/ai-config/ai-config-store";
 import { isAllowedAiModel } from "@/features/ai-config/ai-config-types";
 import { decryptApiKey } from "@/features/ai-config/ai-secret-crypto";
 import type { AuthorizedAgent } from "@/features/agents/authorize-agent-invocation";
+import type { AiRuntimeStore } from "@/features/ai-runtime/rate-limit-store";
 
 type AiChatDeps = {
   session: WorkspaceSession | null;
   store: Pick<AiConfigStore, "get">;
   encryptionKey: Uint8Array;
   fetchImpl?: typeof fetch;
-  consumeRateLimit?: (key: string) => boolean;
+  consumeRateLimit?: (key: string) => boolean | Promise<boolean>;
+  runtime?: Pick<AiRuntimeStore, "consume" | "start" | "finalize">;
   authorizeAgentInvocation?: (agentPublicId: string) => Promise<AuthorizedAgent>;
   startAgentInvocation?: (payload: AgentInvocationStartPayload) => Promise<AgentInvocationHandle>;
   finalizeAgentInvocation?: (payload: AgentInvocationFinalizationPayload) => Promise<void>;
@@ -54,9 +58,11 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
   const session = deps.session;
   if (!session) return json({ error: "unauthorized" }, 401);
 
-  const limitKey = `${session.tenantId}:${session.authUserId}`;
-  const consume = deps.consumeRateLimit ?? consumeProcessRateLimit;
-  if (!consume(limitKey)) return json({ error: "rate_limited" }, 429);
+  if (!deps.runtime) {
+    const limitKey = `${session.tenantId}:${session.authUserId}`;
+    const consume = deps.consumeRateLimit ?? consumeProcessRateLimit;
+    if (!await consume(limitKey)) return json({ error: "rate_limited" }, 429);
+  }
 
   const parsed = await parseChatRequest(request);
   if ("error" in parsed) return json({ error: parsed.error }, parsed.status);
@@ -103,6 +109,37 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
       ...parsed.messages.filter((message) => message.role !== "system"),
     ]
     : parsed.messages;
+  const suppliedRequestId = request.headers.get("idempotency-key");
+  if (suppliedRequestId && !validPublicUuid(suppliedRequestId)) {
+    return json({ error: "invalid_idempotency_key" }, 400);
+  }
+  const runtimeRequestId = suppliedRequestId?.toLowerCase() ?? randomUUID();
+  let runtimeInvocation: { invocationId: string } | null = null;
+  if (deps.runtime) {
+    try {
+      runtimeInvocation = await deps.runtime.start(
+        runtimeRequestId,
+        parsed.agentPublicId ? "agent.chat" : "assistant.chat",
+        modelCode,
+        new Date(startedAt).toISOString(),
+      );
+      const rate = await deps.runtime.consume(
+        parsed.agentPublicId ? "agent.chat" : "assistant.chat",
+        runtimeRequestId,
+      );
+      if (!rate.allowed) {
+        await deps.runtime.finalize(runtimeInvocation.invocationId, "rate_limited", { inputTokens: 0, outputTokens: 0 }, "rate_limited", new Date().toISOString());
+        return json({ error: "rate_limited" }, 429);
+      }
+    } catch {
+      if (runtimeInvocation) {
+        try {
+          await deps.runtime.finalize(runtimeInvocation.invocationId, "failed", { inputTokens: 0, outputTokens: 0 }, "ai_runtime_unavailable", new Date().toISOString());
+        } catch { /* stale running rows are recovered by the runtime worker */ }
+      }
+      return json({ error: "ai_runtime_unavailable" }, 503);
+    }
+  }
   const invocation = await startAgentInvocation(
     deps,
     session,
@@ -112,6 +149,9 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
     startedAt,
   );
   if (parsed.agentPublicId && !invocation) {
+    await finalizeRuntimeInvocation(deps, runtimeInvocation, startedAt, {
+      status: "failed", usage: { inputTokens: 0, outputTokens: 0 }, errorCode: "agent_invocation_start_failed",
+    });
     return json({ error: "agent_invocation_start_failed" }, 500);
   }
   try {
@@ -142,7 +182,7 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
       );
 
       if (upstream.status === 401 || upstream.status === 403) {
-        const recorded = await finalizeAgentInvocation(deps, invocation, startedAt, {
+        const recorded = await finalizeInvocations(deps, invocation, runtimeInvocation, startedAt, {
           status: "failed",
           outputSummary: "",
           latencyMs: Date.now() - startedAt,
@@ -152,7 +192,7 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
         return json({ error: "upstream_auth_failed" }, 502);
       }
       if (!upstream.ok) {
-        const recorded = await finalizeAgentInvocation(deps, invocation, startedAt, {
+        const recorded = await finalizeInvocations(deps, invocation, runtimeInvocation, startedAt, {
           status: "failed",
           outputSummary: "",
           latencyMs: Date.now() - startedAt,
@@ -167,7 +207,7 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
         data = await upstream.json();
       } catch {
         if (attempt + 1 < attemptLimit) continue;
-        const recorded = await finalizeAgentInvocation(deps, invocation, startedAt, {
+        const recorded = await finalizeInvocations(deps, invocation, runtimeInvocation, startedAt, {
           status: "failed",
           outputSummary: "",
           latencyMs: Date.now() - startedAt,
@@ -177,7 +217,7 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
         return json({ error: "upstream_invalid_response" }, 502);
       }
       if (!parsed.structuredOutput || isValidStructuredResponse(data)) {
-        const recorded = await finalizeAgentInvocation(deps, invocation, startedAt, {
+        const recorded = await finalizeInvocations(deps, invocation, runtimeInvocation, startedAt, {
           status: "succeeded",
           outputSummary: outputSummary(data),
           usage: usage(data),
@@ -188,7 +228,7 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
         return json(data);
       }
     }
-    const recorded = await finalizeAgentInvocation(deps, invocation, startedAt, {
+    const recorded = await finalizeInvocations(deps, invocation, runtimeInvocation, startedAt, {
       status: "failed",
       outputSummary: "",
       latencyMs: Date.now() - startedAt,
@@ -201,14 +241,14 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
       error instanceof DOMException
       && (error.name === "TimeoutError" || error.name === "AbortError")
     ) {
-      const recorded = await finalizeAgentInvocation(deps, invocation, startedAt, {
+      const recorded = await finalizeInvocations(deps, invocation, runtimeInvocation, startedAt, {
         status: "failed", outputSummary: "", latencyMs: Date.now() - startedAt,
         errorCode: "upstream_timeout",
       });
       if (!recorded) return json({ error: "agent_invocation_finalize_failed" }, 500);
       return json({ error: "upstream_timeout" }, 504);
     }
-    const recorded = await finalizeAgentInvocation(deps, invocation, startedAt, {
+    const recorded = await finalizeInvocations(deps, invocation, runtimeInvocation, startedAt, {
       status: "failed", outputSummary: "", latencyMs: Date.now() - startedAt,
       errorCode: "upstream_unavailable",
     });
@@ -414,6 +454,48 @@ async function finalizeAgentInvocation(
   } catch {
     return false;
   }
+}
+
+type InvocationResult = {
+  status: AgentInvocationFinalizationPayload["status"];
+  outputSummary?: string;
+  usage?: { inputTokens: number; outputTokens: number };
+  latencyMs?: number;
+  errorCode: string;
+};
+
+async function finalizeRuntimeInvocation(
+  deps: AiChatDeps,
+  invocation: { invocationId: string } | null,
+  startedAt: number,
+  result: InvocationResult,
+) {
+  if (!invocation || !deps.runtime) return true;
+  try {
+    await deps.runtime.finalize(
+      invocation.invocationId,
+      result.errorCode === "upstream_timeout" ? "timed_out" : result.status,
+      result.usage ?? { inputTokens: 0, outputTokens: 0 },
+      result.errorCode,
+      new Date(Math.max(startedAt, Date.now())).toISOString(),
+      null,
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function finalizeInvocations(
+  deps: AiChatDeps,
+  agentInvocation: AgentInvocationHandle | null,
+  runtimeInvocation: { invocationId: string } | null,
+  startedAt: number,
+  result: Required<Pick<InvocationResult, "status" | "outputSummary" | "latencyMs" | "errorCode">> & Pick<InvocationResult, "usage">,
+) {
+  const agentRecorded = await finalizeAgentInvocation(deps, agentInvocation, startedAt, result);
+  const runtimeRecorded = await finalizeRuntimeInvocation(deps, runtimeInvocation, startedAt, result);
+  return agentRecorded && runtimeRecorded;
 }
 
 function authorizationErrorCode(error: unknown): "agent_not_found" | "agent_forbidden" {

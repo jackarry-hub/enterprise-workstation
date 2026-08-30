@@ -539,4 +539,62 @@ describe("handleAiChat", () => {
 
     expect(response.status).toBe(429);
   });
+
+  it("persists a shared runtime header before quota and reaches a terminal state", async () => {
+    const events: string[] = [];
+    const finals: Array<{ status: string; errorCode: string }> = [];
+    const response = await handleAiChat(
+      new Request("https://workspace.test/api/ai/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": "55555555-5555-4555-8555-555555555555" },
+        body: JSON.stringify({ messages: [{ role: "user", content: "生成周计划" }] }),
+      }),
+      {
+        session: executiveWorkspaceSession,
+        encryptionKey,
+        store: { get: configuredRecord },
+        fetchImpl: async () => {
+          events.push("provider");
+          return Response.json({ choices: [{ message: { content: "计划完成" } }], usage: { prompt_tokens: 8, completion_tokens: 4 } });
+        },
+        runtime: {
+          start: async (requestId) => {
+            events.push(`start:${requestId}`);
+            return { invocationId: "66666666-6666-4666-8666-666666666666" };
+          },
+          consume: async () => {
+            events.push("consume");
+            return { allowed: true, remaining: 29, resetAt: "2026-08-30T10:01:00Z" };
+          },
+          finalize: async (_id, status, _usage, errorCode) => {
+            events.push("finalize");
+            finals.push({ status, errorCode });
+          },
+        },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(events).toEqual(["start:55555555-5555-4555-8555-555555555555", "consume", "provider", "finalize"]);
+    expect(finals).toEqual([{ status: "succeeded", errorCode: "" }]);
+  });
+
+  it("records a database-denied request as rate limited without calling the provider", async () => {
+    let providerCalls = 0;
+    const finals: string[] = [];
+    const response = await handleAiChat(request({ messages: [{ role: "user", content: "hello" }] }), {
+      session: executiveWorkspaceSession,
+      encryptionKey,
+      store: { get: configuredRecord },
+      fetchImpl: async () => { providerCalls += 1; return Response.json({}); },
+      runtime: {
+        start: async () => ({ invocationId: "77777777-7777-4777-8777-777777777777" }),
+        consume: async () => ({ allowed: false, remaining: 0, resetAt: "2026-08-30T10:01:00Z" }),
+        finalize: async (_id, status) => { finals.push(status); },
+      },
+    });
+    expect(response.status).toBe(429);
+    expect(providerCalls).toBe(0);
+    expect(finals).toEqual(["rate_limited"]);
+  });
 });
