@@ -22,6 +22,7 @@
     "test:coverage": "node scripts/phase-gates.mjs coverage",
     "test:security": "node scripts/phase-gates.mjs security",
     "test:rls": "node scripts/phase-gates.mjs rls --environment Local",
+    "verify:commercial:preflight": "node scripts/verify-commercial-preflight.mjs",
     "phase1:provision": "node scripts/phase1/provision-roster.mjs",
     "phase1:provision:test": "node --test scripts/phase1/provision-roster.test.mjs",
     "phase1:verify": "npm run phase1:provision:test && npm test && npm run typecheck && npm run lint && npm run build",

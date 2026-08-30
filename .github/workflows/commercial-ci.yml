@@ -1,0 +1,69 @@
+name: QuantXY commercial preflight
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - codex/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: commercial-preflight-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  commercial-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: "true"
+      QUANTXY_ENVIRONMENT: Local
+      QUANTXY_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+      PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
+    steps:
+      - name: Check out candidate
+        uses: actions/checkout@v4
+
+      - name: Use repository Node policy
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: "npm"
+
+      - name: Install local Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start isolated local Supabase
+        shell: bash
+        run: |
+          supabase start
+          supabase status -o env > "$RUNNER_TEMP/quantxy-supabase.env"
+          set -a
+          source "$RUNNER_TEMP/quantxy-supabase.env"
+          set +a
+          {
+            echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL"
+            echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$ANON_KEY"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+          } >> "$GITHUB_ENV"
+
+      - name: Run ordered commercial preflight
+        run: npm run verify:commercial:preflight
+
+      - name: Upload Playwright failure traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: commercial-preflight-playwright-traces
+          path: /tmp/enterprise-workstation-playwright
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Stop isolated local Supabase
+        if: always()
+        run: supabase stop --no-backup
