@@ -32,6 +32,7 @@ function assertAuthorizedHeader(
   if (payload.actorMemberId !== session.member.id) throw new Error("agent_actor_mismatch");
   const agent = payload.authorizedAgent;
   if (payload.status !== "running" || !positiveInteger(agent.definitionId)
+    || !positiveInteger(agent.versionDefinitionId)
     || !positiveInteger(agent.tenantId) || !positiveInteger(agent.organizationId)
     || payload.modelCode !== agent.model || payload.promptVersion !== agent.version
     || !payload.startedAt || !Array.isArray(agent.toolCodes)) {
@@ -51,7 +52,9 @@ export function createAgentInvocationRecorder(client: unknown, session: Workspac
         tenant_id: agent.tenantId,
         organization_id: agent.organizationId,
         agent_id: agent.definitionId,
+        agent_version_id: agent.versionDefinitionId,
         actor_member_id: session.member.id,
+        request_id: payload.requestId,
         status: "running",
         input_summary: payload.inputSummary,
         output_summary: "",

@@ -1,0 +1,21 @@
+import {randomUUID} from "node:crypto";
+
+import {POST as executeAiChatRoute} from "@/app/api/ai/chat/route";
+import {getWorkspaceSession} from "@/features/auth/workspace-session";
+import type {WorkspaceSession} from "@/features/auth/workspace-session-types";
+import {getSupabaseServerClient} from "@/lib/supabase/server";
+
+type RpcResult={data:unknown;error:{code?:string}|null};
+export type AgentRuntimeDependencies={loadSession:()=>Promise<WorkspaceSession|null>;rpc:(name:string,args:Record<string,unknown>)=>Promise<RpcResult>;invoke:(request:Request)=>Promise<Response>;createRequestId?:()=>string};
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function record(value:unknown):Record<string,unknown>|null{return value&&typeof value==="object"&&!Array.isArray(value)?value as Record<string,unknown>:null;}function json(value:unknown,status=200){return Response.json(value,{status,headers:{"Cache-Control":"no-store"}});}async function defaults():Promise<AgentRuntimeDependencies>{const client=await getSupabaseServerClient();return{loadSession:getWorkspaceSession,rpc:async(name,args)=>await client.rpc(name,args) as RpcResult,invoke:executeAiChatRoute};}
+async function listRuns(deps:AgentRuntimeDependencies,agentId:string){const result=await deps.rpc("list_current_agent_runs",{p_agent_public_id:agentId,p_limit:100});if(result.error)throw new Error(result.error.code==="P0002"?"not_found":"agent_runtime_unavailable");const data=record(result.data);return Array.isArray(data?.items)?data.items.map(record).filter((item):item is Record<string,unknown>=>item!==null):[];}
+
+export async function handleAgentRuns(request:Request,agentId:string,provided?:AgentRuntimeDependencies){
+  if(!UUID.test(agentId))return json({error:"not_found"},404);const deps=provided??await defaults();const session=await deps.loadSession();if(!session)return json({error:"unauthenticated"},401);
+  if(request.method==="GET"){try{return json({items:await listRuns(deps,agentId)});}catch(error){return json({error:error instanceof Error&&error.message==="not_found"?"not_found":"agent_runtime_unavailable"},error instanceof Error&&error.message==="not_found"?404:503);}}
+  if(request.method!=="POST")return json({error:"method_not_allowed"},405);const raw=await request.text();if(Buffer.byteLength(raw,"utf8")>65_536)return json({error:"invalid_request"},400);let value:Record<string,unknown>|null=null;try{value=record(JSON.parse(raw));}catch{/* invalid */}const input=value?.input;const content=typeof input==="string"?input.trim():record(input)?JSON.stringify(input):"";const structured=value?.structuredOutput===true;const requestId=request.headers.get("idempotency-key")?.toLowerCase()??deps.createRequestId?.()??randomUUID();if(!content||Buffer.byteLength(content,"utf8")>12_000||!UUID.test(requestId))return json({error:"invalid_request"},400);
+  let before:Record<string,unknown>[];try{before=await listRuns(deps,agentId);}catch(error){return json({error:error instanceof Error&&error.message==="not_found"?"not_found":"agent_runtime_unavailable"},error instanceof Error&&error.message==="not_found"?404:503);}const existing=before.find(run=>run.requestId===requestId);if(existing){const terminal=["succeeded","failed"].includes(String(existing.status));return json({run:existing,alreadyExists:true},terminal?200:409);}
+  const headers=new Headers(request.headers);headers.set("content-type","application/json");headers.set("idempotency-key",requestId);const upstreamRequest=new Request(new URL("/api/ai/chat",request.url),{method:"POST",headers,body:JSON.stringify({agent_public_id:agentId,messages:[{role:"user",content}],max_tokens:2000,structured_output:structured})});const upstream=await deps.invoke(upstreamRequest);let providerBody:unknown=null;try{providerBody=await upstream.json();}catch{/* malformed provider response */}
+  let after:Record<string,unknown>[];try{after=await listRuns(deps,agentId);}catch{return json({error:"agent_runtime_unavailable",requestId},503);}const run=after.find(item=>item.requestId===requestId);if(!run)return json({error:"agent_run_not_recorded",requestId},503);return json(upstream.ok?{run,result:providerBody,requestId}:{run,error:record(providerBody)?.error??"agent_run_failed",requestId},upstream.ok?201:upstream.status);
+}

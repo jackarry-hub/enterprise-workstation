@@ -22,6 +22,7 @@ export type AgentAuthorizationClient = {
 
 export type AuthorizedAgent = {
   definitionId: number;
+  versionDefinitionId: number;
   tenantId: number;
   organizationId: number;
   version: string;
@@ -160,12 +161,13 @@ export async function authorizeAgentInvocation(
 
   const agent = await maybeSingle(
     client.from<ScopedRow>("agent_definitions")
-      .select("id, tenant_id, organization_id, public_id, status, deleted_at, min_job_level, prompt_version, system_prompt, model_code, tool_scope")
+      .select("id, tenant_id, organization_id, public_id, status, deleted_at, min_job_level, current_version_id, prompt_version, system_prompt, model_code, tool_scope")
       .eq("tenant_id", tenantId).eq("organization_id", organizationId).eq("public_id", agentPublicId)
       .eq("status", "enabled").is("deleted_at", null).maybeSingle(),
     notFound,
   );
   const definitionId = positiveInteger(agent.id);
+  const versionDefinitionId = positiveInteger(agent.current_version_id);
   const agentMinimum = positiveInteger(agent.min_job_level);
   const execution = parseAgentExecutionConfig({
     modelCode: agent.model_code,
@@ -173,7 +175,7 @@ export async function authorizeAgentInvocation(
     systemPrompt: agent.system_prompt,
     toolScope: agent.tool_scope,
   });
-  if (!definitionId || positiveInteger(agent.tenant_id) !== tenantId
+  if (!definitionId || !versionDefinitionId || positiveInteger(agent.tenant_id) !== tenantId
     || positiveInteger(agent.organization_id) !== organizationId || agent.status !== "enabled"
     || agent.deleted_at !== null || !agentMinimum || agentMinimum > 20 || jobLevel < agentMinimum
     || execution === null) forbidden();
@@ -210,6 +212,7 @@ export async function authorizeAgentInvocation(
 
   return {
     definitionId,
+    versionDefinitionId,
     tenantId,
     organizationId,
     version: execution.promptVersion,

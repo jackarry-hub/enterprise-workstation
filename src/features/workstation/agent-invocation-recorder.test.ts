@@ -10,6 +10,7 @@ import { executiveWorkspaceSession } from "@/test/workspace-session-test-utils";
 
 const authorizedAgent = {
   definitionId: 91,
+  versionDefinitionId: 92,
   tenantId: 2,
   organizationId: 3,
   version: "v1",
@@ -29,6 +30,7 @@ describe("createAgentInvocationRecorder", () => {
 
     const handle = await lifecycle.startAgentInvocation({
       agentPublicId: "33333333-3333-4333-8333-333333333333",
+      requestId: "55555555-5555-4555-8555-555555555555",
       actorMemberId: executiveWorkspaceSession.member.id,
       modelCode: "deepseek-chat",
       promptVersion: "v1",
@@ -52,6 +54,8 @@ describe("createAgentInvocationRecorder", () => {
       tenant_id: 2,
       organization_id: 3,
       agent_id: 91,
+      agent_version_id: 92,
+      request_id: "55555555-5555-4555-8555-555555555555",
       actor_member_id: executiveWorkspaceSession.member.id,
       status: "running",
       input_summary: "输入摘要",
@@ -82,6 +86,7 @@ describe("createAgentInvocationRecorder", () => {
 
     await expect(lifecycle.startAgentInvocation({
       agentPublicId: "33333333-3333-4333-8333-333333333333",
+      requestId: "55555555-5555-4555-8555-555555555555",
       actorMemberId: 999,
       modelCode: "deepseek-chat",
       promptVersion: "v1",
@@ -93,6 +98,7 @@ describe("createAgentInvocationRecorder", () => {
 
     await lifecycle.startAgentInvocation({
       agentPublicId: "33333333-3333-4333-8333-333333333333",
+      requestId: "55555555-5555-4555-8555-555555555555",
       actorMemberId: executiveWorkspaceSession.member.id,
       modelCode: "deepseek-chat",
       promptVersion: "v1",
@@ -126,6 +132,7 @@ describe("createAgentInvocationRecorder", () => {
 
     await lifecycle.startAgentInvocation({
       agentPublicId: "33333333-3333-4333-8333-333333333333",
+      requestId: "55555555-5555-4555-8555-555555555555",
       actorMemberId: executiveWorkspaceSession.member.id,
       modelCode: "deepseek-chat",
       promptVersion: "v1",

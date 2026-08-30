@@ -1,5 +1,5 @@
 begin;
-select plan(39);
+select plan(46);
 select has_table('public','agent_definitions');
 select has_table('public','agent_versions');
 select has_table('public','agent_version_tools');
@@ -39,5 +39,12 @@ select policies_are('public','agent_orchestrations',array['agent_orchestrations_
 select policies_are('public','agent_orchestration_versions',array[]::text[]);
 select policies_are('public','agent_orchestration_nodes',array[]::text[]);
 select policies_are('public','agent_orchestration_edges',array[]::text[]);
+select has_column('public','agent_invocations','agent_version_id');
+select has_column('public','agent_invocations','request_id');
+select has_table('public','agent_invocation_steps');
+select has_function('public','append_agent_invocation_step',array['bigint','bigint','uuid','text','text','text','text','jsonb']);
+select has_function('public','list_current_agent_runs',array['uuid','integer']);
+select has_trigger('public','agent_invocation_steps','agent_invocation_steps_append_only');
+select policies_are('public','agent_invocation_steps',array['agent_invocation_steps_scoped_read']);
 select * from finish();
 rollback;

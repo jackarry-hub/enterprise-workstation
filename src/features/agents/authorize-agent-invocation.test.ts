@@ -36,6 +36,7 @@ function authorizationClient(overrides: Partial<Record<string, Row[]>> = {}) {
     roles: [{ id: 7, tenant_id: 2, organization_id: 3, code: "employee", is_enabled: true }],
     agent_definitions: [{
       id: 81,
+      current_version_id: 82,
       tenant_id: 2,
       organization_id: 3,
       public_id: agentPublicId,
@@ -106,6 +107,7 @@ describe("authorizeAgentInvocation", () => {
     await expect(authorizeAgentInvocation(client, executiveWorkspaceSession, agentPublicId))
       .resolves.toEqual({
         definitionId: 81,
+        versionDefinitionId: 82,
         tenantId: 2,
         organizationId: 3,
         version: "v20",

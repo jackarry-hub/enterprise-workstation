@@ -235,6 +235,7 @@ describe("handleAiChat", () => {
       consumeRateLimit: () => true,
       authorizeAgentInvocation: async () => ({
         definitionId: 81,
+        versionDefinitionId: 82,
         tenantId: 2,
         organizationId: 3,
         version: "v2",
@@ -298,7 +299,7 @@ describe("handleAiChat", () => {
       },
       consumeRateLimit: () => true,
       authorizeAgentInvocation: async () => ({
-        definitionId: 81, tenantId: 2, organizationId: 3, version: "v1",
+        definitionId: 81, versionDefinitionId: 82, tenantId: 2, organizationId: 3, version: "v1",
         systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: ["task.read"],
       }),
       startAgentInvocation: async (payload: { authorizedAgent: { definitionId: number }; status: string }) => {
@@ -335,7 +336,7 @@ describe("handleAiChat", () => {
       },
       consumeRateLimit: () => true,
       authorizeAgentInvocation: async () => ({
-        definitionId: 81, tenantId: 2, organizationId: 3, version: "v1",
+        definitionId: 81, versionDefinitionId: 82, tenantId: 2, organizationId: 3, version: "v1",
         systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: [],
       }),
       startAgentInvocation: async () => { throw new Error("ledger unavailable"); },
@@ -388,7 +389,7 @@ describe("handleAiChat", () => {
       },
       consumeRateLimit: () => true,
       authorizeAgentInvocation: async () => ({
-        definitionId: 81, tenantId: 2, organizationId: 3, version: "v1",
+        definitionId: 81, versionDefinitionId: 82, tenantId: 2, organizationId: 3, version: "v1",
         systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: [],
       }),
       startAgentInvocation: async () => ({ invocationId: "44444444-4444-4444-8444-444444444444" }),
@@ -418,7 +419,7 @@ describe("handleAiChat", () => {
       fetchImpl: async () => { throw new DOMException("timed out", "TimeoutError"); },
       consumeRateLimit: () => true,
       authorizeAgentInvocation: async () => ({
-        definitionId: 81, tenantId: 2, organizationId: 3, version: "v1",
+        definitionId: 81, versionDefinitionId: 82, tenantId: 2, organizationId: 3, version: "v1",
         systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: [],
       }),
       startAgentInvocation: async (payload) => {
@@ -450,7 +451,7 @@ describe("handleAiChat", () => {
       fetchImpl: async () => { throw new Error("provider network failure"); },
       consumeRateLimit: () => true,
       authorizeAgentInvocation: async () => ({
-        definitionId: 81, tenantId: 2, organizationId: 3, version: "v1",
+        definitionId: 81, versionDefinitionId: 82, tenantId: 2, organizationId: 3, version: "v1",
         systemPrompt: "database prompt", model: "deepseek-chat", toolCodes: [],
       }),
       startAgentInvocation: async () => ({ invocationId: "44444444-4444-4444-8444-444444444444" }),

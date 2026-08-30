@@ -21,6 +21,7 @@ type AiChatDeps = {
 
 export type AgentInvocationStartPayload = {
   agentPublicId: string;
+  requestId: string;
   actorMemberId: number;
   modelCode: string;
   promptVersion: string;
@@ -147,6 +148,7 @@ export async function handleAiChat(request: Request, deps: AiChatDeps) {
     modelCode,
     authorizedAgent,
     startedAt,
+    runtimeRequestId,
   );
   if (parsed.agentPublicId && !invocation) {
     await finalizeRuntimeInvocation(deps, runtimeInvocation, startedAt, {
@@ -405,12 +407,14 @@ async function startAgentInvocation(
   modelCode: string,
   authorizedAgent: AuthorizedAgent | null,
   startedAt: number,
+  requestId: string,
 ) {
   if (!parsed.agentPublicId) return null;
   if (!deps.startAgentInvocation || !deps.finalizeAgentInvocation || !authorizedAgent) return null;
   try {
     const handle = await deps.startAgentInvocation({
       agentPublicId: parsed.agentPublicId,
+      requestId,
       actorMemberId: session.member.id,
       modelCode,
       promptVersion: authorizedAgent.version,
