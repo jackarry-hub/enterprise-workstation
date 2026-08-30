@@ -1,5 +1,25 @@
 begin;
 
+alter table public.audit_logs drop constraint if exists audit_logs_action_check;
+alter table public.audit_logs add constraint audit_logs_action_check check (action in (
+  'identity.provisioned','identity.claimed','identity.revoked','member.status_changed','member.role_changed','profile.updated','roster.imported','tenant.bootstrap_owner',
+  'enterprise.initialized','directory.sync_started','directory.sync_completed','directory.sync_failed','directory.role_mapped','project.created','project.updated',
+  'project.archived','project.restored','project.member_added','project.member_role_changed','project.member_removed','project.command_failed','project.milestone_created',
+  'project.risk_created','project.activity_recorded','project.report_submitted','project.execution_failed','task.created','task.batch_created','task.claimed',
+  'task.progress_updated','task.submitted','task.reviewed','task.reopened','task.acceptance_recorded','task.command_failed','task.comment_created','task.dependency_created',
+  'notification.read','notification.retried','file.upload_reserved','file.upload_completed','file.upload_failed','file.upload_expired','file.download_authorized',
+  'customer.created','customer.updated','customer.contact_created','customer.command_failed','customer.owner_transferred','customer.archived','customer.restored',
+  'customer.contract_created','customer.source_linked','customer.import_started','customer.imported','customer.import_completed','customer.export_requested','customer.export_downloaded',
+  'opportunity.created','opportunity.stage_changed','opportunity.converted','customer.follow_up_created','approval.submitted','approval.step_approved','approval.approved',
+  'approval.rejected','approval.returned','approval.cancelled','approval.command_failed','expense.draft_created','expense.draft_updated','expense.submitted','expense.cancelled',
+  'expense.paid','expense.command_failed','knowledge.directory_created','knowledge.draft_created','knowledge.version_created','knowledge.published','knowledge.archived',
+  'knowledge.permission_changed','knowledge.command_failed','knowledge.searched','knowledge.source_downloaded','knowledge.reindexed',
+  'payroll_policy.activated','payroll.calculated','payroll.confirmed','ai.config.updated','organization.department_created','organization.department_updated',
+  'organization.position_upserted','organization.role_assigned','organization.command_failed','organization.manager_assigned','directory.manager_mapped',
+  'employee_skill.verified','employee_skill.verification_failed','directory.sync_issue_resolved',
+  'ai.conversation.created','ai.message.created','ai.message.completed','ai.message.failed','ai.conversation.archived'
+));
+
 create table public.ai_conversations (
   id bigint generated always as identity primary key,
   public_id uuid not null default gen_random_uuid() unique,

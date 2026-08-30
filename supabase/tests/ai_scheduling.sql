@@ -1,0 +1,16 @@
+begin;
+select plan(12);
+select has_table('public','scheduling_goals');
+select has_table('public','scheduling_plan_versions');
+select has_table('public','scheduling_assignments');
+select has_column('public','scheduling_plan_versions','source');
+select has_column('public','scheduling_plan_versions','cost_amount');
+select has_column('public','scheduling_assignments','evidence');
+select has_function('public','create_scheduling_goal',array['uuid','text','jsonb','uuid','uuid']);
+select has_function('public','get_scheduling_evidence',array['uuid']);
+select has_function('public','save_scheduling_plan',array['uuid','uuid','bigint','uuid','uuid','text','jsonb','jsonb','numeric','text','jsonb','text','text','uuid']);
+select policies_are('public','scheduling_goals',array['scheduling_goals_manager_read']);
+select policies_are('public','scheduling_plan_versions',array['scheduling_plans_manager_read']);
+select policies_are('public','scheduling_assignments',array['scheduling_assignments_manager_read']);
+select * from finish();
+rollback;
