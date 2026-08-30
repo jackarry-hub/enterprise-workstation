@@ -1,0 +1,152 @@
+openapi: 3.1.0
+info:
+  title: QuantXY Workstation API
+  version: 2026-08-30
+  description: Protected same-origin API contract. Browser sessions use secure cookies and mutating requests require an allowed Origin and idempotency where documented.
+servers:
+  - url: /
+    description: Same origin only
+security:
+  - sessionCookie: []
+paths:
+  /api/health/ready:
+    get:
+      security: []
+      summary: Verify configuration, database connectivity and required migration marker
+      responses:
+        "200": { description: Ready, content: { application/json: { schema: { $ref: "#/components/schemas/Readiness" } } } }
+        "503": { description: Not ready, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  /api/workstation/bootstrap:
+    get:
+      summary: Load the current tenant workspace and permission-scoped aggregates
+      responses:
+        "200": { description: Workspace bootstrap }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /api/workstation/projects:
+    get:
+      summary: List permission-scoped projects
+      responses:
+        "200": { description: Project collection }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      summary: Create a project transactionally
+      parameters: [ { $ref: "#/components/parameters/IdempotencyKey" } ]
+      requestBody: { required: true, content: { application/json: { schema: { type: object } } } }
+      responses:
+        "201": { description: Created }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /api/workstation/tasks:
+    get:
+      summary: List permission-scoped tasks
+      responses:
+        "200": { description: Task collection }
+    post:
+      summary: Create a task with assignee and project scope validation
+      parameters: [ { $ref: "#/components/parameters/IdempotencyKey" } ]
+      requestBody: { required: true, content: { application/json: { schema: { type: object } } } }
+      responses:
+        "201": { description: Created }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /api/workstation/customers:
+    get:
+      summary: List customers visible to the current actor
+      responses:
+        "200": { description: Customer collection }
+    post:
+      summary: Create a customer and owner link
+      parameters: [ { $ref: "#/components/parameters/IdempotencyKey" } ]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CustomerInput" } } } }
+      responses:
+        "201": { description: Created }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /api/workstation/customers/import:
+    post:
+      summary: Validate and import 1 to 200 customers in resumable batches
+      parameters: [ { $ref: "#/components/parameters/IdempotencyKey" } ]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [rows, reason, cursor], properties: { rows: { type: array, minItems: 1, maxItems: 200, items: { $ref: "#/components/schemas/CustomerInput" } }, reason: { type: string, minLength: 1, maxLength: 500 }, cursor: { type: integer, minimum: 0 } } } } } }
+      responses:
+        "200": { description: Completed }
+        "202": { description: Continue with returned cursor }
+        "422": { description: Row validation failures }
+  /api/workstation/approvals:
+    post:
+      summary: Submit an approval instance
+      parameters: [ { $ref: "#/components/parameters/IdempotencyKey" } ]
+      requestBody: { required: true, content: { application/json: { schema: { type: object } } } }
+      responses:
+        "201": { description: Submitted }
+  /api/workstation/payroll:
+    get:
+      summary: Read own or authorized payroll result
+      responses:
+        "200": { description: Permission-scoped payroll data }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/workstation/knowledge/search:
+    get:
+      summary: Search only documents readable by the current actor
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 300 } }
+      responses:
+        "200": { description: Ranked permission-filtered results }
+  /api/workstation/ai/conversations:
+    get:
+      summary: List current actor conversations
+      responses:
+        "200": { description: Conversation collection }
+    post:
+      summary: Create a persistent conversation
+      parameters: [ { $ref: "#/components/parameters/IdempotencyKey" } ]
+      responses:
+        "201": { description: Created }
+  /api/workstation/agents:
+    get:
+      summary: List authorized agents and effective capabilities
+      responses:
+        "200": { description: Agent collection }
+    post:
+      summary: Create a draft agent definition
+      parameters: [ { $ref: "#/components/parameters/IdempotencyKey" } ]
+      responses:
+        "201": { description: Created }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: quantxy-session
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    Unauthorized: { description: Authentication required }
+    Forbidden: { description: Permission or data scope denied }
+    Conflict: { description: Version or idempotency conflict }
+    Unavailable: { description: Dependency unavailable; no mock fallback }
+  schemas:
+    Error:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties: { status: { type: string }, checks: { type: object } }
+    Readiness:
+      type: object
+      additionalProperties: false
+      required: [status, checks]
+      properties: { status: { const: ready }, checks: { type: object } }
+    CustomerInput:
+      type: object
+      additionalProperties: false
+      required: [name, ownerEmployeePublicId, industry, source, region]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        registrationCode: { type: [string, "null"], maxLength: 80 }
+        ownerEmployeePublicId: { type: string, format: uuid }
+        industry: { type: string, minLength: 1, maxLength: 80 }
+        source: { enum: [consulting, referral, event, outbound, other] }
+        region: { type: string, maxLength: 120 }
+        contact: { type: [object, "null"] }
+

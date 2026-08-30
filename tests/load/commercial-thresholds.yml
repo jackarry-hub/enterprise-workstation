@@ -1,0 +1,10 @@
+schemaVersion: 1
+profile: commercial-staging
+seededStaff: 100
+activeUsers: 50
+concurrentWrites: 20
+queuedAiAgentJobs: 10
+nonAiP95MsMax: 800
+errorRateMaxExclusive: 0.005
+mobileInteractiveMsMax: 3000
+

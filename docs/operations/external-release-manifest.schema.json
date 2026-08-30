@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantxy.local/schemas/external-release-manifest.schema.json",
+  "title": "QuantXY external release evidence manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "environment", "candidateCommit", "candidateTreeSha256", "configSha256", "migrationSha256", "authorization", "metrics", "evidence", "signature"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "environment": { "const": "Staging" },
+    "candidateCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "candidateTreeSha256": { "$ref": "#/$defs/sha256" },
+    "configSha256": { "$ref": "#/$defs/sha256" },
+    "migrationSha256": { "$ref": "#/$defs/sha256" },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "candidateCommit", "approvedAt"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "candidateCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "approvedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rpoHours", "rtoHours", "seededStaff", "activeUsers", "concurrentWrites", "queuedAiAgentJobs", "nonAiP95Ms", "errorRate", "mobileInteractiveMs"],
+      "properties": {
+        "rpoHours": { "type": "number", "minimum": 0, "maximum": 24 },
+        "rtoHours": { "type": "number", "minimum": 0, "maximum": 4 },
+        "seededStaff": { "const": 100 },
+        "activeUsers": { "const": 50 },
+        "concurrentWrites": { "const": 20 },
+        "queuedAiAgentJobs": { "const": 10 },
+        "nonAiP95Ms": { "type": "number", "minimum": 0, "maximum": 800 },
+        "errorRate": { "type": "number", "minimum": 0, "exclusiveMaximum": 0.005 },
+        "mobileInteractiveMs": { "type": "number", "minimum": 0, "maximum": 3000 }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 15,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "path", "sha256", "status", "measuredAt"],
+        "properties": {
+          "type": { "type": "string", "minLength": 1 },
+          "path": { "type": "string", "pattern": "^(?![A-Za-z]:|/|.*(?:^|/)\\.\\.(?:/|$))[^\\u0000-\\u001f]+$" },
+          "sha256": { "$ref": "#/$defs/sha256" },
+          "status": { "const": "PASSED" },
+          "measuredAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "value"],
+      "properties": {
+        "algorithm": { "const": "Ed25519" },
+        "value": { "type": "string", "contentEncoding": "base64" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}
+
