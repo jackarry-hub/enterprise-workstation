@@ -48,7 +48,7 @@ export const commercialModuleRegistry: Readonly<Record<CommercialModule, Commerc
   settings: { routes: ["/settings"], requiredPermissions: ["settings.manage", "organization.manage", "role.manage", "ai.config.manage"], commercialReady: false },
   notifications: { routes: ["/notifications"], requiredPermissions: [], commercialReady: false },
   help: { routes: ["/help"], requiredPermissions: [], commercialReady: true },
-  knowledge: { routes: ["/knowledge"], requiredPermissions: ["knowledge.manage"], commercialReady: false },
+  knowledge: { routes: ["/knowledge"], requiredPermissions: ["knowledge.read", "knowledge.manage"], commercialReady: true },
   attendance: { routes: ["/attendance"], requiredPermissions: [], commercialReady: false },
   leave: { routes: ["/leave"], requiredPermissions: [], commercialReady: false },
   fused: { routes: ["/quantxy-ai-workbench-fused.html"], requiredPermissions: [], commercialReady: false },

@@ -19,9 +19,11 @@ describe("role access policy", () => {
     }
   });
 
-  it("removes the standalone knowledge module for every role", () => {
+  it("opens the knowledge workspace only to authenticated roles with knowledge access", () => {
     for (const role of [["owner"], ["department_head"], ["employee"], ["finance"], ["hr"]] as const) {
-      expect(canRoleAccessPath(session([...role], ["knowledge.manage"]), "/knowledge")).toBe(false);
+      expect(canRoleAccessPath(session([...role], ["knowledge.read"]), "/knowledge")).toBe(true);
+      expect(canRoleAccessPath(session([...role], ["knowledge.manage"]), "/knowledge")).toBe(true);
+      expect(canRoleAccessPath(session([...role], []), "/knowledge")).toBe(false);
     }
   });
 

@@ -17,6 +17,7 @@ describe("standalone workstation middleware boundary", () => {
     expect(isStandaloneAuthorizedPath("/api/ai/chat")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/internal/file-upload-cleanup")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/internal/task-notification-recovery")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/internal/knowledge-processing")).toBe(true);
     expect(isStandaloneAuthorizedPath("/workstation-server-adapter.js")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/bootstrap")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/directory-sync")).toBe(true);
@@ -31,6 +32,8 @@ describe("standalone workstation middleware boundary", () => {
     expect(isStandaloneAuthorizedPath("/api/workstation/notifications/notification-1/retry")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/files/upload-url")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/files/file-1/download-url")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/knowledge/search")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/knowledge/documents/document-1/publish")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/tasks")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/tasks/task-1")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/payroll")).toBe(true);

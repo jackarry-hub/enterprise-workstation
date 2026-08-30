@@ -7,6 +7,29 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const MAX_BODY_BYTES = 16_384;
 export const MAX_PROJECT_FILE_BYTES = 30 * 1024 * 1024;
+export const MAX_KNOWLEDGE_FILE_BYTES = 30 * 1024 * 1024;
+export const KNOWLEDGE_MIME_TYPES = new Set([
+  "application/pdf",
+  "text/plain",
+  "text/csv",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+]);
+
+export function isTenantScopedStoragePath(value: string) {
+  const parts = value.split("/");
+  return parts.length >= 4 && parts[0] === "tenants" && UUID_PATTERN.test(parts[1])
+    && parts[2] === "organizations" && UUID_PATTERN.test(parts[3])
+    && !parts.some((part) => part === ".." || part === "." || part.includes("\\"));
+}
+
+export function validateKnowledgeFileAdmission(input: { objectPath: string; mimeType: string; sizeBytes: number; sha256: string }) {
+  return isTenantScopedStoragePath(input.objectPath)
+    && KNOWLEDGE_MIME_TYPES.has(input.mimeType.toLowerCase())
+    && Number.isSafeInteger(input.sizeBytes) && input.sizeBytes > 0 && input.sizeBytes <= MAX_KNOWLEDGE_FILE_BYTES
+    && SHA256_PATTERN.test(input.sha256);
+}
 const STORAGE_BUCKET = "workbench-files";
 const UPLOAD_FIELDS = new Set([
   "projectId", "fileName", "mimeType", "sizeBytes", "sha256", "accessScope",

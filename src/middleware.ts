@@ -135,6 +135,7 @@ export function isStandaloneAuthorizedPath(pathname: string) {
     || pathname.startsWith("/api/workstation/projects/")
     || pathname.startsWith("/api/workstation/notifications/")
     || pathname.startsWith("/api/workstation/files/")
+    || pathname.startsWith("/api/workstation/knowledge/")
     || pathname === "/api/workstation/tasks"
     || pathname.startsWith("/api/workstation/tasks/")
     || pathname === "/api/workstation/payroll"
@@ -149,6 +150,7 @@ export function isStandaloneAuthorizedPath(pathname: string) {
     || pathname === "/api/ai/chat"
     || pathname === "/api/internal/agent-invocation-recovery"
     || pathname === "/api/internal/task-notification-recovery"
+    || pathname === "/api/internal/knowledge-processing"
     || pathname === "/api/internal/file-upload-cleanup";
 }
 

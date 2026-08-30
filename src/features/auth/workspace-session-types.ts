@@ -50,6 +50,7 @@ export type WorkspacePermissionCode =
   | "approval.act"
   | "expense.submit"
   | "expense.manage"
+  | "knowledge.read"
   | "knowledge.manage"
   | "agent.manage"
   | "agent.orchestrate"
