@@ -21,6 +21,8 @@ export type CommercialModule =
   | "notifications"
   | "help"
   | "knowledge"
+  | "assistant"
+  | "scheduler"
   | "attendance"
   | "leave"
   | "fused";
@@ -49,6 +51,8 @@ export const commercialModuleRegistry: Readonly<Record<CommercialModule, Commerc
   notifications: { routes: ["/notifications"], requiredPermissions: [], commercialReady: false },
   help: { routes: ["/help"], requiredPermissions: [], commercialReady: true },
   knowledge: { routes: ["/knowledge"], requiredPermissions: ["knowledge.read", "knowledge.manage"], commercialReady: true },
+  assistant: { routes: ["/assistant"], requiredPermissions: [], commercialReady: true },
+  scheduler: { routes: ["/scheduler"], requiredPermissions: ["agent.orchestrate"], commercialReady: true },
   attendance: { routes: ["/attendance"], requiredPermissions: [], commercialReady: false },
   leave: { routes: ["/leave"], requiredPermissions: [], commercialReady: false },
   fused: { routes: ["/quantxy-ai-workbench-fused.html"], requiredPermissions: [], commercialReady: false },

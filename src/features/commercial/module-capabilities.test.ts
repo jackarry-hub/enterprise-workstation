@@ -49,11 +49,13 @@ describe("commercial module capabilities", () => {
     expect(Object.entries(commercialModuleRegistry)
       .filter(([, definition]) => definition.commercialReady)
       .map(([module]) => module))
-      .toEqual(["people", "approvals", "help", "knowledge"]);
+      .toEqual(["people", "approvals", "help", "knowledge", "assistant", "scheduler"]);
 
     expect(commercialModuleRegistry.people.requiredPermissions).toEqual([]);
     expect(getModuleCapabilities(sessionWithPermissions([])).people).toBe(true);
     expect(getModuleCapabilities(sessionWithPermissions(["knowledge.read"])).knowledge).toBe(true);
+    expect(getModuleCapabilities(sessionWithPermissions([])).assistant).toBe(true);
+    expect(getModuleCapabilities(sessionWithPermissions(["agent.orchestrate"])).scheduler).toBe(true);
   });
 
   it("aligns the execution requirement with the shipped employee role matrix", async () => {

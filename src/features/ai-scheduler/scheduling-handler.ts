@@ -41,6 +41,11 @@ export async function handleSchedulingGoals(request: Request, provided?: Schedul
   const deps = provided ?? await defaults();
   const session = await deps.loadSession();
   if (!session) return json({ error: "unauthenticated" }, 401);
+  if (request.method === "GET") {
+    const result = await deps.rpc("list_current_scheduling_workbench", { p_limit: 50 });
+    if (result.error) return json({ error: errorStatus(result.error) === 403 ? "forbidden" : "scheduling_unavailable" }, errorStatus(result.error));
+    return json(record(result.data) ?? { projects: [], members: [], goals: [] });
+  }
   if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   const value = await parseBody(request);
   const projectId = typeof value?.projectId === "string" ? value.projectId : "";
