@@ -1,5 +1,20 @@
+x-runtime-security: &runtime-security
+  read_only: true
+  init: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  pids_limit: 200
+  cpus: "1.50"
+  mem_limit: 1g
+  stop_grace_period: 30s
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+
 services:
   workstation:
+    <<: *runtime-security
     build:
       context: .
       dockerfile: Dockerfile
@@ -7,7 +22,7 @@ services:
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?NEXT_PUBLIC_SUPABASE_URL is required}
         NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:?NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is required}
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?NEXT_PUBLIC_APP_URL is required}
-    image: ai-brain-demo-workstation:latest
+    image: quantxy-workstation:latest
     restart: unless-stopped
     ports:
       - "3010:3000"
@@ -16,7 +31,7 @@ services:
       NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?NEXT_PUBLIC_SUPABASE_URL is required}
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:?NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is required}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?NEXT_PUBLIC_APP_URL is required}
-      FEISHU_TENANT_KEY: ${FEISHU_TENANT_KEY:-}
+      FEISHU_TENANT_KEY: ${FEISHU_TENANT_KEY:?FEISHU_TENANT_KEY is required}
       FEISHU_APP_ID: ${FEISHU_APP_ID:?FEISHU_APP_ID is required}
       FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:?FEISHU_APP_SECRET is required}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY is required}
@@ -24,17 +39,19 @@ services:
       AGENT_INVOCATION_RECOVERY_CRON_SECRET: ${AGENT_INVOCATION_RECOVERY_CRON_SECRET:?AGENT_INVOCATION_RECOVERY_CRON_SECRET is required}
       TASK_NOTIFICATION_RECOVERY_CRON_SECRET: ${TASK_NOTIFICATION_RECOVERY_CRON_SECRET:?TASK_NOTIFICATION_RECOVERY_CRON_SECRET is required}
       FILE_UPLOAD_CLEANUP_CRON_SECRET: ${FILE_UPLOAD_CLEANUP_CRON_SECRET:?FILE_UPLOAD_CLEANUP_CRON_SECRET is required}
-      WORKSTATION_ALLOW_MOCK_DATA: ${WORKSTATION_ALLOW_MOCK_DATA:-false}
-      WORKSTATION_DEMO_ENABLED: ${WORKSTATION_DEMO_ENABLED:-false}
-      WORKSTATION_DEMO_USERNAME: ${WORKSTATION_DEMO_USERNAME:-admin}
-      WORKSTATION_DEMO_PASSWORD: ${WORKSTATION_DEMO_PASSWORD:-}
-      WORKSTATION_DEMO_TENANT_ID: ${WORKSTATION_DEMO_TENANT_ID:-}
+      RATE_LIMIT_HASH_PEPPER: ${RATE_LIMIT_HASH_PEPPER:?RATE_LIMIT_HASH_PEPPER is required}
+      RATE_LIMIT_TRUSTED_IP_HEADER: ${RATE_LIMIT_TRUSTED_IP_HEADER:-x-real-ip}
+      WORKSTATION_ALLOW_MOCK_DATA: "false"
+      WORKSTATION_DEMO_ENABLED: "false"
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /app/.next/cache:size=128m,mode=0750,uid=1001,gid=1001
     healthcheck:
       test:
         - CMD
         - node
         - -e
-        - fetch('http://127.0.0.1:3000/quantxy-ai-workbench-fused.html').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+        - fetch('http://127.0.0.1:3000/api/health/ready').then(r=>{if(r.status!==200)process.exit(1)}).catch(()=>process.exit(1))
       interval: 30s
       timeout: 5s
       retries: 3
@@ -46,10 +63,11 @@ services:
         max-file: "3"
 
   agent-invocation-recovery:
+    <<: *runtime-security
     build:
       context: .
       dockerfile: Dockerfile.agent-invocation-recovery
-    image: ai-brain-demo-agent-invocation-recovery:latest
+    image: quantxy-agent-invocation-recovery:latest
     restart: unless-stopped
     depends_on:
       workstation:
@@ -58,10 +76,11 @@ services:
       AGENT_INVOCATION_RECOVERY_CRON_SECRET: ${AGENT_INVOCATION_RECOVERY_CRON_SECRET:?AGENT_INVOCATION_RECOVERY_CRON_SECRET is required}
 
   task-notification-recovery:
+    <<: *runtime-security
     build:
       context: .
       dockerfile: Dockerfile.task-notification-recovery
-    image: ai-brain-demo-task-notification-recovery:latest
+    image: quantxy-task-notification-recovery:latest
     restart: unless-stopped
     depends_on:
       workstation:
@@ -70,10 +89,11 @@ services:
       TASK_NOTIFICATION_RECOVERY_CRON_SECRET: ${TASK_NOTIFICATION_RECOVERY_CRON_SECRET:?TASK_NOTIFICATION_RECOVERY_CRON_SECRET is required}
 
   file-upload-cleanup:
+    <<: *runtime-security
     build:
       context: .
       dockerfile: Dockerfile.file-upload-cleanup
-    image: ai-brain-demo-file-upload-cleanup:latest
+    image: quantxy-file-upload-cleanup:latest
     restart: unless-stopped
     depends_on:
       workstation:

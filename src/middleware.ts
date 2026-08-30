@@ -16,6 +16,10 @@ import {
   isServerPreviewEnabled,
 } from "@/lib/runtime/workstation-mode";
 import { updateSupabaseSession } from "@/lib/supabase/middleware";
+import {
+  requiresBrowserMutationOrigin,
+  validateMutationOrigin,
+} from "@/features/security/csrf-origin";
 
 function redirectWithRefreshedCookies(
   response: NextResponse,
@@ -55,6 +59,15 @@ function loginDestination(request: NextRequest) {
 
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
+  if (requiresBrowserMutationOrigin(pathname)) {
+    const origin = validateMutationOrigin(request);
+    if (!origin.allowed) {
+      return NextResponse.json(
+        { error: "cross_origin_request_rejected" },
+        { status: 403, headers: { "cache-control": "no-store" } },
+      );
+    }
+  }
   if (
     isStandaloneAuthorizedPath(pathname)
     || isLocalPreviewWorkstationPath(request.nextUrl)
@@ -124,7 +137,8 @@ export async function middleware(request: NextRequest) {
 }
 
 export function isStandaloneAuthorizedPath(pathname: string) {
-  return pathname === "/workstation-server-adapter.js"
+  return pathname === "/api/health/ready"
+    || pathname === "/workstation-server-adapter.js"
     || pathname === "/api/workstation/bootstrap"
     || pathname === "/api/workstation/directory-sync"
     || pathname === "/api/workstation/approvals"

@@ -174,7 +174,7 @@ describe("workspace middleware", () => {
 
   afterEach(() => vi.unstubAllEnvs());
 
-  it.each(["/login", "/auth/callback", "/access-pending", "/api/auth/feishu/userinfo"])(
+  it.each(["/login", "/auth/callback", "/access-pending", "/api/auth/feishu/userinfo", "/api/health/ready"])(
     "does not query workspace access for public path %s",
     async (pathname) => {
       const { supabase } = refreshedSession({ subject: null });
@@ -197,6 +197,19 @@ describe("workspace middleware", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("location")).toBeNull();
+    expect(dependencies.updateSupabaseSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects a cross-origin browser mutation before session or route handling", async () => {
+    const response = await middleware(
+      new NextRequest("https://brain.example/api/workstation/tasks", {
+        method: "POST",
+        headers: { origin: "https://evil.example", "sec-fetch-site": "cross-site" },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "cross_origin_request_rejected" });
     expect(dependencies.updateSupabaseSession).not.toHaveBeenCalled();
   });
 
