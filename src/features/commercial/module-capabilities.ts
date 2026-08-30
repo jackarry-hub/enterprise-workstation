@@ -47,7 +47,7 @@ export const commercialModuleRegistry: Readonly<Record<CommercialModule, Commerc
   payroll: { routes: ["/payroll"], requiredPermissions: ["salary.self", "salary.manage"], commercialReady: false },
   approvals: { routes: ["/approvals"], requiredPermissions: ["approval.self", "approval.manage", "approval.submit", "approval.act", "expense.submit", "expense.manage"], commercialReady: true },
   customers: { routes: ["/customers"], requiredPermissions: ["customer.manage"], commercialReady: false },
-  analytics: { routes: ["/analytics"], requiredPermissions: ["analytics.read"], commercialReady: false },
+  analytics: { routes: ["/analytics"], requiredPermissions: ["analytics.read"], commercialReady: true },
   settings: { routes: ["/settings"], requiredPermissions: [], commercialReady: true },
   notifications: { routes: ["/notifications"], requiredPermissions: [], commercialReady: false },
   help: { routes: ["/help"], requiredPermissions: [], commercialReady: true },
