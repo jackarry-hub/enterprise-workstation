@@ -128,6 +128,23 @@ describe("authorizeAgentInvocation", () => {
     ]));
   });
 
+  it("rejects expired and revoked grants", async () => {
+    const expired = authorizationClient({ agent_permissions: [{
+      id: 1, tenant_id: 2, organization_id: 3, agent_id: 81, scope_type: "all",
+      department_id: null, role_code: null, member_id: null, min_job_level: 20,
+      expires_at: "2020-01-01T00:00:00.000Z", revoked_at: null, deleted_at: null,
+    }] });
+    await expect(authorizeAgentInvocation(expired, executiveWorkspaceSession, agentPublicId))
+      .rejects.toMatchObject({ code: "agent_forbidden" });
+    const revoked = authorizationClient({ agent_permissions: [{
+      id: 1, tenant_id: 2, organization_id: 3, agent_id: 81, scope_type: "all",
+      department_id: null, role_code: null, member_id: null, min_job_level: 20,
+      expires_at: null, revoked_at: "2026-08-30T00:00:00.000Z", deleted_at: null,
+    }] });
+    await expect(authorizeAgentInvocation(revoked, executiveWorkspaceSession, agentPublicId))
+      .rejects.toMatchObject({ code: "agent_forbidden" });
+  });
+
   it("hides a cross-organization leaked Agent UUID as not found", async () => {
     const client = authorizationClient({ agent_definitions: [] });
 

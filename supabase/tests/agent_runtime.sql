@@ -1,5 +1,5 @@
 begin;
-select plan(16);
+select plan(24);
 select has_table('public','agent_definitions');
 select has_table('public','agent_versions');
 select has_table('public','agent_version_tools');
@@ -16,5 +16,13 @@ select col_is_unique('public','agent_versions',array['tenant_id','agent_id','rev
 select col_is_unique('public','agent_version_tools',array['agent_version_id','tool_code']);
 select has_trigger('public','agent_versions','agent_versions_immutable');
 select has_trigger('public','agent_version_tools','agent_version_tools_immutable');
+select has_table('public','agent_permission_requests');
+select has_column('public','agent_permissions','expires_at');
+select has_column('public','agent_permissions','revoked_at');
+select has_column('public','agent_permissions','source_request_id');
+select has_function('public','request_current_agent_permission',array['uuid','text','timestamp with time zone','uuid','uuid']);
+select has_function('public','list_current_agent_permission_requests',array['integer']);
+select has_trigger('public','approvals','approvals_apply_agent_permission');
+select policies_are('public','agent_permission_requests',array['agent_permission_requests_scoped_read']);
 select * from finish();
 rollback;

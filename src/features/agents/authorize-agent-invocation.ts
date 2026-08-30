@@ -180,7 +180,7 @@ export async function authorizeAgentInvocation(
 
   const permissions = await rows(
     client.from<ScopedRow>("agent_permissions")
-      .select("id, tenant_id, organization_id, agent_id, scope_type, department_id, role_code, member_id, min_job_level, deleted_at")
+      .select("id, tenant_id, organization_id, agent_id, scope_type, department_id, role_code, member_id, min_job_level, expires_at, revoked_at, deleted_at")
       .eq("tenant_id", tenantId).eq("organization_id", organizationId).eq("agent_id", definitionId)
       .is("deleted_at", null),
   );
@@ -188,6 +188,9 @@ export async function authorizeAgentInvocation(
     if (positiveInteger(permission.tenant_id) !== tenantId
       || positiveInteger(permission.organization_id) !== organizationId
       || positiveInteger(permission.agent_id) !== definitionId || permission.deleted_at !== null
+      || (permission.revoked_at !== null && permission.revoked_at !== undefined)
+      || (permission.expires_at !== null && permission.expires_at !== undefined
+        && (typeof permission.expires_at !== "string" || Date.parse(permission.expires_at) <= Date.now()))
       || !["all", "dept", "role", "member"].includes(String(permission.scope_type))) return [];
     const minJobLevel = positiveInteger(permission.min_job_level);
     if (!minJobLevel) return [];
