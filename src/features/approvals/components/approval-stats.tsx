@@ -6,10 +6,10 @@ import type { ApprovalStats as ApprovalStatsValue } from "@/features/approvals/a
 export function ApprovalStats({ stats }: { stats: ApprovalStatsValue }) {
   return (
     <section aria-label="审批统计" className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-      <DataCard compact icon={Clock3} label="待审批" value={String(stats.pending)} trend="+3" trendLabel="较昨日" tone="purple" />
-      <DataCard compact icon={Send} label="我发起" value={String(stats.initiated)} trend="+2" trendLabel="较昨日" tone="green" />
-      <DataCard compact icon={CheckCircle2} label="已通过" value={String(stats.approved)} trend="+15" trendLabel="较昨日" tone="blue" />
-      <DataCard compact icon={CircleX} label="已拒绝" value={String(stats.rejected)} trend="+1" trendLabel="较昨日" tone="orange" trendTone="warning" />
+      <DataCard compact icon={Clock3} label="待审批" value={String(stats.pending)} trendLabel="当前由我处理" tone="purple" />
+      <DataCard compact icon={Send} label="我发起" value={String(stats.initiated)} trendLabel="当前可见范围" tone="green" />
+      <DataCard compact icon={CheckCircle2} label="已通过" value={String(stats.approved)} trendLabel="当前可见范围" tone="blue" />
+      <DataCard compact icon={CircleX} label="未通过" value={String(stats.rejected)} trendLabel="拒绝、退回或撤销" tone="orange" trendTone="warning" />
     </section>
   );
 }

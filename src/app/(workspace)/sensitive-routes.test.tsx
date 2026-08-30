@@ -95,7 +95,7 @@ describe("sensitive workspace routes", () => {
     );
 
     const outputs = await Promise.all([
-      ApprovalsRoute(),
+      ApprovalsRoute({}),
       ApprovalDetailRoute({ params: Promise.resolve({ id: "approval-sentinel" }) }),
       PayrollRoute(),
       PayrollDetailRoute({ params: Promise.resolve({ id: "salary-sentinel" }) }),
@@ -126,7 +126,7 @@ describe("sensitive workspace routes", () => {
   it("loads approval fixtures only for the exact explicit binding", async () => {
     dependencies.requireWorkspaceSession.mockResolvedValue(executiveWorkspaceSession);
 
-    const list = await ApprovalsRoute();
+    const list = await ApprovalsRoute({});
     const detail = await ApprovalDetailRoute({
       params: Promise.resolve({ id: "approval-sentinel" }),
     });

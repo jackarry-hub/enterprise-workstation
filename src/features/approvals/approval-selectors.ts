@@ -7,9 +7,9 @@ export function filterApprovals(approvals: ApprovalResult["data"]["approvals"], 
       .some((value) => value.toLocaleLowerCase("zh-CN").includes(query));
     const matchesType = filters.type === "all" || approval.type === filters.type;
     const matchesQueue = filters.queue === "all"
-      || (filters.queue === "pending" && approval.status === "pending")
+      || (filters.queue === "pending" && approval.actionableByViewer)
       || (filters.queue === "mine" && approval.initiatedByViewer)
-      || (filters.queue === "completed" && ["approved", "rejected"].includes(approval.status));
+      || (filters.queue === "completed" && ["approved", "rejected", "returned", "cancelled"].includes(approval.status));
     return matchesQuery && matchesType && matchesQueue;
   });
 }

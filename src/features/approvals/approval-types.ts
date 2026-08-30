@@ -1,5 +1,5 @@
 export type ApprovalType = "leave" | "reimbursement" | "purchase" | "contract";
-export type ApprovalStatus = "draft" | "pending" | "approved" | "rejected";
+export type ApprovalStatus = "draft" | "pending" | "approved" | "rejected" | "returned" | "cancelled";
 export type ApprovalPriority = "low" | "medium" | "high";
 export type ApprovalQueue = "all" | "pending" | "mine" | "completed";
 
@@ -15,7 +15,7 @@ export type ApprovalStep = {
   id: string;
   name: string;
   approver?: ApprovalPerson;
-  status: "pending" | "approved" | "rejected" | "skipped";
+  status: "pending" | "approved" | "rejected" | "returned" | "skipped";
   actedAt?: string;
   comment?: string;
 };
@@ -23,13 +23,21 @@ export type ApprovalStep = {
 export type ApprovalAction = {
   id: string;
   actor: ApprovalPerson;
-  actionType: "submit" | "approve" | "reject" | "comment";
+  actionType: "submit" | "approve" | "reject" | "return" | "cancel" | "comment";
   content: string;
   createdAt: string;
 };
 
+export type ApprovalExpense = {
+  id: string;
+  version: number;
+  status: "draft" | "submitted" | "approved" | "rejected" | "paid" | "cancelled";
+  paymentReference?: string;
+};
+
 export type Approval = {
   id: string;
+  version: number;
   code: string;
   type: ApprovalType;
   title: string;
@@ -41,9 +49,11 @@ export type Approval = {
   currentStep: string;
   priority: ApprovalPriority;
   initiatedByViewer: boolean;
+  actionableByViewer: boolean;
   fields: Array<{ label: string; value: string }>;
   steps: ApprovalStep[];
   actions: ApprovalAction[];
+  expense?: ApprovalExpense;
 };
 
 export type ApprovalStats = {

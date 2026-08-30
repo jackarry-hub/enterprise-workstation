@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Database, Search, ShieldCheck } from "lucide-react";
+import { Database, Plus, Search, ShieldCheck } from "lucide-react";
 
 import { MobileWorkspaceNav } from "@/components/shell/mobile-workspace-nav";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
@@ -20,29 +21,46 @@ import type { ApprovalFilters, ApprovalQueue, ApprovalResult, ApprovalType } fro
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { OperationalApprovalQueue } from "@/features/operations/operational-approval-queue";
 import { useOperations } from "@/features/operations/use-operations";
+import { ExpenseDialog } from "@/features/expenses/expense-dialog";
+import type { ExpenseFormOptions } from "@/features/expenses/expense-data";
+import { useWorkspaceRouter } from "@/lib/navigation/use-workspace-router";
 
 const defaultFilters: ApprovalFilters = { query: "", queue: "all", type: "all" };
 
 function statsFromApprovals(approvals: ApprovalResult["data"]["approvals"]) {
   return {
-    pending: approvals.filter((approval) => approval.status === "pending").length,
+    pending: approvals.filter((approval) => approval.actionableByViewer).length,
     initiated: approvals.filter((approval) => approval.initiatedByViewer).length,
     approved: approvals.filter((approval) => approval.status === "approved").length,
-    rejected: approvals.filter((approval) => approval.status === "rejected").length,
+    rejected: approvals.filter((approval) => ["rejected", "returned", "cancelled"].includes(approval.status)).length,
   };
 }
 
-export function ApprovalsWorkspace({ result }: { result: ApprovalResult }) {
+const filterTypes: ApprovalType[] = ["reimbursement", "purchase", "contract"];
+
+export function ApprovalsWorkspace({
+  result,
+  expenseOptions,
+}: {
+  result: ApprovalResult;
+  expenseOptions?: ExpenseFormOptions;
+}) {
   const session = useWorkspaceSession();
+  const router = useWorkspaceRouter();
   const { actor } = session;
   const { isFixtureBound } = useOperations(session);
   const [filters, setFilters] = useState(defaultFilters);
+  const [expenseOpen, setExpenseOpen] = useState(false);
   const isSupabaseData = result.source === "supabase";
+  const canSubmitExpense = isSupabaseData
+    && Boolean(expenseOptions)
+    && session.permissionCodes.includes("expense.submit");
   const visibleApprovals = useMemo(() => {
     if (!isSupabaseData && !isFixtureBound) return [];
+    if (isSupabaseData) return result.data.approvals;
     return actor.role === "employee"
       ? result.data.approvals.filter((approval) =>
-        isSupabaseData ? approval.initiatedByViewer : approval.applicant.displayName === actor.name,
+        approval.applicant.displayName === actor.name,
       )
       : actor.role === "finance"
         ? result.data.approvals.filter(({ type, applicant }) => type === "reimbursement" || type === "purchase" || applicant.displayName === actor.name)
@@ -58,11 +76,19 @@ export function ApprovalsWorkspace({ result }: { result: ApprovalResult }) {
       <section className="relative overflow-hidden rounded-3xl border border-glass-border bg-background px-5 py-6 shadow-[0_18px_50px_rgba(60,105,170,0.08)] sm:px-7">
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[url('/dashboard/welcome-space-bg.png')] bg-cover bg-[position:76%_center] opacity-75" />
         <div className="relative max-w-4xl">
-          <PageHeader title="审批中心" description="高效审批，让企业流程清晰、协作顺畅。" actions={<Badge variant="info" className="h-8 gap-1.5 rounded-xl px-3"><ShieldCheck aria-hidden="true" className="size-3.5" />固定流程 V0.9</Badge>} />
+          <PageHeader
+            title="审批中心"
+            description="审批、报销与付款状态由服务端统一管理。"
+            actions={<div className="flex flex-wrap items-center gap-2">
+              <Badge variant="info" className="h-8 gap-1.5 rounded-xl px-3"><ShieldCheck aria-hidden="true" className="size-3.5" />固定审批流程</Badge>
+              {canSubmitExpense ? <Button type="button" className="h-9 shadow-[0_10px_24px_rgba(47,125,246,0.24)]" onClick={() => setExpenseOpen(true)}><Plus aria-hidden="true" />发起费用报销</Button> : null}
+            </div>}
+          />
         </div>
       </section>
-      {isFixtureBound && !isSupabaseData ? <OperationalApprovalQueue /> : isSupabaseData ? <GlassCard className="p-4 text-sm text-muted-foreground"><strong className="text-foreground">真实审批模式：</strong>请假、采购、合同与报账申请从 Supabase 审批表读取；报账金额会进入费用台账，按权限展示。</GlassCard> : <RealDataNotice message="当前账号没有可显示的真实审批数据。" />}
-      <ApprovalStats stats={stats} />
+      {result.data.loadError ? <RealDataNotice message={result.data.loadError} /> : isFixtureBound && !isSupabaseData ? <OperationalApprovalQueue /> : isSupabaseData ? <GlassCard className="p-4 text-sm text-muted-foreground"><strong className="text-foreground">真实审批模式：</strong>费用报销、采购与合同申请从 Supabase 读取；费用草稿、审批和付款状态全程留痕。</GlassCard> : <RealDataNotice message="当前账号没有可显示的真实审批数据。" />}
+      {!result.data.loadError ? <ApprovalStats stats={stats} /> : null}
+      {!result.data.loadError ? (
       <section className="grid min-w-0 gap-4 xl:grid-cols-12">
         <GlassCard className="min-w-0 overflow-hidden p-3 sm:p-4 xl:col-span-9">
           <Tabs value={filters.queue} onValueChange={(value) => setFilters({ ...filters, queue: value as ApprovalQueue })}>
@@ -74,7 +100,7 @@ export function ApprovalsWorkspace({ result }: { result: ApprovalResult }) {
                 <div className="relative"><Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" /><Input type="search" aria-label="搜索审批" placeholder="搜索申请人、编号或内容" value={filters.query} onChange={(event) => setFilters({ ...filters, query: event.target.value })} className="h-10 rounded-xl bg-background/75 pl-9" /></div>
                 <Select value={filters.type} onValueChange={(value) => setFilters({ ...filters, type: value as ApprovalType | "all" })}>
                   <SelectTrigger aria-label="筛选审批类型" className="h-10 w-full bg-background/75"><SelectValue placeholder="全部类型" /></SelectTrigger>
-                  <SelectContent><SelectItem value="all">全部类型</SelectItem>{(Object.keys(approvalTypeMeta) as ApprovalType[]).map((type) => <SelectItem key={type} value={type}>{approvalTypeMeta[type].label}</SelectItem>)}</SelectContent>
+                  <SelectContent><SelectItem value="all">全部类型</SelectItem>{filterTypes.map((type) => <SelectItem key={type} value={type}>{approvalTypeMeta[type].label}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
             </div>
@@ -84,6 +110,8 @@ export function ApprovalsWorkspace({ result }: { result: ApprovalResult }) {
         </GlassCard>
         <GlassCard className="min-w-0 p-4 sm:p-5 xl:col-span-3"><ApprovalAside /></GlassCard>
       </section>
+      ) : null}
+      {expenseOptions ? <ExpenseDialog open={expenseOpen} onOpenChange={setExpenseOpen} options={expenseOptions} onReload={() => router.refresh()} /> : null}
       <MobileWorkspaceNav active="messages" />
     </main>
   );

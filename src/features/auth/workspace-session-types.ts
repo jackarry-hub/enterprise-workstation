@@ -48,6 +48,7 @@ export type WorkspacePermissionCode =
   | "customer.export_pii"
   | "approval.submit"
   | "approval.act"
+  | "expense.submit"
   | "expense.manage"
   | "knowledge.manage"
   | "agent.manage"

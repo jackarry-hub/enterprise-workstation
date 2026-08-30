@@ -9,11 +9,19 @@ function e2e(name: string) {
 
 describe("Phase 1 real-session E2E contract", () => {
   it.each([
-    ["approvals.spec.ts", "当前账号没有可显示的真实审批数据。"],
     ["payroll.spec.ts", "当前账号没有可显示的真实薪资数据。"],
     ["interaction-audit.spec.ts", "当前账号没有可显示的真实活动数据。"],
   ])("expects a truthful fail-closed state in %s", (file, message) => {
     expect(e2e(file)).toContain(message);
+  });
+
+  it("keeps approval E2E on real data while excluding bundled fixture records", () => {
+    const source = e2e("approvals.spec.ts");
+
+    expect(source).toContain("真实审批模式");
+    expect(source).toContain("EXP-20260804-002");
+    expect(source).toContain("toHaveCount(0)");
+    expect(source).not.toContain("page.route(");
   });
 
   it("expects people.spec.ts to exercise the real safe directory without fixture or PII fallbacks", () => {

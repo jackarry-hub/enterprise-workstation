@@ -10,13 +10,13 @@ describe("approval selectors", () => {
 
   it("combines queue, type, and search filters", () => {
     const rows = filterApprovals(approvalMockResult.data.approvals, {
-      query: "王芳",
+      query: "刘洋",
       queue: "pending",
-      type: "reimbursement",
+      type: "purchase",
     });
 
     expect(rows).toHaveLength(1);
-    expect(rows[0].code).toBe("EXP-20260804-002");
+    expect(rows[0].code).toBe("PUR-20260804-003");
   });
 
   it("resolves public approval details with fixed steps and history", () => {

@@ -10,7 +10,7 @@ const approvalId = "20000000-0000-4000-8000-000000000001";
 const idempotencyKey = "30000000-0000-4000-8000-000000000001";
 const requestId = "40000000-0000-4000-8000-000000000001";
 const ownerEmployeeId = "50000000-0000-4000-8000-000000000001";
-const session = { member: { status: "active" }, permissionCodes: ["approval.submit"] };
+const session = { member: { status: "active" }, permissionCodes: ["approval.submit", "approval.act"] };
 
 function request(body: unknown, key = idempotencyKey) {
   return new Request("http://local/api/workstation/approvals", {
@@ -135,6 +135,15 @@ describe("approval submission command", () => {
 });
 
 describe("approval action command", () => {
+  it("requires approval.act before invoking the action RPC", async () => {
+    const deps = dependencies(null, { member: { status: "active" }, permissionCodes: ["approval.submit"] });
+    const response = await handleApprovalAction(actionRequest({
+      command: "approve", expectedVersion: 1, comment: null,
+    }), approvalId, deps);
+    expect(response.status).toBe(403);
+    expect(deps.rpc).not.toHaveBeenCalled();
+  });
+
   it("lets the server-confirmed current approver advance one version without a browser actor", async () => {
     const deps = dependencies(actionSuccess());
     const response = await handleApprovalAction(actionRequest({

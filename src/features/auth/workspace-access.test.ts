@@ -121,6 +121,29 @@ describe("parseWorkspaceAccess", () => {
     },
   );
 
+  it("accepts a custom-only role as a permission-limited employee shell", () => {
+    const session = parseWorkspaceAccess({
+      ...base,
+      roleCodes: [],
+      customRoleCodes: ["expense_requester"],
+      permissionCodes: ["expense.submit"],
+    });
+
+    expect(session).toMatchObject({
+      roleCodes: [],
+      customRoleCodes: ["expense_requester"],
+      permissionCodes: ["expense.submit"],
+      primaryRole: "employee",
+      landingPath: "/approvals",
+      isAdmin: false,
+      actor: { role: "employee", roleLabel: "自定义岗位", landingPath: "/approvals" },
+    });
+  });
+
+  it("still rejects a session with no canonical or custom role", () => {
+    expect(parseWorkspaceAccess({ ...base, roleCodes: [], customRoleCodes: [] })).toBeNull();
+  });
+
   it("uses the documented business-role priority and treats admin as a flag", () => {
     const session = parseWorkspaceAccess({
       ...base,
@@ -298,7 +321,6 @@ describe("parseWorkspaceAccess", () => {
 
   it.each([
     ["admin-only", ["admin"]],
-    ["unknown-only", []],
     ["custom membership in canonical roles", ["employee", "project_observer"]],
     ["duplicate", ["employee", "employee"]],
     ["wrong item type", ["employee", 7]],
@@ -308,7 +330,7 @@ describe("parseWorkspaceAccess", () => {
       parseWorkspaceAccess({
         ...base,
         roleCodes,
-        customRoleCodes: roleCodes.length === 0 ? ["superuser"] : [],
+        customRoleCodes: [],
       }),
     ).toBeNull();
   });
@@ -440,6 +462,7 @@ describe("parseWorkspaceAccess", () => {
       "customer.manage",
       "approval.submit",
       "approval.act",
+      "expense.submit",
       "expense.manage",
       "knowledge.manage",
       "agent.manage",

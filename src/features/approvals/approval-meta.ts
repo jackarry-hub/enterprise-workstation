@@ -15,6 +15,8 @@ export const approvalStatusMeta: Record<ApprovalStatus, {
   pending: { label: "待审批", tone: "warning" },
   approved: { label: "已通过", tone: "success" },
   rejected: { label: "已拒绝", tone: "neutral" },
+  returned: { label: "已退回", tone: "warning" },
+  cancelled: { label: "已撤销", tone: "neutral" },
 };
 
 export const approvalPriorityMeta: Record<ApprovalPriority, { label: string; tone: "success" | "warning" | "active" }> = {

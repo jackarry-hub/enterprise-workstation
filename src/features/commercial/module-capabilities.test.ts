@@ -49,7 +49,7 @@ describe("commercial module capabilities", () => {
     expect(Object.entries(commercialModuleRegistry)
       .filter(([, definition]) => definition.commercialReady)
       .map(([module]) => module))
-      .toEqual(["people", "help"]);
+      .toEqual(["people", "approvals", "help"]);
 
     expect(commercialModuleRegistry.people.requiredPermissions).toEqual([]);
     expect(getModuleCapabilities(sessionWithPermissions([])).people).toBe(true);

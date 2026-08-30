@@ -170,14 +170,14 @@ describe("WorkspaceShell", () => {
     ).toBeVisible();
     expect(screen.queryByText("AI 决策调度台")).not.toBeInTheDocument();
     expect(screen.queryByText("项目管理")).not.toBeInTheDocument();
-    expect(screen.queryByText("审批中心")).not.toBeInTheDocument();
+    expect(screen.getByText("审批中心")).toBeVisible();
     expect(screen.queryByRole("link", { name: "任务管理" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "知识库" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "客户管理" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "数据分析" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "全局搜索" })).toBeVisible();
     expect(screen.getByRole("button", { name: "查看通知" })).toBeVisible();
-    expect(screen.getByRole("link", { name: "查看消息" })).toHaveAttribute("href", "/help");
+    expect(screen.getByRole("link", { name: "查看消息" })).toHaveAttribute("href", "/approvals");
     expect(screen.getByText("张星河")).toBeVisible();
     expect(screen.getByText("驾驶舱内容")).toBeVisible();
   });

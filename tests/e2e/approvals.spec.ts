@@ -2,13 +2,13 @@ import { expect, test } from "@playwright/test";
 
 const approvalId = "81000000-0000-4000-8000-000000000002";
 
-test("unbound real identity sees no fixture approval records", async ({ page }) => {
+test("real approval center never exposes bundled fixture records", async ({ page }) => {
   await page.goto("/approvals", { waitUntil: "networkidle" });
 
   await expect(page.getByRole("heading", { name: "审批中心" })).toBeVisible();
-  await expect(page.getByText("当前账号没有可显示的真实审批数据。" )).toBeVisible();
-  await expect(page.getByText("当前显示 0 条审批")).toBeVisible();
-  await expect(page.getByRole("link", { name: /查看.*审批/ })).toHaveCount(0);
+  await expect(page.getByText(/真实审批模式/)).toBeVisible();
+  await expect(page.getByText("EXP-20260804-002")).toHaveCount(0);
+  await expect(page.getByText("王芳的报销等待财务复核")).toHaveCount(0);
 });
 
 test("fixture approval detail is unavailable and has no decision actions", async ({ page }) => {

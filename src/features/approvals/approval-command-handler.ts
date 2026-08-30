@@ -213,7 +213,10 @@ export async function handleApprovalAction(
   dependencies: ApprovalCommandDependencies,
 ) {
   if (!dependencies.session) return json({ error: "unauthorized" }, 401);
-  if (dependencies.session.member.status !== "active") return json({ error: "forbidden" }, 403);
+  if (dependencies.session.member.status !== "active"
+    || !dependencies.session.permissionCodes.includes("approval.act")) {
+    return json({ error: "forbidden" }, 403);
+  }
   const approvalId = canonicalUuid(approvalIdInput);
   const parsed = await strictBody(request);
   if (!parsed.ok) return parsed.response;

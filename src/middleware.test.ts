@@ -20,6 +20,11 @@ describe("standalone workstation middleware boundary", () => {
     expect(isStandaloneAuthorizedPath("/workstation-server-adapter.js")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/bootstrap")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/directory-sync")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/approvals")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/approvals/approval-1/actions")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/expenses")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/expenses/expense-1/submit")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/expenses/expense-1/payment")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/projects")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/projects/project-1")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/notifications/notification-1/read")).toBe(true);

@@ -25,12 +25,24 @@ export default async function ApprovalDetailRoute({ params }: { params: Promise<
   }
 
   const { loadApprovalDetail } = await import("@/features/approvals/approval-data");
-  const approval = fixtureContext.actor
-    ? await loadApprovalDetail(id)
-    : await loadApprovalDetail(id, undefined, {
-      allowMockFallback: false,
-      viewerEmployeeProfileId: session.member.employeeProfileId,
-    });
+  let approval: Awaited<ReturnType<typeof loadApprovalDetail>>;
+  try {
+    approval = fixtureContext.actor
+      ? await loadApprovalDetail(id)
+      : await loadApprovalDetail(id, undefined, {
+        allowMockFallback: false,
+        viewerEmployeeProfileId: session.member.employeeProfileId,
+      });
+  } catch {
+    return (
+      <RealDataUnavailable
+        title="审批数据加载失败"
+        description="数据库或权限服务暂不可用，请刷新后重试。"
+        backHref="/approvals"
+        backLabel="返回审批中心"
+      />
+    );
+  }
   if (!approval) notFound();
   return <ApprovalDetailPage approval={approval} dataSource={fixtureContext.actor ? "mock" : "supabase"} />;
 }

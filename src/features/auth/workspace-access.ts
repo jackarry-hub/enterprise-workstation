@@ -83,6 +83,7 @@ const workspacePermissions = new Set<WorkspacePermissionCode>([
   "customer.export_pii",
   "approval.submit",
   "approval.act",
+  "expense.submit",
   "expense.manage",
   "knowledge.manage",
   "agent.manage",
@@ -247,16 +248,20 @@ export function parseWorkspaceAccess(value: unknown): WorkspaceSession | null {
   if (!roleCodes || !customRoleCodes || !permissionCodes || !supervisorScopeEmployeeIds || !skills || salaryGradeCode === null || jobLevel === null) return null;
 
   const databaseRole = rolePriority.find((role) => roleCodes.includes(role));
-  if (!databaseRole) return null;
+  if (!databaseRole && customRoleCodes.length === 0) return null;
 
-  const primaryRole = roleMapping[databaseRole];
-  const landingPath = landingPaths[primaryRole];
+  const primaryRole = databaseRole ? roleMapping[databaseRole] : "employee";
+  const landingPath = databaseRole
+    ? landingPaths[primaryRole]
+    : permissionCodes.some((permission) => permission.startsWith("approval.") || permission.startsWith("expense."))
+      ? "/approvals"
+      : "/help";
   const actor: WorkspaceActor = {
     id: raw.authUserId,
     memberId: String(raw.memberId),
     name: raw.displayName,
     role: primaryRole,
-    roleLabel: databaseRoleLabels[databaseRole],
+    roleLabel: databaseRole ? databaseRoleLabels[databaseRole] : "自定义岗位",
     department: raw.departmentName,
     title: raw.jobTitle,
     salaryGradeCode,
