@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getAuthEnv } from "@/features/auth/auth-env";
+import { assertCommercialServerRuntimeConfiguration } from "@/features/commercial/runtime-configuration";
 import { getRateLimitEnvironment } from "@/features/security/distributed-rate-limit";
 import { getSupabaseEnv } from "@/lib/supabase/env";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -31,11 +32,7 @@ export const defaultReadinessDependencies: ReadinessDependencies = {
     getSupabaseEnv();
     getAuthEnv();
     getRateLimitEnvironment();
-    if (
-      !process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
-      || !process.env.FEISHU_APP_ID?.trim()
-      || !process.env.FEISHU_APP_SECRET?.trim()
-    ) throw new Error("readiness_configuration_missing");
+    assertCommercialServerRuntimeConfiguration();
   },
   readDatabaseStatus: () => getSupabaseServiceRoleClient().rpc(
     "commercial_readiness_status",
