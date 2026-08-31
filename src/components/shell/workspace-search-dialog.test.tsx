@@ -24,6 +24,13 @@ describe("workspace search readiness", () => {
         kind: "模块",
       },
       {
+        id: "module-/department",
+        label: "负责人推进台",
+        meta: "企业工作站模块",
+        href: "/department",
+        kind: "模块",
+      },
+      {
         id: "module-/people",
         label: "组织人事",
         meta: "企业工作站模块",

@@ -14,6 +14,7 @@ import { CustomerList } from "@/features/customers/components/customer-list";
 import { CustomerSummary } from "@/features/customers/components/customer-summary";
 import { buildCustomerStats, getCustomerDistribution } from "@/features/customers/customer-selectors";
 import type { CreateCustomerInput, Customer, CustomerFilters, CustomerWorkspaceResult, FollowUpKind, OpportunityStage } from "@/features/customers/customer-types";
+import { QUICK_CREATE_EVENT } from "@/features/quick-create/contextual-create-actions";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -124,6 +125,15 @@ export function CustomersWorkspace({ result }: { result: CustomerWorkspaceResult
     detailRequest.current.controller?.abort();
     if (filterTimer.current !== null) window.clearTimeout(filterTimer.current);
   }, []);
+
+  useEffect(() => {
+    function openContextualCreate(event: Event) {
+      const action = event as CustomEvent<{ id?: string }>;
+      if (action.detail?.id === "customer.create" && result.data.canManage) setIsCreateOpen(true);
+    }
+    window.addEventListener(QUICK_CREATE_EVENT, openContextualCreate);
+    return () => window.removeEventListener(QUICK_CREATE_EVENT, openContextualCreate);
+  }, [result.data.canManage]);
 
   async function submitCommand(
     path: string,

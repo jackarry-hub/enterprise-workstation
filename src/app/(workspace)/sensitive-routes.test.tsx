@@ -136,7 +136,7 @@ describe("sensitive workspace routes", () => {
     expect(serialized([list, detail])).not.toContain("审批夹具哨兵");
   });
 
-  it("loads payroll fixtures only for the exact explicit binding", async () => {
+  it("never loads payroll fixtures for an explicit preview binding", async () => {
     dependencies.requireWorkspaceSession.mockResolvedValue(executiveWorkspaceSession);
 
     const list = await PayrollRoute();
@@ -144,9 +144,9 @@ describe("sensitive workspace routes", () => {
       params: Promise.resolve({ id: "salary-sentinel" }),
     });
 
-    expect(dependencies.loadSalary).toHaveBeenCalledOnce();
-    expect(dependencies.loadSalaryDetail).toHaveBeenCalledWith("salary-sentinel");
-    expect(serialized([list, detail])).toContain("987654321");
+    expect(dependencies.loadSalary).not.toHaveBeenCalled();
+    expect(dependencies.loadSalaryDetail).not.toHaveBeenCalled();
+    expect(serialized([list, detail])).not.toContain("987654321");
   });
 
   it("loads the employee directory and target-authorized private profile for the explicit session", async () => {

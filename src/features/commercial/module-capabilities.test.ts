@@ -32,7 +32,7 @@ describe("commercial module capabilities", () => {
     const employeeSession = sessionWithPermissions(["task.manage"]);
     const capabilities = getModuleCapabilities(employeeSession);
 
-    expect(capabilities.execution).toBe(false);
+    expect(capabilities.execution).toBe(true);
     expect(commercialModuleRegistry.execution.requiredPermissions).toEqual(["task.manage"]);
     expect(capabilities.settings).toBe(true);
     expect(commercialModuleRegistry).not.toHaveProperty("attendance");
@@ -49,7 +49,11 @@ describe("commercial module capabilities", () => {
     expect(Object.entries(commercialModuleRegistry)
       .filter(([, definition]) => definition.commercialReady)
       .map(([module]) => module))
-      .toEqual(["people", "approvals", "analytics", "settings", "notifications", "help", "knowledge", "assistant", "scheduler", "agents"]);
+      .toEqual([
+        "dashboard", "department", "execution", "finance", "hr", "projects", "activities", "tasks",
+        "people", "payroll", "approvals", "customers", "analytics", "settings", "notifications", "help",
+        "knowledge", "assistant", "scheduler", "agents",
+      ]);
 
     expect(commercialModuleRegistry.people.requiredPermissions).toEqual([]);
     expect(getModuleCapabilities(sessionWithPermissions([])).people).toBe(true);
@@ -72,6 +76,18 @@ describe("commercial module capabilities", () => {
     expect(matrix).toContain("('employee', 'task.manage')");
     expect(laterAlignment).toContain("permission.code = 'task.manage'");
     expect(commercialModuleRegistry.execution.requiredPermissions).toEqual(["task.manage"]);
+  });
+
+  it("routes role workbenches through real server-backed modules", async () => {
+    const pages = await Promise.all(["department", "execution", "finance", "hr"].map((route) =>
+      readFile(path.join(process.cwd(), "src", "app", "(workspace)", route, "page.tsx"), "utf8"),
+    ));
+
+    for (const source of pages) {
+      expect(source).not.toContain("RoleWorkbench");
+      expect(source).not.toContain("operations-data");
+      expect(source).not.toContain("localStorage");
+    }
   });
 
   it("does not publish unfinished or hidden-scope actions to quick create", () => {

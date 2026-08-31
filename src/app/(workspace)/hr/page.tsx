@@ -1,6 +1,29 @@
-import { RoleWorkbench } from "@/features/operations/role-workbench";
+import type { Metadata } from "next";
 
-export default function HrWorkbenchPage() {
-  return <RoleWorkbench role="hr" />;
+import { requireWorkspaceSession } from "@/features/auth/workspace-session";
+import { loadEmployeeDirectory } from "@/features/hr/employee-data";
+import { PeoplePage } from "@/features/hr/people-page";
+import {
+  loadManagerCommandTargets,
+  loadRoleCommandTargets,
+} from "@/features/organization/organization-command-data";
+
+export const metadata: Metadata = {
+  title: "HR 中心 | 企业工作站",
+};
+
+export default async function HrWorkbenchPage() {
+  const session = await requireWorkspaceSession();
+  const [result, roleTargets, managerTargets] = await Promise.all([
+    loadEmployeeDirectory(session.organization.id, undefined, { allowMockFallback: false }),
+    session.permissionCodes.includes("role.manage")
+      ? loadRoleCommandTargets(session)
+      : Promise.resolve([]),
+    session.permissionCodes.includes("organization.manage")
+      ? loadManagerCommandTargets(session)
+      : Promise.resolve({ status: "ready" as const, targets: [] }),
+  ]);
+
+  return <PeoplePage result={result} roleTargets={roleTargets} managerTargets={managerTargets} />;
 }
 

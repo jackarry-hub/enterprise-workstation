@@ -1,6 +1,16 @@
-import { RoleWorkbench } from "@/features/operations/role-workbench";
+import type { Metadata } from "next";
 
-export default function ExecutionWorkbenchPage() {
-  return <RoleWorkbench role="employee" />;
+import { loadProjectCollection } from "@/features/projects/data/project-collection-data";
+import { TaskCenterPage } from "@/features/tasks/task-center-page";
+
+export const metadata: Metadata = {
+  title: "个人执行台 | 企业工作站",
+};
+
+export const dynamic = "force-dynamic";
+
+export default async function ExecutionWorkbenchPage() {
+  const result = await loadProjectCollection();
+  return <TaskCenterPage result={result} />;
 }
 

@@ -49,9 +49,9 @@ describe("server route access", () => {
     expect(() => assertServerRouteAccess(employeeSession, "/people/employee-1")).not.toThrow();
   });
 
-  it("uses access-pending instead of a denied landing path and preserves a ready landing", () => {
+  it("preserves a ready landing path for denied routes", () => {
     expect(resolveNoAccessFallbackPath(sessionWithPermissions(["task.manage"]))).toBe(
-      "/access-pending?reason=no_access",
+      "/execution?notice=no_access",
     );
     expect(resolveNoAccessFallbackPath({
       ...sessionWithPermissions([]),

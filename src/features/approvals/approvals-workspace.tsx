@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Database, Plus, Search, ShieldCheck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,7 @@ import type { ApprovalFilters, ApprovalQueue, ApprovalResult, ApprovalType } fro
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { ExpenseDialog } from "@/features/expenses/expense-dialog";
 import type { ExpenseFormOptions } from "@/features/expenses/expense-data";
+import { QUICK_CREATE_EVENT } from "@/features/quick-create/contextual-create-actions";
 import { useWorkspaceRouter } from "@/lib/navigation/use-workspace-router";
 
 const defaultFilters: ApprovalFilters = { query: "", queue: "all", type: "all" };
@@ -50,6 +51,15 @@ export function ApprovalsWorkspace({
   const canSubmitExpense = isSupabaseData
     && Boolean(expenseOptions)
     && session.permissionCodes.includes("expense.submit");
+
+  useEffect(() => {
+    function openContextualCreate(event: Event) {
+      const action = event as CustomEvent<{ id?: string }>;
+      if (action.detail?.id === "expense.create" && canSubmitExpense) setExpenseOpen(true);
+    }
+    window.addEventListener(QUICK_CREATE_EVENT, openContextualCreate);
+    return () => window.removeEventListener(QUICK_CREATE_EVENT, openContextualCreate);
+  }, [canSubmitExpense]);
   const visibleApprovals = useMemo(() => {
     return isSupabaseData ? result.data.approvals : [];
   }, [isSupabaseData, result.data.approvals]);

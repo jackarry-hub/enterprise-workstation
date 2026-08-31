@@ -40,9 +40,9 @@ const accessBase = {
 };
 
 const roleCases = [
-  ["executive", "owner", "/dashboard", ["dashboard.read"]],
+  ["executive", "owner", "/dashboard", ["analytics.read"]],
   ["department_head", "department_head", "/department", ["project.manage"]],
-  ["employee", "employee", "/execution", ["task.execute"]],
+  ["employee", "employee", "/execution", ["task.manage"]],
   ["finance", "finance", "/finance", ["salary.manage"]],
   ["hr", "hr", "/hr", ["hr.manage"]],
 ] as const satisfies readonly (readonly [WorkspaceRole, string, string, string[]])[];
@@ -264,7 +264,7 @@ describe("workspace middleware", () => {
   );
 
   it.each(roleCases)(
-    "fails closed when the %s landing module is not commercial-ready",
+    "allows the %s landing module after its real workflow is ready",
     async (_workspaceRole, databaseRole, landingPath, permissionCodes) => {
       refreshedSession({ data: accessRow(databaseRole, permissionCodes) });
 
@@ -272,9 +272,7 @@ describe("workspace middleware", () => {
         new NextRequest(`https://brain.example${landingPath}`),
       );
 
-      expect(response.headers.get("location")).toBe(
-        "https://brain.example/access-pending?reason=no_access",
-      );
+      expect(response.headers.get("location")).toBeNull();
     },
   );
 
@@ -295,7 +293,7 @@ describe("workspace middleware", () => {
 
       expect(rootResponse.headers.get("location")).toBeNull();
       expect(fusedResponse.headers.get("location")).toBe(
-        "https://brain.example/access-pending?reason=no_access",
+        `https://brain.example${landingPath}?notice=no_access`,
       );
     },
   );
@@ -305,7 +303,7 @@ describe("workspace middleware", () => {
     async (_workspaceRole, databaseRole, landingPath, permissionCodes) => {
       const taskPermissions = Array.from(new Set<WorkspacePermissionCode>([
         ...permissionCodes,
-        "task.execute",
+        "task.manage",
       ]));
       refreshedSession({ data: accessRow(databaseRole, taskPermissions) });
       const tasks = await middleware(
@@ -316,11 +314,9 @@ describe("workspace middleware", () => {
         new NextRequest("https://brain.example/attendance"),
       );
 
-      expect(tasks.headers.get("location")).toBe(
-        "https://brain.example/access-pending?reason=no_access",
-      );
+      expect(tasks.headers.get("location")).toBeNull();
       expect(attendance.headers.get("location")).toBe(
-        "https://brain.example/access-pending?reason=no_access",
+        `https://brain.example${landingPath}?notice=no_access`,
       );
     },
   );
@@ -337,7 +333,7 @@ describe("workspace middleware", () => {
   });
 
   it("uses no-access status instead of redirecting back to a denied landing page", async () => {
-    refreshedSession({ data: accessRow("employee", ["task.manage"]) });
+    refreshedSession({ data: accessRow("employee", ["task.execute"]) });
 
     const response = await middleware(
       new NextRequest("https://brain.example/execution"),

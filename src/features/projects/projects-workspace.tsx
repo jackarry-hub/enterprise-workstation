@@ -26,6 +26,7 @@ import {
   mergeProjectList,
 } from "@/features/projects/data/project-list-operations";
 import { filterProjectList } from "@/features/projects/mock-data";
+import { QUICK_CREATE_EVENT } from "@/features/quick-create/contextual-create-actions";
 import type {
   CreateMockProjectInput,
   ArchivedProjectSummary,
@@ -98,6 +99,15 @@ export function ProjectsWorkspace({ projects, stats, reminders, members, source,
     ? isFixtureBound
     : session.permissionCodes.some((permission) => permission === "project.create" || permission === "project.manage" || permission === "organization.manage")
       && members.some(({ employeePublicId }) => Boolean(employeePublicId));
+
+  useEffect(() => {
+    function openContextualCreate(event: Event) {
+      const action = event as CustomEvent<{ id?: string }>;
+      if (action.detail?.id === "project.create" && canCreate) setIsCreateOpen(true);
+    }
+    window.addEventListener(QUICK_CREATE_EVENT, openContextualCreate);
+    return () => window.removeEventListener(QUICK_CREATE_EVENT, openContextualCreate);
+  }, [canCreate]);
 
   async function handleCreateProject(input: CreateMockProjectInput, idempotencyKey: string) {
     if (source === "mock") {

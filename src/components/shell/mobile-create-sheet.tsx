@@ -1,14 +1,14 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { Bot, MessageSquarePlus, Plus, ShieldCheck, Workflow } from "lucide-react";
+import { Bot, CalendarPlus, FolderPlus, MessageSquarePlus, Plus, ReceiptText, ShieldCheck, UserRoundPlus, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import { getModuleCapabilities } from "@/features/commercial/module-capabilities";
 import { dispatchContextualCreate, getContextualCreateActions, type ContextualCreateAction } from "@/features/quick-create/contextual-create-actions";
 
-const icons = { bot: Bot, workflow: Workflow, shield: ShieldCheck, message: MessageSquarePlus };
+const icons = { folder: FolderPlus, calendar: CalendarPlus, customer: UserRoundPlus, receipt: ReceiptText, bot: Bot, workflow: Workflow, shield: ShieldCheck, message: MessageSquarePlus };
 export function MobileCreateSheet() {
   const pathname = usePathname(); const session = useWorkspaceSession(); const capabilities = getModuleCapabilities(session); const actions = getContextualCreateActions({ pathname, session, capabilities });
   if (!actions.length) return null;

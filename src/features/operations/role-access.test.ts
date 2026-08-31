@@ -34,9 +34,9 @@ describe("role access policy", () => {
     }
   });
 
-  it("removes task delivery, attendance, and leave from every route policy", () => {
+  it("opens real task delivery while attendance and leave remain excluded", () => {
     for (const role of [["owner"], ["department_head"], ["employee"], ["finance"], ["hr"]] as const) {
-      expect(canRoleAccessPath(session([...role], ["task.manage"]), "/tasks")).toBe(false);
+      expect(canRoleAccessPath(session([...role], ["task.manage"]), "/tasks")).toBe(true);
       expect(canRoleAccessPath(session([...role], ["attendance.self"]), "/attendance")).toBe(false);
       expect(canRoleAccessPath(session([...role], []), "/leave")).toBe(false);
     }

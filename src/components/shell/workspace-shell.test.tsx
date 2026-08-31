@@ -156,7 +156,7 @@ describe("WorkspaceShell", () => {
     expect(screen.getAllByRole("menuitem", { name: "退出登录" })).toHaveLength(1);
   });
 
-  it("keeps unavailable business destinations out of the formal workspace shell", () => {
+  it("shows authorized real business destinations in the formal workspace shell", () => {
     render(
       <WorkspaceShell session={executiveSession}>
         <p>驾驶舱内容</p>
@@ -168,12 +168,12 @@ describe("WorkspaceShell", () => {
     expect(
       screen.getByRole("img", { name: "量子星河 QuantXY" }),
     ).toBeVisible();
-    expect(screen.queryByText("AI 决策调度台")).not.toBeInTheDocument();
-    expect(screen.queryByText("项目管理")).not.toBeInTheDocument();
+    expect(screen.getByText("AI 决策调度台")).toBeVisible();
+    expect(screen.getByText("项目管理")).toBeVisible();
     expect(screen.getByText("审批中心")).toBeVisible();
-    expect(screen.queryByRole("link", { name: "任务管理" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "任务管理" })).toBeVisible();
     expect(screen.queryByRole("link", { name: "知识库" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "客户管理" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "客户管理" })).toBeVisible();
     expect(screen.getByRole("link", { name: "数据分析" })).toBeVisible();
     expect(screen.getByRole("button", { name: "全局搜索" })).toBeVisible();
     expect(screen.getByRole("button", { name: "查看通知" })).toBeVisible();
@@ -201,10 +201,10 @@ describe("WorkspaceShell", () => {
     expect(screen.getByRole("menuitem", { name: /偏好设置/ })).toBeVisible();
   });
 
-  it("does not render the project overview submenu before projects are ready", () => {
+  it("renders the project overview submenu after projects are ready", () => {
     render(withSession(executiveSession, <AppSidebar currentPath="/projects" />));
 
-    expect(screen.queryByRole("link", { name: "项目总览" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "项目总览" })).toBeVisible();
   });
 
   it("uses the server session instead of browser-selected fixture identity", async () => {
@@ -218,7 +218,7 @@ describe("WorkspaceShell", () => {
     expect(screen.queryByText("李总")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "打开用户菜单" }));
-    expect(screen.queryByRole("menuitem", { name: /我的任务/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /我的任务/ })).toBeVisible();
     expect(screen.queryByRole("menuitem", { name: /我的考勤/ })).not.toBeInTheDocument();
   });
 });

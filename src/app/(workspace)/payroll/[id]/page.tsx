@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 
 import { RealDataUnavailable } from "@/components/ui/real-data-boundary";
 import { requireWorkspaceSession } from "@/features/auth/workspace-session";
-import { createOperationFixtureContext } from "@/features/operations/operation-actor-compat";
 import { PayrollDetailPage } from "@/features/salary/payroll-detail-page";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 
@@ -18,8 +17,7 @@ function canManageSalary(session: Awaited<ReturnType<typeof requireWorkspaceSess
 export default async function PayrollDetailRoute({ params }: { params: Promise<{ id: string }> }) {
   const session = await requireWorkspaceSession();
   const { id } = await params;
-  const fixtureContext = createOperationFixtureContext(session);
-  if (!fixtureContext.actor && !hasSupabaseEnv()) {
+  if (!hasSupabaseEnv()) {
     return (
       <RealDataUnavailable
         title="薪资数据暂不可用"
@@ -31,13 +29,11 @@ export default async function PayrollDetailRoute({ params }: { params: Promise<{
   }
 
   const { loadSalaryDetail } = await import("@/features/salary/salary-data");
-  const record = fixtureContext.actor
-    ? await loadSalaryDetail(id)
-    : await loadSalaryDetail(id, undefined, {
-      allowMockFallback: false,
-      viewerEmployeeProfileId: session.member.employeeProfileId,
-      canManageSalary: canManageSalary(session),
-    });
+  const record = await loadSalaryDetail(id, undefined, {
+    allowMockFallback: false,
+    viewerEmployeeProfileId: session.member.employeeProfileId,
+    canManageSalary: canManageSalary(session),
+  });
   if (!record) notFound();
-  return <PayrollDetailPage record={record} dataSource={fixtureContext.actor ? "mock" : "supabase"} />;
+  return <PayrollDetailPage record={record} dataSource="supabase" />;
 }

@@ -9,4 +9,10 @@ describe("page-context quick create", () => {
   it("does not leak task creation into Agent Center", () => { expect(getContextualCreateActions(context("/agents", ["agent.manage"])).map(({ id }) => id)).toEqual(["agent.create"]); });
   it("hides quick create on read-only analytics", () => { expect(getContextualCreateActions(context("/analytics", ["analytics.read"]))).toEqual([]); });
   it("offers the durable conversation command on AI assistant", () => { expect(getContextualCreateActions(context("/assistant", [])).map(({ id }) => id)).toEqual(["assistant.conversation.create"]); });
+  it("offers only the current business page create command", () => {
+    expect(getContextualCreateActions(context("/projects", ["project.create"])).map(({ id }) => id)).toEqual(["project.create"]);
+    expect(getContextualCreateActions(context("/activities", ["project.create"])).map(({ id }) => id)).toEqual(["activity.create"]);
+    expect(getContextualCreateActions(context("/customers", ["customer.manage"])).map(({ id }) => id)).toEqual(["customer.create"]);
+    expect(getContextualCreateActions(context("/finance", ["expense.manage", "expense.submit"])).map(({ id }) => id)).toEqual(["expense.create"]);
+  });
 });

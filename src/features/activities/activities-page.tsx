@@ -23,6 +23,7 @@ import type { ProjectCollectionResult } from "@/features/projects/data/project-c
 import { mockMembers } from "@/features/projects/mock-data";
 import { createBusinessProject } from "@/features/projects/data/business-command-client";
 import type { CreateMockProjectInput } from "@/features/projects/types";
+import { QUICK_CREATE_EVENT } from "@/features/quick-create/contextual-create-actions";
 import { useWorkspaceRouter } from "@/lib/navigation/use-workspace-router";
 
 const defaultResult: ProjectCollectionResult = {
@@ -68,6 +69,15 @@ export function ActivitiesPage({ result = defaultResult, initialSelectedId }: { 
     ? isFixtureBound
     : session.permissionCodes.some((permission) => permission === "project.create" || permission === "project.manage" || permission === "organization.manage")
       && members.length > 0;
+
+  useEffect(() => {
+    function openContextualCreate(event: Event) {
+      const action = event as CustomEvent<{ id?: string }>;
+      if (action.detail?.id === "activity.create" && canCreate) setCreateOpen(true);
+    }
+    window.addEventListener(QUICK_CREATE_EVENT, openContextualCreate);
+    return () => window.removeEventListener(QUICK_CREATE_EVENT, openContextualCreate);
+  }, [canCreate]);
 
   async function createActivity(input: CreateMockProjectInput, idempotencyKey: string) {
     if (result.source === "mock") {

@@ -10,7 +10,7 @@ describe("workspace navigation", () => {
       permissionCodes: ["task.manage"],
     }).find(({ href }) => href === "/tasks");
 
-    expect(taskItem).toBeUndefined();
+    expect(taskItem).toMatchObject({ href: "/tasks", module: "tasks", available: true });
     expect(navigationItems.find(({ href }) => href === "/tasks")?.module).toBe("tasks");
     expect(navigationItems.some(({ href }) => href === "/attendance")).toBe(false);
     expect(navigationItems.some(({ href }) => href === "/leave")).toBe(false);

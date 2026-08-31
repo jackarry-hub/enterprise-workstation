@@ -3,15 +3,20 @@ import type { CommercialModule } from "@/features/commercial/module-capabilities
 
 export const QUICK_CREATE_EVENT = "quantxy:quick-create";
 export type ContextualCreateAction = {
-  readonly id: "agent.create" | "agent.orchestration.create" | "agent.permission.request" | "assistant.conversation.create";
+  readonly id: "project.create" | "activity.create" | "customer.create" | "expense.create" | "agent.create" | "agent.orchestration.create" | "agent.permission.request" | "assistant.conversation.create";
   readonly label: string;
-  readonly icon: "bot" | "workflow" | "shield" | "message";
+  readonly icon: "folder" | "calendar" | "customer" | "receipt" | "bot" | "workflow" | "shield" | "message";
   readonly requiredPermission: WorkspacePermissionCode | null;
   readonly module: CommercialModule;
   readonly target: string;
 };
 
 const actions: readonly (ContextualCreateAction & { pathname: string })[] = [
+  { pathname: "/projects", id: "project.create", label: "新建项目", icon: "folder", requiredPermission: "project.create", module: "projects", target: "project-create" },
+  { pathname: "/activities", id: "activity.create", label: "新建活动", icon: "calendar", requiredPermission: "project.create", module: "activities", target: "activity-create" },
+  { pathname: "/customers", id: "customer.create", label: "新建客户", icon: "customer", requiredPermission: "customer.manage", module: "customers", target: "customer-create" },
+  { pathname: "/approvals", id: "expense.create", label: "发起费用报销", icon: "receipt", requiredPermission: "expense.submit", module: "approvals", target: "expense-create" },
+  { pathname: "/finance", id: "expense.create", label: "发起费用报销", icon: "receipt", requiredPermission: "expense.submit", module: "finance", target: "expense-create" },
   { pathname: "/agents", id: "agent.create", label: "新建 Agent", icon: "bot", requiredPermission: "agent.manage", module: "agents", target: "agent-editor" },
   { pathname: "/agents", id: "agent.orchestration.create", label: "新建 Agent 编排", icon: "workflow", requiredPermission: "agent.orchestrate", module: "agents", target: "orchestration-editor" },
   { pathname: "/agents", id: "agent.permission.request", label: "申请 Agent 权限", icon: "shield", requiredPermission: "approval.submit", module: "agents", target: "permission-request" },
