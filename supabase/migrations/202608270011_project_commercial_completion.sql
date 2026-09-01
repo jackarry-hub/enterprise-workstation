@@ -1595,7 +1595,7 @@ begin
     jsonb_build_object('version',p_expected_version,'reason',btrim(p_reason)),
     idempotency_key,request_id);
   if v_claim->>'state'='replay' then
-    select project,notification into v_project,v_notification
+    select project.* into v_project
     from public.task_notifications notification
     join public.tasks task on task.tenant_id=notification.tenant_id
       and task.organization_id=notification.organization_id and task.id=notification.task_id
@@ -1604,6 +1604,12 @@ begin
     where notification.tenant_id=v_tenant and notification.organization_id=v_org
       and notification.public_id=p_notification_public_id
     for update of project;
+    if found then
+      select notification.* into strict v_notification
+      from public.task_notifications notification
+      where notification.tenant_id=v_tenant and notification.organization_id=v_org
+        and notification.public_id=p_notification_public_id;
+    end if;
     if not found then
       return public.audit_project_execution_replay_denied(
         v_tenant,v_org,v_user,v_actor,'retry_current_task_notification','task_notification',
@@ -1946,7 +1952,7 @@ begin
   if p_notification_public_id is null or p_attempt_token is null then
     return jsonb_build_object('outcome','failure','error','invalid_request');
   end if;
-  select task,project into v_task,v_project
+  select task.* into v_task
   from public.tenants tenant
   join public.organizations organization on organization.tenant_id=tenant.id
   join public.task_notifications notification on notification.tenant_id=tenant.id
@@ -1973,6 +1979,13 @@ begin
   where tenant.public_id=p_tenant_public_id and tenant.status='active'
     and organization.public_id=p_organization_public_id
   for update of project;
+  if found then
+    select project.* into strict v_project
+    from public.projects project
+    where project.tenant_id=v_task.tenant_id
+      and project.organization_id=v_task.organization_id
+      and project.id=v_task.project_id;
+  end if;
   if not found then return jsonb_build_object('outcome','failure','error','not_found'); end if;
   select notification.* into v_notification
   from public.task_notifications notification

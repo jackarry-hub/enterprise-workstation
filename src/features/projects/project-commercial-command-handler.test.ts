@@ -209,6 +209,12 @@ describe("project commercial completion migration", () => {
     expect(sql).toContain("notification.status<>'failed'");
     expect(sql).toContain("project.deleted_at is null and project.archived_at is null");
     expect(sql).toContain("'retry_required'");
+    expect(sql).toContain("select project.* into v_project");
+    expect(sql).toContain("select notification.* into strict v_notification");
+    expect(sql).toContain("select task.* into v_task");
+    expect(sql).toContain("select project.* into strict v_project");
+    expect(sql).not.toContain("select project,notification into v_project,v_notification");
+    expect(sql).not.toContain("select task,project into v_task,v_project");
   });
 
   it("keeps task creation compatible only with an existing explicit contributor", () => {

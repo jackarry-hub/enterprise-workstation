@@ -58,6 +58,9 @@ describe("Feishu synchronization control migration", () => {
     expect(sql).toContain("apply_feishu_directory_sync_exact(uuid, uuid, uuid, uuid, jsonb)");
     expect(sql).not.toContain("apply_feishu_directory_sync_exact(uuid, uuid, uuid, jsonb)");
     expect(sql).not.toMatch(/grant execute on function public\.apply_feishu_directory_sync_exact/);
+    expect(sql).toContain("select run.* into strict v_run");
+    expect(sql).toContain("select tenant.public_id into strict v_tenant_public_id");
+    expect(sql).not.toContain("select run, tenant.public_id into strict v_run, v_tenant_public_id");
   });
 
   it("uses the claimed run as the only apply/idempotency anchor and closes legacy policy OR paths", () => {

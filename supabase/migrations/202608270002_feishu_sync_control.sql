@@ -2361,7 +2361,7 @@ declare
   v_run public.directory_sync_runs%rowtype;
   v_tenant_public_id uuid;
 begin
-  select run, tenant.public_id into strict v_run, v_tenant_public_id
+  select run.* into strict v_run
     from public.directory_sync_runs run
     join public.organizations organization
       on organization.tenant_id = run.tenant_id and organization.id = run.organization_id
@@ -2375,6 +2375,10 @@ begin
      and organization.public_id = p_organization_public_id
      and actor.user_id = p_actor_auth_user_id
    ;
+
+  select tenant.public_id into strict v_tenant_public_id
+    from public.tenants tenant
+   where tenant.id = v_run.tenant_id;
 
   select connection.* into strict v_connection
     from public.directory_connections connection
