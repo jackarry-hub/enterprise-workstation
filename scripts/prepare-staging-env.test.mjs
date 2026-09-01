@@ -25,7 +25,8 @@ test("prepareStagingEnvironment copies Feishu values and generates distinct secr
       "FEISHU_APP_SECRET=server-secret",
     ].join("\n"));
     writeFileSync(resolve(root, ".env.staging.local"), "NEXT_PUBLIC_APP_URL=https://staging.example\nNEXT_PUBLIC_SUPABASE_URL=https://project.supabase.co\n");
-    prepareStagingEnvironment(root);
+    const candidate = "a".repeat(40);
+    prepareStagingEnvironment(root, candidate);
     const values = parseEnv(readFileSync(resolve(root, ".env.staging.local"), "utf8"));
     assert.equal(values.get("FEISHU_APP_ID"), "cli_real");
     assert.equal(Buffer.from(values.get("AI_CONFIG_ENCRYPTION_KEY"), "base64").length, 32);
@@ -34,6 +35,8 @@ test("prepareStagingEnvironment copies Feishu values and generates distinct secr
     assert.equal(values.get("QUANTXY_EDGE_ALIAS"), "quantxy-staging-workstation");
     assert.equal(values.get("KNOWLEDGE_PROCESSOR_URL"), "https://staging.example/api/internal/knowledge-processor");
     assert.equal(values.get("KNOWLEDGE_SOURCE_ALLOWED_HOSTS"), "project.supabase.co");
+    assert.equal(values.get("QUANTXY_IMAGE_TAG"), candidate);
+    assert.equal(values.get("QUANTXY_RELEASE_CANDIDATE_COMMIT"), candidate);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -47,7 +48,7 @@ function safeValue(value) {
   return Boolean(value) && !/replace|placeholder|changeme|your_/i.test(value);
 }
 
-export function prepareStagingEnvironment(root = process.cwd()) {
+export function prepareStagingEnvironment(root = process.cwd(), candidateCommit = undefined) {
   const sourcePath = resolve(root, ".env.local");
   const targetPath = resolve(root, ".env.staging.local");
   if (!existsSync(sourcePath) || !existsSync(targetPath)) throw new Error("staging_environment_file_missing");
@@ -57,6 +58,8 @@ export function prepareStagingEnvironment(root = process.cwd()) {
   const source = parseEnv(sourceText);
   const target = parseEnv(targetText);
   const updates = {};
+  const commit = candidateCommit ?? execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error("candidate_commit_invalid");
 
   for (const key of COPIED_FEISHU_KEYS) {
     if (safeValue(target.get(key))) continue;
@@ -73,6 +76,8 @@ export function prepareStagingEnvironment(root = process.cwd()) {
   if (!safeValue(target.get("RATE_LIMIT_TRUSTED_IP_HEADER"))) updates.RATE_LIMIT_TRUSTED_IP_HEADER = "x-real-ip";
   if (!safeValue(target.get("QUANTXY_EDGE_NETWORK"))) updates.QUANTXY_EDGE_NETWORK = "quantumgalaxy_edge";
   if (!safeValue(target.get("QUANTXY_EDGE_ALIAS"))) updates.QUANTXY_EDGE_ALIAS = "quantxy-staging-workstation";
+  if (target.get("QUANTXY_IMAGE_TAG") !== commit) updates.QUANTXY_IMAGE_TAG = commit;
+  if (target.get("QUANTXY_RELEASE_CANDIDATE_COMMIT") !== commit) updates.QUANTXY_RELEASE_CANDIDATE_COMMIT = commit;
 
   const appUrl = new URL(target.get("NEXT_PUBLIC_APP_URL"));
   const supabaseUrl = new URL(target.get("NEXT_PUBLIC_SUPABASE_URL"));
