@@ -177,6 +177,9 @@ describe("project commercial completion migration", () => {
     expect(sql).toContain("p_command='remove' or (");
     expect(sql).toContain("p_expected_membership_version not in (0,v_membership.version)");
     expect(sql).toContain("profile.employment_status in ('probation','active','on_leave')");
+    expect(sql).toContain("(v_actor=v_target and v_lock_count<>1)");
+    expect(sql).toContain("(v_actor<>v_target and v_lock_count<>2)");
+    expect(sql).not.toContain("v_lock_count <> case");
   });
 
   it("audits new command scope conflicts and closes legacy write entry points", () => {

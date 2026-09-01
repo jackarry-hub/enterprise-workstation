@@ -1078,7 +1078,8 @@ begin
   loop
     v_lock_count:=v_lock_count+1;
   end loop;
-  if v_lock_count <> case when v_actor=v_target then 1 else 2 end then
+  if (v_actor=v_target and v_lock_count<>1)
+     or (v_actor<>v_target and v_lock_count<>2) then
     return public.complete_project_execution_command(v_tenant,v_org,v_user,v_actor,
       'mutate_current_project_member','project_member',v_action,
       p_project_public_id::text,request_id,idempotency_key,p_reason,
