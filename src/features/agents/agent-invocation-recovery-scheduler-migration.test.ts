@@ -9,9 +9,16 @@ const migrationPath = resolve(
   process.cwd(),
   "supabase/migrations/202608260009_agent_invocation_recovery_scheduler.sql",
 );
+const recoveryFixMigrationPath = resolve(
+  process.cwd(),
+  "supabase/migrations/202609010002_fix_agent_recovery_tenant_iteration.sql",
+);
 
 describe("Agent invocation recovery scheduler migration", () => {
   const migration = existsSync(migrationPath) ? readFileSync(migrationPath, "utf8").toLowerCase() : "";
+  const recoveryFixMigration = existsSync(recoveryFixMigrationPath)
+    ? readFileSync(recoveryFixMigrationPath, "utf8").toLowerCase()
+    : "";
 
   it("rejects null limits and clamps elapsed recovery duration before narrowing to integer", () => {
     expect(migration).toContain("p_limit is null");
@@ -28,5 +35,14 @@ describe("Agent invocation recovery scheduler migration", () => {
     expect(migration).toContain("recover_stale_agent_invocations(tenant.id");
     expect(migration).toContain("revoke all on function public.run_agent_invocation_recovery() from public, anon, authenticated");
     expect(migration).toContain("grant execute on function public.run_agent_invocation_recovery() to service_role");
+  });
+
+  it("uses a scalar tenant id in the forward fix so PL/pgSQL cannot read an unassigned record", () => {
+    expect(recoveryFixMigration).toContain("current_tenant_id bigint");
+    expect(recoveryFixMigration).toContain("for current_tenant_id in");
+    expect(recoveryFixMigration).toContain("from public.tenants as t");
+    expect(recoveryFixMigration).toContain("recover_stale_agent_invocations(\n      current_tenant_id");
+    expect(recoveryFixMigration).not.toContain("for tenant in");
+    expect(recoveryFixMigration).toContain("grant execute on function public.run_agent_invocation_recovery() to service_role");
   });
 });
