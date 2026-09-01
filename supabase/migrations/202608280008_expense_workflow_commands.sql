@@ -941,7 +941,7 @@ begin
     'costType',v_expense.expense_type
   )) into v_form from (select 1) singleton
   left join public.projects project on project.tenant_id=v_expense.tenant_id
-    and project.organization_id=v_expense.organization_id and project.id=v_expense.project_id on true;
+    and project.organization_id=v_expense.organization_id and project.id=v_expense.project_id;
   begin
     v_approval_result:=public.submit_approval_for_command_identity(
       v_tenant,v_org,v_actor,v_user,v_employee,v_template.public_id,v_form,

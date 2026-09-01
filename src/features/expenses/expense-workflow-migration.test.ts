@@ -33,6 +33,8 @@ describe("commercial expense workflow migration", () => {
     expect(migration).toContain("expense_command_idempotency");
     expect(migration).toContain("expense.version<>expected_version");
     expect(migration).toContain("submit_approval_for_command_identity");
+    expect(migration).toContain("left join public.projects project on project.tenant_id=v_expense.tenant_id");
+    expect(migration).not.toContain("project.id=v_expense.project_id on true");
     expect(migration).toContain("current_approval_command_identity('approval.submit')");
     expect(migration).toContain("from public,anon,authenticated,service_role");
     expect(migration).toContain("is_valid_expense_approval_evidence");
