@@ -35,7 +35,7 @@ create table public.knowledge_directories (
   created_at timestamptz not null default clock_timestamp(),
   updated_at timestamptz not null default clock_timestamp(),
   unique (tenant_id,organization_id,id),
-  unique (tenant_id,organization_id,parent_id,slug) nulls not distinct,
+  unique nulls not distinct (tenant_id,organization_id,parent_id,slug),
   foreign key (tenant_id,organization_id) references public.organizations(tenant_id,id) on delete cascade,
   foreign key (tenant_id,organization_id,parent_id)
     references public.knowledge_directories(tenant_id,organization_id,id) on delete restrict,
@@ -102,7 +102,7 @@ create table public.knowledge_permissions (
   granted_by_member_id bigint not null,
   created_at timestamptz not null default clock_timestamp(),
   check (num_nonnulls(document_id,directory_id) = 1),
-  unique (tenant_id,organization_id,document_id,directory_id,subject_type,subject_id,permission) nulls not distinct,
+  unique nulls not distinct (tenant_id,organization_id,document_id,directory_id,subject_type,subject_id,permission),
   foreign key (tenant_id,organization_id,document_id)
     references public.knowledge_documents(tenant_id,organization_id,id) on delete cascade,
   foreign key (tenant_id,organization_id,directory_id)

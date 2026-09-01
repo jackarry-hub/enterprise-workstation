@@ -18,6 +18,8 @@ describe("knowledge access migration", () => {
     ]) expect(migration).toContain(`create table public.${table}`);
     expect(migration).toContain("reject_published_knowledge_version_mutation");
     expect(migration).toContain("can_access_knowledge_document");
+    expect(migration.match(/unique nulls not distinct \(/g)).toHaveLength(2);
+    expect(migration).not.toMatch(/unique \([^\n]+\) nulls not distinct/);
   });
 
   it("forces row-level security on every knowledge access table", () => {
