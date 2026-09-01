@@ -1,5 +1,11 @@
 -- Forward-only verified business file delivery. This migration follows
 -- 202608270006 and preserves the existing tenant, project ACL, and audit model.
+alter table public.organization_members
+  add column if not exists public_id uuid not null default gen_random_uuid();
+
+create unique index if not exists organization_members_public_id_idx
+  on public.organization_members(public_id);
+
 alter table public.audit_logs drop constraint if exists audit_logs_action_check;
 alter table public.audit_logs add constraint audit_logs_action_check check (action in (
   'identity.provisioned', 'identity.claimed', 'identity.revoked', 'member.status_changed',
