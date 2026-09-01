@@ -575,8 +575,8 @@ begin
   if p_upload_public_id is null or p_verification_token is null or p_request_id is null then
     return jsonb_build_object('outcome', 'failure', 'error', 'invalid_request');
   end if;
-  select reservation, project.public_id
-    into v_row, v_project_public_id
+  select reservation.*
+    into v_row
   from public.file_upload_reservations reservation
   join public.projects project
     on project.tenant_id = reservation.tenant_id
@@ -584,6 +584,11 @@ begin
    and project.id = reservation.project_id
   where reservation.public_id = p_upload_public_id;
   if not found then return jsonb_build_object('outcome', 'failure', 'error', 'not_found'); end if;
+  select project.public_id into strict v_project_public_id
+  from public.projects project
+  where project.tenant_id = v_row.tenant_id
+    and project.organization_id = v_row.organization_id
+    and project.id = v_row.project_id;
   v_tenant := v_row.tenant_id;
   v_org := v_row.organization_id;
   v_actor := v_row.actor_member_id;
@@ -766,8 +771,8 @@ begin
   if (select auth.role()) is distinct from 'service_role' then
     raise exception 'Verified file failure requires service role' using errcode = '42501';
   end if;
-  select reservation, project.public_id
-    into v_row, v_project_public_id
+  select reservation.*
+    into v_row
   from public.file_upload_reservations reservation
   join public.projects project
     on project.tenant_id = reservation.tenant_id
@@ -775,6 +780,11 @@ begin
    and project.id = reservation.project_id
   where reservation.public_id = p_upload_public_id;
   if not found then return jsonb_build_object('outcome', 'failure', 'error', 'not_found'); end if;
+  select project.public_id into strict v_project_public_id
+  from public.projects project
+  where project.tenant_id = v_row.tenant_id
+    and project.organization_id = v_row.organization_id
+    and project.id = v_row.project_id;
   v_tenant := v_row.tenant_id;
   v_org := v_row.organization_id;
   v_actor := v_row.actor_member_id;
@@ -849,8 +859,8 @@ begin
   if (select auth.role()) is distinct from 'service_role' then
     raise exception 'Verified file completion requires service role' using errcode = '42501';
   end if;
-  select reservation, project.public_id
-    into v_row, v_project_public_id
+  select reservation.*
+    into v_row
   from public.file_upload_reservations reservation
   join public.projects project
     on project.tenant_id = reservation.tenant_id
@@ -858,6 +868,11 @@ begin
    and project.id = reservation.project_id
   where reservation.public_id = p_upload_public_id;
   if not found then return jsonb_build_object('outcome', 'failure', 'error', 'not_found'); end if;
+  select project.public_id into strict v_project_public_id
+  from public.projects project
+  where project.tenant_id = v_row.tenant_id
+    and project.organization_id = v_row.organization_id
+    and project.id = v_row.project_id;
   v_tenant := v_row.tenant_id;
   v_org := v_row.organization_id;
   v_actor := v_row.actor_member_id;

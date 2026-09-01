@@ -14,5 +14,8 @@ describe("file storage commands migration", () => {
     expect(sql).toContain("add column if not exists public_id uuid not null default gen_random_uuid()");
     expect(sql).toContain("create unique index if not exists organization_members_public_id_idx");
     expect(sql).toContain("'uploadedbyid', uploader.public_id");
+    expect(sql.match(/select reservation\.\*\s+into v_row/g)).toHaveLength(3);
+    expect(sql.match(/select project\.public_id into strict v_project_public_id/g)).toHaveLength(3);
+    expect(sql).not.toContain("select reservation, project.public_id");
   });
 });

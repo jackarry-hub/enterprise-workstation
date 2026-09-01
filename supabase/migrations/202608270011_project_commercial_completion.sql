@@ -1749,8 +1749,8 @@ begin
      or p_task_public_id is null or p_attempt_token is null then
     return jsonb_build_object('outcome','failure','error','invalid_request');
   end if;
-  select tenant,organization,task,project.name
-  into v_tenant,v_organization,v_task,v_project_name
+  select task.*
+  into v_task
   from public.tenants tenant
   join public.organizations organization on organization.tenant_id=tenant.id
   join public.tasks task on task.organization_id=organization.id
@@ -1776,6 +1776,18 @@ begin
     and organization.public_id=p_organization_public_id
   for update of project;
   if not found then return jsonb_build_object('outcome','failure','error','not_found'); end if;
+  select tenant.* into strict v_tenant
+  from public.tenants tenant
+  where tenant.public_id=p_tenant_public_id;
+  select organization.* into strict v_organization
+  from public.organizations organization
+  where organization.tenant_id=v_tenant.id
+    and organization.public_id=p_organization_public_id;
+  select project.name into strict v_project_name
+  from public.projects project
+  where project.tenant_id=v_tenant.id
+    and project.organization_id=v_organization.id
+    and project.id=v_task.project_id;
   select notification.* into v_notification
   from public.task_notifications notification
   where notification.tenant_id=v_tenant.id

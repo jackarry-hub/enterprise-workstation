@@ -213,8 +213,12 @@ describe("project commercial completion migration", () => {
     expect(sql).toContain("select notification.* into strict v_notification");
     expect(sql).toContain("select task.* into v_task");
     expect(sql).toContain("select project.* into strict v_project");
+    expect(sql).toContain("select tenant.* into strict v_tenant");
+    expect(sql).toContain("select organization.* into strict v_organization");
+    expect(sql).toContain("select project.name into strict v_project_name");
     expect(sql).not.toContain("select project,notification into v_project,v_notification");
     expect(sql).not.toContain("select task,project into v_task,v_project");
+    expect(sql).not.toContain("select tenant,organization,task,project.name");
   });
 
   it("keeps task creation compatible only with an existing explicit contributor", () => {

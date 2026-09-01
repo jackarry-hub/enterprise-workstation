@@ -55,6 +55,14 @@ describe("notification outbox v2 migration", () => {
     }
   });
 
+  it("loads composite rows separately so PostgreSQL can assign rowtypes", () => {
+    expect(sql).toMatch(/select notification\.\*\s+into v_notification/i);
+    expect(sql).toMatch(/select tenant\.\* into strict v_tenant/i);
+    expect(sql).toMatch(/select organization\.\* into strict v_organization/i);
+    expect(sql).toMatch(/select task\.\* into strict v_task/i);
+    expect(sql).not.toMatch(/select tenant, organization, task, notification/i);
+  });
+
   it("makes delivery mutation RPCs service-role only and retires legacy writes", () => {
     for (const signature of serviceFunctions) {
       const escaped = signature.replace(/[()]/g, "\\$&");

@@ -107,8 +107,8 @@ begin
     return jsonb_build_object('outcome', 'failure', 'error', 'invalid_request');
   end if;
 
-  select tenant, organization, task, notification
-    into v_tenant, v_organization, v_task, v_notification
+  select notification.*
+    into v_notification
   from public.tenants tenant
   join public.organizations organization on organization.tenant_id = tenant.id
   join public.tasks task
@@ -128,6 +128,18 @@ begin
   if not found then
     return jsonb_build_object('outcome', 'failure', 'error', 'not_found');
   end if;
+
+  select tenant.* into strict v_tenant
+  from public.tenants tenant
+  where tenant.public_id = p_tenant_public_id;
+  select organization.* into strict v_organization
+  from public.organizations organization
+  where organization.tenant_id = v_tenant.id
+    and organization.public_id = p_organization_public_id;
+  select task.* into strict v_task
+  from public.tasks task
+  where task.organization_id = v_organization.id
+    and task.id = v_notification.task_id;
 
   if v_notification.status = 'sent' then
     if v_notification.feishu_message_id is null then
