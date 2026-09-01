@@ -1,6 +1,21 @@
 -- Commercial CRM governance: immutable history/provenance, lifecycle controls,
 -- per-row durable import and audited export snapshots.
 
+-- Supabase installs pgcrypto in the extensions schema. Keep the legacy,
+-- explicitly-qualified command functions working without widening privileges.
+create or replace function public.digest(p_data bytea, p_algorithm text)
+returns bytea
+language sql
+immutable
+strict
+parallel safe
+set search_path=''
+as $$
+  select extensions.digest(p_data,p_algorithm);
+$$;
+revoke all on function public.digest(bytea,text)
+  from public,anon,authenticated,service_role;
+
 alter table public.audit_logs drop constraint if exists audit_logs_action_check;
 alter table public.audit_logs add constraint audit_logs_action_check check (action in (
   'identity.provisioned', 'identity.claimed', 'identity.revoked', 'member.status_changed',

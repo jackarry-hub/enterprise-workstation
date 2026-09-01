@@ -205,6 +205,13 @@ describe("commercial CRM governance migration", () => {
     expect(sql).toContain("crm_source_links_reject_truncate");
   });
 
+  it("bridges legacy command digests to Supabase's private extension schema", () => {
+    expect(sql).toContain("create or replace function public.digest(p_data bytea, p_algorithm text)");
+    expect(sql).toContain("select extensions.digest(p_data,p_algorithm)");
+    expect(sql).toContain("revoke all on function public.digest(bytea,text)");
+    expect(sql).toContain("from public,anon,authenticated,service_role");
+  });
+
   it("closes the legacy owner and contact PII bypasses", () => {
     expect(sql).toContain("'failure','ownership_transfer_required'");
     expect(sql).toContain("customers_guard_owner_transfer");
