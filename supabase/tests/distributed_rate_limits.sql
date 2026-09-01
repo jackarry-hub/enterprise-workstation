@@ -71,7 +71,7 @@ select cmp_ok(
   'expired receipt cleanup is bounded and effective'
 );
 select is(
-  public.commercial_readiness_status('202608300021')->>'migrationReady',
+  public.commercial_readiness_status('202609010001')->>'migrationReady',
   'true',
   'readiness marker matches the forward migration'
 );

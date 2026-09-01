@@ -23,6 +23,7 @@ import type {
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { shouldAllowMockBusinessData } from "@/lib/runtime/workstation-mode";
 import { loadActiveWorkspaceScope } from "@/features/projects/data/active-workspace-data";
+import { parseProjectOperatingModel } from "@/features/projects/data/project-operating-model-data";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof getSupabaseServerClient>>;
 export type ProjectDetailClientFactory = () => Promise<SupabaseServerClient>;
@@ -149,6 +150,7 @@ type RiskRow = {
   owner_member_id: number;
   status: ProjectRisk["status"];
   deadline: string;
+  version: number;
   created_at: string;
   updated_at: string;
 };
@@ -380,7 +382,7 @@ export async function loadProjectDetail(
         .eq("id", projectRow.objective_id)
         .is("deleted_at", null)
         .maybeSingle();
-    const [objectiveResponse, memberResponse, milestoneResponse, taskResponse, commentResponse, reportResponse, activityResponse, riskResponse, fileResponse, fileRelationResponse, accessResponse, acceptanceResponse, availableMembers] = await Promise.all([
+    const [objectiveResponse, memberResponse, milestoneResponse, taskResponse, commentResponse, reportResponse, activityResponse, riskResponse, fileResponse, fileRelationResponse, accessResponse, acceptanceResponse, operatingModelResponse, availableMembers] = await Promise.all([
       objectivePromise,
       client
         .from("project_members")
@@ -420,7 +422,7 @@ export async function loadProjectDetail(
         .limit(12),
       client
         .from("project_risks")
-        .select("public_id, organization_id, title, level, owner_member_id, status, deadline, created_at, updated_at")
+        .select("public_id, organization_id, title, level, owner_member_id, status, deadline, version, created_at, updated_at")
         .eq("project_id", projectRow.id)
         .is("deleted_at", null)
         .order("deadline"),
@@ -441,10 +443,16 @@ export async function loadProjectDetail(
       typeof client.rpc === "function"
         ? client.rpc("current_task_acceptance_history", { p_project_public_id: projectPublicId })
         : Promise.resolve({ data: [], error: null }),
+      typeof client.rpc === "function"
+        ? client.rpc("current_project_operating_model", {
+          p_project_public_id: projectPublicId,
+          p_trace_limit: 80,
+        })
+        : Promise.resolve({ data: null, error: null }),
       loadAvailableProjectMembers(client, scope),
     ]);
 
-    const responses = [objectiveResponse, memberResponse, milestoneResponse, taskResponse, commentResponse, reportResponse, activityResponse, riskResponse, fileResponse, fileRelationResponse, accessResponse, acceptanceResponse];
+    const responses = [objectiveResponse, memberResponse, milestoneResponse, taskResponse, commentResponse, reportResponse, activityResponse, riskResponse, fileResponse, fileRelationResponse, accessResponse, acceptanceResponse, operatingModelResponse];
     const relatedError = responses.find(({ error }) => error)?.error;
     if (relatedError) {
       throw relatedError;
@@ -631,11 +639,19 @@ export async function loadProjectDetail(
       ownerId: requiredMemberPublicId(memberDirectory, row.owner_member_id),
       status: row.status,
       deadline: row.deadline,
+      version: row.version,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
 
     const acceptanceEvents = ((acceptanceResponse.data ?? []) as unknown[]).map(mapCanonicalAcceptanceEvent);
+    const parsedOperatingModel = operatingModelResponse.data == null
+      ? undefined
+      : parseProjectOperatingModel(operatingModelResponse.data);
+    if (operatingModelResponse.data != null && !parsedOperatingModel) {
+      throw new Error("project_operating_model_invalid");
+    }
+    const operatingModel = parsedOperatingModel ?? undefined;
 
     const filePublicIds = new Map(fileRows.map((row) => [row.id, row.public_id]));
     const files = fileRows.map<ProjectFile>((row) => ({
@@ -701,6 +717,8 @@ export async function loadProjectDetail(
       risks,
       fileRelations,
       acceptanceEvents,
+      retrospective: operatingModel?.retrospective,
+      operatingModel,
     };
 
     return {

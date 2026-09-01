@@ -6,7 +6,7 @@ import { getRateLimitEnvironment } from "@/features/security/distributed-rate-li
 import { getSupabaseEnv } from "@/lib/supabase/env";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
-export const REQUIRED_MIGRATION_MARKER = "202608300021";
+export const REQUIRED_MIGRATION_MARKER = "202609010001";
 
 type ReadinessDependencies = {
   checkConfiguration: () => void;

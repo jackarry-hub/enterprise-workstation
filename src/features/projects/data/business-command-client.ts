@@ -1,6 +1,12 @@
 import type {
+  ProjectDecisionCitation,
+  ProjectDecisionStatus,
+  ProjectDecisionType,
   ProjectPriority,
+  ProjectSopRunStatus,
+  ProjectSopStep,
   ProjectTask,
+  ProjectRiskStatus,
   TaskComment,
   TaskPriority,
 } from "@/features/projects/types";
@@ -23,6 +29,7 @@ const commandErrors: Record<string, string> = {
   invalid_transition: "当前任务状态不允许该操作",
   invalid_state: "当前记录状态不允许该操作",
   restore_status_required: "历史归档项目缺少原状态，请选择安全的恢复状态",
+  operating_model_unavailable: "项目运行模型服务暂时不可用，请稍后重试",
 };
 
 function record(value: unknown): JsonRecord | null {
@@ -420,4 +427,101 @@ export function publicTaskPriority(priority: TaskPriority): CreateBusinessTaskIn
   if (priority === "high") return "P1";
   if (priority === "medium") return "P2";
   return "P3";
+}
+
+async function operatingModelCommand(
+  projectId: string,
+  body: Record<string, unknown>,
+  idempotencyKey: string,
+) {
+  const payload = await requestJson(`/api/workstation/projects/${projectId}/operating-model`, {
+    method: "POST",
+    headers: commandHeaders(idempotencyKey),
+    body: JSON.stringify(body),
+  });
+  const entity = record(payload.entity);
+  const id = canonicalUuid(entity?.id); const responseProjectId = canonicalUuid(entity?.projectId);
+  const version = positiveInteger(entity?.version);
+  if (!id || responseProjectId !== canonicalUuid(projectId) || !version) {
+    throw new Error("操作已提交但返回结果无法确认，请刷新后核对");
+  }
+  return { ...entity, id, projectId: responseProjectId as string, version };
+}
+
+export function saveBusinessProjectSop(
+  projectId: string,
+  input: {
+    definitionId: string | null;
+    code: string;
+    name: string;
+    description: string;
+    steps: readonly ProjectSopStep[];
+    publish: boolean;
+    reason: string;
+  },
+  idempotencyKey: string,
+) {
+  return operatingModelCommand(projectId, { command: "save_sop", ...input }, idempotencyKey);
+}
+
+export function startBusinessProjectSop(
+  projectId: string,
+  input: { definitionId: string; taskId: string | null; assignedEmployeeId: string; reason: string },
+  idempotencyKey: string,
+) {
+  return operatingModelCommand(projectId, { command: "start_sop", ...input }, idempotencyKey);
+}
+
+export function advanceBusinessProjectSop(
+  projectId: string,
+  input: {
+    runId: string;
+    action: "complete_step" | "request_human" | "resume" | "fail" | "cancel";
+    expectedVersion: number;
+    note: string;
+    evidence: Record<string, unknown>;
+    reason: string;
+  },
+  idempotencyKey: string,
+): Promise<Record<string, unknown> & { id: string; projectId: string; version: number; status?: ProjectSopRunStatus }> {
+  return operatingModelCommand(projectId, { command: "advance_sop", ...input }, idempotencyKey);
+}
+
+export function recordBusinessProjectDecision(
+  projectId: string,
+  input: {
+    type: ProjectDecisionType;
+    title: string;
+    summary: string;
+    citations: readonly ProjectDecisionCitation[];
+    ownerEmployeeId: string;
+    reason: string;
+  },
+  idempotencyKey: string,
+) {
+  return operatingModelCommand(projectId, { command: "record_decision", ...input }, idempotencyKey);
+}
+
+export function transitionBusinessProjectDecision(
+  projectId: string,
+  input: { decisionId: string; status: Exclude<ProjectDecisionStatus, "proposed">; expectedVersion: number; reason: string },
+  idempotencyKey: string,
+) {
+  return operatingModelCommand(projectId, { command: "transition_decision", ...input }, idempotencyKey);
+}
+
+export function saveBusinessProjectRetrospective(
+  projectId: string,
+  input: { outcome: string; wins: string; lessons: string; followUps: string; expectedVersion: number; reason: string },
+  idempotencyKey: string,
+) {
+  return operatingModelCommand(projectId, { command: "save_retrospective", ...input }, idempotencyKey);
+}
+
+export function updateBusinessProjectRiskStatus(
+  projectId: string,
+  input: { riskId: string; status: ProjectRiskStatus; expectedVersion: number; reason: string },
+  idempotencyKey: string,
+) {
+  return operatingModelCommand(projectId, { command: "update_risk", ...input }, idempotencyKey);
 }

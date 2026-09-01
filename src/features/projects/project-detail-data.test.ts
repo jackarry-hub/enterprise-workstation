@@ -208,7 +208,10 @@ describe("loadProjectDetail", () => {
     };
     const factory = (async () => ({
       auth: { getUser: async () => ({ data: { user: { id: "user-real-owner" } }, error: null }) },
-      rpc: async (name: string) => ({ data: name === "current_task_acceptance_history" ? [] : true, error: null }),
+      rpc: async (name: string) => ({ data: name === "current_task_acceptance_history" ? []
+        : name === "current_project_operating_model" ? {
+          canManage: true, sops: [], sopRuns: [], decisions: [], retrospective: null, trace: [],
+        } : true, error: null }),
       from: (table: string) => createQuery(responses[table]),
     })) as unknown as ProjectDetailClientFactory;
 

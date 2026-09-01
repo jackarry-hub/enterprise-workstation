@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { requireWorkspaceSession } from "@/features/auth/workspace-session";
 import {
   getEmployeeDetail,
+  loadEmployeeCapabilityCenter,
   loadEmployeeDirectory,
   loadEmployeePrivateProfile,
 } from "@/features/hr/employee-data";
@@ -20,9 +21,10 @@ export default async function EmployeeDetailRoute({
 }) {
   const session = await requireWorkspaceSession();
   const { id } = await params;
-  const [directory, privateProfile] = await Promise.all([
+  const [directory, privateProfile, capabilityCenter] = await Promise.all([
     loadEmployeeDirectory(session.organization.id, undefined, { allowMockFallback: false }),
     loadEmployeePrivateProfile(id, session.organization.id),
+    loadEmployeeCapabilityCenter(id, session.organization.id),
   ]);
   const employee = getEmployeeDetail(id, directory);
 
@@ -30,5 +32,10 @@ export default async function EmployeeDetailRoute({
     notFound();
   }
 
-  return <EmployeeDetailPage employee={employee} privateProfile={privateProfile.data} />;
+  return <EmployeeDetailPage
+    employee={employee}
+    privateProfile={privateProfile.data}
+    capabilityCenter={capabilityCenter.data}
+    capabilityLoadError={capabilityCenter.loadError}
+  />;
 }

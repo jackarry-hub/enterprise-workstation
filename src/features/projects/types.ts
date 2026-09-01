@@ -286,17 +286,107 @@ export interface ProjectRisk {
   ownerId: string;
   status: ProjectRiskStatus;
   deadline: string;
+  version?: number;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface ProjectRetrospective {
+  id?: string;
   outcome: string;
   wins: string;
   lessons: string;
   followUps: string;
   updatedById: string;
+  version?: number;
   updatedAt: string;
+}
+
+export type ProjectSopStepKind = "human" | "agent" | "approval" | "system";
+export type ProjectSopRunStatus = "running" | "waiting_human" | "completed" | "failed" | "cancelled";
+
+export interface ProjectSopStep {
+  key: string;
+  name: string;
+  description: string;
+  kind: ProjectSopStepKind;
+  requiresHuman: boolean;
+}
+
+export interface ProjectSopDefinition {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  status: "draft" | "active" | "retired";
+  version: number;
+  versionId?: string;
+  revision?: number;
+  lifecycle?: "draft" | "published" | "retired";
+  steps: readonly ProjectSopStep[];
+  updatedAt: string;
+}
+
+export interface ProjectSopRun {
+  id: string;
+  definitionId: string;
+  definitionName: string;
+  versionId: string;
+  revision: number;
+  steps: readonly ProjectSopStep[];
+  taskId?: string;
+  assignedEmployeeId: string;
+  assignedName: string;
+  status: ProjectSopRunStatus;
+  currentStepIndex: number;
+  version: number;
+  startedAt: string;
+  completedAt?: string;
+  updatedAt: string;
+}
+
+export type ProjectDecisionType = "decision" | "risk" | "lesson" | "action";
+export type ProjectDecisionStatus = "proposed" | "accepted" | "archived";
+
+export interface ProjectDecisionCitation {
+  type: "task" | "report" | "knowledge" | "file" | "link";
+  id: string;
+  label: string;
+}
+
+export interface ProjectDecision {
+  id: string;
+  type: ProjectDecisionType;
+  title: string;
+  summary: string;
+  citations: readonly ProjectDecisionCitation[];
+  ownerEmployeeId: string;
+  ownerName: string;
+  status: ProjectDecisionStatus;
+  version: number;
+  createdAt: string;
+  acceptedAt?: string;
+  updatedAt: string;
+}
+
+export interface ProjectExecutionTraceItem {
+  id: string;
+  source: "project" | "acceptance" | "sop";
+  eventType: string;
+  title: string;
+  actorName: string;
+  occurredAt: string;
+  taskId?: string;
+  runId?: string;
+}
+
+export interface ProjectOperatingModel {
+  canManage: boolean;
+  sops: readonly ProjectSopDefinition[];
+  sopRuns: readonly ProjectSopRun[];
+  decisions: readonly ProjectDecision[];
+  retrospective?: ProjectRetrospective;
+  trace: readonly ProjectExecutionTraceItem[];
 }
 
 export interface FileRelation {
@@ -372,6 +462,7 @@ export interface ProjectDetailData {
   fileRelations: readonly FileRelation[];
   retrospective?: ProjectRetrospective;
   acceptanceEvents?: readonly TaskAcceptanceEvent[];
+  operatingModel?: ProjectOperatingModel;
 }
 
 export interface ArchivedProjectSummary {

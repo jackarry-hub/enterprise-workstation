@@ -77,15 +77,43 @@ describe("ProjectDetailPage", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "新建任务" })).not.toBeInTheDocument());
   });
 
-  it("keeps formal retrospective and risk controls read-only until durable commands exist", async () => {
+  it("enables formal retrospective and risk controls through durable commands", async () => {
     const user = userEvent.setup();
     render(<ProjectDetailPage projectId={detail.project.id} initialResult={{ detail, source: "supabase", access: { canManage: true, viewerMemberId: detail.owner.id } }} />);
 
     await user.click(screen.getByRole("tab", { name: "复盘" }));
 
-    expect(screen.getByText("正式项目复盘与风险维护接口尚未接入，当前仅展示已存数据。")).toBeVisible();
-    expect(screen.getByRole("button", { name: "保存复盘" })).toBeDisabled();
-    expect(screen.queryByRole("button", { name: "标记缓解" })).not.toBeInTheDocument();
+    expect(screen.queryByText("正式项目复盘与风险维护接口尚未接入，当前仅展示已存数据。")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存复盘" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "标记缓解" })).toBeEnabled();
+  });
+
+  it("exposes the employee-centered SOP and evidence-backed decision flows", async () => {
+    const user = userEvent.setup();
+    const operatingDetail = {
+      ...detail,
+      operatingModel: {
+        canManage: true,
+        sops: [],
+        sopRuns: [],
+        decisions: [],
+        trace: [],
+      },
+    };
+    render(<ProjectDetailPage projectId={detail.project.id} initialResult={{ detail: operatingDetail, source: "supabase", access: { canManage: true, viewerMemberId: detail.owner.id } }} />);
+
+    await user.click(screen.getByRole("tab", { name: "SOP" }));
+    expect(screen.getByRole("heading", { name: "版本化 SOP" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "新建 SOP" }));
+    expect(screen.getByRole("dialog", { name: "新建并发布 SOP" })).toBeVisible();
+    expect(screen.getByDisplayValue("标准项目执行 SOP")).toBeVisible();
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("tab", { name: "决策板" }));
+    expect(screen.getByRole("heading", { name: "项目决策板" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "统一执行轨迹" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "记录决策" }));
+    expect(screen.getByRole("dialog", { name: "记录项目决策" })).toHaveTextContent("现有任务、日报或文件");
   });
 
   it("maps returned comment authors and refreshes after a confirmed report", async () => {

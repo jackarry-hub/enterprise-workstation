@@ -4,6 +4,8 @@ export const projectDetailTabs = [
   { value: "overview", label: "概览" },
   { value: "milestones", label: "里程碑" },
   { value: "tasks", label: "任务" },
+  { value: "sop", label: "SOP" },
+  { value: "decisions", label: "决策板" },
   { value: "gantt", label: "甘特图" },
   { value: "files", label: "文件" },
   { value: "reports", label: "日报" },

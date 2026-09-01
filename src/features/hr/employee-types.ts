@@ -80,3 +80,83 @@ export type EmployeePrivateProfileResult = {
   data?: EmployeePrivateProfile;
   loadError?: string;
 };
+
+export type EmployeeCapabilitySkill = {
+  id: string;
+  code: string;
+  name: string;
+  level?: number;
+  yearsExperience?: number;
+  source: "self" | "manager" | "import" | "system";
+  verificationStatus: "unverified" | "verified";
+  updatedAt: string;
+};
+
+export type EmployeeWorkProfile = {
+  summary: string;
+  preferredTaskTypes: string[];
+  growthGoals: string[];
+  weeklyCapacityHours: number;
+  selfSkills: Array<{ name: string; level: number }>;
+  updatedAt: string;
+};
+
+export type EmployeeWorkAssignment = {
+  id: string;
+  title: string;
+  projectId: string;
+  projectName: string;
+  status: string;
+  priority: string;
+  progress: number;
+  dueDate?: string;
+  updatedAt: string;
+};
+
+export type EmployeeCapabilityEvidence = {
+  id: string;
+  eventType: string;
+  taskId: string;
+  taskTitle: string;
+  projectId: string;
+  projectName: string;
+  decision?: "pass" | "reject";
+  note?: string;
+  occurredAt: string;
+};
+
+export type EmployeeAgentRun = {
+  id: string;
+  agentId: string;
+  agentName: string;
+  status: string;
+  inputSummary: string;
+  outputSummary: string;
+  modelCode: string;
+  cost: number;
+  latencyMs?: number;
+  startedAt: string;
+  completedAt?: string;
+};
+
+export type EmployeeCapabilityCenter = {
+  canViewWork: boolean;
+  canViewAgent: boolean;
+  workProfile?: EmployeeWorkProfile;
+  skills: EmployeeCapabilitySkill[];
+  workload?: {
+    openTasks: number;
+    inProgressTasks: number;
+    awaitingReviewTasks: number;
+    completedTasks: number;
+  };
+  assignments: EmployeeWorkAssignment[];
+  evidence: EmployeeCapabilityEvidence[];
+  agentRuns: EmployeeAgentRun[];
+};
+
+export type EmployeeCapabilityCenterResult = {
+  source: "supabase";
+  data?: EmployeeCapabilityCenter;
+  loadError?: string;
+};

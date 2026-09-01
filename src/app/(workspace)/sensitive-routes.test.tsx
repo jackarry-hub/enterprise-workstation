@@ -14,6 +14,7 @@ const dependencies = vi.hoisted(() => ({
   loadEmployeeDirectory: vi.fn(),
   getEmployeeDetail: vi.fn(),
   loadEmployeePrivateProfile: vi.fn(),
+  loadEmployeeCapabilityCenter: vi.fn(),
 }));
 
 vi.mock("@/features/auth/workspace-session", () => ({
@@ -34,6 +35,7 @@ vi.mock("@/features/hr/employee-data", () => ({
   loadEmployeeDirectory: dependencies.loadEmployeeDirectory,
   getEmployeeDetail: dependencies.getEmployeeDetail,
   loadEmployeePrivateProfile: dependencies.loadEmployeePrivateProfile,
+  loadEmployeeCapabilityCenter: dependencies.loadEmployeeCapabilityCenter,
 }));
 
 import ApprovalDetailRoute from "@/app/(workspace)/approvals/[id]/page";
@@ -72,6 +74,7 @@ const employeeDetail = {
   profile: { id: "person-sentinel", displayName: "员工详情夹具哨兵" },
 };
 const employeePrivateProfile = { source: "supabase", data: undefined };
+const employeeCapabilityCenter = { source: "supabase", data: undefined };
 
 function serialized(value: unknown) {
   return JSON.stringify(value);
@@ -87,6 +90,7 @@ describe("sensitive workspace routes", () => {
     dependencies.loadEmployeeDirectory.mockResolvedValue(peopleResult);
     dependencies.getEmployeeDetail.mockReturnValue(employeeDetail);
     dependencies.loadEmployeePrivateProfile.mockResolvedValue(employeePrivateProfile);
+    dependencies.loadEmployeeCapabilityCenter.mockResolvedValue(employeeCapabilityCenter);
   });
 
   it("loads only the safe people directory and capability-scoped private profile for an active real session", async () => {
@@ -115,6 +119,10 @@ describe("sensitive workspace routes", () => {
     );
     expect(dependencies.getEmployeeDetail).toHaveBeenCalledWith("person-sentinel", peopleResult);
     expect(dependencies.loadEmployeePrivateProfile).toHaveBeenCalledWith(
+      "person-sentinel",
+      unboundExecutiveWorkspaceSession.organization.id,
+    );
+    expect(dependencies.loadEmployeeCapabilityCenter).toHaveBeenCalledWith(
       "person-sentinel",
       unboundExecutiveWorkspaceSession.organization.id,
     );
@@ -167,6 +175,10 @@ describe("sensitive workspace routes", () => {
       peopleResult,
     );
     expect(dependencies.loadEmployeePrivateProfile).toHaveBeenCalledWith(
+      "person-sentinel",
+      executiveWorkspaceSession.organization.id,
+    );
+    expect(dependencies.loadEmployeeCapabilityCenter).toHaveBeenCalledWith(
       "person-sentinel",
       executiveWorkspaceSession.organization.id,
     );

@@ -21,6 +21,8 @@ import { ProjectMemberManagementDialog } from "@/features/projects/components/pr
 import { ProjectOverviewTab } from "@/features/projects/components/project-overview-tab";
 import { ProjectReportsTab, type DailyReportInput } from "@/features/projects/components/project-reports-tab";
 import { ProjectRetrospectiveTab } from "@/features/projects/components/project-retrospective-tab";
+import { ProjectSopTab } from "@/features/projects/components/project-sop-tab";
+import { ProjectDecisionsTab } from "@/features/projects/components/project-decisions-tab";
 import { ProjectTasksTab } from "@/features/projects/components/project-tasks-tab";
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import {
@@ -50,10 +52,17 @@ import {
   updateBusinessProject,
   archiveBusinessProject,
   mutateBusinessProjectMember,
+  advanceBusinessProjectSop,
+  recordBusinessProjectDecision,
+  saveBusinessProjectRetrospective,
+  saveBusinessProjectSop,
+  startBusinessProjectSop,
+  transitionBusinessProjectDecision,
+  updateBusinessProjectRiskStatus,
 } from "@/features/projects/data/business-command-client";
 import { formatDateInputInTimeZone } from "@/lib/date";
 import { useWorkspaceRouter } from "@/lib/navigation/use-workspace-router";
-import type { DailyReport, FileRelation, Milestone, ProjectActivity, ProjectDetailData, ProjectDetailResult, ProjectFile, ProjectRetrospective, ProjectRiskStatus } from "@/features/projects/types";
+import type { DailyReport, FileRelation, Milestone, ProjectActivity, ProjectDecision, ProjectDecisionCitation, ProjectDecisionType, ProjectDetailData, ProjectDetailResult, ProjectFile, ProjectRetrospective, ProjectRiskStatus, ProjectSopDefinition, ProjectSopRun, ProjectSopStep } from "@/features/projects/types";
 
 export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult }) {
   const router = useWorkspaceRouter();
@@ -313,19 +322,74 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
     persistDetail({ ...detail, dailyReports: [report, ...detail.dailyReports], activities: [activity, ...detail.activities], project: { ...detail.project, updatedAt: now } });
   }
 
-  function saveRetrospective(input: Omit<ProjectRetrospective, "updatedById" | "updatedAt">) {
+  async function saveRetrospective(input: Omit<ProjectRetrospective, "updatedById" | "updatedAt">) {
+    if (result.source === "supabase") {
+      await saveBusinessProjectRetrospective(detail.project.id, {
+        outcome: input.outcome,
+        wins: input.wins,
+        lessons: input.lessons,
+        followUps: input.followUps,
+        expectedVersion: detail.retrospective?.version ?? 0,
+        reason: "更新项目复盘",
+      }, crypto.randomUUID());
+      router.refresh();
+      return;
+    }
     const now = new Date().toISOString();
     const retrospective: ProjectRetrospective = { ...input, updatedById: auditActor.memberId, updatedAt: now };
     const activity: ProjectActivity = { id: `activity-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, userId: auditActor.id, actionType: "project_updated", content: `${auditActor.name}更新了项目复盘。`, createdAt: now };
     persistDetail({ ...detail, retrospective, activities: [activity, ...detail.activities], project: { ...detail.project, updatedAt: now } });
   }
 
-  function updateRiskStatus(riskId: string, status: ProjectRiskStatus) {
+  async function updateRiskStatus(riskId: string, status: ProjectRiskStatus) {
     const now = new Date().toISOString();
     const risk = detail.risks.find(({ id }) => id === riskId);
     if (!risk) return;
+    if (result.source === "supabase") {
+      if (!risk.version) throw new Error("风险版本缺失，请刷新后重试");
+      await updateBusinessProjectRiskStatus(detail.project.id, {
+        riskId,
+        status,
+        expectedVersion: risk.version,
+        reason: status === "mitigated" ? "风险缓解确认" : "更新风险跟踪状态",
+      }, crypto.randomUUID());
+      router.refresh();
+      return;
+    }
     const activity: ProjectActivity = { id: `activity-${Date.now()}`, organizationId: detail.project.organizationId, projectId: detail.project.id, userId: auditActor.id, actionType: "risk_updated", content: `${auditActor.name}将风险“${risk.title}”更新为${status === "mitigated" ? "已缓解" : "监控中"}。`, createdAt: now };
     persistDetail({ ...detail, risks: detail.risks.map((item) => item.id === riskId ? { ...item, status, updatedAt: now } : item), activities: [activity, ...detail.activities], project: { ...detail.project, updatedAt: now } });
+  }
+
+  async function saveSop(input: { definitionId: string | null; code: string; name: string; description: string; steps: ProjectSopStep[]; publish: boolean }, idempotencyKey: string) {
+    if (result.source !== "supabase") throw new Error("SOP 仅使用正式数据库运行");
+    await saveBusinessProjectSop(detail.project.id, { ...input, reason: input.definitionId ? "发布 SOP 新版本" : "创建项目 SOP" }, idempotencyKey);
+    router.refresh();
+  }
+
+  async function startSop(definition: ProjectSopDefinition, employeeId: string, taskId: string | null, idempotencyKey: string) {
+    if (result.source !== "supabase") throw new Error("SOP 仅使用正式数据库运行");
+    await startBusinessProjectSop(detail.project.id, { definitionId: definition.id, taskId, assignedEmployeeId: employeeId, reason: `启动 ${definition.name}` }, idempotencyKey);
+    router.refresh();
+  }
+
+  async function advanceSop(run: ProjectSopRun, action: "complete_step" | "request_human" | "resume", note: string, idempotencyKey: string) {
+    if (result.source !== "supabase") throw new Error("SOP 仅使用正式数据库运行");
+    await advanceBusinessProjectSop(detail.project.id, { runId: run.id, action, expectedVersion: run.version,
+      note, evidence: note ? { note } : {}, reason: action === "request_human" ? "执行中申请人工接管" : "更新 SOP 执行步骤" }, idempotencyKey);
+    router.refresh();
+  }
+
+  async function recordDecision(input: { type: ProjectDecisionType; title: string; summary: string; citations: ProjectDecisionCitation[]; ownerEmployeeId: string }, idempotencyKey: string) {
+    if (result.source !== "supabase") throw new Error("决策板仅写入正式数据库");
+    await recordBusinessProjectDecision(detail.project.id, { ...input, reason: "记录有证据的项目决策" }, idempotencyKey);
+    router.refresh();
+  }
+
+  async function transitionDecision(decision: ProjectDecision, status: "accepted" | "archived", idempotencyKey: string) {
+    if (result.source !== "supabase") throw new Error("决策板仅写入正式数据库");
+    await transitionBusinessProjectDecision(detail.project.id, { decisionId: decision.id, status,
+      expectedVersion: decision.version, reason: status === "accepted" ? "负责人确认项目决策" : "归档项目决策" }, idempotencyKey);
+    router.refresh();
   }
 
   if (!canViewProject) {
@@ -345,10 +409,12 @@ export function ProjectDetailWorkspace({ result }: { result: ProjectDetailResult
         {activeTab === "tasks" ? (
           <ProjectTasksTab actor={taskActor} detail={detail} onCreate={() => setIsTaskOpen(true)} onStatusChange={updateTaskStatus} onComment={addTaskComment} onTransition={transitionTask} initialTaskId={initialTaskId} canManage={canManageProject} workflowManaged={workflowManaged} />
         ) : null}
+        {activeTab === "sop" ? <ProjectSopTab detail={detail} canManage={canManageProject && result.source === "supabase"} onSave={saveSop} onStart={startSop} onAdvance={advanceSop} /> : null}
+        {activeTab === "decisions" ? <ProjectDecisionsTab detail={detail} canManage={canManageProject && result.source === "supabase"} onRecord={recordDecision} onTransition={transitionDecision} /> : null}
         {activeTab === "gantt" ? <ProjectGanttTab detail={detail} /> : null}
         {activeTab === "files" ? <ProjectFilesTab detail={detail} formal={result.source === "supabase"} onUpload={uploadFile} onDownload={downloadFile} /> : null}
         {activeTab === "reports" ? <ProjectReportsTab detail={detail} canSubmit={canViewProject} onSubmit={submitDailyReport} /> : null}
-        {activeTab === "retrospective" ? <ProjectRetrospectiveTab detail={detail} canManage={canManageProject && result.source === "mock"} readOnlyReason={result.source === "supabase" ? "正式项目复盘与风险维护接口尚未接入，当前仅展示已存数据。" : undefined} onSave={saveRetrospective} onRiskStatusChange={updateRiskStatus} /> : null}
+        {activeTab === "retrospective" ? <ProjectRetrospectiveTab detail={detail} canManage={canManageProject} onSave={saveRetrospective} onRiskStatusChange={updateRiskStatus} /> : null}
       </Tabs>
 
       <EditProjectDialog detail={detail} open={isEditOpen} onOpenChange={setIsEditOpen} onSave={editProject} allowStatusChange={result.source === "mock"} />
