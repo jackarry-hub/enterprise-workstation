@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 const envExample = readFileSync(resolve(process.cwd(), ".env.example"), "utf8");
 const compose = readFileSync(resolve(process.cwd(), "compose.yaml"), "utf8");
+const stagingCompose = readFileSync(resolve(process.cwd(), "compose.staging.yaml"), "utf8");
 
 const runtimeVariables = [
   "NEXT_PUBLIC_SUPABASE_URL",
@@ -25,6 +26,7 @@ const runtimeVariables = [
   "KNOWLEDGE_PROCESSOR_URL",
   "KNOWLEDGE_PROCESSOR_SECRET",
   "KNOWLEDGE_PROCESSOR_ALLOWED_HOSTS",
+  "KNOWLEDGE_SOURCE_ALLOWED_HOSTS",
   "RATE_LIMIT_HASH_PEPPER",
   "RATE_LIMIT_TRUSTED_IP_HEADER",
 ] as const;
@@ -64,5 +66,14 @@ describe("commercial deployment environment contract", () => {
     for (const variable of stagingVariables) {
       expect(compose, variable).not.toContain(`${variable}:`);
     }
+  });
+
+  it("keeps Staging off host ports and joins only the named edge network", () => {
+    expect(compose).toContain("${APP_BIND_ADDRESS:-0.0.0.0}:${APP_PORT:-3010}:3000");
+    expect(compose).toContain("${QUANTXY_IMAGE_TAG:-latest}");
+    expect(stagingCompose).toContain("ports: !override []");
+    expect(stagingCompose).toContain("${QUANTXY_EDGE_ALIAS:?QUANTXY_EDGE_ALIAS is required}");
+    expect(stagingCompose).toContain("${QUANTXY_EDGE_NETWORK:?QUANTXY_EDGE_NETWORK is required}");
+    expect(stagingCompose).not.toContain("3010:3000");
   });
 });

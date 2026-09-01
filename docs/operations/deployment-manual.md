@@ -12,7 +12,17 @@
 
 按 `staging-validation-runbook.md` 在隔离 Staging dry-run、备份、迁移、固定镜像摘要并启动容器。完成数据库、七角色、桌面/移动、真机、外部服务、负载、恢复和 Canary，生成签名外部证据，运行 `npm run verify:commercial:staging`。
 
+服务器上使用独立目录、独立 Compose 项目和独立镜像标签：
+
+```bash
+docker compose -p quantxy-staging -f compose.yaml -f compose.staging.yaml --env-file .env.staging.local config --quiet
+docker compose -p quantxy-staging -f compose.yaml -f compose.staging.yaml --env-file .env.staging.local up -d --build
+```
+
+`compose.staging.yaml` 会移除宿主机端口映射，只把 `workstation` 加入已配置的 Caddy edge 网络。Caddy 应反向代理到唯一别名 `QUANTXY_EDGE_ALIAS:3000`；不得覆盖现有 `work.quantumgalaxy.top` 或复用旧版 `3010` 端口。
+
+知识库处理依赖、许可边界和验收项见 `knowledge-processing-runtime.md`。三个处理 sidecar 均不发布宿主机端口；部署前必须把镜像标签解析并固定为候选证据中的不可变 digest。
+
 ## Production boundary
 
 未获得明确 Production 授权不得上传、推送迁移、切流或清理旧资源。获批后只部署同一候选摘要；Canary 通过再逐级扩流。发布后观察七天，保留当前和一个已验证回滚镜像；跨项目清理需另行授权。
-

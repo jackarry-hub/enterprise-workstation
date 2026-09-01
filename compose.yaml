@@ -22,10 +22,10 @@ services:
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?NEXT_PUBLIC_SUPABASE_URL is required}
         NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:?NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is required}
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?NEXT_PUBLIC_APP_URL is required}
-    image: quantxy-workstation:latest
+    image: quantxy-workstation:${QUANTXY_IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
-      - "3010:3000"
+      - "${APP_BIND_ADDRESS:-0.0.0.0}:${APP_PORT:-3010}:3000"
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?NEXT_PUBLIC_SUPABASE_URL is required}
@@ -44,6 +44,12 @@ services:
       KNOWLEDGE_PROCESSOR_URL: ${KNOWLEDGE_PROCESSOR_URL:?KNOWLEDGE_PROCESSOR_URL is required}
       KNOWLEDGE_PROCESSOR_SECRET: ${KNOWLEDGE_PROCESSOR_SECRET:?KNOWLEDGE_PROCESSOR_SECRET is required}
       KNOWLEDGE_PROCESSOR_ALLOWED_HOSTS: ${KNOWLEDGE_PROCESSOR_ALLOWED_HOSTS:?KNOWLEDGE_PROCESSOR_ALLOWED_HOSTS is required}
+      KNOWLEDGE_SOURCE_ALLOWED_HOSTS: ${KNOWLEDGE_SOURCE_ALLOWED_HOSTS:?KNOWLEDGE_SOURCE_ALLOWED_HOSTS is required}
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"
+      UNSTRUCTURED_URL: http://unstructured:8000/general/v0/general
+      EMBEDDING_URL: http://embedding:80/embed
+      EMBEDDING_MODEL: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
       RATE_LIMIT_HASH_PEPPER: ${RATE_LIMIT_HASH_PEPPER:?RATE_LIMIT_HASH_PEPPER is required}
       RATE_LIMIT_TRUSTED_IP_HEADER: ${RATE_LIMIT_TRUSTED_IP_HEADER:-x-real-ip}
       WORKSTATION_ALLOW_MOCK_DATA: "false"
@@ -67,12 +73,87 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  knowledge-processing:
+    <<: *runtime-security
+    build:
+      context: .
+      dockerfile: Dockerfile.knowledge-processing
+    image: quantxy-knowledge-processing:${QUANTXY_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      workstation:
+        condition: service_healthy
+    environment:
+      INTERNAL_WORKER_TOKEN: ${INTERNAL_WORKER_TOKEN:?INTERNAL_WORKER_TOKEN is required}
+
+  clamav:
+    image: clamav/clamav:1.5.4
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cpus: "1.00"
+    mem_limit: 1536m
+    volumes:
+      - clamav_database:/var/lib/clamav
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  unstructured:
+    image: quay.io/unstructured-io/unstructured-api:0.1.2
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cpus: "1.50"
+    mem_limit: 3g
+    environment:
+      PORT: "8000"
+      WORKERS: "1"
+      UNSTRUCTURED_MEMORY_FREE_MINIMUM_MB: "768"
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    volumes:
+      - unstructured_cache:/home/notebook-user/.cache
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  embedding:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.3
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cpus: "1.50"
+    mem_limit: 3g
+    command:
+      - --model-id
+      - sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+      - --revision
+      - 383bbb10e05bb8885acd71a7956dc2d823b60305
+      - --dtype
+      - float32
+      - --pooling
+      - mean
+      - --max-client-batch-size
+      - "32"
+    volumes:
+      - embedding_cache:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   agent-invocation-recovery:
     <<: *runtime-security
     build:
       context: .
       dockerfile: Dockerfile.agent-invocation-recovery
-    image: quantxy-agent-invocation-recovery:latest
+    image: quantxy-agent-invocation-recovery:${QUANTXY_IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       workstation:
@@ -85,7 +166,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.task-notification-recovery
-    image: quantxy-task-notification-recovery:latest
+    image: quantxy-task-notification-recovery:${QUANTXY_IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       workstation:
@@ -98,10 +179,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.file-upload-cleanup
-    image: quantxy-file-upload-cleanup:latest
+    image: quantxy-file-upload-cleanup:${QUANTXY_IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       workstation:
         condition: service_healthy
     environment:
       FILE_UPLOAD_CLEANUP_CRON_SECRET: ${FILE_UPLOAD_CLEANUP_CRON_SECRET:?FILE_UPLOAD_CLEANUP_CRON_SECRET is required}
+
+volumes:
+  clamav_database:
+  unstructured_cache:
+  embedding_cache:

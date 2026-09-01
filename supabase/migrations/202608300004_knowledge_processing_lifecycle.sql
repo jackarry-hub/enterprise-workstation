@@ -104,7 +104,7 @@ create table public.knowledge_chunks (
   page_number integer check (page_number is null or page_number > 0),
   character_from integer check (character_from is null or character_from >= 0),
   character_to integer check (character_to is null or character_to >= character_from),
-  embedding extensions.vector(1536),
+  embedding extensions.vector(384),
   embedding_model text,
   permission_digest text not null check (permission_digest ~ '^[0-9a-f]{64}$'),
   stale_at timestamptz,

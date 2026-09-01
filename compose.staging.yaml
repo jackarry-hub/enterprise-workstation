@@ -1,0 +1,16 @@
+services:
+  workstation:
+    # Staging is reachable only through the existing Caddy edge network. It
+    # never publishes a host port and therefore cannot collide with the legacy
+    # workstation currently bound to host port 3010.
+    ports: !override []
+    networks:
+      default:
+      edge:
+        aliases:
+          - ${QUANTXY_EDGE_ALIAS:?QUANTXY_EDGE_ALIAS is required}
+
+networks:
+  edge:
+    external: true
+    name: ${QUANTXY_EDGE_NETWORK:?QUANTXY_EDGE_NETWORK is required}

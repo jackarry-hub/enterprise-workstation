@@ -167,6 +167,7 @@ export function isStandaloneAuthorizedPath(pathname: string) {
     || pathname === "/api/internal/agent-invocation-recovery"
     || pathname === "/api/internal/task-notification-recovery"
     || pathname === "/api/internal/knowledge-processing"
+    || pathname === "/api/internal/knowledge-processor"
     || pathname === "/api/internal/file-upload-cleanup";
 }
 

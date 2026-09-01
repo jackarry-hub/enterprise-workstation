@@ -15,6 +15,7 @@ const valid = {
   KNOWLEDGE_PROCESSOR_URL: "https://processor.staging.example/v1/jobs",
   KNOWLEDGE_PROCESSOR_SECRET: "knowledge-processor-secret-32-characters",
   KNOWLEDGE_PROCESSOR_ALLOWED_HOSTS: "processor.staging.example",
+  KNOWLEDGE_SOURCE_ALLOWED_HOSTS: "project.supabase.co",
 } as const;
 
 describe("commercial server runtime configuration", () => {
@@ -33,6 +34,8 @@ describe("commercial server runtime configuration", () => {
     expect(() => assertCommercialServerRuntimeConfiguration({ ...valid, KNOWLEDGE_PROCESSOR_URL: "http://processor.staging.example/v1/jobs" }))
       .toThrow("readiness_configuration_missing");
     expect(() => assertCommercialServerRuntimeConfiguration({ ...valid, KNOWLEDGE_PROCESSOR_ALLOWED_HOSTS: "different.example" }))
+      .toThrow("readiness_configuration_missing");
+    expect(() => assertCommercialServerRuntimeConfiguration({ ...valid, KNOWLEDGE_SOURCE_ALLOWED_HOSTS: "127.0.0.1" }))
       .toThrow("readiness_configuration_missing");
   });
 });

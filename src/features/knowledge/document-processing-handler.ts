@@ -112,7 +112,7 @@ export async function runDefaultKnowledgeProcessingJob() {
       const signed = await service.storage.from(job.file.bucket).createSignedUrl(job.file.objectPath, 300);
       if (signed.error || !signed.data?.signedUrl) throw new Error("source_sign_failed");
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 60_000);
+      const timer = setTimeout(() => controller.abort(), 160_000);
       try {
         const response = await fetch(url, {
           method: "POST",

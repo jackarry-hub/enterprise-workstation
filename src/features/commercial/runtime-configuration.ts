@@ -6,6 +6,7 @@ const REQUIRED_VALUES = [
   "SUPABASE_SERVICE_ROLE_KEY",
   "KNOWLEDGE_PROCESSOR_URL",
   "KNOWLEDGE_PROCESSOR_ALLOWED_HOSTS",
+  "KNOWLEDGE_SOURCE_ALLOWED_HOSTS",
 ] as const;
 
 const REQUIRED_LONG_SECRETS = [
@@ -41,6 +42,13 @@ function validProcessorTarget(rawUrl: string, rawHosts: string) {
   }
 }
 
+function validPublicHostList(rawHosts: string | undefined) {
+  if (invalidValue(rawHosts)) return false;
+  const hosts = rawHosts!.split(",").map((host) => host.trim().toLowerCase()).filter(Boolean);
+  return hosts.length > 0 && hosts.every((host) => /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(host)
+    && host.includes(".") && !host.includes("..") && !/^\d+(?:\.\d+){3}$/.test(host));
+}
+
 export function assertCommercialServerRuntimeConfiguration(
   environment: RuntimeEnvironment = process.env,
 ) {
@@ -58,4 +66,7 @@ export function assertCommercialServerRuntimeConfiguration(
     environment.KNOWLEDGE_PROCESSOR_URL!,
     environment.KNOWLEDGE_PROCESSOR_ALLOWED_HOSTS!,
   )) throw new Error("readiness_configuration_missing");
+  if (!validPublicHostList(environment.KNOWLEDGE_SOURCE_ALLOWED_HOSTS)) {
+    throw new Error("readiness_configuration_missing");
+  }
 }

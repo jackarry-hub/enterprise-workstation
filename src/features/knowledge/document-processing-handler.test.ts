@@ -30,7 +30,7 @@ describe("governed knowledge processing", () => {
     const sql = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/202608300004_knowledge_processing_lifecycle.sql"), "utf8").toLowerCase();
     expect(sql).toContain("security_state in ('quarantined','scanning','ready','rejected')");
     expect(sql).toContain("for update skip locked");
-    expect(sql).toContain("embedding extensions.vector(1536)");
+    expect(sql).toContain("embedding extensions.vector(384)");
     expect(sql).toContain("cleanup_archived_knowledge_chunks");
     expect(sql).toContain("knowledge_source_scan_enqueue");
   });

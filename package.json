@@ -28,6 +28,7 @@
     "verify:commercial:local": "node scripts/verify-commercial-local.mjs",
     "verify:commercial:staging": "node scripts/verify-commercial-staging.mjs",
     "verify:commercial": "node scripts/verify-commercial-evidence.mjs --final",
+    "staging:prepare-env": "node scripts/prepare-staging-env.mjs",
     "phase1:provision": "node scripts/phase1/provision-roster.mjs",
     "phase1:provision:test": "node --test scripts/phase1/provision-roster.test.mjs",
     "phase1:verify": "npm run phase1:provision:test && npm test && npm run typecheck && npm run lint && npm run build",
