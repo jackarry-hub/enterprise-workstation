@@ -168,7 +168,7 @@ as $$
     and identity.status = 'active'
     and (
       (
-        target_member.id = viewer.organization_member_id
+        target_member.id = viewer.id
         and target_member.status = 'active'
         and profile.employment_status in ('probation', 'active', 'on_leave')
       )

@@ -48,7 +48,8 @@ describe("employee private profile migration contract", () => {
     expect(migration).toContain("identity.status = 'active'");
     expect(migration).toContain("member.id = identity.organization_member_id");
     expect(migration).toContain("organization.public_id = p_organization_public_id");
-    expect(migration).toContain("target_member.id = viewer.organization_member_id");
+    expect(migration).toContain("target_member.id = viewer.id");
+    expect(migration).not.toContain("viewer.organization_member_id");
     expect(migration).toContain(
       "grant execute on function public.current_employee_directory(uuid) to authenticated",
     );
