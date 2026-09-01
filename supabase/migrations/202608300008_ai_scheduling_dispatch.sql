@@ -2,6 +2,9 @@ begin;
 
 alter table public.scheduling_plan_versions add column dispatch_result jsonb check (dispatch_result is null or jsonb_typeof(dispatch_result)='object');
 
+create unique index if not exists tasks_tenant_organization_id_uidx
+  on public.tasks(tenant_id,organization_id,id);
+
 create table public.scheduling_overrides (
   id bigint generated always as identity primary key,
   public_id uuid not null default gen_random_uuid() unique,

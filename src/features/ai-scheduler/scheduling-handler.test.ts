@@ -27,6 +27,8 @@ describe("explainable AI scheduling", () => {
     expect(dispatchSql).toContain("create_current_task_batch_v3");
     expect(dispatchSql).toContain("if v_plan.status='dispatched'");
     expect(dispatchSql).toContain("scheduling_dispatch_tasks");
+    expect(dispatchSql).toContain("tasks_tenant_organization_id_uidx");
+    expect(dispatchSql).toContain("on public.tasks(tenant_id,organization_id,id)");
   });
 
   it("accepts a validated model plan but replaces its evidence with authorized database IDs", async () => {
