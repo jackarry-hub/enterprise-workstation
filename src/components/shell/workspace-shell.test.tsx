@@ -168,13 +168,13 @@ describe("WorkspaceShell", () => {
     expect(
       screen.getByRole("img", { name: "量子星河 QuantXY" }),
     ).toBeVisible();
-    expect(screen.getByText("AI 决策调度台")).toBeVisible();
+    expect(screen.getByText("经营驾驶舱")).toBeVisible();
     expect(screen.getByText("项目管理")).toBeVisible();
-    expect(screen.getByText("审批中心")).toBeVisible();
+    expect(screen.getByText("审批与财务")).toBeVisible();
     expect(screen.getByRole("link", { name: "任务管理" })).toBeVisible();
     expect(screen.queryByRole("link", { name: "知识库" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "客户管理" })).toBeVisible();
-    expect(screen.getByRole("link", { name: "数据分析" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: "数据分析" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "全局搜索" })).toBeVisible();
     expect(screen.getByRole("button", { name: "查看通知" })).toBeVisible();
     expect(screen.getByRole("link", { name: "查看消息" })).toHaveAttribute("href", "/approvals");

@@ -79,6 +79,42 @@ afterEach(() => {
 });
 
 describe("organization dialogs", () => {
+  it("starts a first-run full directory import and refreshes after the server accepts it", async () => {
+    const user = userEvent.setup();
+    const refresh = renderDialogs();
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      runId: "74000000-0000-4000-8000-000000000001",
+      status: "completed",
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetch);
+
+    await user.click(screen.getByRole("button", { name: "同步通讯录" }));
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/workstation/directory-sync",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "full" }),
+      }),
+    );
+    expect(await screen.findByText("同步已完成，正在刷新员工目录。")).toBeVisible();
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("shows the real directory provider failure without pretending the import succeeded", async () => {
+    const user = userEvent.setup();
+    const refresh = renderDialogs();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: { code: "directory_provider_unavailable" },
+    }), { status: 502, headers: { "content-type": "application/json" } })));
+
+    await user.click(screen.getByRole("button", { name: "同步通讯录" }));
+
+    expect(await screen.findByText("飞书通讯录暂时不可用，请稍后重试。")).toBeVisible();
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
   it("resets the captured form and refreshes only after a successful authoritative command", async () => {
     const user = userEvent.setup();
     const refresh = renderDialogs();

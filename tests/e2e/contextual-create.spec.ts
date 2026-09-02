@@ -9,7 +9,7 @@ test("Agent Center quick create contains Agent commands only", async ({ page }) 
   await expect(page.getByRole("dialog", { name: "新建 Agent" })).toBeVisible();
 });
 
-test("analytics has no unrelated create action", async ({ page }) => {
-  await page.goto("/analytics", { waitUntil: "networkidle" });
+test("dashboard has no unrelated create action", async ({ page }) => {
+  await page.goto("/dashboard", { waitUntil: "networkidle" });
   await expect(page.getByRole("button", { name: "快速创建" })).toHaveCount(0);
 });

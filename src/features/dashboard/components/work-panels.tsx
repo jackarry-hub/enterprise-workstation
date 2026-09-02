@@ -141,7 +141,7 @@ export function CollaborationPanel() {
     { label: "组织概览", icon: UsersRound, href: "/people" },
     { label: "项目成果", icon: FileText, href: "/projects" },
     { label: "审批决策", icon: CalendarDays, href: "/approvals" },
-    { label: "经营分析", icon: MessageCircleMore, href: "/analytics" },
+    { label: "经营分析", icon: MessageCircleMore, href: "/dashboard" },
   ];
   return (
     <GlassCard className="min-w-0 p-5 xl:col-span-5">

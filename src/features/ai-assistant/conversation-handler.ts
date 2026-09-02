@@ -6,12 +6,13 @@ import { getSupabaseServerClient, getSupabaseServiceRoleClient } from "@/lib/sup
 
 type RpcResult = { data: unknown; error: { code?: string } | null };
 type InvocationResult = { success: boolean; content: string; errorCode: string };
+export type ConversationPromptMessage = { role: "user" | "assistant"; content: string };
 
 export type ConversationDependencies = {
   loadSession: () => Promise<WorkspaceSession | null>;
   rpc: (name: string, args: Record<string, unknown>) => Promise<RpcResult>;
   serviceRpc?: (name: string, args: Record<string, unknown>) => Promise<RpcResult>;
-  invoke?: (content: string, idempotencyKey: string) => Promise<InvocationResult>;
+  invoke?: (messages: readonly ConversationPromptMessage[], idempotencyKey: string) => Promise<InvocationResult>;
   createRequestId?: () => string;
 };
 
@@ -37,6 +38,36 @@ function statusFor(error: { code?: string } | null) {
 
 function errorFor(status: number) {
   return status === 403 ? "forbidden" : status === 404 ? "not_found" : status === 409 ? "conflict" : status === 422 ? "invalid_request" : "ai_conversation_unavailable";
+}
+
+const PROMPT_HISTORY_LIMIT = 40;
+const PROMPT_HISTORY_CHARACTER_LIMIT = 48_000;
+
+function conversationPromptMessages(value: unknown, latestContent: string): ConversationPromptMessage[] {
+  const items = record(value)?.items;
+  const candidates = Array.isArray(items) ? items.flatMap((item) => {
+    const message = record(item);
+    const role = message?.role;
+    const content = typeof message?.content === "string" ? message.content.trim() : "";
+    const state = message?.state;
+    if ((role !== "user" && role !== "assistant") || !content || content.length > 12_000) return [];
+    if (role === "assistant" && state !== "completed") return [];
+    return [{ role, content } satisfies ConversationPromptMessage];
+  }) : [];
+
+  if (!candidates.length || candidates.at(-1)?.role !== "user" || candidates.at(-1)?.content !== latestContent) {
+    candidates.push({ role: "user", content: latestContent });
+  }
+
+  const bounded: ConversationPromptMessage[] = [];
+  let usedCharacters = 0;
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const candidate = candidates[index];
+    if (usedCharacters + candidate.content.length > PROMPT_HISTORY_CHARACTER_LIMIT && bounded.length > 0) break;
+    bounded.push(candidate);
+    usedCharacters += candidate.content.length;
+  }
+  return bounded.reverse();
 }
 
 async function defaults(): Promise<ConversationDependencies> {
@@ -73,6 +104,13 @@ export async function handleConversationResource(request: Request, conversationI
   const deps = provided ?? await defaults();
   const session = await deps.loadSession();
   if (!session) return json({ error: "unauthenticated" }, 401);
+  if (request.method === "PATCH") {
+    const result = await deps.rpc("touch_current_ai_conversation", {
+      p_conversation_public_id: conversationId,
+    });
+    if (result.error) return json({ error: errorFor(statusFor(result.error)) }, statusFor(result.error));
+    return json(record(result.data) ?? { conversationId });
+  }
   if (request.method !== "DELETE") return json({ error: "method_not_allowed" }, 405);
   const value = await body(request);
   const expectedVersion = Number(value?.expectedVersion);
@@ -105,9 +143,21 @@ export async function handleConversationMessages(request: Request, conversationI
   if (!receipt || typeof receipt.userMessageId !== "string") return json({ error: "ai_conversation_unavailable", requestId }, 503);
   if (typeof receipt.assistantMessageId === "string") return json({ ...receipt, requestId });
 
+  let promptMessages: ConversationPromptMessage[] = [{ role: "user", content }];
+  try {
+    const history = await deps.rpc("list_current_ai_messages", {
+      p_conversation_public_id: conversationId,
+      p_limit: PROMPT_HISTORY_LIMIT,
+    });
+    if (!history.error) promptMessages = conversationPromptMessages(history.data, content);
+  } catch {
+    // The newest message is already durable; a history read failure degrades to
+    // a single-turn prompt rather than losing or duplicating the user message.
+  }
+
   let invocation: InvocationResult;
   try {
-    invocation = deps.invoke ? await deps.invoke(content, key) : { success: false, content: "AI 服务暂时不可用，请稍后重试。", errorCode: "ai_provider_unavailable" };
+    invocation = deps.invoke ? await deps.invoke(promptMessages, key) : { success: false, content: "AI 服务暂时不可用，请稍后重试。", errorCode: "ai_provider_unavailable" };
   } catch {
     invocation = { success: false, content: "AI 服务暂时不可用，请稍后重试。", errorCode: "ai_provider_unavailable" };
   }

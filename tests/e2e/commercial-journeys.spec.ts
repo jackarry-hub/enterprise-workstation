@@ -14,7 +14,7 @@ const REQUIRED_DESKTOP_JOURNEY = [
   ["/knowledge", "企业知识库"],
   ["/assistant", "AI 助手"],
   ["/agents", "Agent 中心"],
-  ["/analytics", "经营数据分析"],
+  ["/dashboard", "经营数据分析"],
   ["/settings", "系统设置"],
 ] as const;
 

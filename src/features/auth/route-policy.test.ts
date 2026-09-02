@@ -41,10 +41,10 @@ const accessBase = {
 
 const roleCases = [
   ["executive", "owner", "/dashboard", ["analytics.read"]],
-  ["department_head", "department_head", "/department", ["project.manage"]],
+  ["department_head", "department_head", "/projects", ["project.manage"]],
   ["employee", "employee", "/execution", ["task.manage"]],
-  ["finance", "finance", "/finance", ["salary.manage"]],
-  ["hr", "hr", "/hr", ["hr.manage"]],
+  ["finance", "finance", "/approvals", ["salary.manage"]],
+  ["hr", "hr", "/people", ["hr.manage"]],
 ] as const satisfies readonly (readonly [WorkspaceRole, string, string, string[]])[];
 
 function accessRow(databaseRole: string, permissionCodes = accessBase.permissionCodes) {

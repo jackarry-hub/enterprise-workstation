@@ -86,11 +86,11 @@ describe("parseWorkspaceAccess", () => {
 
   it.each([
     ["owner", "executive", "CEO", "/dashboard"],
-    ["department_head", "department_head", "管理层", "/department"],
+    ["department_head", "department_head", "管理层", "/projects"],
     ["employee", "employee", "普通员工", "/execution"],
     ["supervisor", "employee", "主管", "/execution"],
-    ["finance", "finance", "财务", "/finance"],
-    ["hr", "hr", "人事", "/hr"],
+    ["finance", "finance", "财务", "/approvals"],
+    ["hr", "hr", "人事", "/people"],
   ] as const)(
     "maps database role %s to the %s workspace role",
     (databaseRole, role, roleLabel, landingPath) => {

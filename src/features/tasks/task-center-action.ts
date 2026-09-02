@@ -7,10 +7,10 @@ export type TaskCenterAction = {
 
 const actionByRole: Record<WorkspaceRole, TaskCenterAction> = {
   executive: { href: "/dashboard", label: "返回领导调度台" },
-  department_head: { href: "/department", label: "前往负责人工作台" },
+  department_head: { href: "/projects", label: "前往项目管理" },
   employee: { href: "/execution", label: "前往我的执行工作台" },
-  finance: { href: "/finance", label: "前往财务执行中心" },
-  hr: { href: "/hr", label: "前往人事协同中心" },
+  finance: { href: "/approvals", label: "前往审批与财务" },
+  hr: { href: "/people", label: "前往组织人事" },
 };
 
 export function getTaskCenterAction(role: WorkspaceRole) {

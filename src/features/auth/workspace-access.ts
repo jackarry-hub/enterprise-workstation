@@ -39,10 +39,10 @@ const databaseRoleLabels: Record<Exclude<DatabaseRoleCode, "admin">, string> = {
 
 const landingPaths: Record<WorkspaceRole, string> = {
   executive: "/dashboard",
-  department_head: "/department",
+  department_head: "/projects",
   employee: "/execution",
-  finance: "/finance",
-  hr: "/hr",
+  finance: "/approvals",
+  hr: "/people",
 };
 
 const databaseRoles = new Set<DatabaseRoleCode>([

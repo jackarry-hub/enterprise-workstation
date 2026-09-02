@@ -7,10 +7,7 @@ export type { ContextualCreateAction } from "@/features/quick-create/contextual-
 
 export type CommercialModule =
   | "dashboard"
-  | "department"
   | "execution"
-  | "finance"
-  | "hr"
   | "projects"
   | "activities"
   | "tasks"
@@ -18,7 +15,6 @@ export type CommercialModule =
   | "payroll"
   | "approvals"
   | "customers"
-  | "analytics"
   | "settings"
   | "notifications"
   | "help"
@@ -34,19 +30,15 @@ export type CommercialModuleDefinition = {
 };
 
 export const commercialModuleRegistry: Readonly<Record<CommercialModule, CommercialModuleDefinition>> = {
-  dashboard: { routes: ["/dashboard"], requiredPermissions: ["analytics.read"], commercialReady: true },
-  department: { routes: ["/department"], requiredPermissions: ["project.manage", "organization.manage"], commercialReady: true },
-  execution: { routes: ["/execution"], requiredPermissions: ["task.manage"], commercialReady: true },
-  finance: { routes: ["/finance"], requiredPermissions: ["expense.manage", "salary.manage"], commercialReady: true },
-  hr: { routes: ["/hr"], requiredPermissions: ["hr.manage"], commercialReady: true },
+  dashboard: { routes: ["/dashboard", "/analytics"], requiredPermissions: ["analytics.read"], commercialReady: true },
+  execution: { routes: ["/execution", "/workspace"], requiredPermissions: ["task.manage"], commercialReady: true },
   projects: { routes: ["/projects"], requiredPermissions: ["project.read", "project.create", "project.manage"], commercialReady: true },
   activities: { routes: ["/activities"], requiredPermissions: ["project.create", "project.manage", "task.manage"], commercialReady: true },
   tasks: { routes: ["/tasks"], requiredPermissions: ["task.manage"], commercialReady: true },
-  people: { routes: ["/people"], requiredPermissions: [], commercialReady: true },
+  people: { routes: ["/people", "/department", "/hr"], requiredPermissions: [], commercialReady: true },
   payroll: { routes: ["/payroll"], requiredPermissions: ["salary.self", "salary.manage"], commercialReady: true },
-  approvals: { routes: ["/approvals"], requiredPermissions: ["approval.self", "approval.manage", "approval.submit", "approval.act", "expense.submit", "expense.manage"], commercialReady: true },
+  approvals: { routes: ["/approvals", "/finance"], requiredPermissions: ["approval.self", "approval.manage", "approval.submit", "approval.act", "expense.submit", "expense.manage", "salary.manage"], commercialReady: true },
   customers: { routes: ["/customers"], requiredPermissions: ["customer.manage"], commercialReady: true },
-  analytics: { routes: ["/analytics"], requiredPermissions: ["analytics.read"], commercialReady: true },
   settings: { routes: ["/settings"], requiredPermissions: [], commercialReady: true },
   notifications: { routes: ["/notifications"], requiredPermissions: [], commercialReady: true },
   help: { routes: ["/help"], requiredPermissions: [], commercialReady: true },

@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 const COMMERCIAL_ROUTES = [
   "/people",
   "/approvals",
-  "/analytics",
+  "/dashboard",
   "/settings",
   "/notifications",
   "/help",

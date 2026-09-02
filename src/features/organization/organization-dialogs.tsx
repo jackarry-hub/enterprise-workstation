@@ -108,6 +108,39 @@ export function organizationCommandErrorMessage(code: string) {
   return "未能提交变更，请稍后重试。";
 }
 
+export function directorySyncErrorMessage(code: string) {
+  if (code === "unauthorized") return "登录状态已失效，请重新登录后再试。";
+  if (code === "forbidden") return "当前账号没有同步通讯录的权限。";
+  if (code === "directory_configuration_invalid") return "飞书同步配置不完整，请联系管理员检查应用配置。";
+  if (code === "directory_provider_unavailable") return "飞书通讯录暂时不可用，请稍后重试。";
+  if (code === "directory_payload_invalid" || code === "directory_pagination_invalid" || code === "directory_pagination_limit") {
+    return "飞书通讯录返回的数据格式异常，请联系管理员检查同步日志。";
+  }
+  if (code === "retry") return "本次同步暂未完成，系统已记录重试任务。";
+  if (code === "no_connection") return "通讯录连接尚未初始化，请联系管理员完成连接配置。";
+  if (code === "active_lease" || code === "locked") return "已有同步任务正在执行，请稍后刷新。";
+  if (code === "backoff") return "同步任务正在等待重试，请稍后刷新。";
+  return "同步未完成，请稍后重试；若持续失败，请联系管理员查看同步日志。";
+}
+
+type DirectorySyncResponse = {
+  status?: unknown;
+  reason?: unknown;
+  error?: unknown;
+};
+
+function directorySyncFailureCode(body: DirectorySyncResponse | null) {
+  if (!body) return "directory_sync_failed";
+  if (typeof body.reason === "string") return body.reason;
+  if (typeof body.error === "string") return body.error;
+  if (body.error && typeof body.error === "object" && !Array.isArray(body.error)) {
+    const code = (body.error as { code?: unknown }).code;
+    if (typeof code === "string") return code;
+  }
+  if (body.status === "retry") return "retry";
+  return "directory_sync_failed";
+}
+
 function stableIdempotencyKey(
   keys: Map<string, string>,
   logicalPayload: Record<string, unknown>,
@@ -385,15 +418,29 @@ function AssignManagerDialog({
 
 function DirectorySyncButton({ onAuthoritativeRefresh }: { onAuthoritativeRefresh: () => void }) {
   const [state, setState] = useState<CommandState>("idle");
+  const [message, setMessage] = useState<string | null>(null);
 
   async function sync() {
     setState("submitting");
+    setMessage(null);
     try {
-      const response = await fetch("/api/workstation/directory-sync", { method: "POST" });
-      setState(response.ok ? "success" : "error");
-      if (response.ok) onAuthoritativeRefresh();
+      const response = await fetch("/api/workstation/directory-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "full" }),
+      });
+      const body = await response.json().catch(() => null) as DirectorySyncResponse | null;
+      if (response.ok && body?.status === "completed") {
+        setState("success");
+        setMessage("同步已完成，正在刷新员工目录。");
+        onAuthoritativeRefresh();
+        return;
+      }
+      setState("error");
+      setMessage(directorySyncErrorMessage(directorySyncFailureCode(body)));
     } catch {
       setState("error");
+      setMessage("网络连接未完成，请检查连接后重试。");
     }
   }
 
@@ -403,8 +450,8 @@ function DirectorySyncButton({ onAuthoritativeRefresh }: { onAuthoritativeRefres
         <RefreshCw data-icon="inline-start" aria-hidden="true" className={state === "submitting" ? "animate-spin" : undefined} />
         {state === "submitting" ? "同步中…" : "同步通讯录"}
       </Button>
-      {state === "error" ? <span role="status" className="text-xs text-destructive">同步未完成</span> : null}
-      {state === "success" ? <span role="status" className="text-xs text-success">同步已提交</span> : null}
+      {state === "error" ? <span role="status" className="text-xs text-destructive">{message}</span> : null}
+      {state === "success" ? <span role="status" className="text-xs text-success">{message}</span> : null}
     </div>
   );
 }

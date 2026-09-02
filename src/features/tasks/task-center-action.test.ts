@@ -5,10 +5,10 @@ import { getTaskCenterAction } from "@/features/tasks/task-center-action";
 describe("task center role action", () => {
   it.each([
     ["executive", "/dashboard", "返回领导调度台"],
-    ["department_head", "/department", "前往负责人工作台"],
+    ["department_head", "/projects", "前往项目管理"],
     ["employee", "/execution", "前往我的执行工作台"],
-    ["finance", "/finance", "前往财务执行中心"],
-    ["hr", "/hr", "前往人事协同中心"],
+    ["finance", "/approvals", "前往审批与财务"],
+    ["hr", "/people", "前往组织人事"],
   ] as const)("matches the %s role to its own workbench", (role, href, label) => {
     expect(getTaskCenterAction(role)).toEqual({ href, label });
   });

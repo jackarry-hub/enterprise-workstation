@@ -1,4 +1,5 @@
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AgentCenterWorkspace } from "@/features/agents/agent-center-workspace";
@@ -27,5 +28,24 @@ describe("Agent Center workspace", () => {
     expect(screen.getByRole("button", { name: "新建 Agent" })).toBeInTheDocument();
     expect(await screen.findByText("审查完成")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "返回 Agent 列表" }).closest("header")?.parentElement).toHaveClass("max-md:fixed");
+  });
+
+  it("installs the reviewed starter pack and reloads the real directory", async () => {
+    const installedAgent = { id: agentId, code: "task_breakdown", name: "任务拆解 Agent", description: "任务拆解", icon: "check", status: "enabled", currentVersionId: "22222222-2222-4222-8222-222222222222", revision: 1, lifecycle: "published", modelCode: "deepseek-chat", promptVersion: "starter-v1", tools: [], canManage: true, canInvoke: true };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json({ items: [], canManage: true }))
+      .mockResolvedValueOnce(Response.json({ status: "ready", installed: 3, available: 3 }))
+      .mockResolvedValueOnce(Response.json({ items: [installedAgent], canManage: true }))
+      .mockResolvedValueOnce(Response.json({ items: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderWithSpecificWorkspaceSession(<AgentCenterWorkspace />, { ...executiveWorkspaceSession, permissionCodes: ["agent.manage"] });
+
+    await screen.findByText("尚未创建 Agent");
+    await user.click(screen.getByRole("button", { name: "安装标准套件" }));
+
+    expect(await screen.findByText("已安装并发布 3 个标准 Agent；可进入“流程编排”按顺序组合。")).toBeInTheDocument();
+    expect((await screen.findAllByText("任务拆解 Agent")).length).toBeGreaterThan(0);
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/workstation/agents/starter-pack", expect.objectContaining({ method: "POST" }));
   });
 });

@@ -14,8 +14,8 @@ test("project overview navigation remains usable with an empty real-session port
 test("shell search works while fixture dashboard actions stay unavailable", async ({ page }) => {
   await page.goto("/dashboard", { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "全局搜索" }).click();
-  await page.getByLabel("输入全局搜索关键词").fill("数据分析");
-  await expect(page.getByRole("link", { name: /数据分析/ })).toHaveAttribute("href", "/analytics");
+  await page.getByLabel("输入全局搜索关键词").fill("经营驾驶舱");
+  await expect(page.getByRole("link", { name: /经营驾驶舱/ })).toHaveAttribute("href", "/dashboard");
   await expect(page.getByRole("button", { name: /完成待办|恢复待办/ })).toHaveCount(0);
 });
 

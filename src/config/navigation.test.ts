@@ -14,5 +14,7 @@ describe("workspace navigation", () => {
     expect(navigationItems.find(({ href }) => href === "/tasks")?.module).toBe("tasks");
     expect(navigationItems.some(({ href }) => href === "/attendance")).toBe(false);
     expect(navigationItems.some(({ href }) => href === "/leave")).toBe(false);
+    expect(navigationItems.some(({ href }) => ["/department", "/finance", "/hr", "/analytics", "/workspace"].includes(href))).toBe(false);
+    expect(new Set(navigationItems.map(({ module }) => module)).size).toBe(navigationItems.length);
   });
 });

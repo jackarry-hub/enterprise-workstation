@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 const pages = [
   { route: "/tasks", heading: "任务管理" },
-  { route: "/analytics", heading: "数据分析" },
+  { route: "/dashboard", heading: "经营数据分析" },
   { route: "/customers", heading: "客户管理" },
   { route: "/settings", heading: "系统设置" },
 ] as const;

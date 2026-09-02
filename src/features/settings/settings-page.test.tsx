@@ -11,7 +11,9 @@ describe("SettingsPage", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("loads real settings and keeps Feishu identity read-only", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(settingsPayload)));
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input).includes("enterprise-initialization")
+      ? Response.json({ status: "ready", canInitialize: true, departmentCount: 5, positionCount: 12, skillCount: 20 })
+      : Response.json(settingsPayload)));
     renderWithSpecificWorkspaceSession(<SettingsPage />, { ...executiveWorkspaceSession, permissionCodes: ["settings.manage"] });
     expect(await screen.findByLabelText("企业名称")).toHaveValue("量子星河");
     await userEvent.click(screen.getByRole("tab", { name: "个人设置" }));
@@ -21,12 +23,18 @@ describe("SettingsPage", () => {
 
   it("persists a versioned namespace through the API and never writes localStorage", async () => {
     const changed = { ...settingsPayload, organization: { ...settingsPayload.organization, name: "量子星河集团" }, versions: { ...settingsPayload.versions, organization: 3 } };
-    const fetchMock = vi.fn().mockResolvedValueOnce(Response.json(settingsPayload)).mockResolvedValueOnce(Response.json({ namespace: "organization", version: 3 })).mockResolvedValueOnce(Response.json(changed)); vi.stubGlobal("fetch", fetchMock);
+    let settingsReads = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("enterprise-initialization")) return Response.json({ status: "ready", canInitialize: true, departmentCount: 5, positionCount: 12, skillCount: 20 });
+      if (init?.method === "PUT") return Response.json({ namespace: "organization", version: 3 });
+      settingsReads += 1;
+      return Response.json(settingsReads === 1 ? settingsPayload : changed);
+    }); vi.stubGlobal("fetch", fetchMock);
     renderWithSpecificWorkspaceSession(<SettingsPage />, { ...executiveWorkspaceSession, permissionCodes: ["settings.manage"] });
     const name = await screen.findByLabelText("企业名称"); await userEvent.clear(name); await userEvent.type(name, "量子星河集团"); await userEvent.click(screen.getByRole("button", { name: "保存设置" }));
     expect(await screen.findByText("设置已保存，刷新后仍有效")).toBeVisible();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
-    const request = fetchMock.mock.calls[1][1] as RequestInit; expect(JSON.parse(String(request.body))).toMatchObject({ namespace: "organization", expectedVersion: 2, settings: { name: "量子星河集团" } });
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/workstation/settings")).toHaveLength(3));
+    const request = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT")?.[1] as RequestInit; expect(JSON.parse(String(request.body))).toMatchObject({ namespace: "organization", expectedVersion: 2, settings: { name: "量子星河集团" } });
     expect(window.localStorage.length).toBe(0);
   });
 });

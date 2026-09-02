@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { QUICK_CREATE_EVENT } from "@/features/quick-create/contextual-create-actions";
 
-type Conversation = { id: string; title: string; version: number; lastMessageAt: string };
+type Conversation = { id: string; title: string; version: number; lastMessageAt: string; lastOpenedAt?: string | null };
 type Message = { id: string; sequence: number; role: "user" | "assistant"; content: string; state: "pending" | "completed" | "failed"; createdAt: string };
 
 async function payload(response: Response) { return await response.json() as Record<string, unknown>; }
@@ -29,7 +29,12 @@ export function AssistantWorkspace() {
       if (!response.ok) throw new Error("load_failed");
       setConversations(items); setFeedback(items.length ? "" : "暂无会话，创建后可跨设备继续。");
       const desktop = typeof window === "undefined" || !window.matchMedia || window.matchMedia("(min-width: 768px)").matches;
-      setSelected((current) => current ? items.find(({ id }) => id === current.id) ?? current : desktop ? items[0] ?? null : null);
+      const remembered = items
+        .filter((item) => item.lastOpenedAt)
+        .sort((left, right) => String(right.lastOpenedAt).localeCompare(String(left.lastOpenedAt)))[0];
+      setSelected((current) => current
+        ? items.find(({ id }) => id === current.id) ?? current
+        : remembered ?? (desktop ? items[0] ?? null : null));
     } catch { setFeedback("会话同步失败，请稍后重试。"); }
   }, []);
 
@@ -45,13 +50,23 @@ export function AssistantWorkspace() {
   useEffect(() => { void loadConversations(); }, [loadConversations]);
   useEffect(() => { if (selected) void loadMessages(selected.id); else setMessages([]); }, [loadMessages, selected]);
 
+  function selectConversation(conversation: Conversation | null, persist = true) {
+    setSelected(conversation);
+    if (conversation && persist) {
+      void fetch(`/api/workstation/ai/conversations/${encodeURIComponent(conversation.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+      }).catch(() => undefined);
+    }
+  }
+
   async function createConversation() {
     setPending(true);
     try {
       const response = await fetch("/api/workstation/ai/conversations", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ title: `新会话 ${new Date().toLocaleDateString("zh-CN")}` }) });
       const data = await payload(response); const conversation = data.conversation as Conversation | undefined;
       if (!response.ok || !conversation?.id) throw new Error("create_failed");
-      setConversations((current) => [conversation, ...current]); setSelected(conversation); setMessages([]); setFeedback("");
+      setConversations((current) => [conversation, ...current]); selectConversation(conversation, false); setMessages([]); setFeedback("");
     } catch { setFeedback("新会话创建失败。"); } finally { setPending(false); }
   }
 
@@ -80,7 +95,7 @@ export function AssistantWorkspace() {
     try {
       const response = await fetch(`/api/workstation/ai/conversations/${encodeURIComponent(selected.id)}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedVersion: selected.version }) });
       if (!response.ok) throw new Error("archive_failed");
-      setSelected(null); setMessages([]); await loadConversations(); setFeedback("会话已归档。");
+      selectConversation(null); setMessages([]); await loadConversations(); setFeedback("会话已归档。");
     } catch { setFeedback("会话状态已变化，请刷新后重试。"); } finally { setPending(false); }
   }
 
@@ -94,7 +109,7 @@ export function AssistantWorkspace() {
         <GlassCard className={cn("overflow-hidden p-2", selected && "max-md:hidden")}>
           <div className="px-3 py-2 text-xs font-semibold text-muted-foreground">最近会话</div>
           <div className="grid gap-1">
-            {conversations.map((conversation) => <button key={conversation.id} type="button" onClick={() => setSelected(conversation)} className={cn("rounded-2xl px-3 py-3 text-left transition", selected?.id === conversation.id ? "bg-primary text-primary-foreground" : "hover:bg-muted")}><span className="block truncate text-sm font-semibold">{conversation.title}</span><span className={cn("mt-1 block text-xs", selected?.id === conversation.id ? "text-primary-foreground/75" : "text-muted-foreground")}>{new Date(conversation.lastMessageAt).toLocaleString("zh-CN")}</span></button>)}
+            {conversations.map((conversation) => <button key={conversation.id} type="button" onClick={() => selectConversation(conversation)} className={cn("rounded-2xl px-3 py-3 text-left transition", selected?.id === conversation.id ? "bg-primary text-primary-foreground" : "hover:bg-muted")}><span className="block truncate text-sm font-semibold">{conversation.title}</span><span className={cn("mt-1 block text-xs", selected?.id === conversation.id ? "text-primary-foreground/75" : "text-muted-foreground")}>{new Date(conversation.lastMessageAt).toLocaleString("zh-CN")}</span></button>)}
           </div>
         </GlassCard>
         <GlassCard className={cn("flex min-h-140 flex-col overflow-hidden p-0", selected && "max-md:fixed max-md:inset-0 max-md:z-50 max-md:min-h-[100dvh] max-md:rounded-none max-md:bg-background")}>

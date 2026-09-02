@@ -5,11 +5,11 @@ import { authStatePath, roleFixtures } from "./auth-state";
 const emptyStorageState = { cookies: [], origins: [] };
 
 const roleScenarios = [
-  ["executive", "/dashboard", "/hr"],
-  ["department_head", "/department", "/finance"],
-  ["employee", "/execution", "/people"],
-  ["finance", "/finance", "/dashboard"],
-  ["hr", "/hr", "/analytics"],
+  ["executive", "/dashboard", "/knowledge"],
+  ["department_head", "/projects", "/approvals"],
+  ["employee", "/execution", "/dashboard"],
+  ["finance", "/approvals", "/dashboard"],
+  ["hr", "/people", "/dashboard"],
 ] as const;
 
 test("未登录员工只能看到统一飞书登录入口", async ({ browser }) => {

@@ -19,6 +19,7 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EnterpriseSettings } from "@/features/settings/components/enterprise-settings";
+import { EnterpriseActivation } from "@/features/settings/components/enterprise-activation";
 import { NotificationSettings } from "@/features/settings/components/notification-settings";
 import { PermissionMatrix } from "@/features/settings/components/permission-matrix";
 import { PersonalSettings } from "@/features/settings/components/personal-settings";
@@ -200,13 +201,16 @@ export function SettingsWorkspace() {
             {!loading ? (
               <>
                 {activeTab === "organization" ? (
-                  <EnterpriseSettings
-                    value={settings.organization}
-                    onChange={(organization) =>
-                      setSettings((current) => ({ ...current, organization }))
-                    }
-                    disabled={!settings.canManage}
-                  />
+                  <>
+                    <EnterpriseActivation />
+                    <EnterpriseSettings
+                      value={settings.organization}
+                      onChange={(organization) =>
+                        setSettings((current) => ({ ...current, organization }))
+                      }
+                      disabled={!settings.canManage}
+                    />
+                  </>
                 ) : null}
                 {activeTab === "personal" ? (
                   <PersonalSettings

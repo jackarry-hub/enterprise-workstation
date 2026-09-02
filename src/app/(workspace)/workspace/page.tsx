@@ -1,14 +1,5 @@
-import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
-import { loadWorkspaceData } from "@/features/tasks/workspace-data";
-import { WorkspacePage } from "@/features/tasks/workspace-page";
-
-export const metadata: Metadata = {
-  title: "工作中心 | 企业工作站",
-};
-
-export default async function WorkspaceRoute() {
-  const result = await loadWorkspaceData();
-
-  return <WorkspacePage result={result} />;
+export default function WorkspaceRoute() {
+  redirect("/execution");
 }

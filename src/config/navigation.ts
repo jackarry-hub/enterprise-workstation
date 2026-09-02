@@ -1,6 +1,5 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  BarChart3,
   Boxes,
   BookOpen,
   Bot,
@@ -9,14 +8,11 @@ import {
   FolderKanban,
   Gauge,
   Grid3X3,
-  Landmark,
   Megaphone,
   Settings,
-  UserCog,
   UserRound,
   UsersRound,
   WalletCards,
-  Workflow,
   WandSparkles,
 } from "lucide-react";
 import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
@@ -35,23 +31,19 @@ export type NavigationItem = {
 };
 
 export const navigationItems: readonly NavigationItem[] = [
-  { label: "AI 决策调度台", href: "/dashboard", icon: Gauge, module: "dashboard", available: true },
+  { label: "经营驾驶舱", href: "/dashboard", icon: Gauge, module: "dashboard", available: true },
   { label: "AI 助手", href: "/assistant", icon: Bot, module: "assistant", available: true },
   { label: "智能排期", href: "/scheduler", icon: WandSparkles, module: "scheduler", available: true },
   { label: "Agent 中心", href: "/agents", icon: Boxes, module: "agents", available: true },
-  { label: "负责人推进台", href: "/department", icon: Workflow, module: "department", available: true },
   { label: "我的执行台", href: "/execution", icon: Grid3X3, module: "execution", available: true },
-  { label: "财务执行中心", href: "/finance", icon: Landmark, module: "finance", available: true },
-  { label: "人事协同中心", href: "/hr", icon: UserCog, module: "hr", available: true },
   { label: "项目管理", href: "/projects", icon: FolderKanban, module: "projects", available: true },
   { label: "活动推进", href: "/activities", icon: Megaphone, module: "activities", available: true },
   { label: "任务管理", href: "/tasks", icon: CheckSquare2, module: "tasks", available: true },
   { label: "组织人事", href: "/people", icon: UsersRound, module: "people", available: true },
   { label: "薪资管理", href: "/payroll", icon: WalletCards, module: "payroll", available: true },
-  { label: "审批中心", href: "/approvals", icon: ClipboardCheck, module: "approvals", available: true },
+  { label: "审批与财务", href: "/approvals", icon: ClipboardCheck, module: "approvals", available: true },
   { label: "知识库", href: "/knowledge", icon: BookOpen, module: "knowledge", available: true },
   { label: "客户管理", href: "/customers", icon: UserRound, module: "customers", available: true },
-  { label: "数据分析", href: "/analytics", icon: BarChart3, module: "analytics", available: true },
   { label: "系统设置", href: "/settings", icon: Settings, module: "settings", available: true },
 ];
 

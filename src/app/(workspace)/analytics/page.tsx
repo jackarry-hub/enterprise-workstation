@@ -1,11 +1,5 @@
-import type { Metadata } from "next";
-
-import { AnalyticsPage } from "@/features/analytics/analytics-page";
-
-export const metadata: Metadata = {
-  title: "数据分析 | 企业工作站",
-};
+import { redirect } from "next/navigation";
 
 export default function AnalyticsRoute() {
-  return <AnalyticsPage />;
+  redirect("/dashboard");
 }

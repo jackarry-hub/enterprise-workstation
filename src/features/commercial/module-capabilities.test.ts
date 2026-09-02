@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  getCommercialModuleForPath,
   getModuleCapabilities,
   getVisibleQuickWorkspaceActions,
   commercialModuleRegistry,
@@ -50,8 +51,8 @@ describe("commercial module capabilities", () => {
       .filter(([, definition]) => definition.commercialReady)
       .map(([module]) => module))
       .toEqual([
-        "dashboard", "department", "execution", "finance", "hr", "projects", "activities", "tasks",
-        "people", "payroll", "approvals", "customers", "analytics", "settings", "notifications", "help",
+        "dashboard", "execution", "projects", "activities", "tasks",
+        "people", "payroll", "approvals", "customers", "settings", "notifications", "help",
         "knowledge", "assistant", "scheduler", "agents",
       ]);
 
@@ -61,6 +62,11 @@ describe("commercial module capabilities", () => {
     expect(getModuleCapabilities(sessionWithPermissions([])).assistant).toBe(true);
     expect(getModuleCapabilities(sessionWithPermissions(["agent.orchestrate"])).scheduler).toBe(true);
     expect(getModuleCapabilities(sessionWithPermissions([])).agents).toBe(true);
+    expect(getCommercialModuleForPath("/analytics")).toBe("dashboard");
+    expect(getCommercialModuleForPath("/finance")).toBe("approvals");
+    expect(getCommercialModuleForPath("/hr")).toBe("people");
+    expect(getCommercialModuleForPath("/department")).toBe("people");
+    expect(getCommercialModuleForPath("/workspace")).toBe("execution");
   });
 
   it("aligns the execution requirement with the shipped employee role matrix", async () => {

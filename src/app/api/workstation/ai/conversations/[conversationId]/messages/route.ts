@@ -18,13 +18,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ con
     loadSession: async () => session,
     rpc: async (name, args) => await client.rpc(name, args) as { data: unknown; error: { code?: string } | null },
     serviceRpc: async (name, args) => await service.rpc(name, args) as { data: unknown; error: { code?: string } | null },
-    invoke: async (content, idempotencyKey) => {
+    invoke: async (messages, idempotencyKey) => {
       if (!session) return { success: false, content: "登录状态已失效，请重新登录。", errorCode: "unauthenticated" };
       const { encryptionKey } = getAiConfigEnv();
       const response = await handleAiChat(new Request("https://workstation.internal/api/ai/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
-        body: JSON.stringify({ messages: [{ role: "user", content }] }),
+        body: JSON.stringify({ messages }),
       }), { session, encryptionKey, store: createAiConfigStore(service), runtime: createAiRuntimeStore(service, session) });
       const payload: unknown = await response.json();
       const data = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
