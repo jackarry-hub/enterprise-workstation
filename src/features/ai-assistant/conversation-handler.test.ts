@@ -28,6 +28,14 @@ describe("persistent AI conversations", () => {
     expect(sql).toContain("version_conflict");
   });
 
+  it("uses the canonical audit target columns when creating an idempotent conversation", () => {
+    const sql = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/202609020005_ai_conversation_audit_columns.sql"), "utf8").toLowerCase();
+    expect(sql).toContain("audit.target_type = 'ai_conversation'");
+    expect(sql).toContain("audit.target_id = conversation.public_id::text");
+    expect(sql).not.toContain("audit.resource_type");
+    expect(sql).not.toContain("audit.resource_id");
+  });
+
   it("creates a conversation with an idempotency key", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: { conversation: { id: conversationId, title: "周计划", version: 1 } }, error: null });
     const response = await handleConversationCollection(new Request("https://test/api", { method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify({ title: "周计划" }) }), deps(rpc));
