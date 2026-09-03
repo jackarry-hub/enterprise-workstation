@@ -24,6 +24,9 @@ const FORMAL_EXTENSION_TYPES = new Map(
     Array.from(extensions, (extension) => [extension, mimeType] as const)
   )),
 );
+const FORMAL_BROWSER_MIME_ALIASES = new Map([
+  ["md", new Map([["text/markdown", "text/plain"]])],
+]);
 
 export class ProjectFileTransportError extends Error {
   constructor(
@@ -56,7 +59,9 @@ function validateFormalFile(file: File) {
     throw new ProjectFileTransportError("invalid_file_name", false, "文件名不符合企业存储规则");
   }
   const extension = fileExtension(file.name);
-  const mimeType = file.type.toLowerCase() || FORMAL_EXTENSION_TYPES.get(extension) || "";
+  const browserMimeType = file.type.toLowerCase();
+  const mimeType = FORMAL_BROWSER_MIME_ALIASES.get(extension)?.get(browserMimeType)
+    ?? (browserMimeType || FORMAL_EXTENSION_TYPES.get(extension) || "");
   const allowedExtensions = FORMAL_FILE_TYPES.get(mimeType);
   if (!allowedExtensions?.has(extension)) {
     throw new ProjectFileTransportError(

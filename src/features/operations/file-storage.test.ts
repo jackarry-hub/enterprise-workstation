@@ -68,6 +68,28 @@ describe("file blob identity isolation", () => {
 });
 
 describe("formal project file transport", () => {
+  it("normalizes the browser Markdown MIME alias to the admitted text MIME type", async () => {
+    const file = new File(["# Runbook"], "runbook.md", { type: "text/markdown" });
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "not_found" }), {
+      status: 404,
+      headers: { "content-type": "application/json" },
+    }));
+
+    await expect(uploadVerifiedProjectFile({
+      projectId: formalProjectId,
+      file,
+      idempotencyKey: "43000000-0000-4000-8000-000000000001",
+      fetcher,
+      digestFile: async () => "a".repeat(64),
+    })).rejects.toMatchObject({ code: "not_found" });
+
+    const request = fetcher.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(request.body))).toMatchObject({
+      fileName: "runbook.md",
+      mimeType: "text/plain",
+    });
+  });
+
   it("uses reservation, signed upload, and verified completion without local fallback", async () => {
     const digest = "152ba48a5b9e6b520145a5c283027319cba9ebfbc46f6d6603280e4af57f6502";
     const file = new File(["commercial file"], "plan.pdf", { type: "application/pdf" });
