@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { chunkKnowledgeText, handleKnowledgeProcessorGateway, type KnowledgeProcessorDependencies } from "@/features/knowledge/processor-gateway";
+import { chunkKnowledgeText, handleKnowledgeProcessorGateway, parseLocalKnowledgeText, type KnowledgeProcessorDependencies } from "@/features/knowledge/processor-gateway";
 
 const secret = "processor-secret-with-at-least-32-characters";
 const content = Buffer.from("QuantXY knowledge acceptance");
@@ -37,6 +37,14 @@ beforeEach(() => {
 });
 
 describe("knowledge processor gateway", () => {
+  it("parses UTF-8 text sources locally without the heavyweight document service", () => {
+    expect(parseLocalKnowledgeText(Buffer.from("\uFEFF第一行\r\n第二行", "utf8"), "text/plain"))
+      .toBe("第一行\n第二行");
+    expect(parseLocalKnowledgeText(Buffer.from("{}", "utf8"), "application/pdf")).toBeNull();
+    expect(() => parseLocalKnowledgeText(Buffer.from([0xff]), "text/plain"))
+      .toThrow("document_text_encoding_invalid");
+  });
+
   it("fails closed when the processor secret is absent or wrong", async () => {
     expect((await handleKnowledgeProcessorGateway(request(base, "wrong"), dependencies())).status).toBe(404);
   });

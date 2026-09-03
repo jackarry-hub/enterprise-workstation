@@ -26,6 +26,12 @@ const MAX_TEXT_CHARACTERS = 150_000;
 const CHUNK_CHARACTERS = 360;
 const CHUNK_OVERLAP = 40;
 const EMBEDDING_DIMENSIONS = 384;
+const LOCALLY_PARSED_TEXT_MIME_TYPES = new Set([
+  "text/plain",
+  "text/markdown",
+  "text/csv",
+  "application/json",
+]);
 const ALLOWED_MIME_TYPES = new Set([
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -150,6 +156,25 @@ async function parseWithUnstructured(content: Buffer, mimeType: string) {
   }
 }
 
+export function parseLocalKnowledgeText(content: Buffer, mimeType: string) {
+  if (!LOCALLY_PARSED_TEXT_MIME_TYPES.has(mimeType)) return null;
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(content);
+  } catch {
+    throw new Error("document_text_encoding_invalid");
+  }
+  text = text.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").trim();
+  if (!text || text.includes("\u0000") || text.length > MAX_TEXT_CHARACTERS) {
+    throw new Error("document_text_limit_exceeded");
+  }
+  return text;
+}
+
+async function parseKnowledgeSource(content: Buffer, mimeType: string) {
+  return parseLocalKnowledgeText(content, mimeType) ?? await parseWithUnstructured(content, mimeType);
+}
+
 async function embedWithTei(chunks: readonly string[]) {
   const url = internalServiceUrl(process.env.EMBEDDING_URL, "http://embedding:80/embed", "embedding", "/embed");
   const output: number[][] = [];
@@ -184,7 +209,7 @@ async function embedWithTei(chunks: readonly string[]) {
 const defaultDependencies: KnowledgeProcessorDependencies = {
   download: downloadSource,
   scan: scanWithClamAv,
-  parse: parseWithUnstructured,
+  parse: parseKnowledgeSource,
   embed: embedWithTei,
 };
 

@@ -94,7 +94,10 @@ services:
     security_opt:
       - no-new-privileges:true
     cpus: "1.00"
-    mem_limit: 1536m
+    # The production signature set exceeds 1.5 GiB while clamd reloads its
+    # database. Keep enough headroom so uploads do not remain quarantined
+    # after an OOM-killed scanner.
+    mem_limit: 3g
     volumes:
       - clamav_database:/var/lib/clamav
     logging:
