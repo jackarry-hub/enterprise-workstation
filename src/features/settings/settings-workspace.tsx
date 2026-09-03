@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   Bell,
+  Bot,
   Building2,
   CheckCircle2,
   LockKeyhole,
@@ -20,6 +21,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EnterpriseSettings } from "@/features/settings/components/enterprise-settings";
 import { EnterpriseActivation } from "@/features/settings/components/enterprise-activation";
+import { AiProviderSettings } from "@/features/settings/components/ai-provider-settings";
 import { NotificationSettings } from "@/features/settings/components/notification-settings";
 import { PermissionMatrix } from "@/features/settings/components/permission-matrix";
 import { PersonalSettings } from "@/features/settings/components/personal-settings";
@@ -31,9 +33,10 @@ import {
   type SettingsState,
 } from "@/features/settings/settings-types";
 
-type SettingsTab = SettingsNamespace | "permissions";
+type SettingsTab = SettingsNamespace | "ai" | "permissions";
 const tabItems = [
   { value: "organization", label: "企业信息", icon: Building2 },
+  { value: "ai", label: "AI 模型", icon: Bot },
   { value: "personal", label: "个人设置", icon: UserRound },
   { value: "notifications", label: "通知设置", icon: Bell },
   { value: "scheduler", label: "调度参数", icon: WandSparkles },
@@ -75,7 +78,7 @@ export function SettingsWorkspace() {
 
   async function save() {
     if (
-      activeTab === "permissions" ||
+      activeTab === "permissions" || activeTab === "ai" ||
       pending ||
       ((activeTab === "organization" || activeTab === "scheduler") &&
         !settings.canManage)
@@ -161,7 +164,7 @@ export function SettingsWorkspace() {
             ))}
           </TabsList>
           <div className="min-w-0 rounded-3xl border bg-background/50 p-4 sm:p-5 xl:min-h-130">
-            {activeTab !== "permissions" ? (
+            {activeTab !== "permissions" && activeTab !== "ai" ? (
               <div className="mb-5 flex flex-col-reverse gap-3 border-b pb-4 sm:flex-row sm:items-center sm:justify-end">
                 <div className="mr-auto min-h-5 text-xs">
                   {saved ? (
@@ -212,6 +215,7 @@ export function SettingsWorkspace() {
                     />
                   </>
                 ) : null}
+                {activeTab === "ai" ? <AiProviderSettings /> : null}
                 {activeTab === "personal" ? (
                   <PersonalSettings
                     profile={settings.profile}

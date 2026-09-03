@@ -37,4 +37,25 @@ describe("SettingsPage", () => {
     const request = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT")?.[1] as RequestInit; expect(JSON.parse(String(request.body))).toMatchObject({ namespace: "organization", expectedVersion: 2, settings: { name: "量子星河集团" } });
     expect(window.localStorage.length).toBe(0);
   });
+
+  it("encrypts and persists the DeepSeek configuration through the server API", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("enterprise-initialization")) return Response.json({ status: "ready", canInitialize: true, departmentCount: 5, positionCount: 12, skillCount: 20 });
+      if (url === "/api/ai/config" && init?.method === "PUT") return Response.json({ provider: "deepseek", apiBaseUrl: "https://api.deepseek.com", model: "deepseek-chat", keyConfigured: true, keyHint: "3456", updatedAt: "2026-09-03T00:00:00.000Z", canManage: true });
+      if (url === "/api/ai/config") return Response.json({ provider: "deepseek", apiBaseUrl: "https://api.deepseek.com", model: "deepseek-chat", keyConfigured: false, keyHint: null, updatedAt: null, canManage: true });
+      return Response.json(settingsPayload);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithSpecificWorkspaceSession(<SettingsPage />, { ...executiveWorkspaceSession, permissionCodes: ["settings.manage", "ai.config.manage"] });
+    await screen.findByLabelText("企业名称");
+    await userEvent.click(screen.getByRole("tab", { name: "AI 模型" }));
+    await screen.findByText("等待配置密钥");
+    await userEvent.type(screen.getByLabelText("DeepSeek API Key"), "sk-test-key-123456");
+    await userEvent.click(screen.getByRole("button", { name: "保存 AI 配置" }));
+    expect(await screen.findByText("密钥已配置")).toBeVisible();
+    const request = fetchMock.mock.calls.find(([url, init]) => String(url) === "/api/ai/config" && init?.method === "PUT")?.[1] as RequestInit;
+    expect(JSON.parse(String(request.body))).toEqual({ model: "deepseek-chat", apiKey: "sk-test-key-123456" });
+    expect(window.localStorage.length).toBe(0);
+  });
 });
