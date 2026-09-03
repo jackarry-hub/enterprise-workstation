@@ -8,6 +8,10 @@ describe("knowledge processing transition migration", () => {
     path.join(process.cwd(), "supabase/migrations/202609030005_knowledge_processing_transition.sql"),
     "utf8",
   ).toLowerCase();
+  const repairSql = fs.readFileSync(
+    path.join(process.cwd(), "supabase/migrations/202609030006_knowledge_processing_completion_repair.sql"),
+    "utf8",
+  ).toLowerCase();
 
   it("keeps published content immutable outside an active processing transition", () => {
     expect(sql).toContain("app.knowledge_processing_transition_id");
@@ -23,5 +27,15 @@ describe("knowledge processing transition migration", () => {
     expect(sql).toContain("set_config('app.knowledge_processing_transition_id',v_job.public_id::text,true)");
     expect(sql.match(/set_config\('app\.knowledge_processing_transition_id','',true\)/g)).toHaveLength(3);
     expect(sql).toContain("grant execute on function public.complete_knowledge_processing_job(uuid,uuid,boolean,jsonb,text) to service_role");
+  });
+
+  it("repairs completion hashing, failure ordering, and reindex transitions", () => {
+    expect(repairSql).toContain("public.digest(convert_to(");
+    expect(repairSql).not.toMatch(/(?<!public\.)digest\(convert_to\(/);
+    expect(repairSql.indexOf("update public.knowledge_document_versions set processing_state=case"))
+      .toBeLessThan(repairSql.indexOf("update public.knowledge_processing_jobs set state=case"));
+    expect(repairSql).toContain("job.state = 'pending'");
+    expect(repairSql).toContain("create or replace function public.queue_knowledge_reindex");
+    expect(repairSql).toContain("set_config('app.knowledge_processing_transition_id',v_job::text,true)");
   });
 });
