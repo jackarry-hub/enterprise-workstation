@@ -82,6 +82,9 @@ describe("payroll pages", () => {
     expect(within(stats).getByText("本月工资总额")).toBeVisible();
     expect(within(stats).getByText("员工数量")).toBeVisible();
     expect(within(stats).getByText("平均工资")).toBeVisible();
+    expect(within(stats).queryByText("+8.6%")).not.toBeInTheDocument();
+    expect(within(stats).queryByText("+5.3%")).not.toBeInTheDocument();
+    expect(within(stats).queryByText("较上月")).not.toBeInTheDocument();
 
     await user.type(screen.getByRole("searchbox", { name: "搜索工资员工" }), "QXY-1002");
     const list = screen.getByRole("region", { name: "工资列表" });

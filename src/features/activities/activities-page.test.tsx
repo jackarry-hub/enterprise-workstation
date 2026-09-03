@@ -21,6 +21,11 @@ describe("ActivitiesPage", () => {
     expect(screen.getAllByText(detail.milestones[0].name)[0]).toBeVisible();
     expect(screen.queryByText("当前账号没有可显示的真实活动数据。")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "创建活动" })).toBeEnabled();
+    const stats = screen.getByRole("region", { name: "活动统计" });
+    expect(stats).toHaveTextContent("活动数量1");
+    expect(stats).toHaveTextContent("平均进度");
+    expect(stats).not.toHaveTextContent("样例");
+    expect(stats).not.toHaveTextContent("转化指标（ROI）");
   });
 
   it("shows a disabled empty state to an unbound real identity", () => {
