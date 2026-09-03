@@ -140,6 +140,7 @@ export function isStandaloneAuthorizedPath(pathname: string) {
   return pathname === "/api/health/ready"
     || pathname === "/workstation-server-adapter.js"
     || pathname === "/api/workstation/bootstrap"
+    || pathname === "/api/workstation/data-imports"
     || pathname === "/api/workstation/directory-sync"
     || pathname === "/api/workstation/enterprise-initialization"
     || pathname === "/api/workstation/settings"

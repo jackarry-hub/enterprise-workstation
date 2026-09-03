@@ -20,6 +20,7 @@ describe("standalone workstation middleware boundary", () => {
     expect(isStandaloneAuthorizedPath("/api/internal/knowledge-processing")).toBe(true);
     expect(isStandaloneAuthorizedPath("/workstation-server-adapter.js")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/bootstrap")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/data-imports")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/directory-sync")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/enterprise-initialization")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/settings")).toBe(true);
