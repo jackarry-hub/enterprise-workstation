@@ -27,11 +27,13 @@ import { ProjectTasksTab } from "@/features/projects/components/project-tasks-ta
 import { useWorkspaceSession } from "@/features/auth/workspace-session-provider";
 import {
   downloadProjectFileBlob,
-  downloadVerifiedProjectFile,
   storeProjectFileBlob,
+} from "@/features/operations/file-storage";
+import {
+  downloadVerifiedProjectFile,
   uploadVerifiedProjectFile,
   type VerifiedFileUploadPhase,
-} from "@/features/operations/file-storage";
+} from "@/features/files/verified-project-file-client";
 import { syncProjectTasksToOperations } from "@/features/operations/operations-data";
 import { useOperations } from "@/features/operations/use-operations";
 import { findLocalProject, PROJECTS_CHANGED_EVENT, saveLocalProject } from "@/features/projects/data/mock-project-repository";

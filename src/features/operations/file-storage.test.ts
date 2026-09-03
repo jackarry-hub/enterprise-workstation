@@ -3,12 +3,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceSession } from "@/features/auth/workspace-session-types";
 import {
   deleteProjectFileBlob,
-  downloadVerifiedProjectFile,
   readProjectFileBlob,
   storeProjectFileBlob,
   storeOperationFile,
-  uploadVerifiedProjectFile,
 } from "@/features/operations/file-storage";
+import {
+  downloadVerifiedProjectFile,
+  uploadVerifiedProjectFile,
+} from "@/features/files/verified-project-file-client";
 import { createOperationFixtureContext } from "@/features/operations/operation-actor-compat";
 import { executiveWorkspaceSession } from "@/test/workspace-session-test-utils";
 

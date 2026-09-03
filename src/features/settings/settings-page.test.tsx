@@ -58,4 +58,51 @@ describe("SettingsPage", () => {
     expect(JSON.parse(String(request.body))).toEqual({ model: "deepseek-chat", apiKey: "sk-test-key-123456" });
     expect(window.localStorage.length).toBe(0);
   });
+
+  it("exposes real import entry points and sends an explicit full Feishu sync command", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("enterprise-initialization")) {
+        return Response.json({ status: "ready", canInitialize: true, departmentCount: 5, positionCount: 12, skillCount: 20 });
+      }
+      if (url === "/api/workstation/data-imports") {
+        return Response.json({
+          source: "supabase",
+          organizationName: "量子星河",
+          capabilities: {
+            directorySync: true,
+            customerImport: true,
+            customerExport: false,
+            customerExportPii: false,
+            projectFileUpload: true,
+            knowledgeManage: true,
+          },
+          projects: [{
+            id: "11111111-1111-4111-8111-111111111111",
+            code: "QXY-001",
+            name: "企业工作站",
+          }],
+          projectDataStatus: "ready",
+        });
+      }
+      if (url === "/api/workstation/directory-sync" && init?.method === "POST") {
+        return Response.json({ status: "completed", runId: "22222222-2222-4222-8222-222222222222", cursor: null, retryAfter: null });
+      }
+      return Response.json(settingsPayload);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithSpecificWorkspaceSession(<SettingsPage />, {
+      ...executiveWorkspaceSession,
+      permissionCodes: ["settings.manage", "organization.manage", "customer.import", "project.files", "knowledge.manage"],
+    });
+
+    await screen.findByLabelText("企业名称");
+    await userEvent.click(screen.getByRole("tab", { name: "数据与资料" }));
+    expect(await screen.findByText("量子星河 · 真实数据入口")).toBeVisible();
+    expect(screen.getByLabelText("资料归属项目")).toHaveValue("11111111-1111-4111-8111-111111111111");
+    await userEvent.click(screen.getByRole("button", { name: "同步通讯录" }));
+    expect(await screen.findByText("飞书通讯录同步完成，员工与部门已写入企业数据库。")).toBeVisible();
+    const request = fetchMock.mock.calls.find(([url, init]) => String(url) === "/api/workstation/directory-sync" && init?.method === "POST")?.[1] as RequestInit;
+    expect(JSON.parse(String(request.body))).toEqual({ mode: "full" });
+  });
 });

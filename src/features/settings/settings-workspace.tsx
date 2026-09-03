@@ -6,6 +6,7 @@ import {
   Bot,
   Building2,
   CheckCircle2,
+  Database,
   LockKeyhole,
   RotateCcw,
   Save,
@@ -26,6 +27,7 @@ import { NotificationSettings } from "@/features/settings/components/notificatio
 import { PermissionMatrix } from "@/features/settings/components/permission-matrix";
 import { PersonalSettings } from "@/features/settings/components/personal-settings";
 import { SchedulerSettings } from "@/features/settings/components/scheduler-settings";
+import { DataImportCenter } from "@/features/settings/components/data-import-center";
 import { parseSettingsState } from "@/features/settings/settings-data";
 import {
   emptySettingsState,
@@ -33,15 +35,20 @@ import {
   type SettingsState,
 } from "@/features/settings/settings-types";
 
-type SettingsTab = SettingsNamespace | "ai" | "permissions";
+type SettingsTab = SettingsNamespace | "ai" | "permissions" | "data";
 const tabItems = [
   { value: "organization", label: "企业信息", icon: Building2 },
+  { value: "data", label: "数据与资料", icon: Database },
   { value: "ai", label: "AI 模型", icon: Bot },
   { value: "personal", label: "个人设置", icon: UserRound },
   { value: "notifications", label: "通知设置", icon: Bell },
   { value: "scheduler", label: "调度参数", icon: WandSparkles },
   { value: "permissions", label: "当前权限", icon: LockKeyhole },
 ] as const;
+
+function isSettingsNamespace(value: SettingsTab): value is SettingsNamespace {
+  return ["organization", "personal", "notifications", "scheduler"].includes(value);
+}
 
 export function SettingsWorkspace() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("organization");
@@ -78,7 +85,7 @@ export function SettingsWorkspace() {
 
   async function save() {
     if (
-      activeTab === "permissions" || activeTab === "ai" ||
+      !isSettingsNamespace(activeTab) ||
       pending ||
       ((activeTab === "organization" || activeTab === "scheduler") &&
         !settings.canManage)
@@ -116,9 +123,11 @@ export function SettingsWorkspace() {
     }
   }
   const canEditActive =
-    activeTab === "personal" ||
-    activeTab === "notifications" ||
-    settings.canManage;
+    isSettingsNamespace(activeTab) && (
+      activeTab === "personal" ||
+      activeTab === "notifications" ||
+      settings.canManage
+    );
   return (
     <main className="mx-auto flex w-full max-w-420 flex-col gap-4 px-3 pt-5 pb-28 sm:px-4 lg:px-5 lg:pt-7 lg:pb-8">
       <section className="rounded-3xl border bg-background px-5 py-6 shadow-sm">
@@ -164,7 +173,7 @@ export function SettingsWorkspace() {
             ))}
           </TabsList>
           <div className="min-w-0 rounded-3xl border bg-background/50 p-4 sm:p-5 xl:min-h-130">
-            {activeTab !== "permissions" && activeTab !== "ai" ? (
+            {isSettingsNamespace(activeTab) ? (
               <div className="mb-5 flex flex-col-reverse gap-3 border-b pb-4 sm:flex-row sm:items-center sm:justify-end">
                 <div className="mr-auto min-h-5 text-xs">
                   {saved ? (
@@ -215,6 +224,7 @@ export function SettingsWorkspace() {
                     />
                   </>
                 ) : null}
+                {activeTab === "data" ? <DataImportCenter /> : null}
                 {activeTab === "ai" ? <AiProviderSettings /> : null}
                 {activeTab === "personal" ? (
                   <PersonalSettings

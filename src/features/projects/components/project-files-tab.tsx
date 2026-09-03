@@ -6,7 +6,7 @@ import { CheckCircle2, Download, File, FileArchive, FileImage, FileSpreadsheet, 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
-import { ProjectFileTransportError, type VerifiedFileUploadPhase } from "@/features/operations/file-storage";
+import { ProjectFileTransportError, type VerifiedFileUploadPhase } from "@/features/files/verified-project-file-client";
 import type { ProjectDetailData, ProjectFile } from "@/features/projects/types";
 
 function formatSize(size: number) {
