@@ -73,6 +73,11 @@ function validateFormalFile(file: File) {
   return mimeType;
 }
 
+function fileWithCanonicalMimeType(file: File, mimeType: string) {
+  if (file.type.toLowerCase() === mimeType) return file;
+  return new File([file], file.name, { type: mimeType, lastModified: file.lastModified });
+}
+
 async function defaultDigestFile(file: File) {
   const buffer = await file.arrayBuffer();
   const digest = await crypto.subtle.digest("SHA-256", buffer);
@@ -191,6 +196,7 @@ export async function uploadVerifiedProjectFile({
   onProgress?: (phase: VerifiedFileUploadPhase) => void;
 }): Promise<ProjectFile> {
   const mimeType = validateFormalFile(file);
+  const uploadFile = fileWithCanonicalMimeType(file, mimeType);
   onProgress?.("hashing");
   const sha256 = await digestFile(file);
   onProgress?.("reserving");
@@ -242,13 +248,13 @@ export async function uploadVerifiedProjectFile({
 
   try {
     if (uploadSignedObject) {
-      await uploadSignedObject({ bucket: STORAGE_BUCKET, objectPath, uploadToken, file });
+      await uploadSignedObject({ bucket: STORAGE_BUCKET, objectPath, uploadToken, file: uploadFile });
     } else {
       const client = getSupabaseBrowserClient();
       const { error } = await client.storage.from(STORAGE_BUCKET).uploadToSignedUrl(
         objectPath,
         uploadToken,
-        file,
+        uploadFile,
         { contentType: mimeType, upsert: false, cacheControl: "3600" },
       );
       if (error) throw error;

@@ -70,24 +70,50 @@ describe("file blob identity isolation", () => {
 describe("formal project file transport", () => {
   it("normalizes the browser Markdown MIME alias to the admitted text MIME type", async () => {
     const file = new File(["# Runbook"], "runbook.md", { type: "text/markdown" });
-    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "not_found" }), {
-      status: 404,
-      headers: { "content-type": "application/json" },
-    }));
+    const digest = "a".repeat(64);
+    const objectPath = `tenants/49000000-0000-4000-8000-000000000001/organizations/47000000-0000-4000-8000-000000000001/projects/${formalProjectId}/uploads/${formalUploadId}/${formalUploadId}.md`;
+    const uploadSignedObject = vi.fn().mockResolvedValue(undefined);
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(Response.json({
+        state: "pending",
+        uploadId: formalUploadId,
+        uploadUrl: "https://storage.test/signed",
+        uploadToken: "token",
+        objectPath,
+        expiresAt: "2099-08-27T02:10:00.000Z",
+      }, { status: 201 }))
+      .mockResolvedValueOnce(Response.json({ file: {
+        id: "42000000-0000-4000-8000-000000000001",
+        organizationId: "47000000-0000-4000-8000-000000000001",
+        projectId: formalProjectId,
+        taskId: null,
+        bucket: "workbench-files",
+        objectPath,
+        originalName: "runbook.md",
+        mimeType: "text/plain",
+        sizeBytes: file.size,
+        sha256: digest,
+        accessScope: "restricted",
+        uploadedById: "48000000-0000-4000-8000-000000000001",
+        verifiedAt: "2026-08-27T02:00:00.000Z",
+        createdAt: "2026-08-27T02:00:00.000Z",
+      } }, { status: 201 }));
 
-    await expect(uploadVerifiedProjectFile({
+    await uploadVerifiedProjectFile({
       projectId: formalProjectId,
       file,
       idempotencyKey: "43000000-0000-4000-8000-000000000001",
       fetcher,
-      digestFile: async () => "a".repeat(64),
-    })).rejects.toMatchObject({ code: "not_found" });
+      digestFile: async () => digest,
+      uploadSignedObject,
+    });
 
     const request = fetcher.mock.calls[0]?.[1] as RequestInit;
     expect(JSON.parse(String(request.body))).toMatchObject({
       fileName: "runbook.md",
       mimeType: "text/plain",
     });
+    expect((uploadSignedObject.mock.calls[0]?.[0] as { file: File }).file.type).toBe("text/plain");
   });
 
   it("uses reservation, signed upload, and verified completion without local fallback", async () => {
