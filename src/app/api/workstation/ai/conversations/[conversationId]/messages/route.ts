@@ -2,6 +2,11 @@ import { handleAiChat } from "@/features/ai-config/ai-chat-handler";
 import { getAiConfigEnv } from "@/features/ai-config/ai-config-env";
 import { createAiConfigStore } from "@/features/ai-config/ai-config-store";
 import { handleConversationMessages } from "@/features/ai-assistant/conversation-handler";
+import {
+  buildAssistantProviderMessages,
+  createSupabaseAssistantWorkspaceContextSource,
+  loadAssistantWorkspaceContext,
+} from "@/features/ai-assistant/assistant-system-context";
 import { createAiRuntimeStore } from "@/features/ai-runtime/rate-limit-store";
 import { getWorkspaceSession } from "@/features/auth/workspace-session";
 import { getSupabaseServerClient, getSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -14,6 +19,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ con
   const client = await getSupabaseServerClient();
   const service = getSupabaseServiceRoleClient();
   const session = await getWorkspaceSession();
+  const workspaceContext = session
+    ? await loadAssistantWorkspaceContext(
+      createSupabaseAssistantWorkspaceContextSource(client),
+      session,
+    )
+    : "{\"status\":\"unavailable\"}";
   return handleConversationMessages(request, (await params).conversationId, {
     loadSession: async () => session,
     rpc: async (name, args) => await client.rpc(name, args) as { data: unknown; error: { code?: string } | null },
@@ -24,7 +35,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ con
       const response = await handleAiChat(new Request("https://workstation.internal/api/ai/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
-        body: JSON.stringify({ messages }),
+        body: JSON.stringify({
+          messages: buildAssistantProviderMessages(messages, workspaceContext),
+        }),
       }), { session, encryptionKey, store: createAiConfigStore(service), runtime: createAiRuntimeStore(service, session) });
       const payload: unknown = await response.json();
       const data = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
