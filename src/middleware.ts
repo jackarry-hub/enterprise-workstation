@@ -141,12 +141,24 @@ export function isStandaloneAuthorizedPath(pathname: string) {
     || pathname === "/workstation-server-adapter.js"
     || pathname === "/api/workstation/bootstrap"
     || pathname === "/api/workstation/directory-sync"
+    || pathname === "/api/workstation/enterprise-initialization"
+    || pathname === "/api/workstation/settings"
+    || pathname === "/api/workstation/analytics"
+    || pathname === "/api/workstation/organization"
+    || pathname.startsWith("/api/workstation/organization/")
+    || pathname === "/api/workstation/customers"
+    || pathname.startsWith("/api/workstation/customers/")
+    || pathname.startsWith("/api/workstation/opportunities/")
+    || pathname.startsWith("/api/workstation/skills/")
+    || pathname === "/api/workstation/feishu/webhook"
+    || pathname.startsWith("/api/workstation/feishu/sync-issues/")
     || pathname === "/api/workstation/approvals"
     || pathname.startsWith("/api/workstation/approvals/")
     || pathname === "/api/workstation/expenses"
     || pathname.startsWith("/api/workstation/expenses/")
     || pathname === "/api/workstation/projects"
     || pathname.startsWith("/api/workstation/projects/")
+    || pathname === "/api/workstation/notifications"
     || pathname.startsWith("/api/workstation/notifications/")
     || pathname.startsWith("/api/workstation/files/")
     || pathname.startsWith("/api/workstation/knowledge/")

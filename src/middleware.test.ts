@@ -21,6 +21,17 @@ describe("standalone workstation middleware boundary", () => {
     expect(isStandaloneAuthorizedPath("/workstation-server-adapter.js")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/bootstrap")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/directory-sync")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/enterprise-initialization")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/settings")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/analytics")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/organization")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/organization/roles")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/customers")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/customers/customer-1/contacts")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/opportunities/opportunity-1/convert")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/skills/skill-1/verify")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/feishu/webhook")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/feishu/sync-issues/issue-1/resolve")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/approvals")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/approvals/approval-1/actions")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/expenses")).toBe(true);
@@ -28,6 +39,7 @@ describe("standalone workstation middleware boundary", () => {
     expect(isStandaloneAuthorizedPath("/api/workstation/expenses/expense-1/payment")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/projects")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/projects/project-1")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/notifications")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/notifications/notification-1/read")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/notifications/notification-1/retry")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/files/upload-url")).toBe(true);
