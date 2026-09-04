@@ -54,6 +54,10 @@ describe("standalone workstation middleware boundary", () => {
     expect(isStandaloneAuthorizedPath("/api/workstation/agent-orchestrations/orchestration-1/runs")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/agent-workflows")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/agent-workflows/family-portrait/runs")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/decisions")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/decisions/command-1/plans")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/decisions/command-1/confirm")).toBe(true);
+    expect(isStandaloneAuthorizedPath("/api/workstation/decisions/command-1/complete")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/scheduling/goals")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/scheduling/goals/goal-1/plans")).toBe(true);
     expect(isStandaloneAuthorizedPath("/api/workstation/scheduling/plans/plan-1/overrides")).toBe(true);
