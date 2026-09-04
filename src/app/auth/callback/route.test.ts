@@ -5,6 +5,8 @@ import {
   type AuthCallbackDependencies,
   type IdentityClaimResult,
 } from "@/app/auth/callback/route";
+import { attachSupabaseAuthCookies } from "@/features/auth/callback-cookies";
+import { NextResponse } from "next/server";
 
 const callbackOrigin = "https://brain.quantxy.com";
 const { handleAuthCallback } = GET;
@@ -35,6 +37,23 @@ function dependencies(
 }
 
 describe("handleAuthCallback", () => {
+  it("copies Supabase session cookies and no-cache headers onto the callback response", () => {
+    const response = NextResponse.redirect(`${callbackOrigin}/execution`);
+    attachSupabaseAuthCookies(response, [{
+      name: "sb-project-auth-token",
+      value: "session-cookie",
+      options: { httpOnly: true, secure: true, sameSite: "lax", path: "/" },
+    }], {
+      "Cache-Control": "private, no-cache, no-store, must-revalidate, max-age=0",
+      Expires: "0",
+      Pragma: "no-cache",
+    });
+
+    expect(response.headers.get("set-cookie")).toContain("sb-project-auth-token=session-cookie");
+    expect(response.headers.get("cache-control")).toContain("private");
+    expect(response.headers.get("pragma")).toBe("no-cache");
+  });
+
   it("rejects a missing, mismatched or replayed application attempt before code exchange", async () => {
     const exchangeCode = vi.fn(async () => "auth-user-id");
     const response = await handleAuthCallback(

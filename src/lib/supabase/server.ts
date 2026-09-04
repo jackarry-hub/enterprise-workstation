@@ -1,10 +1,23 @@
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
 import { getSupabaseEnv } from "@/lib/supabase/env";
 
-export async function getSupabaseServerClient() {
+export type SupabaseServerCookieMutation = {
+  name: string;
+  value: string;
+  options: CookieOptions;
+};
+
+export type SupabaseServerCookieObserver = (
+  cookies: SupabaseServerCookieMutation[],
+  headers: Record<string, string>,
+) => void;
+
+export async function getSupabaseServerClient(options?: {
+  onSetAll?: SupabaseServerCookieObserver;
+}) {
   const { url, publishableKey } = getSupabaseEnv();
   const cookieStore = await cookies();
 
@@ -13,7 +26,7 @@ export async function getSupabaseServerClient() {
       getAll() {
         return cookieStore.getAll();
       },
-      setAll(cookiesToSet) {
+      setAll(cookiesToSet, headers) {
         try {
           cookiesToSet.forEach(({ name, value, options }) => {
             cookieStore.set(name, value, options);
@@ -21,6 +34,7 @@ export async function getSupabaseServerClient() {
         } catch {
           // Middleware owns refresh writes; Server Components can only read cookies.
         }
+        options?.onSetAll?.(cookiesToSet, headers);
       },
     },
   });

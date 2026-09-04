@@ -5,7 +5,13 @@ import {
   parseWorkspaceAccess,
 } from "@/features/auth/workspace-access";
 import { getAuthRedirectOrigin } from "@/features/auth/auth-env";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { attachSupabaseAuthCookies } from "@/features/auth/callback-cookies";
+import { NextResponse } from "next/server";
+
+import {
+  getSupabaseServerClient,
+  type SupabaseServerCookieMutation,
+} from "@/lib/supabase/server";
 import {
   consumeFeishuOAuthAttemptResult,
   FEISHU_OAUTH_NONCE_COOKIE,
@@ -68,14 +74,19 @@ function callbackRedirect(
   url: URL,
   pathname: string,
 ) {
-  return new Response(null, {
-    status: 302,
-    headers: {
-      location: new URL(pathname, getAuthRedirectOrigin(url)).href,
-      "cache-control": "no-store",
-      "set-cookie": `${FEISHU_OAUTH_NONCE_COOKIE}=; Path=/auth/callback; Max-Age=0; HttpOnly; Secure; SameSite=Lax`,
-    },
+  const response = NextResponse.redirect(
+    new URL(pathname, getAuthRedirectOrigin(url)),
+    302,
+  );
+  response.headers.set("cache-control", "no-store");
+  response.cookies.set(FEISHU_OAUTH_NONCE_COOKIE, "", {
+    path: "/auth/callback",
+    maxAge: 0,
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
   });
+  return response;
 }
 
 async function rejectCallback(
@@ -151,8 +162,15 @@ async function handleAuthCallback(
 
 async function handleGet(request: Request) {
   let supabase: Awaited<ReturnType<typeof getSupabaseServerClient>>;
+  const authCookies: SupabaseServerCookieMutation[] = [];
+  const authHeaders: Record<string, string> = {};
   try {
-    supabase = await getSupabaseServerClient();
+    supabase = await getSupabaseServerClient({
+      onSetAll(cookiesToSet, headers) {
+        authCookies.push(...cookiesToSet);
+        Object.assign(authHeaders, headers);
+      },
+    });
   } catch {
     const url = new URL(request.url);
     return callbackRedirect(
@@ -161,7 +179,7 @@ async function handleGet(request: Request) {
     );
   }
 
-  return handleAuthCallback(request, {
+  const response = await handleAuthCallback(request, {
     consumeAttempt: consumeFeishuOAuthAttemptResult,
     exchangeCode: async (code) => {
       const { data, error } = await supabase.auth.exchangeCodeForSession(code);
@@ -188,6 +206,7 @@ async function handleGet(request: Request) {
       await supabase.auth.signOut({ scope: "local" });
     },
   });
+  return attachSupabaseAuthCookies(response, authCookies, authHeaders);
 }
 
 export const GET = Object.assign(handleGet, { handleAuthCallback });
