@@ -3,7 +3,7 @@ import type { CommercialModule } from "@/features/commercial/module-capabilities
 
 export const QUICK_CREATE_EVENT = "quantxy:quick-create";
 export type ContextualCreateAction = {
-  readonly id: "project.create" | "activity.create" | "customer.create" | "expense.create" | "agent.create" | "agent.orchestration.create" | "agent.permission.request" | "assistant.conversation.create";
+  readonly id: "project.create" | "activity.create" | "customer.create" | "expense.create" | "agent.create" | "agent.orchestration.create" | "agent.permission.request" | "assistant.conversation.create" | "decision.create";
   readonly label: string;
   readonly icon: "folder" | "calendar" | "customer" | "receipt" | "bot" | "workflow" | "shield" | "message";
   readonly requiredPermission: WorkspacePermissionCode | null;
@@ -21,6 +21,7 @@ const actions: readonly (ContextualCreateAction & { pathname: string })[] = [
   { pathname: "/agents", id: "agent.orchestration.create", label: "新建 Agent 编排", icon: "workflow", requiredPermission: "agent.orchestrate", module: "agents", target: "orchestration-editor" },
   { pathname: "/agents", id: "agent.permission.request", label: "申请 Agent 权限", icon: "shield", requiredPermission: "approval.submit", module: "agents", target: "permission-request" },
   { pathname: "/assistant", id: "assistant.conversation.create", label: "新建 AI 会话", icon: "message", requiredPermission: null, module: "assistant", target: "conversation-create" },
+  { pathname: "/scheduler", id: "decision.create", label: "下发新指令", icon: "workflow", requiredPermission: "agent.orchestrate", module: "scheduler", target: "decision-create" },
 ];
 
 export function getContextualCreateActions({ pathname, session, capabilities }: { pathname: string; session: WorkspaceSession; capabilities: Readonly<Record<CommercialModule, boolean>> }) {

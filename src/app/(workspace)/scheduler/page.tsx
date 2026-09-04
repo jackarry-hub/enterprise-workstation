@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
-import { SchedulerWorkspace } from "@/features/ai-scheduler/scheduler-workspace";
+import { DecisionWorkspace } from "@/features/decisions/decision-workspace";
 
-export const metadata: Metadata = { title: "智能排期 | 企业工作站" };
+export const metadata: Metadata = { title: "决策执行中枢 | 企业工作站" };
 
-export default function SchedulerPage() { return <SchedulerWorkspace />; }
+export default function SchedulerPage() { return <DecisionWorkspace />; }

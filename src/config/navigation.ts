@@ -33,7 +33,7 @@ export type NavigationItem = {
 export const navigationItems: readonly NavigationItem[] = [
   { label: "经营驾驶舱", href: "/dashboard", icon: Gauge, module: "dashboard", available: true },
   { label: "AI 助手", href: "/assistant", icon: Bot, module: "assistant", available: true },
-  { label: "智能排期", href: "/scheduler", icon: WandSparkles, module: "scheduler", available: true },
+  { label: "决策执行中枢", href: "/scheduler", icon: WandSparkles, module: "scheduler", available: true },
   { label: "Agent 中心", href: "/agents", icon: Boxes, module: "agents", available: true },
   { label: "我的执行台", href: "/execution", icon: Grid3X3, module: "execution", available: true },
   { label: "项目管理", href: "/projects", icon: FolderKanban, module: "projects", available: true },
